@@ -9,6 +9,7 @@ import WeeklyChart from '../../../components/stock/WeeklyChart';
 import InvestorFlow from '../../../components/stock/InvestorFlow';
 import SectorPeers from '../../../components/stock/SectorPeers';
 import FinanceSummary from '../../../components/stock/FinanceSummary';
+import AdFit from '../../../components/AdFit';
 import { fetchStockPrice } from '../../../lib/kis-api';
 
 interface PageProps {
@@ -46,6 +47,10 @@ export default async function StockDetailPage({ params }: PageProps) {
           <SectorPeers ticker={ticker} />
           <RelatedNews ticker={ticker} />
           <FinanceSummary ticker={ticker} />
+          <div>
+            <p className="text-[10px] text-slate-600 mb-1 text-right">광고</p>
+            <AdFit unit="DAN-srccfxvxgEOdHPPB" width={300} height={250} />
+          </div>
           <a href="https://devkitpack.com/tools/stock-avg" target="_blank" rel="noopener noreferrer"
             className="block rounded-xl border border-slate-700 bg-[#0f1629] p-4 hover:border-blue-500/50 transition-colors">
             <div className="flex items-center justify-between">

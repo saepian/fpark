@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import AdFit from '../../../components/AdFit';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -261,6 +262,12 @@ export default function DomesticMarketPage() {
             정렬 초기화 ✕
           </button>
         )}
+      </div>
+
+      {/* 센터 광고 728x90 */}
+      <div className="mb-4 overflow-hidden">
+        <p className="text-[10px] text-slate-600 mb-1 text-right">광고</p>
+        <AdFit unit="DAN-A2KVkjy7X7K4jqAA" width={728} height={90} />
       </div>
 
       {/* 테이블 */}
