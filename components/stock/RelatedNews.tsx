@@ -30,37 +30,39 @@ export default function RelatedNews({ ticker }: RelatedNewsProps) {
   }, [ticker]);
 
   return (
-    <div id="related-news-grid" className="space-y-4">
-      <h3 className="font-sans text-xl font-bold border-b border-gray-200 dark:border-[#2d313e]/70 pb-2 text-gray-900 dark:text-gray-100">
-        관련 뉴스
-      </h3>
+    <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
+      <div className="px-4 pt-4 pb-2.5 border-b border-slate-800">
+        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">관련 뉴스</h3>
+      </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="divide-y divide-slate-800/50">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-24 rounded bg-gray-200 dark:bg-[#1a1d27] animate-pulse" />
+            <div key={i} className="px-4 py-3 animate-pulse space-y-1.5">
+              <div className="h-3 bg-slate-700 rounded w-full" />
+              <div className="h-2.5 bg-slate-700/50 rounded w-24" />
+            </div>
           ))}
         </div>
       ) : news.length === 0 ? (
-        <p className="text-gray-400 dark:text-[#8c909f] text-sm py-4">
-          관련 뉴스가 없습니다.
-        </p>
+        <p className="px-4 py-4 text-[12px] text-slate-600">관련 뉴스가 없습니다.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {news.map((item) => (
-            <div
-              id={`related-news-card-${item.id}`}
+        <div className="divide-y divide-slate-800/50">
+          {news.slice(0, 5).map((item) => (
+            <a
               key={item.id}
-              onClick={() => window.open(item.original_url, '_blank', 'noopener,noreferrer')}
-              className="flex flex-col gap-2 p-3 bg-white dark:bg-[#122131] border border-gray-200 dark:border-[#2d313e]/60 rounded hover:bg-gray-50 dark:hover:bg-[#1c2b3c] cursor-pointer transition-colors"
+              href={item.original_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block px-4 py-3 hover:bg-white/[0.03] transition-colors group"
             >
-              <h4 className="text-sm font-bold text-gray-900 dark:text-[#d4e4fa] line-clamp-2 leading-tight hover:text-blue-500 transition-colors">
+              <p className="text-[13px] font-semibold text-slate-200 truncate leading-tight group-hover:text-indigo-300 transition-colors">
                 {item.title}
-              </h4>
-              <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase tracking-wide">
-                {item.source} • {timeAgo(item.published_at)}
               </p>
-            </div>
+              <p className="text-[10px] text-slate-600 mt-1">
+                {item.source} · {timeAgo(item.published_at)}
+              </p>
+            </a>
           ))}
         </div>
       )}
