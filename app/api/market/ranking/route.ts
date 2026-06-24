@@ -38,14 +38,14 @@ export async function GET(request: Request) {
   }
 
   try {
-    // ── 거래대금순 / 거래량순 ────────────────────────────────────
-    if (tab === '거래대금순' || tab === '거래량순') {
+    // ── 거래대금순 (FID_BLNG_CLS_CODE=0) ─────────────────────────
+    if (tab === '거래대금순') {
       const params = new URLSearchParams({
         FID_COND_MRKT_DIV_CODE: 'J',
         FID_COND_SCR_DIV_CODE: '20171',
         FID_INPUT_ISCD: '0001',
         FID_DIV_CLS_CODE: '0',
-        FID_BLNG_CLS_CODE: '0',
+        FID_BLNG_CLS_CODE: '0',   // 0 = 거래대금순
         FID_TRGT_CLS_CODE: '111111111',
         FID_TRGT_EXLS_CLS_CODE: '000000',
         FID_INPUT_PRICE_1: '0',
@@ -59,7 +59,31 @@ export async function GET(request: Request) {
       );
       if (!res.ok) throw new Error(`FHPST01710000 HTTP ${res.status}`);
       const data = await res.json();
-      return Response.json((data.output ?? []).slice(0, 30).map(mapRow));
+      return Response.json((data.output ?? []).slice(0, 50).map(mapRow));
+    }
+
+    // ── 거래량순 (FID_BLNG_CLS_CODE=1) ──────────────────────────
+    if (tab === '거래량순') {
+      const params = new URLSearchParams({
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_COND_SCR_DIV_CODE: '20171',
+        FID_INPUT_ISCD: '0001',
+        FID_DIV_CLS_CODE: '0',
+        FID_BLNG_CLS_CODE: '1',   // 1 = 거래량순
+        FID_TRGT_CLS_CODE: '111111111',
+        FID_TRGT_EXLS_CLS_CODE: '000000',
+        FID_INPUT_PRICE_1: '0',
+        FID_INPUT_PRICE_2: '9999999',
+        FID_VOL_CNT: '0',
+        FID_INPUT_DATE_1: '',
+      });
+      const res = await fetch(
+        `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
+        { headers: kisHeaders(token, 'FHPST01710000'), cache: 'no-store' },
+      );
+      if (!res.ok) throw new Error(`FHPST01710000 HTTP ${res.status}`);
+      const data = await res.json();
+      return Response.json((data.output ?? []).slice(0, 50).map(mapRow));
     }
 
     // ── 급등 / 급락 ──────────────────────────────────────────────
@@ -89,7 +113,7 @@ export async function GET(request: Request) {
       if (!res.ok) throw new Error(`FHPST01700000 HTTP ${res.status}`);
       const data = await res.json();
       if (data.rt_cd !== '0') throw new Error(`FHPST01700000 ${data.msg1}`);
-      return Response.json((data.output ?? []).slice(0, 30).map(mapRow));
+      return Response.json((data.output ?? []).slice(0, 50).map(mapRow));
     }
 
     return Response.json([]);
