@@ -1,36 +1,38 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Sparkles, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Sparkles, AlertCircle, TrendingUp, TrendingDown } from 'lucide-react';
+import type { AnalysisResult } from '@/app/api/stock/[ticker]/analysis/route';
 
-interface AnalysisData {
-  summary: string;
-  details: string;
-  keywords: string[];
-  sentiment: 'bullish' | 'bearish' | 'neutral';
-  disclaimer: string;
-  isCached: boolean;
-  createdAt: string;
-}
-
-interface AiAnalysisProps {
-  ticker: string;
-}
-
-const SENTIMENT_COLOR = {
-  bullish: 'text-red-400',
-  bearish: 'text-blue-400',
-  neutral: 'text-slate-400',
+const OPINION_STYLE = {
+  매수: {
+    badge: 'bg-red-500/15 text-red-400 border border-red-500/30',
+    bar: 'bg-red-500/70',
+    text: 'text-red-400',
+  },
+  관망: {
+    badge: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
+    bar: 'bg-amber-500/70',
+    text: 'text-amber-400',
+  },
+  매도: {
+    badge: 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
+    bar: 'bg-blue-500/70',
+    text: 'text-blue-400',
+  },
 } as const;
 
-const SENTIMENT_LABEL = {
-  bullish: '매수 우세',
-  bearish: '매도 우세',
-  neutral: '중립',
-} as const;
+function fmtPrice(v: number) {
+  return v.toLocaleString('ko-KR');
+}
 
-export default function AiAnalysis({ ticker }: AiAnalysisProps) {
-  const [data, setData]       = useState<AnalysisData | null>(null);
+function priceDiff(current: number, target: number) {
+  const pct = ((target - current) / current) * 100;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+}
+
+export default function AiAnalysis({ ticker }: { ticker: string }) {
+  const [data, setData]       = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
@@ -45,129 +47,163 @@ export default function AiAnalysis({ ticker }: AiAnalysisProps) {
         try {
           const res = await fetch(`/api/stock/${ticker}/analysis`);
           if (!res.ok) throw new Error(`${res.status}`);
-          const json = await res.json() as AnalysisData;
+          const json = await res.json() as AnalysisResult;
           if (!cancelled) setData(json);
           return;
         } catch {
-          if (attempt === 0 && !cancelled) {
-            await new Promise((r) => setTimeout(r, 2000));
-          }
+          if (attempt === 0 && !cancelled) await new Promise((r) => setTimeout(r, 2000));
         }
       }
       if (!cancelled) setError('AI 분석을 불러올 수 없습니다.');
     };
 
     load().finally(() => { if (!cancelled) setLoading(false); });
-
     return () => { cancelled = true; };
   }, [ticker]);
 
+  // ── 로딩
   if (loading) {
     return (
-      <div
-        id="ai-stock-analysis"
-        className="bg-[#122131] dark:bg-[#122131] border border-blue-900/40 p-6 rounded-lg animate-pulse"
-      >
-        <div className="flex justify-between items-start mb-4">
+      <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl animate-pulse space-y-4">
+        <div className="flex justify-between items-start">
           <div className="space-y-2">
-            <div className="h-5 w-48 bg-[#273647] rounded" />
-            <div className="h-3 w-32 bg-[#1c2b3c] rounded" />
+            <div className="h-5 w-44 bg-[#273647] rounded" />
+            <div className="h-3 w-28 bg-[#1c2b3c] rounded" />
           </div>
-          <div className="h-6 w-24 bg-[#1c2b3c] rounded-full" />
+          <div className="h-7 w-16 bg-[#1c2b3c] rounded-full" />
         </div>
-        <div className="space-y-3">
-          <div className="h-4 w-full bg-[#273647] rounded" />
-          <div className="h-4 w-5/6 bg-[#273647] rounded" />
-          <div className="h-4 w-3/4 bg-[#1c2b3c] rounded" />
-          <div className="h-4 w-full bg-[#273647] rounded mt-3" />
-          <div className="h-4 w-4/5 bg-[#1c2b3c] rounded" />
+        <div className="h-4 w-3/4 bg-[#273647] rounded" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="h-16 bg-[#1c2b3c] rounded-lg" />
+          <div className="h-16 bg-[#1c2b3c] rounded-lg" />
         </div>
-        <div className="flex gap-2 mt-4">
-          <div className="h-7 w-20 bg-[#1c2b3c] rounded-full" />
-          <div className="h-7 w-20 bg-[#1c2b3c] rounded-full" />
-          <div className="h-7 w-20 bg-[#1c2b3c] rounded-full" />
-        </div>
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="h-3.5 w-28 bg-[#273647] rounded" />
+            <div className="h-3 w-full bg-[#1c2b3c] rounded" />
+            <div className="h-3 w-5/6 bg-[#1c2b3c] rounded" />
+          </div>
+        ))}
       </div>
     );
   }
 
+  // ── 에러
   if (error || !data) {
     return (
-      <div
-        id="ai-stock-analysis"
-        className="bg-[#122131] border border-blue-900/40 p-6 rounded-lg"
-      >
+      <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="text-blue-400 w-5 h-5" />
-          <h3 className="font-sans text-lg font-bold text-gray-100">FPARK AI 종목 분석</h3>
+          <h3 className="text-lg font-bold text-gray-100">FPARK AI 종목 분석</h3>
         </div>
         <p className="text-sm text-gray-500">{error ?? 'AI 분석 데이터 없음'}</p>
       </div>
     );
   }
 
-  const sentiment = data.sentiment ?? 'neutral';
+  const opinion = data.opinion ?? '관망';
+  const style   = OPINION_STYLE[opinion] ?? OPINION_STYLE['관망'];
+  const timeLabel = data.isCached
+    ? '오늘 분석 (캐시)'
+    : new Date(data.createdAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) + ' 기준';
 
   return (
-    <div
-      id="ai-stock-analysis"
-      className="bg-[#122131] dark:bg-[#122131] border border-blue-200 dark:border-blue-900/40 p-6 rounded-lg relative overflow-hidden transition-all duration-300 shadow-sm"
-    >
-      <div className="absolute top-0 right-0 p-4 opacity-[0.03] select-none pointer-events-none">
-        <Sparkles className="w-48 h-48 text-blue-500" />
-      </div>
+    <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden">
 
-      <div className="space-y-5 relative z-10">
-        {/* 헤더 */}
-        <div className="flex justify-between items-start">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Sparkles className="text-blue-600 dark:text-blue-400 w-5 h-5" />
-              <h3 className="font-sans text-lg font-bold text-gray-900 dark:text-gray-100">
-                FPARK AI 종목 분석
-              </h3>
-            </div>
-            <p className="text-[11px] font-sans text-gray-400 dark:text-[#8c909f] font-bold">
-              {data.isCached ? '오늘 분석 (캐시)' : new Date(data.createdAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) + ' 기준'}
-            </p>
+      {/* 상단 헤더 */}
+      <div className="px-6 pt-5 pb-4 border-b border-blue-900/30">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="text-blue-400 w-4 h-4 shrink-0" />
+            <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <span className="px-2.5 py-1 border border-blue-400/40 text-blue-600 dark:text-blue-400 text-[10px] font-extrabold rounded uppercase tracking-widest font-sans">
+          <div className="flex items-center gap-2">
+            <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${style.badge}`}>
+              {opinion}
+            </span>
+            <span className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[10px] font-bold rounded uppercase tracking-widest">
               AI INSIGHT
             </span>
-            <span className={`text-xs font-bold ${SENTIMENT_COLOR[sentiment]}`}>
-              {SENTIMENT_LABEL[sentiment]}
-            </span>
           </div>
         </div>
-
-        {/* 핵심 요약 */}
-        <div className="border-l-[3px] border-blue-500/80 pl-4 py-0.5">
-          <p className="text-sm text-gray-900 dark:text-gray-100 font-medium leading-relaxed">
-            {data.summary}
-          </p>
-        </div>
-
-        {/* 상세 분석 */}
-        <p className="font-sans text-xs md:text-sm text-gray-600 dark:text-[#c2c6d6] leading-relaxed pl-4">
-          {data.details}
+        <p className="text-[15px] font-semibold text-white leading-snug">
+          {data.summary}
         </p>
+        <p className="text-[11px] text-slate-500 mt-1.5">{timeLabel}</p>
+      </div>
 
-        {/* 키워드 태그 */}
-        <div className="flex flex-wrap gap-2 pl-4">
-          {data.keywords?.map((kw) => (
-            <span
-              key={kw}
-              className="px-2.5 py-1 bg-blue-100 dark:bg-[#1c2b3c] text-blue-700 dark:text-blue-400 text-xs font-semibold rounded"
-            >
-              #{kw}
-            </span>
-          ))}
-        </div>
+      <div className="px-6 py-4 space-y-5">
 
-        {/* 면책고지 */}
-        <div className="pt-4 border-t border-gray-200 dark:border-[#2d313e]/30 flex items-start gap-2.5 text-[11px] text-gray-400 dark:text-[#8c909f] leading-snug">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+        {/* 목표주가 / 손절가 */}
+        {(data.target_price || data.stop_loss) && (
+          <div className="grid grid-cols-2 gap-3">
+            {data.target_price > 0 && (
+              <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-3">
+                <div className="flex items-center gap-1 mb-1">
+                  <TrendingUp className="w-3 h-3 text-red-400" />
+                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">목표주가</span>
+                </div>
+                <p className="text-[16px] font-bold font-mono text-red-300">
+                  ₩{fmtPrice(data.target_price)}
+                </p>
+                {data.current_price > 0 && (
+                  <p className="text-[11px] text-red-400/60 font-mono mt-0.5">
+                    {priceDiff(data.current_price, data.target_price)}
+                  </p>
+                )}
+              </div>
+            )}
+            {data.stop_loss > 0 && (
+              <div className="bg-blue-500/8 border border-blue-500/20 rounded-lg p-3">
+                <div className="flex items-center gap-1 mb-1">
+                  <TrendingDown className="w-3 h-3 text-blue-400" />
+                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">손절가</span>
+                </div>
+                <p className="text-[16px] font-bold font-mono text-blue-300">
+                  ₩{fmtPrice(data.stop_loss)}
+                </p>
+                {data.current_price > 0 && (
+                  <p className="text-[11px] text-blue-400/60 font-mono mt-0.5">
+                    {priceDiff(data.current_price, data.stop_loss)}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 섹션들 */}
+        {data.sections?.map((sec) => (
+          <div key={sec.title}>
+            <p className="text-[12px] font-bold text-slate-300 mb-2">{sec.title}</p>
+            <ul className="space-y-1.5">
+              {sec.points?.map((pt, i) => (
+                <li key={i} className="flex items-start gap-2 text-[13px] text-slate-400 leading-snug">
+                  <span className="shrink-0 mt-[3px] w-1.5 h-1.5 rounded-full bg-slate-600" />
+                  {pt}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+
+        {/* 태그 */}
+        {data.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {data.tags.map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 bg-blue-950/60 text-blue-400/80 text-[11px] font-semibold rounded"
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* 면책 고지 */}
+        <div className="pt-3 border-t border-blue-900/30 flex items-start gap-2 text-[11px] text-slate-600 leading-snug">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <p>{data.disclaimer}</p>
         </div>
       </div>
