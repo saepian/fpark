@@ -23,11 +23,16 @@ export async function batchSummarize(articles: BatchArticle[]): Promise<string[]
 ${articleList}`;
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const message = await Promise.race([
+      client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Claude timeout')), 5000)
+      ),
+    ]);
 
     const text =
       message.content[0].type === 'text' ? message.content[0].text.trim() : '';

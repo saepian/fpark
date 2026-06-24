@@ -5,7 +5,7 @@ import { isFinanceRelated } from '@/lib/gemini';
 import { batchSummarize, type BatchArticle } from '@/lib/summarize';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // Vercel Pro: 5분
+export const maxDuration = 10; // Netlify 10초 타임아웃
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,8 +21,6 @@ type CustomItem = {
 };
 
 const parser = new Parser<Record<string, never>, CustomItem>({
-  timeout: 10000,
-  headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FPark/1.0)' },
   customFields: {
     item: [
       ['media:content', 'media:content'],
@@ -33,16 +31,18 @@ const parser = new Parser<Record<string, never>, CustomItem>({
 });
 
 const RSS_SOURCES = [
-  { url: 'https://www.yna.co.kr/rss/economy.xml',                              source: '연합뉴스',  category: 'domestic' as const, max: 20 },
-  { url: 'https://www.hankyung.com/feed/economy',                               source: '한국경제',  category: 'domestic' as const, max: 20 },
-  { url: 'https://www.mk.co.kr/rss/30100041/',                                  source: '매일경제',  category: 'domestic' as const, max: 20 },
-  { url: 'https://www.sedaily.com/rss/economy',                                 source: '서울경제',  category: 'domestic' as const, max: 20 },
-  { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',              source: 'CNBC',      category: 'global'   as const, max: 15 },
-  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml',          source: 'NYT',       category: 'global'   as const, max: 15 },
-  { url: 'https://feeds.content.dowjones.io/public/rss/mw_marketpulse',        source: 'MarketWatch', category: 'global' as const, max: 10 },
+  { url: 'https://www.yna.co.kr/rss/economy.xml',                              source: '연합뉴스',  category: 'domestic' as const },
+  { url: 'https://www.hankyung.com/feed/economy',                               source: '한국경제',  category: 'domestic' as const },
+  { url: 'https://www.mk.co.kr/rss/30100041/',                                  source: '매일경제',  category: 'domestic' as const },
+  { url: 'https://www.sedaily.com/rss/economy',                                 source: '서울경제',  category: 'domestic' as const },
+  { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',              source: 'CNBC',      category: 'global'   as const },
+  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml',          source: 'NYT',       category: 'global'   as const },
+  { url: 'https://feeds.content.dowjones.io/public/rss/mw_marketpulse',        source: 'MarketWatch', category: 'global' as const },
 ];
 
-const BATCH_SIZE = 5;
+const MAX_ARTICLES = 5;
+const BATCH_SIZE = 3;
+const ITEMS_PER_FEED = 3;
 
 // 이미지 URL 추출 (우선순위: media > enclosure > img태그 > og:image)
 async function extractImageUrl(
@@ -115,52 +115,74 @@ export async function GET(request: NextRequest) {
   const results = { saved: 0, skipped: 0, filtered: 0, errors: 0 };
   const candidates: Candidate[] = [];
 
-  // 1단계: RSS 수집 + 중복 체크 + 키워드 필터 (Gemini 호출 없음)
-  for (const source of RSS_SOURCES) {
-    try {
-      const feed  = await parser.parseURL(source.url);
-      const items = feed.items.slice(0, source.max);
-
-      for (const item of items) {
-        const url = item.link ?? item.guid;
-        if (!url) continue;
-
-        const { data: existing } = await supabase
-          .from('articles')
-          .select('id')
-          .eq('original_url', url)
-          .maybeSingle();
-
-        if (existing) { results.skipped++; continue; }
-
-        const title   = item.title ?? '(제목 없음)';
-        const content = item.contentSnippet ?? item.content ?? item.summary ?? '';
-
-        if (!isFinanceRelated(title, content)) {
-          console.log(`[키워드필터] ${source.source} — ${title.slice(0, 50)}`);
-          results.filtered++;
-          continue;
-        }
-
-        candidates.push({
-          title,
-          content,
-          url,
-          source:   source.source,
-          category: source.category,
-          pubDate:  item.pubDate ? new Date(item.pubDate).toISOString() : null,
-          item:     item as Parser.Item & CustomItem,
+  // 1단계: RSS 병렬 수집 (각 피드 3초 타임아웃)
+  const feedResults = await Promise.allSettled(
+    RSS_SOURCES.map(async (source) => {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(source.url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FPark/1.0)' },
         });
+        const text = await res.text();
+        const feed = await parser.parseString(text);
+        return { source, items: feed.items.slice(0, ITEMS_PER_FEED) };
+      } finally {
+        clearTimeout(tid);
       }
-    } catch (e) {
-      console.error(`RSS fetch error [${source.source}]:`, e);
+    })
+  );
+
+  for (const result of feedResults) {
+    if (candidates.length >= MAX_ARTICLES) break;
+
+    if (result.status === 'rejected') {
+      console.error(`RSS fetch error:`, result.reason);
       results.errors++;
+      continue;
+    }
+
+    const { source, items } = result.value;
+
+    for (const item of items) {
+      if (candidates.length >= MAX_ARTICLES) break;
+
+      const url = item.link ?? item.guid;
+      if (!url) continue;
+
+      const { data: existing } = await supabase
+        .from('articles')
+        .select('id')
+        .eq('original_url', url)
+        .maybeSingle();
+
+      if (existing) { results.skipped++; continue; }
+
+      const title   = item.title ?? '(제목 없음)';
+      const content = item.contentSnippet ?? item.content ?? item.summary ?? '';
+
+      if (!isFinanceRelated(title, content)) {
+        console.log(`[키워드필터] ${source.source} — ${title.slice(0, 50)}`);
+        results.filtered++;
+        continue;
+      }
+
+      candidates.push({
+        title,
+        content,
+        url,
+        source:   source.source,
+        category: source.category,
+        pubDate:  item.pubDate ? new Date(item.pubDate).toISOString() : null,
+        item:     item as Parser.Item & CustomItem,
+      });
     }
   }
 
   console.log(`[CRON] 후보: ${candidates.length}개 (건너뜀: ${results.skipped}, 키워드필터: ${results.filtered})`);
 
-  // 2단계: 5개씩 배치로 Gemini 요약 + 이미지 추출 병렬 처리
+  // 2단계: 3개씩 배치로 Claude 요약 + 이미지 추출 병렬 처리 (딜레이 없음)
   for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
     const batch = candidates.slice(i, i + BATCH_SIZE);
     const batchArticles: BatchArticle[] = batch.map((c) => ({ title: c.title, content: c.content }));
@@ -179,7 +201,6 @@ export async function GET(request: NextRequest) {
 
     for (let j = 0; j < batch.length; j++) {
       const c        = batch[j];
-      // Gemini 실패 시 null 저장 → backfill이 IS NULL로 찾을 수 있음
       const summary  = summaries[j] || null;
       const imageUrl = imageUrls[j];
 
@@ -197,7 +218,6 @@ export async function GET(request: NextRequest) {
 
       let { error } = await supabase.from('articles').insert(payload);
 
-      // PostgREST 스키마 캐시 stale → sub_category 없이 재시도
       if (error?.message.includes('sub_category')) {
         const { sub_category: _sc, ...withoutSub } = payload;
         ({ error } = await supabase.from('articles').insert(withoutSub));
@@ -210,11 +230,6 @@ export async function GET(request: NextRequest) {
         results.saved++;
         console.log(`[저장] ${c.source} — ${c.title.slice(0, 50)}`);
       }
-    }
-
-    // 배치 간 딜레이 (Gemini rate limit 대응)
-    if (i + BATCH_SIZE < candidates.length) {
-      await new Promise((r) => setTimeout(r, 15000));
     }
   }
 
