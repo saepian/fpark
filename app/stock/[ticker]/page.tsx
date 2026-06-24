@@ -46,6 +46,25 @@ export default async function StockDetailPage({ params }: PageProps) {
           <SectorPeers ticker={ticker} />
           <RelatedNews ticker={ticker} />
           <FinanceSummary ticker={ticker} />
+          <a href="https://devkitpack.com/tools/stock-avg" target="_blank" rel="noopener noreferrer"
+            className="block rounded-xl border border-slate-700 bg-[#0f1629] p-4 hover:border-blue-500/50 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-950 flex items-center justify-center flex-shrink-0">
+                  <span className="text-blue-400 text-xl">⌗</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs text-blue-400 font-medium">무료 도구</span>
+                    <span className="text-[11px] bg-blue-950 text-blue-400 border border-blue-900 px-2 py-0.5 rounded-full">DevKitPack</span>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-100">주식 평균단가 계산기</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">분할매수 시 평균 매입단가를 빠르게 계산하세요</p>
+                </div>
+              </div>
+              <span className="text-blue-400 text-xs flex-shrink-0">→</span>
+            </div>
+          </a>
         </div>
       </div>
     </div>
