@@ -47,12 +47,8 @@ export default async function StockDetailPage({ params }: PageProps) {
           <SectorPeers ticker={ticker} />
           <RelatedNews ticker={ticker} />
           <FinanceSummary ticker={ticker} />
-          <div>
-            <p className="text-[10px] text-slate-600 mb-1 text-right">광고</p>
-            <AdFit unit="DAN-srccfxvxgEOdHPPB" width={300} height={250} />
-          </div>
           <a href="https://devkitpack.com/tools/stock-avg" target="_blank" rel="noopener noreferrer"
-            className="block rounded-xl border border-slate-700 bg-[#0f1629] p-4 hover:border-blue-500/50 transition-colors">
+            className="group block rounded-xl border border-slate-700 bg-[#0f1629] p-4 hover:border-blue-500/50 transition-colors">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-blue-950 flex items-center justify-center flex-shrink-0">
@@ -67,9 +63,13 @@ export default async function StockDetailPage({ params }: PageProps) {
                   <p className="text-[11px] text-slate-500 mt-0.5">분할매수 시 평균 매입단가를 빠르게 계산하세요</p>
                 </div>
               </div>
-              <span className="text-blue-400 text-xs flex-shrink-0">→</span>
+              <span className="arrow-slide text-blue-400 text-base flex-shrink-0">→</span>
             </div>
           </a>
+          <div>
+            <p className="text-[10px] text-slate-600 mb-1 text-right">광고</p>
+            <AdFit unit="DAN-srccfxvxgEOdHPPB" width={300} height={250} />
+          </div>
         </div>
       </div>
     </div>

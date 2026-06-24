@@ -28,6 +28,19 @@ button, [role="button"], a {
   scrollbar-width: none;
 }
 
+@keyframes arrow-slide {
+  0%, 100% { transform: translateX(0); }
+  50%       { transform: translateX(5px); }
+}
+
+.arrow-slide {
+  animation: none;
+}
+
+.group:hover .arrow-slide {
+  animation: arrow-slide 0.6s ease-in-out infinite;
+}
+
 @keyframes ticker-scroll {
   from { transform: translateX(0); }
   to   { transform: translateX(-33.333%); }
