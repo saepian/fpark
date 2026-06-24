@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import SearchDropdown from './SearchDropdown';
 import type { SearchResult } from '../../lib/types';
@@ -13,14 +14,24 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const portalRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  const updateDropPos = useCallback(() => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    setDropPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+  }, []);
 
   useEffect(() => {
     if (!query.trim()) {
       setResults([]);
       return;
     }
-
     const handler = setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
@@ -32,15 +43,15 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
         setResults([]);
       }
     }, 200);
-
     return () => clearTimeout(handler);
   }, [query]);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
+      const target = e.target as Node;
+      const inContainer = containerRef.current?.contains(target);
+      const inPortal = portalRef.current?.contains(target);
+      if (!inContainer && !inPortal) setIsOpen(false);
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsOpen(false);
@@ -62,19 +73,20 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
+            updateDropPos();
             setIsOpen(true);
           }}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            updateDropPos();
+            setIsOpen(true);
+          }}
           className="bg-transparent border-none p-0 text-sm text-gray-900 dark:text-[#d4e4fa] focus:ring-0 w-full placeholder:text-gray-400 dark:placeholder:text-[#8c909f] focus:outline-none"
           placeholder="종목명 또는 코드 검색"
           type="text"
         />
         {query && (
           <button
-            onClick={() => {
-              setQuery('');
-              setResults([]);
-            }}
+            onClick={() => { setQuery(''); setResults([]); }}
             className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-white"
           >
             ✕
@@ -82,13 +94,29 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
         )}
       </div>
 
-      {isOpen && (
-        <SearchDropdown
-          results={results}
-          onSelect={onSelectStock}
-          onClose={() => setIsOpen(false)}
-          query={query}
-        />
+      {mounted && isOpen && createPortal(
+        <div
+          ref={portalRef}
+          style={{
+            position: 'fixed',
+            top: dropPos.top,
+            left: dropPos.left,
+            width: dropPos.width,
+            zIndex: 99999,
+          }}
+        >
+          <SearchDropdown
+            results={results}
+            onSelect={(ticker) => {
+              onSelectStock(ticker);
+              setIsOpen(false);
+              setQuery('');
+            }}
+            onClose={() => setIsOpen(false)}
+            query={query}
+          />
+        </div>,
+        document.body
       )}
     </div>
   );
