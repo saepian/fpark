@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 240" width="360" height="240">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b1500"/>
+      <stop offset="100%" stop-color="#1a0a00"/>
+    </linearGradient>
+    <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="240" fill="url(#bg)"/>
+  <!-- Grid -->
+  <line x1="0" y1="80" x2="360" y2="80" stroke="#3b1500" stroke-width="0.8" stroke-dasharray="4,6"/>
+  <line x1="0" y1="155" x2="360" y2="155" stroke="#3b1500" stroke-width="0.8" stroke-dasharray="4,6"/>
+  <!-- Oil barrel icons -->
+  <ellipse cx="320" cy="195" rx="22" ry="8" fill="#92400e" opacity="0.6"/>
+  <rect x="298" y="165" width="44" height="30" fill="#b45309" rx="3" opacity="0.6"/>
+  <ellipse cx="320" cy="165" rx="22" ry="8" fill="#d97706" opacity="0.7"/>
+  <line x1="298" y1="178" x2="342" y2="178" stroke="#92400e" stroke-width="1.5" opacity="0.8"/>
+  <!-- Gold bars -->
+  <rect x="20" y="185" width="36" height="16" fill="#fbbf24" rx="2" opacity="0.8"/>
+  <rect x="24" y="180" width="36" height="16" fill="#f59e0b" rx="2" opacity="0.8"/>
+  <rect x="28" y="175" width="36" height="16" fill="#fcd34d" rx="2" opacity="0.9"/>
+  <!-- Candlestick chart -->
+  <line x1="120" y1="100" x2="120" y2="185" stroke="#f59e0b" stroke-width="1.5"/>
+  <rect x="115" y="125" width="10" height="40" fill="#ef4444" rx="1"/>
+  <line x1="150" y1="90" x2="150" y2="175" stroke="#f59e0b" stroke-width="1.5"/>
+  <rect x="145" y="110" width="10" height="35" fill="#ef4444" rx="1"/>
+  <line x1="180" y1="105" x2="180" y2="170" stroke="#f59e0b" stroke-width="1.5"/>
+  <rect x="175" y="120" width="10" height="30" fill="#3b82f6" rx="1"/>
+  <line x1="210" y1="85" x2="210" y2="155" stroke="#f59e0b" stroke-width="1.5"/>
+  <rect x="205" y="100" width="10" height="35" fill="#ef4444" rx="1"/>
+  <line x1="240" y1="75" x2="240" y2="145" stroke="#f59e0b" stroke-width="1.5"/>
+  <rect x="235" y="90" width="10" height="35" fill="#ef4444" rx="1"/>
+  <polygon points="80,215 120,180 160,165 200,140 240,120 280,100 320,80 360,65 360,240 80,240" fill="url(#fill)"/>
+  <polyline points="80,215 120,180 160,165 200,140 240,120 280,100 320,80 360,65" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="16" y="16" width="60" height="26" rx="5" fill="#3b1500"/>
+  <text x="46" y="33" font-family="monospace" font-size="11" font-weight="bold" fill="#fcd34d" text-anchor="middle">원자재</text>
+</svg>

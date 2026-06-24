@@ -1,0 +1,6 @@
+{
+  "name": "Fpark Financial Terminal",
+  "description": "A professional terminal-grade financial intelligence platform and stock directory featuring high-fidelity stock charts, real-time top movers, AI stock analysis, and high-density market news feeds.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
