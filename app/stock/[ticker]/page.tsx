@@ -7,6 +7,7 @@ import AiAnalysis from '../../../components/stock/AiAnalysis';
 import RelatedNews from '../../../components/stock/RelatedNews';
 import WeeklyChart from '../../../components/stock/WeeklyChart';
 import InvestorFlow from '../../../components/stock/InvestorFlow';
+import SectorPeers from '../../../components/stock/SectorPeers';
 import { fetchStockPrice } from '../../../lib/kis-api';
 
 interface PageProps {
@@ -42,6 +43,7 @@ export default async function StockDetailPage({ params }: PageProps) {
         <div className="flex flex-col gap-4 col-span-12 lg:col-span-4">
           <WeeklyChart ticker={ticker} />
           <InvestorFlow ticker={ticker} />
+          <SectorPeers ticker={ticker} />
         </div>
       </div>
     </div>
