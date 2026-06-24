@@ -271,7 +271,7 @@ export default function Hero() {
   const isKosdaqUp = (market?.KOSDAQ.changeRate ?? 0) >= 0;
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full overflow-x-hidden">
       {/* 배경 그라디언트 — 헤더(#0f1117)에서 자연스럽게 이어짐 */}
       <div
         className="absolute inset-0"
@@ -402,9 +402,9 @@ export default function Hero() {
 
         {/* 시장 현황 */}
         {market && (
-          <div className="inline-flex items-center gap-6
+          <div className="inline-flex flex-wrap items-center justify-center gap-4 sm:gap-6
             bg-slate-900/50 border border-slate-800/50
-            rounded-2xl px-6 py-3 backdrop-blur-sm">
+            rounded-2xl px-4 sm:px-6 py-3 backdrop-blur-sm">
             {[
               { label: 'KOSPI',  value: market.KOSPI.value,  rate: market.KOSPI.changeRate,  isUp: isKospiUp },
               { label: 'KOSDAQ', value: market.KOSDAQ.value, rate: market.KOSDAQ.changeRate, isUp: isKosdaqUp },

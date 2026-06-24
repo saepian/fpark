@@ -40,8 +40,8 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#0f1117] border-b border-[#2d313e]">
-      {/* 단일 행: relative 컨테이너로 검색창 absolute 중앙 고정 */}
-      <div className="relative flex items-center h-14 px-6">
+      {/* 메인 행 */}
+      <div className="relative flex items-center h-14 px-4 md:px-6">
 
         {/* 좌측: 로고 */}
         <div className="flex-shrink-0 z-10">
@@ -50,8 +50,8 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
           </Link>
         </div>
 
-        {/* 중앙: 검색창 — absolute로 헤더 정중앙 고정 */}
-        <div className="absolute left-1/2 -translate-x-1/2 w-full max-w-[500px] px-4">
+        {/* 중앙: 검색창 — md+ 에서만 absolute 중앙 고정 */}
+        <div className="hidden md:block absolute left-1/2 -translate-x-1/2 w-full max-w-[500px] px-4">
           <SearchBar onSelectStock={handleSelectStock} />
         </div>
 
@@ -95,6 +95,11 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
           <AlertButton />
           <PersonalButton />
         </div>
+      </div>
+
+      {/* 모바일 전용 검색창 행 */}
+      <div className="md:hidden px-4 pb-2">
+        <SearchBar onSelectStock={handleSelectStock} />
       </div>
 
       {/* 마켓 티커 */}

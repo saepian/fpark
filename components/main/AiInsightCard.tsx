@@ -62,7 +62,7 @@ export default function AiInsightCard() {
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       {/* 헤더 */}
       <div className="bg-gradient-to-r from-indigo-900/40 to-purple-900/30 border-b border-slate-800 px-4 py-3">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-wrap items-center justify-between mb-2 gap-1.5">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-indigo-400 bg-indigo-400/10 border border-indigo-400/30 rounded-full px-2 py-0.5 tracking-wide">
               FPARK AI
@@ -73,7 +73,7 @@ export default function AiInsightCard() {
             <span className={`text-xs font-bold border rounded-full px-2 py-0.5 ${sentimentColor}`}>
               {pick.sentiment === 'bullish' ? '매수 관심' : pick.sentiment === 'bearish' ? '주의' : '중립'}
             </span>
-            <span className="text-xs text-slate-600">{dateLabel}</span>
+            <span className="text-xs text-slate-600 hidden sm:inline">{dateLabel}</span>
           </div>
         </div>
 

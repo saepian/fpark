@@ -55,17 +55,17 @@ export default function NewsFeed({ onSelectStock }: NewsFeedProps) {
 
   return (
     <div id="news-feed-container" className="space-y-6">
-      <div className="flex items-center justify-between border-b-2 border-gray-200 dark:border-[#2d313e] pb-2">
-        <h2 className="font-sans text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-gray-100">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b-2 border-gray-200 dark:border-[#2d313e] pb-2 gap-2">
+        <h2 className="font-sans text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-gray-100 shrink-0">
           최신 뉴스
           <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
         </h2>
-        <div className="flex gap-3 flex-wrap justify-end">
+        <div className="flex gap-3 overflow-x-auto scrollbar-none pb-0.5">
           {TABS.map(({ label, code }) => (
             <button
               key={code}
               onClick={() => setActiveCode(code)}
-              className={`text-xs font-bold transition-all whitespace-nowrap ${
+              className={`text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                 activeCode === code
                   ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
                   : 'text-gray-400 dark:text-[#8c909f] hover:text-gray-900 dark:hover:text-[#d4e4fa]'

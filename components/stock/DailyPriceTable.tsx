@@ -50,7 +50,7 @@ export default function DailyPriceTable({ ticker }: { ticker: string }) {
         <span className="text-[10px] text-slate-500 font-normal ml-2">최근 5거래일</span>
       </h3>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="min-w-[500px] w-full text-xs">
           <thead>
             <tr className="text-slate-500 border-b border-slate-800">
               <th className="text-left pb-2.5 font-medium">날짜</th>
