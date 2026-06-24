@@ -120,7 +120,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       </div>
 
       {/* 섹션 2: 프로그램 매매 */}
-      {data.program && (data.program.buy !== 0 || data.program.sell !== 0 || data.program.net !== 0) && (
+      {data.program !== null && data.program !== undefined && (
         <div className="px-4 py-3 border-b border-slate-800">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
             프로그램 매매
@@ -144,7 +144,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       )}
 
       {/* 섹션 3: 공매도 현황 */}
-      {data.shortSell && data.shortSell.ratio > 0 && (
+      {data.shortSell !== null && data.shortSell !== undefined && (
         <div className="px-4 py-3 border-b border-slate-800">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
             공매도 현황
@@ -170,7 +170,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       )}
 
       {/* 섹션 4: 거래대금 비중 */}
-      {data.marketShare && data.marketShare.ratio > 0 && (
+      {data.marketShare !== null && data.marketShare !== undefined && (
         <div className="px-4 py-3">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
             시장 거래대금 비중
