@@ -1,5 +1,10 @@
 import type { StockPrice, StockInfo, ChartDataPoint, MarketIndexData, MoverStock, AlertStock } from './types';
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
@@ -107,8 +112,6 @@ export const STOCK_NAMES: Record<string, string> = {
   '048410': '현대바이오',
 };
 
-const TOKEN_FILE = '/tmp/fpark_kis_token.json';
-
 // KIS name이 빈 문자열인 경우 search-stock-info(CTPF1604R)로 보완 (process 내 캐시)
 const nameCache = new Map<string, string>();
 
@@ -141,32 +144,13 @@ async function fetchNameFromKisSearch(ticker: string): Promise<string | null> {
   return null;
 }
 
-// 메모리 캐시: 동일 프로세스 내 요청 간 공유
+// 인메모리 캐시: 동일 invocation 내 중복 발급 방지
 let tokenCache: { token: string; expiresAt: number } | null = null;
 // 동시 발급 요청 중복 방지
 let tokenFetchPromise: Promise<string> | null = null;
 
-function loadTokenFromFile(): { token: string; expiresAt: number } | null {
-  try {
-    if (!existsSync(TOKEN_FILE)) return null;
-    const saved = JSON.parse(readFileSync(TOKEN_FILE, 'utf8'));
-    if (!saved?.token || !saved?.expiresAt || Date.now() >= saved.expiresAt) return null;
-    return saved;
-  } catch {
-    return null;
-  }
-}
-
-function saveTokenToFile(token: string, expiresAt: number) {
-  try {
-    writeFileSync(TOKEN_FILE, JSON.stringify({ token, expiresAt }), 'utf8');
-  } catch {
-    // 저장 실패는 무시 (인메모리 캐시로 계속 동작)
-  }
-}
-
 export async function getAccessToken(): Promise<string> {
-  // 1) 메모리 캐시
+  // 1) 인메모리 캐시
   if (tokenCache && Date.now() < tokenCache.expiresAt) {
     return tokenCache.token;
   }
@@ -175,15 +159,30 @@ export async function getAccessToken(): Promise<string> {
   if (tokenFetchPromise) return tokenFetchPromise;
 
   tokenFetchPromise = (async () => {
-    // 3) 파일 영속 캐시 (서버 재시작 후에도 유효)
-    const persisted = loadTokenFromFile();
-    if (persisted) {
-      tokenCache = persisted;
-      console.log('[KIS] 토큰 파일 캐시 사용, 만료까지:', Math.round((persisted.expiresAt - Date.now()) / 60000), '분');
-      return persisted.token;
+    // 3) Supabase 영속 캐시 (serverless invocation 간 공유)
+    try {
+      const { data: tokenData } = await supabaseAdmin
+        .from('kis_tokens')
+        .select('access_token, expires_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (tokenData?.access_token && tokenData?.expires_at) {
+        const expiresAt = new Date(tokenData.expires_at);
+        const now = new Date();
+        if (expiresAt.getTime() - now.getTime() > 60 * 60 * 1000) {
+          console.log('[KIS] 캐시된 토큰 재사용, 만료:', expiresAt.toISOString());
+          tokenCache = { token: tokenData.access_token, expiresAt: expiresAt.getTime() };
+          return tokenData.access_token;
+        }
+      }
+    } catch {
+      console.log('[KIS] 토큰 캐시 조회 실패, 새로 발급');
     }
 
     // 4) KIS에서 신규 발급
+    console.log('[KIS] 새 토큰 발급 요청');
     const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
       method: 'POST',
       headers: { 'content-type': 'application/json; charset=UTF-8' },
@@ -201,11 +200,21 @@ export async function getAccessToken(): Promise<string> {
     }
 
     const data = await res.json();
-    const expiresAt = Date.now() + ((data.expires_in ?? 86400) - 300) * 1000;
-    tokenCache = { token: data.access_token, expiresAt };
-    console.log('[KIS] 토큰 신규 발급 완료, 만료까지:', Math.round((expiresAt - Date.now()) / 60000), '분');
-    saveTokenToFile(data.access_token, expiresAt);
-    return tokenCache.token;
+    const expiresAt = new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
+    tokenCache = { token: data.access_token, expiresAt: expiresAt.getTime() };
+
+    // 5) Supabase에 저장
+    try {
+      await supabaseAdmin.from('kis_tokens').insert({
+        access_token: data.access_token,
+        expires_at: expiresAt.toISOString(),
+      });
+      console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
+    } catch (e) {
+      console.error('[KIS] 토큰 저장 실패:', e);
+    }
+
+    return data.access_token;
   })().finally(() => {
     tokenFetchPromise = null;
   });
