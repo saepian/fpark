@@ -91,22 +91,10 @@ function AiLoadingScreen() {
   );
 }
 
-const OPINION_STYLE = {
-  매수: {
-    badge: 'bg-red-500/15 text-red-400 border border-red-500/30',
-    bar: 'bg-red-500/70',
-    text: 'text-red-400',
-  },
-  관망: {
-    badge: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
-    bar: 'bg-amber-500/70',
-    text: 'text-amber-400',
-  },
-  매도: {
-    badge: 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
-    bar: 'bg-blue-500/70',
-    text: 'text-blue-400',
-  },
+const OPINION_BADGE = {
+  매수: 'bg-emerald-500 text-white',
+  관망: 'bg-slate-500 text-white',
+  매도: 'bg-red-500 text-white',
 } as const;
 
 function fmtPrice(v: number) {
@@ -122,6 +110,12 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
   const [data, setData]       = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
+  const [toast, setToast]     = useState(false);
+
+  const showToast = () => {
+    setToast(true);
+    setTimeout(() => setToast(false), 2500);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -164,14 +158,24 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     );
   }
 
-  const opinion = data.opinion ?? '관망';
-  const style   = OPINION_STYLE[opinion] ?? OPINION_STYLE['관망'];
-  const timeLabel = data.isCached
+  const opinion    = data.opinion ?? '관망';
+  const badgeCls   = OPINION_BADGE[opinion] ?? OPINION_BADGE['관망'];
+  const timeLabel  = data.isCached
     ? '오늘 분석 (캐시)'
     : new Date(data.createdAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) + ' 기준';
 
   return (
-    <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden">
+    <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden relative">
+
+      {/* 토스트 */}
+      <div
+        className="absolute top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none transition-all duration-300"
+        style={{ opacity: toast ? 1 : 0, transform: `translateX(-50%) translateY(${toast ? 0 : -6}px)` }}
+      >
+        <span className="px-3 py-1.5 bg-slate-700 text-slate-200 text-[11px] font-medium rounded-full shadow-lg whitespace-nowrap">
+          본 분석은 AI가 생성한 참고 자료입니다
+        </span>
+      </div>
 
       {/* 상단 헤더 */}
       <div className="px-6 pt-5 pb-4 border-b border-blue-900/30">
@@ -181,12 +185,15 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${style.badge}`}>
+            <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${badgeCls}`}>
               {opinion}
             </span>
-            <span className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[10px] font-bold rounded uppercase tracking-widest">
+            <button
+              onClick={showToast}
+              className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[10px] font-bold rounded uppercase tracking-widest hover:border-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
+            >
               AI INSIGHT
-            </span>
+            </button>
           </div>
         </div>
         <p className="text-[15px] font-semibold text-white leading-snug">
@@ -217,16 +224,16 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
               </div>
             )}
             {data.stop_loss > 0 && (
-              <div className="bg-blue-500/8 border border-blue-500/20 rounded-lg p-3">
+              <div className="bg-blue-950/30 border border-blue-500 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingDown className="w-3 h-3 text-blue-400" />
                   <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">손절가</span>
                 </div>
-                <p className="text-[16px] font-bold font-mono text-blue-300">
+                <p className="text-[16px] font-bold font-mono text-blue-400">
                   ₩{fmtPrice(data.stop_loss)}
                 </p>
                 {data.current_price > 0 && (
-                  <p className="text-[11px] text-blue-400/60 font-mono mt-0.5">
+                  <p className="text-[11px] text-blue-300 font-mono mt-0.5">
                     {priceDiff(data.current_price, data.stop_loss)}
                   </p>
                 )}
@@ -242,7 +249,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             <ul className="space-y-1.5">
               {sec.points?.map((pt, i) => (
                 <li key={i} className="flex items-start gap-2 text-[13px] text-slate-400 leading-snug">
-                  <span className="shrink-0 mt-[3px] w-1.5 h-1.5 rounded-full bg-slate-600" />
+                  <span className="shrink-0 mt-[2px] text-[8px] text-indigo-400">●</span>
                   {pt}
                 </li>
               ))}
