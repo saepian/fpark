@@ -4,6 +4,93 @@ import { useState, useEffect } from 'react';
 import { Sparkles, AlertCircle, TrendingUp, TrendingDown } from 'lucide-react';
 import type { AnalysisResult } from '@/app/api/stock/[ticker]/analysis/route';
 
+const ANALYSIS_STEPS = [
+  '📊 시장 데이터 수집 중...',
+  '📈 차트 패턴 분석 중...',
+  '💹 투자자 동향 파악 중...',
+  '⚡ 리스크 요인 검토 중...',
+  '🎯 목표가 산출 중...',
+  '📝 분석 리포트 작성 중...',
+];
+
+function AiLoadingScreen() {
+  const [msgIdx,    setMsgIdx]    = useState(0);
+  const [charCount, setCharCount] = useState(0);
+  const [fading,    setFading]    = useState(false);
+  const [activeDot, setActiveDot] = useState(0);
+
+  const message = ANALYSIS_STEPS[msgIdx];
+  const chars   = [...message]; // emoji-safe split
+  const displayed = chars.slice(0, charCount).join('');
+  const done      = charCount >= chars.length;
+
+  // 타이핑 + 순환
+  useEffect(() => {
+    if (fading) return;
+    if (!done) {
+      const t = setTimeout(() => setCharCount(c => c + 1), 55);
+      return () => clearTimeout(t);
+    }
+    const wait = setTimeout(() => {
+      setFading(true);
+      const fade = setTimeout(() => {
+        setMsgIdx(i => (i + 1) % ANALYSIS_STEPS.length);
+        setCharCount(0);
+        setFading(false);
+      }, 350);
+      return () => clearTimeout(fade);
+    }, 1100);
+    return () => clearTimeout(wait);
+  }, [charCount, done, fading]);
+
+  // 점 순차 점등
+  useEffect(() => {
+    const t = setInterval(() => setActiveDot(d => (d + 1) % 3), 420);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden">
+      <div className="px-6 pt-5 pb-4 border-b border-blue-900/30">
+        <div className="flex items-center gap-2">
+          <Sparkles className="text-blue-400 w-4 h-4 shrink-0" />
+          <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
+        </div>
+        <p className="text-[14px] font-semibold text-slate-300 mt-1.5">분석 중...</p>
+      </div>
+
+      <div className="px-6 py-8 flex flex-col items-center gap-6">
+        {/* 타이핑 문구 */}
+        <div
+          className="min-h-[28px] text-center transition-opacity duration-300"
+          style={{ opacity: fading ? 0 : 1 }}
+        >
+          <span className="text-[15px] font-medium text-indigo-300 tracking-wide">
+            {displayed}
+          </span>
+          <span className="ml-0.5 text-white animate-pulse font-light">|</span>
+        </div>
+
+        {/* 점 3개 로딩 인디케이터 */}
+        <div className="flex items-center gap-2">
+          {[0, 1, 2].map(i => (
+            <div
+              key={i}
+              className="w-2 h-2 rounded-full transition-all duration-200"
+              style={{
+                backgroundColor: activeDot === i ? 'rgb(129 140 248)' : 'rgb(30 41 59)',
+                transform: activeDot === i ? 'scale(1.2)' : 'scale(1)',
+              }}
+            />
+          ))}
+        </div>
+
+        <p className="text-[11px] text-slate-600">AI가 종목을 분석하고 있습니다</p>
+      </div>
+    </div>
+  );
+}
+
 const OPINION_STYLE = {
   매수: {
     badge: 'bg-red-500/15 text-red-400 border border-red-500/30',
@@ -62,31 +149,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
   }, [ticker]);
 
   // ── 로딩
-  if (loading) {
-    return (
-      <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl animate-pulse space-y-4">
-        <div className="flex justify-between items-start">
-          <div className="space-y-2">
-            <div className="h-5 w-44 bg-[#273647] rounded" />
-            <div className="h-3 w-28 bg-[#1c2b3c] rounded" />
-          </div>
-          <div className="h-7 w-16 bg-[#1c2b3c] rounded-full" />
-        </div>
-        <div className="h-4 w-3/4 bg-[#273647] rounded" />
-        <div className="grid grid-cols-2 gap-3">
-          <div className="h-16 bg-[#1c2b3c] rounded-lg" />
-          <div className="h-16 bg-[#1c2b3c] rounded-lg" />
-        </div>
-        {[...Array(3)].map((_, i) => (
-          <div key={i} className="space-y-1.5">
-            <div className="h-3.5 w-28 bg-[#273647] rounded" />
-            <div className="h-3 w-full bg-[#1c2b3c] rounded" />
-            <div className="h-3 w-5/6 bg-[#1c2b3c] rounded" />
-          </div>
-        ))}
-      </div>
-    );
-  }
+  if (loading) return <AiLoadingScreen />;
 
   // ── 에러
   if (error || !data) {
