@@ -163,13 +163,13 @@ export async function getAccessToken(): Promise<string> {
     try {
       const { data: tokenData } = await supabaseAdmin
         .from('kis_tokens')
-        .select('access_token, expires_at')
+        .select('access_token, expired_at')
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
 
-      if (tokenData?.access_token && tokenData?.expires_at) {
-        const expiresAt = new Date(tokenData.expires_at);
+      if (tokenData?.access_token && tokenData?.expired_at) {
+        const expiresAt = new Date(tokenData.expired_at);
         const now = new Date();
         if (expiresAt.getTime() - now.getTime() > 60 * 60 * 1000) {
           console.log('[KIS] 캐시된 토큰 재사용, 만료:', expiresAt.toISOString());
@@ -207,7 +207,7 @@ export async function getAccessToken(): Promise<string> {
     try {
       await supabaseAdmin.from('kis_tokens').insert({
         access_token: data.access_token,
-        expires_at: expiresAt.toISOString(),
+        expired_at: expiresAt.toISOString(),
       });
       console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
     } catch (e) {
