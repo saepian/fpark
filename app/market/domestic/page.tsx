@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 const TABS = ['거래대금순', '거래량순', '급등', '급락'] as const;
 type Tab = typeof TABS[number];
+type SortKey = 'price' | 'changeRate' | 'volume' | 'tradingValue';
+type SortDir = 'asc' | 'desc';
 
 interface StockRow {
   rank: number;
@@ -22,34 +25,10 @@ interface StockRow {
 
 interface IndexCard {
   label: string;
+  symbol: 'KOSPI' | 'KOSDAQ' | 'USD_KRW';
   value: number;
   change: number;
   changeRate: number;
-  isExchange?: boolean;
-}
-
-// ── Sparkline ─────────────────────────────────────────────────────────────────
-
-const SPARK_UP   = [0.3,0.5,0.4,0.6,0.55,0.7,0.65,0.8,0.72,0.9,0.85,1.0].map(v => ({ v }));
-const SPARK_DOWN = [1.0,0.85,0.9,0.7,0.8,0.6,0.68,0.5,0.58,0.4,0.45,0.3].map(v => ({ v }));
-
-function Sparkline({ isUp }: { isUp: boolean }) {
-  const color = isUp ? '#ef4444' : '#3b82f6';
-  const gid   = `sp-${isUp ? 'u' : 'd'}`;
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={isUp ? SPARK_UP : SPARK_DOWN} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
-            <stop offset="95%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5}
-          fill={`url(#${gid})`} dot={false} isAnimationActive={false} />
-      </AreaChart>
-    </ResponsiveContainer>
-  );
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -62,7 +41,7 @@ const RANK_BADGE: Record<number, string> = {
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
-const fmtComma  = (v: number) => v.toLocaleString('ko-KR');
+const fmtComma = (v: number) => v.toLocaleString('ko-KR');
 
 const fmtAmount = (v: number): string => {
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}조`;
@@ -79,9 +58,39 @@ const fmtVolume = (v: number): string => {
   return fmtComma(v);
 };
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
+// ── Sparkline ─────────────────────────────────────────────────────────────────
 
-function IndexCardView({ card }: { card: IndexCard }) {
+function Sparkline({ closes, isUp, uid }: { closes: number[]; isUp: boolean; uid: string }) {
+  const color = isUp ? '#ef4444' : '#3b82f6';
+  const gid   = `sp-${uid}`;
+  const data  = closes.map(v => ({ v }));
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
+            <stop offset="95%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area
+          type="monotone"
+          dataKey="v"
+          stroke={color}
+          strokeWidth={1.5}
+          fill={`url(#${gid})`}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Index Card ─────────────────────────────────────────────────────────────────
+
+function IndexCardView({ card, closes }: { card: IndexCard; closes: number[] }) {
   const isUp  = card.changeRate >= 0;
   const color = isUp ? 'text-red-400' : 'text-blue-400';
 
@@ -101,28 +110,31 @@ function IndexCardView({ card }: { card: IndexCard }) {
           </span>
         </p>
       </div>
-      {/* 스파크라인 */}
-      <div className="h-12 w-full">
-        <Sparkline isUp={isUp} />
-      </div>
+      {closes.length >= 2 && (
+        <div className="h-12 w-full">
+          <Sparkline closes={closes} isUp={isUp} uid={card.symbol} />
+        </div>
+      )}
     </div>
   );
 }
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function SkeletonRows() {
   return (
     <div className="divide-y divide-slate-800/40">
       {[...Array(15)].map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-4 py-3 animate-pulse">
-          <div className="w-6 h-6 rounded-full bg-slate-800 flex-shrink-0" />
+          <div className="w-6 h-6 rounded-full bg-slate-800 shrink-0" />
           <div className="flex-1 space-y-1.5">
             <div className="h-3.5 bg-slate-800 rounded w-28" />
             <div className="h-2.5 bg-slate-800/60 rounded w-16" />
           </div>
-          <div className="h-3.5 bg-slate-800 rounded w-16 flex-shrink-0" />
-          <div className="h-3.5 bg-slate-800 rounded w-14 flex-shrink-0" />
-          <div className="h-3.5 bg-slate-800 rounded w-12 flex-shrink-0" />
-          <div className="h-3.5 bg-slate-800 rounded w-16 flex-shrink-0" />
+          <div className="h-3.5 bg-slate-800 rounded w-16 shrink-0" />
+          <div className="h-3.5 bg-slate-800 rounded w-14 shrink-0" />
+          <div className="h-3.5 bg-slate-800 rounded w-12 shrink-0" />
+          <div className="h-3.5 bg-slate-800 rounded w-16 shrink-0" />
         </div>
       ))}
     </div>
@@ -138,19 +150,35 @@ export default function DomesticMarketPage() {
   const [stocks, setStocks]       = useState<StockRow[]>([]);
   const [loading, setLoading]     = useState(true);
   const [indices, setIndices]     = useState<IndexCard[]>([]);
+  const [chartData, setChartData] = useState<Record<string, number[]>>({});
+  const [sortKey, setSortKey]     = useState<SortKey | null>(null);
+  const [sortDir, setSortDir]     = useState<SortDir>('desc');
 
-  // 지수 로드
+  // 지수 + 차트 데이터 로드
   useEffect(() => {
+    // 지수 현재값
     fetch('/api/market')
       .then(r => r.json())
       .then(d => {
         const cards: IndexCard[] = [];
-        if (d?.KOSPI?.value)   cards.push({ label: 'KOSPI',    ...d.KOSPI });
-        if (d?.KOSDAQ?.value)  cards.push({ label: 'KOSDAQ',   ...d.KOSDAQ });
-        if (d?.USD_KRW?.value) cards.push({ label: '달러환율', ...d.USD_KRW, isExchange: true });
+        if (d?.KOSPI?.value)   cards.push({ label: 'KOSPI',    symbol: 'KOSPI',   ...d.KOSPI });
+        if (d?.KOSDAQ?.value)  cards.push({ label: 'KOSDAQ',   symbol: 'KOSDAQ',  ...d.KOSDAQ });
+        if (d?.USD_KRW?.value) cards.push({ label: '달러환율', symbol: 'USD_KRW', ...d.USD_KRW });
         setIndices(cards);
       })
       .catch(() => {});
+
+    // 차트 데이터 (3개 병렬)
+    const symbols: Array<'KOSPI' | 'KOSDAQ' | 'USD_KRW'> = ['KOSPI', 'KOSDAQ', 'USD_KRW'];
+    Promise.allSettled(
+      symbols.map(s => fetch(`/api/market/chart?symbol=${s}`).then(r => r.json()) as Promise<number[]>)
+    ).then(results => {
+      const map: Record<string, number[]> = {};
+      results.forEach((r, i) => {
+        map[symbols[i]] = r.status === 'fulfilled' ? r.value : [];
+      });
+      setChartData(map);
+    });
   }, []);
 
   // 랭킹 로드
@@ -158,6 +186,7 @@ export default function DomesticMarketPage() {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
+      setSortKey(null);
       try {
         const res  = await fetch(`/api/market/ranking?tab=${encodeURIComponent(activeTab)}`);
         const data = await res.json();
@@ -172,16 +201,56 @@ export default function DomesticMarketPage() {
     return () => { cancelled = true; };
   }, [activeTab]);
 
+  // 정렬: null이면 API 원본 순서
+  const sorted = useMemo(() => {
+    if (!sortKey) return stocks;
+    return [...stocks].sort((a, b) => {
+      const diff = a[sortKey] - b[sortKey];
+      return sortDir === 'desc' ? -diff : diff;
+    });
+  }, [stocks, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
+    return sortDir === 'desc'
+      ? <ChevronDown className="w-3 h-3 text-indigo-400" />
+      : <ChevronUp   className="w-3 h-3 text-indigo-400" />;
+  }
+
+  function ColBtn({ col, label }: { col: SortKey; label: string }) {
+    return (
+      <button
+        onClick={() => handleSort(col)}
+        className="flex items-center justify-end gap-1 w-full hover:text-slate-200 transition-colors cursor-pointer"
+      >
+        {label}<SortIcon col={col} />
+      </button>
+    );
+  }
+
   return (
     <div className="max-w-[1200px] mx-auto px-5 py-7">
 
       {/* 타이틀 */}
       <h1 className="text-[18px] font-bold text-white mb-5 tracking-tight">국내증시</h1>
 
-      {/* 지수 카드 (스파크라인 포함) */}
+      {/* 지수 카드 */}
       {indices.length > 0 && (
         <div className="flex gap-3 mb-7">
-          {indices.map(card => <IndexCardView key={card.label} card={card} />)}
+          {indices.map(card => (
+            <IndexCardView
+              key={card.symbol}
+              card={card}
+              closes={chartData[card.symbol] ?? []}
+            />
+          ))}
         </div>
       )}
 
@@ -211,17 +280,17 @@ export default function DomesticMarketPage() {
           text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800/60">
           <span className="text-center">#</span>
           <span>종목</span>
-          <span className="text-right">현재가</span>
-          <span className="text-right">등락률</span>
-          <span className="text-right">거래량</span>
-          <span className="text-right">거래대금</span>
+          <span className="text-right"><ColBtn col="price"        label="현재가" /></span>
+          <span className="text-right"><ColBtn col="changeRate"   label="등락률" /></span>
+          <span className="text-right"><ColBtn col="volume"       label="거래량" /></span>
+          <span className="text-right"><ColBtn col="tradingValue" label="거래대금" /></span>
         </div>
 
-        {loading ? <SkeletonRows /> : stocks.length === 0 ? (
+        {loading ? <SkeletonRows /> : sorted.length === 0 ? (
           <p className="py-20 text-center text-slate-600 text-sm">데이터를 불러올 수 없습니다.</p>
         ) : (
           <div className="divide-y divide-slate-800/30">
-            {stocks.map((stock, idx) => {
+            {sorted.map((stock, idx) => {
               const isUp       = stock.changeRate >= 0;
               const priceColor = isUp ? 'text-red-400' : 'text-blue-400';
               const badge      = RANK_BADGE[stock.rank];
@@ -236,7 +305,7 @@ export default function DomesticMarketPage() {
                     idx % 2 === 1 ? 'bg-white/[0.015]' : '',
                   ].join(' ')}
                 >
-                  {/* 순위 */}
+                  {/* 순위: 항상 stock.rank 표시 (재번호 없음) */}
                   <div className="self-center flex justify-center">
                     {badge ? (
                       <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${badge}`}>
