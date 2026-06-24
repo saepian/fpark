@@ -7,7 +7,6 @@ import AiAnalysis from '../../../components/stock/AiAnalysis';
 import RelatedNews from '../../../components/stock/RelatedNews';
 import WeeklyChart from '../../../components/stock/WeeklyChart';
 import InvestorFlow from '../../../components/stock/InvestorFlow';
-import AdSlot from '../../../components/main/AdSlot';
 import { fetchStockPrice } from '../../../lib/kis-api';
 
 interface PageProps {
@@ -39,9 +38,8 @@ export default async function StockDetailPage({ params }: PageProps) {
           <AiAnalysis ticker={ticker} />
           <RelatedNews ticker={ticker} />
         </div>
-        {/* 우측: 광고 + 5일 등락률 + 투자자별 매매 동향 */}
-        <div className="col-span-12 lg:col-span-4 space-y-6">
-          <AdSlot size="sidebar" />
+        {/* 우측: 5일 등락률 + 투자자별 매매 동향 */}
+        <div className="flex flex-col gap-4 col-span-12 lg:col-span-4">
           <WeeklyChart ticker={ticker} />
           <InvestorFlow ticker={ticker} />
         </div>
