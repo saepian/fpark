@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
 
-const TABS = ['거래대금순', '거래량순', '급등', '급락', '52주신고가', '52주신저가'] as const;
+const TABS = ['거래대금순', '거래량순', '급등', '급락'] as const;
 type Tab = typeof TABS[number];
+
+type SortKey = 'price' | 'changeRate' | 'volume' | 'tradingValue';
+type SortDir = 'asc' | 'desc';
 
 interface StockRow {
   rank: number;
@@ -17,27 +21,51 @@ interface StockRow {
   tradingValue: number;
 }
 
+interface IndexCard {
+  label: string;
+  value: number;
+  change: number;
+  changeRate: number;
+}
+
+const RANK_COLORS = [
+  'bg-amber-400/20 text-amber-300 ring-1 ring-amber-400/40',
+  'bg-slate-400/20 text-slate-300 ring-1 ring-slate-400/40',
+  'bg-orange-700/20 text-orange-400 ring-1 ring-orange-700/40',
+];
+
 export default function DomesticMarketPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>('거래대금순');
   const [stocks, setStocks] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [marketData, setMarketData] = useState<any>(null);
+  const [indices, setIndices] = useState<IndexCard[]>([]);
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   useEffect(() => {
-    fetch('/api/market').then(r => r.json()).then(setMarketData).catch(() => {});
+    fetch('/api/market')
+      .then(r => r.json())
+      .then(d => {
+        const cards: IndexCard[] = [];
+        if (d?.KOSPI?.value)   cards.push({ label: 'KOSPI',   ...d.KOSPI });
+        if (d?.KOSDAQ?.value)  cards.push({ label: 'KOSDAQ',  ...d.KOSDAQ });
+        if (d?.USD_KRW?.value) cards.push({ label: 'USD/KRW', ...d.USD_KRW });
+        setIndices(cards);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
+      setSortKey(null);
       try {
         const res = await fetch(`/api/market/ranking?tab=${encodeURIComponent(activeTab)}`);
         const data = await res.json();
         if (!cancelled) setStocks(Array.isArray(data) ? data : []);
-      } catch (e) {
-        console.error(e);
+      } catch {
         if (!cancelled) setStocks([]);
       } finally {
         if (!cancelled) setLoading(false);
@@ -47,9 +75,25 @@ export default function DomesticMarketPage() {
     return () => { cancelled = true; };
   }, [activeTab]);
 
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return stocks;
+    return [...stocks].sort((a, b) => {
+      const diff = a[sortKey] - b[sortKey];
+      return sortDir === 'desc' ? -diff : diff;
+    });
+  }, [stocks, sortKey, sortDir]);
+
   const fmtPrice = (v: number) => v.toLocaleString();
 
-  // v: 백만원 단위 (1조 = 1,000,000 백만원)
   const fmtAmount = (v: number) => {
     if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}조`;
     if (v >= 100_000)   return `${(v / 100_000).toFixed(1)}천억`;
@@ -65,33 +109,62 @@ export default function DomesticMarketPage() {
     return v.toLocaleString();
   };
 
-  const isKospiUp  = (marketData?.kospi?.changeRate  || 0) >= 0;
-  const isKosdaqUp = (marketData?.kosdaq?.changeRate || 0) >= 0;
+  const SortIcon = ({ col }: { col: SortKey }) => {
+    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 text-slate-600 ml-0.5" />;
+    return sortDir === 'desc'
+      ? <ArrowDown className="w-3 h-3 text-indigo-400 ml-0.5" />
+      : <ArrowUp className="w-3 h-3 text-indigo-400 ml-0.5" />;
+  };
+
+  const ColHeader = ({ col, label, className }: { col: SortKey; label: string; className?: string }) => (
+    <button
+      onClick={() => handleSort(col)}
+      className={`flex items-center justify-end gap-0.5 hover:text-slate-300 transition-colors cursor-pointer ${className ?? ''}`}
+    >
+      {label}
+      <SortIcon col={col} />
+    </button>
+  );
 
   return (
     <div className="max-w-[1400px] mx-auto px-6 py-6">
 
-      {/* 상단 지수 요약 */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        {[
-          { label: 'KOSPI',  value: marketData?.kospi?.value,  change: marketData?.kospi?.change,  rate: marketData?.kospi?.changeRate,  isUp: isKospiUp },
-          { label: 'KOSDAQ', value: marketData?.kosdaq?.value, change: marketData?.kosdaq?.change, rate: marketData?.kosdaq?.changeRate, isUp: isKosdaqUp },
-        ].map(m => (
-          <div key={m.label} className="rounded-xl bg-[#1a1d27] border border-slate-800 px-5 py-4">
-            <p className="text-xs text-slate-500 mb-1">{m.label}</p>
-            <p className="text-2xl font-bold font-mono text-white">
-              {m.value?.toLocaleString() || '-'}
-            </p>
-            <p className={`text-sm font-mono mt-1 ${m.isUp ? 'text-red-400' : 'text-blue-400'}`}>
-              {m.isUp ? '▲' : '▼'} {Math.abs(m.change || 0).toFixed(2)}
-              &nbsp;({m.isUp ? '+' : ''}{(m.rate || 0).toFixed(2)}%)
-            </p>
-          </div>
-        ))}
-      </div>
+      {/* 페이지 타이틀 */}
+      <h1 className="text-xl font-bold text-white mb-5">국내증시</h1>
+
+      {/* 상단 지수 카드 (3열) */}
+      {indices.length > 0 && (
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {indices.map(m => {
+            const isUp = m.changeRate >= 0;
+            const isUsdKrw = m.label === 'USD/KRW';
+            return (
+              <div
+                key={m.label}
+                className="rounded-xl bg-[#1a1d27] border border-slate-800 px-5 py-4
+                  hover:border-slate-600 hover:bg-[#1e2130] transition-all cursor-default"
+              >
+                <p className="text-xs text-slate-500 mb-1">{m.label}</p>
+                <p className="text-2xl font-bold font-mono text-white">
+                  {isUsdKrw
+                    ? m.value.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    : m.value.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className={`text-sm font-mono mt-1 ${isUp ? 'text-red-400' : 'text-blue-400'}`}>
+                  {isUp ? '▲' : '▼'} {Math.abs(m.change).toFixed(2)}
+                  &nbsp;
+                  <span className="text-xs">
+                    ({isUp ? '+' : ''}{m.changeRate.toFixed(2)}%)
+                  </span>
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* 탭 */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      <div className="flex gap-2 mb-4">
         {TABS.map(tab => (
           <button
             key={tab}
@@ -116,10 +189,10 @@ export default function DomesticMarketPage() {
           border-b border-slate-800 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
           <span className="text-center">#</span>
           <span>종목명</span>
-          <span className="text-right">현재가</span>
-          <span className="text-right">등락률</span>
-          <span className="text-right">거래량</span>
-          <span className="text-right">거래대금</span>
+          <ColHeader col="price"        label="현재가"  className="justify-end" />
+          <ColHeader col="changeRate"   label="등락률"  className="justify-end" />
+          <ColHeader col="volume"       label="거래량"  className="justify-end" />
+          <ColHeader col="tradingValue" label="거래대금" className="justify-end" />
         </div>
 
         {loading ? (
@@ -128,30 +201,34 @@ export default function DomesticMarketPage() {
               <div key={i} className="h-12 bg-slate-800/50 rounded animate-pulse" />
             ))}
           </div>
-        ) : stocks.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <p className="py-16 text-center text-slate-500 text-sm">데이터를 불러올 수 없습니다.</p>
         ) : (
           <div>
-            {stocks.map((stock, idx) => {
+            {sorted.map((stock, idx) => {
               const isUp = stock.changeRate >= 0;
+              const rankStyle = idx < 3 ? RANK_COLORS[idx] : null;
               return (
                 <div
                   key={stock.ticker}
                   onClick={() => router.push(`/stock/${stock.ticker}`)}
                   className={[
                     'grid grid-cols-[40px_1fr_120px_100px_100px_120px] gap-4 px-4 py-3',
-                    'cursor-pointer transition-colors hover:bg-slate-800/50',
+                    'cursor-pointer transition-colors hover:bg-slate-700/40',
                     'border-b border-slate-800/40 last:border-b-0',
-                    idx === 0 ? 'bg-slate-800/20' : '',
+                    idx % 2 === 1 ? 'bg-slate-800/20' : '',
                   ].join(' ')}
                 >
                   {/* 순위 */}
-                  <span className={[
-                    'self-center text-center text-xs font-bold',
-                    idx < 3 ? 'text-amber-400' : 'text-slate-600',
-                  ].join(' ')}>
-                    {stock.rank}
-                  </span>
+                  <div className="self-center flex justify-center">
+                    {rankStyle ? (
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${rankStyle}`}>
+                        {stock.rank}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-slate-600">{stock.rank}</span>
+                    )}
+                  </div>
 
                   {/* 종목명 */}
                   <div className="self-center min-w-0">

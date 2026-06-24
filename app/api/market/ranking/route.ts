@@ -39,7 +39,6 @@ export async function GET(request: Request) {
 
   try {
     // ── 거래대금순 / 거래량순 ────────────────────────────────────
-    // FHPST01710000: /ranking/fluctuation + FID_COND_SCR_DIV_CODE=20171
     if (tab === '거래대금순' || tab === '거래량순') {
       const params = new URLSearchParams({
         FID_COND_MRKT_DIV_CODE: 'J',
@@ -93,33 +92,7 @@ export async function GET(request: Request) {
       return Response.json((data.output ?? []).slice(0, 30).map(mapRow));
     }
 
-    // ── 52주 신고가 / 신저가 ──────────────────────────────────────
-    // Primary: KIS FHPST01400000 /ranking/high-price
-    // Fallback: Supabase cache saved by alerts/route.ts
-    try {
-      const params = new URLSearchParams({
-        FID_COND_MRK_DIV_CODE: 'J',
-        FID_COND_SCR_DIV_CODE: '140',
-        FID_INPUT_ISCD: '0001',
-        FID_RANK_SORT_CLS_CODE: tab === '52주신고가' ? '1' : '2',
-        FID_INPUT_CNT_1: '20',
-        FID_PRC_CLS_CODE: '1',
-        FID_INPUT_PRICE_1: '0',
-        FID_INPUT_PRICE_2: '9999999',
-        FID_VOL_CNT: '0',
-        FID_INPUT_DATE_1: '',
-      });
-      const res = await fetch(
-        `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/high-price?${params}`,
-        { headers: kisHeaders(token, 'FHPST01400000'), cache: 'no-store' },
-      );
-      if (!res.ok) throw new Error(`FHPST01400000 HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.rt_cd !== '0') throw new Error(`FHPST01400000 ${data.msg1}`);
-      return Response.json((data.output ?? []).slice(0, 30).map(mapRow));
-    } catch {
-      return Response.json([]);
-    }
+    return Response.json([]);
   } catch (err) {
     console.error('[ranking]', err);
     return Response.json({ error: '조회 실패' }, { status: 500 });
