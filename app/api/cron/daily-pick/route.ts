@@ -5,9 +5,9 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const token = authHeader?.replace('Bearer ', '');
-  if (token !== process.env.CRON_SECRET) {
+  const { searchParams } = new URL(request.url);
+  const secret = searchParams.get('secret');
+  if (secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
