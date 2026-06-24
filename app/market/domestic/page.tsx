@@ -254,8 +254,8 @@ export default function DomesticMarketPage() {
         </div>
       )}
 
-      {/* 탭 */}
-      <div className="flex gap-1.5 mb-4">
+      {/* 탭 + 정렬 초기화 */}
+      <div className="flex items-center gap-1.5 mb-4">
         {TABS.map(tab => (
           <button
             key={tab}
@@ -270,6 +270,15 @@ export default function DomesticMarketPage() {
             {tab}
           </button>
         ))}
+        {sortKey && (
+          <button
+            onClick={() => setSortKey(null)}
+            className="ml-auto px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500
+              border border-slate-700 hover:text-slate-300 hover:border-slate-500 transition-all cursor-pointer"
+          >
+            정렬 초기화 ✕
+          </button>
+        )}
       </div>
 
       {/* 테이블 */}
@@ -291,9 +300,11 @@ export default function DomesticMarketPage() {
         ) : (
           <div className="divide-y divide-slate-800/30">
             {sorted.map((stock, idx) => {
-              const isUp       = stock.changeRate >= 0;
-              const priceColor = isUp ? 'text-red-400' : 'text-blue-400';
-              const badge      = RANK_BADGE[stock.rank];
+              const isUp        = stock.changeRate >= 0;
+              const priceColor  = isUp ? 'text-red-400' : 'text-blue-400';
+              // 정렬 중이면 현재 순서(1-based), 기본이면 API rank
+              const displayRank = sortKey ? idx + 1 : stock.rank;
+              const badge       = RANK_BADGE[displayRank];
 
               return (
                 <div
@@ -305,14 +316,14 @@ export default function DomesticMarketPage() {
                     idx % 2 === 1 ? 'bg-white/[0.015]' : '',
                   ].join(' ')}
                 >
-                  {/* 순위: 항상 stock.rank 표시 (재번호 없음) */}
+                  {/* 순위: 정렬 없으면 API rank, 정렬 중이면 현재 순서 */}
                   <div className="self-center flex justify-center">
                     {badge ? (
                       <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${badge}`}>
-                        {stock.rank}
+                        {displayRank}
                       </span>
                     ) : (
-                      <span className="text-[12px] font-medium text-slate-600">{stock.rank}</span>
+                      <span className="text-[12px] font-medium text-slate-600">{displayRank}</span>
                     )}
                   </div>
 
