@@ -3,8 +3,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import Header from '@/components/layout/Header';
-import Footer from '@/components/layout/Footer';
 import NewsCard from '@/components/main/NewsCard';
 import { NewsItem, NewsListResponse } from '@/lib/types';
 
@@ -81,9 +79,7 @@ function NewsPageContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f6f9] dark:bg-[#0f1117] text-[#0f1117] dark:text-[#d4e4fa]">
-      <Header onSelectStock={(ticker) => router.push(`/stock/${ticker}`)} />
-
+    <div className="min-h-screen">
       <main className="max-w-3xl mx-auto px-4 md:px-8 py-8">
         {/* Page header */}
         <div className="flex items-center justify-between border-b-2 border-gray-200 dark:border-[#2d313e] pb-3 mb-6">
@@ -162,8 +158,6 @@ function NewsPageContent() {
           </div>
         )}
       </main>
-
-      <Footer />
     </div>
   );
 }
