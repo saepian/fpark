@@ -16,6 +16,10 @@ export const metadata: Metadata = {
     locale: 'ko_KR',
     type: 'website',
   },
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+  },
   verification: {
     google: '_zLUDAWsjlMCVk0mOCIMy3dThe_H97QfGDJNXeXYXfY',
   },
