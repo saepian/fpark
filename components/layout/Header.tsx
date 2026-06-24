@@ -2,12 +2,12 @@
 
 import React from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import SearchBar from '../search/SearchBar';
 import MarketTicker from './MarketTicker';
 import AlertButton from './AlertButton';
 import PersonalButton from './PersonalButton';
+import Logo from './Logo';
 
 interface HeaderProps {
   onSelectStock?: (ticker: string) => void;
@@ -46,14 +46,7 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
         {/* 좌측: 로고 */}
         <div className="flex-shrink-0 z-10">
           <Link href="/" onClick={onGoHome} className="flex items-center cursor-pointer">
-            <Image
-              src="/images/logo.png"
-              alt="FINANCE PARK - fpark.com"
-              width={140}
-              height={36}
-              className="h-8 w-auto object-contain"
-              priority
-            />
+            <Logo />
           </Link>
         </div>
 
