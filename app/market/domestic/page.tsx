@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 const TABS = ['거래대금순', '거래량순', '급등', '급락'] as const;
 type Tab = typeof TABS[number];
+type SortKey = 'price' | 'changeRate' | 'volume' | 'tradingValue';
+type SortDir = 'asc' | 'desc';
 
 interface StockRow {
   rank: number;
@@ -60,26 +63,17 @@ const fmtVolume = (v: number): string => {
 function Sparkline({ closes, isUp, uid }: { closes: number[]; isUp: boolean; uid: string }) {
   const color = isUp ? '#ef4444' : '#3b82f6';
   const gid   = `sp-${uid}`;
-  const data  = closes.map(v => ({ v }));
-
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+      <AreaChart data={closes.map(v => ({ v }))} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
             <stop offset="95%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <Area
-          type="monotone"
-          dataKey="v"
-          stroke={color}
-          strokeWidth={1.5}
-          fill={`url(#${gid})`}
-          dot={false}
-          isAnimationActive={false}
-        />
+        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5}
+          fill={`url(#${gid})`} dot={false} isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   );
@@ -90,7 +84,6 @@ function Sparkline({ closes, isUp, uid }: { closes: number[]; isUp: boolean; uid
 function IndexCardView({ card, closes }: { card: IndexCard; closes: number[] }) {
   const isUp  = card.changeRate >= 0;
   const color = isUp ? 'text-red-400' : 'text-blue-400';
-
   return (
     <div className="flex-1 bg-[#1e2130] rounded-2xl overflow-hidden min-w-0">
       <div className="px-5 pt-4 pb-2">
@@ -148,10 +141,11 @@ export default function DomesticMarketPage() {
   const [loading, setLoading]     = useState(true);
   const [indices, setIndices]     = useState<IndexCard[]>([]);
   const [chartData, setChartData] = useState<Record<string, number[]>>({});
+  const [sortKey, setSortKey]     = useState<SortKey | null>(null);
+  const [sortDir, setSortDir]     = useState<SortDir>('desc');
 
-  // 지수 + 차트 데이터 로드
+  // 지수 + 차트 로드
   useEffect(() => {
-    // 지수 현재값
     fetch('/api/market')
       .then(r => r.json())
       .then(d => {
@@ -163,22 +157,20 @@ export default function DomesticMarketPage() {
       })
       .catch(() => {});
 
-    // 차트 데이터 (3개 병렬)
     const symbols: Array<'KOSPI' | 'KOSDAQ' | 'USD_KRW'> = ['KOSPI', 'KOSDAQ', 'USD_KRW'];
     Promise.allSettled(
       symbols.map(s => fetch(`/api/market/chart?symbol=${s}`).then(r => r.json()) as Promise<number[]>)
     ).then(results => {
       const map: Record<string, number[]> = {};
-      results.forEach((r, i) => {
-        map[symbols[i]] = r.status === 'fulfilled' ? r.value : [];
-      });
+      results.forEach((r, i) => { map[symbols[i]] = r.status === 'fulfilled' ? r.value : []; });
       setChartData(map);
     });
   }, []);
 
-  // 랭킹 로드
+  // 랭킹 로드 — 탭 전환 시 정렬 초기화
   useEffect(() => {
     let cancelled = false;
+    setSortKey(null);
     const load = async () => {
       setLoading(true);
       try {
@@ -195,6 +187,40 @@ export default function DomesticMarketPage() {
     return () => { cancelled = true; };
   }, [activeTab]);
 
+  // 프론트 정렬 (sortKey 없으면 API 순서 그대로)
+  const sorted = useMemo(() => {
+    if (!sortKey) return stocks;
+    return [...stocks].sort((a, b) => {
+      const diff = a[sortKey] - b[sortKey];
+      return sortDir === 'desc' ? -diff : diff;
+    });
+  }, [stocks, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 opacity-30" />;
+    return sortDir === 'desc'
+      ? <ChevronDown className="w-3 h-3 text-indigo-400" />
+      : <ChevronUp   className="w-3 h-3 text-indigo-400" />;
+  }
+
+  function ColBtn({ col, label }: { col: SortKey; label: string }) {
+    return (
+      <button
+        onClick={() => handleSort(col)}
+        className="flex items-center justify-end gap-1 w-full hover:text-slate-200 transition-colors cursor-pointer"
+      >
+        {label}<SortIcon col={col} />
+      </button>
+    );
+  }
+
   return (
     <div className="max-w-[1200px] mx-auto px-5 py-7">
 
@@ -205,17 +231,13 @@ export default function DomesticMarketPage() {
       {indices.length > 0 && (
         <div className="flex gap-3 mb-7">
           {indices.map(card => (
-            <IndexCardView
-              key={card.symbol}
-              card={card}
-              closes={chartData[card.symbol] ?? []}
-            />
+            <IndexCardView key={card.symbol} card={card} closes={chartData[card.symbol] ?? []} />
           ))}
         </div>
       )}
 
       {/* 탭 */}
-      <div className="flex gap-1.5 mb-4">
+      <div className="flex items-center gap-1.5 mb-4">
         {TABS.map(tab => (
           <button
             key={tab}
@@ -230,6 +252,15 @@ export default function DomesticMarketPage() {
             {tab}
           </button>
         ))}
+        {sortKey && (
+          <button
+            onClick={() => setSortKey(null)}
+            className="ml-auto px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500
+              border border-slate-700 hover:text-slate-300 hover:border-slate-500 transition-all cursor-pointer"
+          >
+            정렬 초기화 ✕
+          </button>
+        )}
       </div>
 
       {/* 테이블 */}
@@ -240,20 +271,21 @@ export default function DomesticMarketPage() {
           text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800/60">
           <span className="text-center">#</span>
           <span>종목</span>
-          <span className="text-right">현재가</span>
-          <span className="text-right">등락률</span>
-          <span className="text-right">거래량</span>
-          <span className="text-right">거래대금</span>
+          <span className="text-right"><ColBtn col="price"        label="현재가" /></span>
+          <span className="text-right"><ColBtn col="changeRate"   label="등락률" /></span>
+          <span className="text-right"><ColBtn col="volume"       label="거래량" /></span>
+          <span className="text-right"><ColBtn col="tradingValue" label="거래대금" /></span>
         </div>
 
-        {loading ? <SkeletonRows /> : stocks.length === 0 ? (
+        {loading ? <SkeletonRows /> : sorted.length === 0 ? (
           <p className="py-20 text-center text-slate-600 text-sm">데이터를 불러올 수 없습니다.</p>
         ) : (
           <div className="divide-y divide-slate-800/30">
-            {stocks.map((stock, idx) => {
+            {sorted.map((stock, idx) => {
               const isUp       = stock.changeRate >= 0;
               const priceColor = isUp ? 'text-red-400' : 'text-blue-400';
-              const displayRank = idx + 1;
+              // 정렬 중: 현재 표시 순서(idx+1) / 기본: API rank
+              const displayRank = sortKey ? idx + 1 : stock.rank;
               const badge       = RANK_BADGE[displayRank];
 
               return (
@@ -266,7 +298,7 @@ export default function DomesticMarketPage() {
                     idx % 2 === 1 ? 'bg-white/[0.015]' : '',
                   ].join(' ')}
                 >
-                  {/* 순위: 행 순서 그대로 (1, 2, 3...) */}
+                  {/* 순위 */}
                   <div className="self-center flex justify-center">
                     {badge ? (
                       <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${badge}`}>
@@ -279,9 +311,7 @@ export default function DomesticMarketPage() {
 
                   {/* 종목명 */}
                   <div className="self-center min-w-0">
-                    <p className="text-[13px] font-semibold text-white truncate leading-tight">
-                      {stock.name}
-                    </p>
+                    <p className="text-[13px] font-semibold text-white truncate leading-tight">{stock.name}</p>
                     <p className="text-[10px] text-slate-600 font-mono mt-0.5">{stock.ticker}</p>
                   </div>
 
