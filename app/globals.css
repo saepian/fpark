@@ -22,6 +22,11 @@
   50%       { transform: rotate(10deg);  }
 }
 
+html, body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 button, [role="button"], a {
   cursor: pointer;
 }

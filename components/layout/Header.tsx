@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { Menu, X } from 'lucide-react';
 import SearchBar from '../search/SearchBar';
 import MarketTicker from './MarketTicker';
 import AlertButton from './AlertButton';
@@ -24,6 +25,7 @@ const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean }[] = [
 export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
   const pathname = usePathname();
   const router   = useRouter();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogoClick = () => {
     if (onGoHome) onGoHome();
@@ -55,7 +57,7 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
           <SearchBar onSelectStock={handleSelectStock} />
         </div>
 
-        {/* 우측: 네비 + 구분선 + 알림 + 개인화 */}
+        {/* 우측: 네비 + 구분선 + 알림 + 개인화 + 햄버거(모바일) */}
         <div className="flex-shrink-0 ml-auto flex items-center gap-3 z-10">
           <nav className="hidden md:flex items-center gap-0.5">
             {NAV_ITEMS.map(({ label, href, comingSoon }) =>
@@ -90,10 +92,19 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
             )}
           </nav>
 
-          <div className="w-px h-4 bg-slate-700" />
+          <div className="hidden md:block w-px h-4 bg-slate-700" />
 
           <AlertButton />
           <PersonalButton />
+
+          {/* 햄버거 버튼 (모바일 전용) */}
+          <button
+            className="md:hidden w-8 h-8 flex items-center justify-center text-slate-300 hover:text-white transition-colors"
+            onClick={() => setMobileMenuOpen(v => !v)}
+            aria-label="메뉴"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
       </div>
 
@@ -101,6 +112,35 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
       <div className="md:hidden px-4 pb-2">
         <SearchBar onSelectStock={handleSelectStock} />
       </div>
+
+      {/* 모바일 메뉴 드롭다운 */}
+      {mobileMenuOpen && (
+        <div className="md:hidden bg-[#0f1117] border-t border-slate-800 px-4 pb-3">
+          {NAV_ITEMS.map(({ label, href, comingSoon }) =>
+            comingSoon ? (
+              <div key={href} className="flex items-center justify-between py-3.5 border-b border-slate-800/60 last:border-0">
+                <span className="text-[15px] text-slate-600">{label}</span>
+                <span className="text-[11px] text-amber-500 font-medium">준비중</span>
+              </div>
+            ) : (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  if (href === '/' && onGoHome) onGoHome();
+                }}
+                className={[
+                  'flex items-center py-3.5 border-b border-slate-800/60 last:border-0 text-[15px] font-medium transition-colors',
+                  isActive(href) ? 'text-white' : 'text-slate-400',
+                ].join(' ')}
+              >
+                {label}
+              </Link>
+            )
+          )}
+        </div>
+      )}
 
       {/* 마켓 티커 */}
       <MarketTicker />
