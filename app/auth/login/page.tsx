@@ -34,7 +34,7 @@ export default function LoginPage() {
     setSocialLoading(provider);
     await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: `${location.origin}/auth/callback` },
+      options: { redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback` },
     });
   };
 
