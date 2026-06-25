@@ -24,7 +24,11 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
   const updateDropPos = useCallback(() => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    setDropPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    setDropPos({
+      top:   rect.bottom + window.scrollY,
+      left:  rect.left   + window.scrollX,
+      width: rect.width,
+    });
   }, []);
 
   useEffect(() => {
@@ -49,9 +53,9 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       const target = e.target as Node;
-      const inContainer = containerRef.current?.contains(target);
-      const inPortal = portalRef.current?.contains(target);
-      if (!inContainer && !inPortal) setIsOpen(false);
+      if (!containerRef.current?.contains(target) && !portalRef.current?.contains(target)) {
+        setIsOpen(false);
+      }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsOpen(false);
@@ -64,9 +68,24 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
     };
   }, []);
 
+  useEffect(() => {
+    const handleScroll = () => { if (isOpen) updateDropPos(); };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isOpen, updateDropPos]);
+
+  useEffect(() => {
+    if (isOpen && results.length > 0) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen, results.length]);
+
   return (
     <div id="search-bar-container" ref={containerRef} className="relative w-full max-w-sm">
-      <div className="relative flex items-center bg-gray-100 dark:bg-[#010f1f] border border-gray-300 dark:border-[#2d313e] rounded-lg px-3.5 py-2 w-full transition-all focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+      <div className="relative flex items-center bg-[#010f1f] border border-[#2d313e] rounded-lg px-3.5 py-2 w-full transition-all focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
         <Search className="text-gray-400 dark:text-[#8c909f] w-4 h-4 mr-2" />
         <input
           id="search-input"
@@ -99,9 +118,9 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
           ref={portalRef}
           style={{
             position: 'fixed',
-            top: dropPos.top,
-            left: dropPos.left,
-            width: dropPos.width,
+            top:   dropPos.top  - window.scrollY,
+            left:  dropPos.left - window.scrollX,
+            width: Math.min(Math.max(dropPos.width, 320), 480),
             zIndex: 99999,
           }}
         >

@@ -16,8 +16,8 @@ interface HeaderProps {
 
 const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean }[] = [
   { label: '홈',     href: '/' },
-  { label: '국내증시', href: '/market/domestic', comingSoon: true },
-  { label: '해외증시', href: '/market/global',    comingSoon: true },
+  { label: '국내증시', href: '/market/domestic' },
+  { label: '해외증시', href: '/market/global' },
   { label: '뉴스',   href: '/news' },
 ];
 

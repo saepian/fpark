@@ -31,13 +31,26 @@ export interface MarketIndexData {
   value: number;
   change: number;
   changeRate: number;
+  sparkline?: number[];
 }
 
 export interface MarketResponse {
-  KOSPI: MarketIndexData;
-  KOSDAQ: MarketIndexData;
+  KOSPI: MarketIndexData | null;
+  KOSDAQ: MarketIndexData | null;
   USD_KRW: MarketIndexData | null;
   NASDAQ: MarketIndexData | null;
+  SP500: MarketIndexData | null;
+  DOW: MarketIndexData | null;
+  NIKKEI: MarketIndexData | null;
+  HANGSENG: MarketIndexData | null;
+  SHANGHAI: MarketIndexData | null;
+  SHENZHEN: MarketIndexData | null;
+  USDJPY: MarketIndexData | null;
+  EURJPY: MarketIndexData | null;
+  USDHKD: MarketIndexData | null;
+  CNYHKD: MarketIndexData | null;
+  USDCNY: MarketIndexData | null;
+  BOND_3Y?: MarketIndexData | null;
   isCached?: boolean;
   cachedAt?: string | null;
 }
@@ -47,6 +60,9 @@ export interface SearchResult {
   name: string;
   price: number;
   changeRate: number;
+  isOverseas?: boolean;
+  market?: string;
+  currency?: string;
 }
 
 export interface StockTag {

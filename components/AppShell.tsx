@@ -45,10 +45,10 @@ export default function AppShell() {
                 <span className="arrow-slide text-blue-400 text-base flex-shrink-0">→</span>
               </div>
             </a>
-            <div>
+            {/* <div>
               <p className="text-[10px] text-slate-600 mb-1 text-right">광고</p>
               <AdFit unit="DAN-srccfxvxgEOdHPPB" width={300} height={250} />
-            </div>
+            </div> */}
           </aside>
         </div>
       </div>

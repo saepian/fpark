@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import type { StockPrice } from '../../lib/types';
+import WatchlistButton from './WatchlistButton';
 
 interface StockHeaderProps {
   ticker: string;
@@ -77,6 +78,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
             <span className="text-gray-400 dark:text-[#8c909f] font-mono text-xs font-bold tracking-wider">
               {data.ticker}
             </span>
+            <WatchlistButton ticker={data.ticker} name={data.name} />
           </div>
           <h2 className="font-sans text-3xl font-extrabold text-gray-950 dark:text-white tracking-tight">
             {data.name}

@@ -9,7 +9,6 @@ import WeeklyChart from '../../../components/stock/WeeklyChart';
 import InvestorFlow from '../../../components/stock/InvestorFlow';
 import SectorPeers from '../../../components/stock/SectorPeers';
 import FinanceSummary from '../../../components/stock/FinanceSummary';
-import AdFit from '../../../components/AdFit';
 import { fetchStockPrice } from '../../../lib/kis-api';
 
 interface PageProps {
@@ -66,10 +65,6 @@ export default async function StockDetailPage({ params }: PageProps) {
               <span className="arrow-slide text-blue-400 text-base flex-shrink-0">→</span>
             </div>
           </a>
-          <div>
-            <p className="text-[10px] text-slate-600 mb-1 text-right">광고</p>
-            <AdFit unit="DAN-srccfxvxgEOdHPPB" width={300} height={250} />
-          </div>
         </div>
       </div>
     </div>

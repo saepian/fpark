@@ -171,14 +171,24 @@ export async function getAccessToken(): Promise<string> {
       if (tokenData?.access_token && tokenData?.expired_at) {
         const expiresAt = new Date(tokenData.expired_at);
         const now = new Date();
-        if (expiresAt.getTime() - now.getTime() > 60 * 60 * 1000) {
-          console.log('[KIS] 캐시된 토큰 재사용, 만료:', expiresAt.toISOString());
+        const remainingMs = expiresAt.getTime() - now.getTime();
+        const remainingMinutes = Math.floor(remainingMs / 60000);
+        console.log('[KIS] 토큰 상태:', {
+          supabaseToken: true,
+          expiresAt: tokenData.expired_at,
+          remainingMinutes,
+        });
+        if (remainingMs > 10 * 60 * 1000) {
+          console.log('[KIS] 캐시된 토큰 재사용');
           tokenCache = { token: tokenData.access_token, expiresAt: expiresAt.getTime() };
           return tokenData.access_token;
         }
+        console.log('[KIS] 토큰 만료 임박 (10분 미만), 재발급');
+      } else {
+        console.log('[KIS] 토큰 상태:', { supabaseToken: false });
       }
-    } catch {
-      console.log('[KIS] 토큰 캐시 조회 실패, 새로 발급');
+    } catch (e) {
+      console.log('[KIS] 토큰 캐시 조회 실패, 새로 발급:', e instanceof Error ? e.message : e);
     }
 
     // 4) KIS에서 신규 발급
@@ -203,8 +213,9 @@ export async function getAccessToken(): Promise<string> {
     const expiresAt = new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
     tokenCache = { token: data.access_token, expiresAt: expiresAt.getTime() };
 
-    // 5) Supabase에 저장
+    // 5) 기존 토큰 전체 삭제 후 새 토큰 저장
     try {
+      await supabaseAdmin.from('kis_tokens').delete().neq('id', 0);
       await supabaseAdmin.from('kis_tokens').insert({
         access_token: data.access_token,
         expired_at: expiresAt.toISOString(),

@@ -50,30 +50,63 @@ async function fetchIndexChart(indexCode: string): Promise<number[]> {
     .filter((v: number) => v > 0);
 }
 
-// USD/KRW 일봉 close 배열 (Yahoo Finance)
-async function fetchUsdKrwChart(): Promise<number[]> {
-  const res = await fetch(
-    'https://query1.finance.yahoo.com/v8/finance/chart/KRW%3DX?interval=1d&range=1mo',
-    {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; fpark/1.0)' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(6000),
-    },
-  );
-  if (!res.ok) throw new Error(`Yahoo KRW=X HTTP ${res.status}`);
+// 지수: 일봉 1개월
+async function fetchYahooChart(yahooSymbol: string): Promise<number[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1mo`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; fpark/1.0)' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!res.ok) throw new Error(`Yahoo ${yahooSymbol} HTTP ${res.status}`);
   const data = await res.json();
   const closes: (number | null)[] = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
   return closes.filter((v): v is number => v != null && isFinite(v));
 }
+
+// 환율: 1시간봉 5일 (장 열림/닫힘 무관)
+async function fetchYahooFXChart(yahooSymbol: string): Promise<number[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1h&range=5d`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; fpark/1.0)' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!res.ok) throw new Error(`Yahoo FX ${yahooSymbol} HTTP ${res.status}`);
+  const data = await res.json();
+  const closes: (number | null)[] = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
+  return closes.filter((v): v is number => v != null && isFinite(v));
+}
+
+const YAHOO_SYMBOL_MAP: Record<string, string> = {
+  SP500:    '^GSPC',
+  NASDAQ:   '^IXIC',
+  DOW:      '^DJI',
+  NIKKEI:   '^N225',
+  HANGSENG: '^HSI',
+  SHANGHAI: '000001.SS',
+  SHENZHEN: '399001.SZ',
+  BOND_3Y:  'KR3YT=RR', // Reuters RIC format
+};
+
+const YAHOO_FX_MAP: Record<string, string> = {
+  USD_KRW: 'KRW=X',
+  USDJPY:  'JPY=X',
+  EURJPY:  'EURJPY=X',
+  USDHKD:  'HKD=X',
+  CNYHKD:  'CNYHKD=X',
+  USDCNY:  'CNY=X',
+};
 
 export async function GET(request: Request) {
   const symbol = new URL(request.url).searchParams.get('symbol') ?? 'KOSPI';
 
   try {
     let closes: number[];
-    if (symbol === 'KOSPI')    closes = await fetchIndexChart('0001');
-    else if (symbol === 'KOSDAQ') closes = await fetchIndexChart('1001');
-    else if (symbol === 'USD_KRW') closes = await fetchUsdKrwChart();
+    if (symbol === 'KOSPI')            closes = await fetchIndexChart('0001');
+    else if (symbol === 'KOSDAQ')      closes = await fetchIndexChart('1001');
+    else if (YAHOO_FX_MAP[symbol])     closes = await fetchYahooFXChart(YAHOO_FX_MAP[symbol]);
+    else if (YAHOO_SYMBOL_MAP[symbol]) closes = await fetchYahooChart(YAHOO_SYMBOL_MAP[symbol]);
     else return Response.json({ error: '알 수 없는 symbol' }, { status: 400 });
 
     return Response.json(closes);
