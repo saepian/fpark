@@ -36,6 +36,10 @@ export default function LoginPage() {
       provider,
       options: {
         redirectTo: 'https://fpark.com/auth/callback',
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
       },
     });
   };
