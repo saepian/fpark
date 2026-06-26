@@ -56,8 +56,8 @@ export async function GET(request: Request) {
 
   // 이메일로 기존 유저 확인
   const { data: existingUsers } = await supabase.auth.admin.listUsers();
-  const existingUser = existingUsers?.users?.find(
-    u => u.email === naverUser.email
+  const existingUser = (existingUsers?.users ?? []).find(
+    (u: { email?: string }) => u.email === naverUser.email
   );
 
   let userId;

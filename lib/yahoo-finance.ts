@@ -53,7 +53,7 @@ export async function fetchOverseasQuote(ticker: string): Promise<OverseasQuote>
     volume:          p?.regularMarketVolume         ?? null,
     marketCap:       p?.marketCap                   ?? null,
     pe:              sd?.trailingPE                 ?? null,
-    pb:              ks?.priceToBook ?? sd?.priceToBook ?? null,
+    pb:              (ks?.priceToBook ?? sd?.priceToBook ?? null) as number | null,
     week52High:      sd?.fiftyTwoWeekHigh           ?? 0,
     week52Low:       sd?.fiftyTwoWeekLow            ?? 0,
     revenue:         totalRevenue,
