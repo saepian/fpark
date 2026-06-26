@@ -181,7 +181,7 @@ export default function LoginPage() {
 
             {/* 카카오 */}
             <button
-              onClick={() => signInSocial('kakao')}
+              onClick={() => alert('카카오 로그인은 준비 중입니다.')}
               disabled={socialLoading !== null}
               className="w-12 h-12 rounded-full disabled:opacity-60
                 flex items-center justify-center transition-opacity cursor-pointer shadow-sm"
