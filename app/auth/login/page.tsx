@@ -143,6 +143,19 @@ export default function LoginPage() {
 
           {/* 소셜 로그인 */}
           <div className="flex justify-center gap-4">
+            {/* 네이버 */}
+            <button
+              onClick={() => { window.location.href = '/api/auth/naver'; }}
+              disabled={socialLoading !== null}
+              className="w-12 h-12 rounded-full disabled:opacity-60
+                flex items-center justify-center transition-opacity cursor-pointer shadow-sm"
+              style={{ backgroundColor: '#03C75A' }}
+              aria-label="네이버로 로그인"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                <path d="M16.273 12.845L7.376 0H0v24h7.727V11.155L16.624 24H24V0h-7.727z"/>
+              </svg>
+            </button>
             {/* 구글 */}
             <button
               onClick={() => signInSocial('google')}
