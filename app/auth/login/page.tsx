@@ -32,15 +32,12 @@ export default function LoginPage() {
 
   const signInSocial = async (provider: 'google' | 'kakao') => {
     setSocialLoading(provider);
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: 'https://fpark.com/auth/callback',
-        skipBrowserRedirect: true,
       },
     });
-    console.log('OAuth URL:', data?.url);
-    alert('OAuth URL: ' + data?.url);
   };
 
   return (
