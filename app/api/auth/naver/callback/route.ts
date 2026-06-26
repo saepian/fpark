@@ -87,14 +87,15 @@ export async function GET(request: Request) {
   });
 
   if (linkError || !linkData) {
+    console.log('generateLink 에러:', linkError);
     return NextResponse.redirect('https://fpark.com/?error=auth_failed');
   }
 
-  const url = new URL(linkData.properties.action_link);
-  const token_hash = url.searchParams.get('token_hash');
-  const type = url.searchParams.get('type');
+  console.log('linkData.properties:', JSON.stringify(linkData.properties));
+
+  const hashed_token = linkData.properties.hashed_token;
 
   return NextResponse.redirect(
-    `https://fpark.com/auth/confirm?token_hash=${token_hash}&type=${type}&next=/`
+    `https://fpark.com/auth/confirm?token_hash=${hashed_token}&type=magiclink&next=/`
   );
 }
