@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { fetchStockPrice } from '../../../lib/kis-api';
+import { fetchOverseasQuote } from '../../../lib/yahoo-finance';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,28 +35,27 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
-
   const withPrice = await Promise.all(
     (data ?? []).map(async (item) => {
       const market = item.market ?? 'kr';
       try {
-        // 해외 종목은 overseas price API 사용
-        const priceUrl = market === 'kr'
-          ? `${siteUrl}/api/stock/${item.ticker}/price`
-          : `${siteUrl}/api/stock/overseas/${item.ticker}/quote`;
-        const res = await fetch(priceUrl, {
-          signal: AbortSignal.timeout(3000),
-          cache: 'no-store',
-        });
-        if (!res.ok) return { ...item, price: 0, changeRate: 0 };
-        const json = await res.json();
-        return {
-          ...item,
-          price:      json.price ?? 0,
-          changeRate: json.changeRate ?? 0,
-          currency:   json.currency ?? (market === 'kr' ? 'KRW' : 'USD'),
-        };
+        if (market === 'kr') {
+          const stock = await fetchStockPrice(item.ticker);
+          return {
+            ...item,
+            price:      stock.price,
+            changeRate: stock.changeRate,
+            currency:   'KRW',
+          };
+        } else {
+          const quote = await fetchOverseasQuote(item.ticker);
+          return {
+            ...item,
+            price:      quote.price,
+            changeRate: quote.changeRate,
+            currency:   quote.currency,
+          };
+        }
       } catch {
         return { ...item, price: 0, changeRate: 0 };
       }
