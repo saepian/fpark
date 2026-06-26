@@ -211,147 +211,267 @@ export default function DiagnosisPage() {
   if (showResult && result) {
     const cfg = REC_CONFIG[result.recommendation] ?? REC_CONFIG['홀딩'];
     const isProfit = result.profitRate >= 0;
+    const targetUpRate = ((result.targetPrice - result.currentPrice) / result.currentPrice * 100);
+    const stopDownRate = ((result.stopLoss - result.currentPrice) / result.currentPrice * 100);
+
+    // 추천 이유 → 줄바꿈/·/- 기준 bullet 분리
+    const reasonBullets = result.reason
+      .split(/\n|(?<=\.|다\.) /)
+      .map(s => s.replace(/^[-·•]\s*/, '').trim())
+      .filter(Boolean);
+
+    // 기술적 분석 → 줄 분리
+    const technicalLines = result.technical
+      .split(/\n/)
+      .map(s => s.replace(/^[-·•]\s*/, '').trim())
+      .filter(Boolean);
 
     return (
       <div className="min-h-screen bg-[#0d1117] pb-16">
         <div className="max-w-5xl mx-auto px-4 pt-8">
 
-          {/* 헤더 */}
-          <div className="flex items-start justify-between mb-8 gap-4">
+          {/* ── 헤더 ── */}
+          <div className="flex items-start justify-between mb-6 gap-4">
             <div>
-              <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">AI 상세 진단 리포트</p>
-              <h1 className="text-2xl font-bold text-white mb-1">{stockName} <span className="text-slate-500 font-mono text-lg">({ticker})</span></h1>
-              <p className="text-[12px] text-slate-500">리포트 생성: {generatedAt}</p>
+              <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 진단 리포트</p>
+              <h1 className="text-[22px] font-bold text-white tracking-wide">
+                {stockName.toUpperCase()}{' '}
+                <span className="text-slate-500 font-mono text-base font-normal">({ticker})</span>
+              </h1>
+              <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성 시각: {generatedAt}</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => alert('준비 중입니다.')}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700
-                  border border-slate-700 text-slate-400 text-[12px] transition-colors cursor-pointer"
-              >
-                <Share2 className="w-3.5 h-3.5" /> SHARE
+            <div className="flex items-center gap-2 shrink-0 mt-1">
+              <button onClick={() => alert('준비 중입니다.')}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-700
+                  border border-slate-700 text-slate-400 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer">
+                <Share2 className="w-3 h-3" /> SHARE
               </button>
-              <button
-                onClick={() => alert('준비 중입니다.')}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700
-                  border border-slate-700 text-slate-400 text-[12px] transition-colors cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" /> PRINT
+              <button onClick={() => alert('준비 중입니다.')}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30
+                  border border-indigo-500/40 text-indigo-300 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer">
+                <Printer className="w-3 h-3" /> PRINT REPORT
               </button>
             </div>
           </div>
 
-          {/* 1행: 추천 의견 + 수익 스냅샷 */}
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 mb-4">
-            {/* 추천 의견 */}
-            <div className={`rounded-2xl p-6 border shadow-xl ${cfg.bg} ${cfg.border} ${cfg.glow}`}>
-              <p className="text-[10px] font-bold tracking-widest text-slate-500 uppercase mb-3">AI 추천 의견</p>
-              <div className="flex items-center gap-4 mb-4">
-                <span className={`text-4xl font-black ${cfg.color}`}>{cfg.icon}</span>
-                <span className={`text-3xl font-black ${cfg.color}`}>{result.recommendation}</span>
+          {/* ── 1행: AI 추천 의견 (65%) + PERFORMANCE SNAPSHOT (35%) ── */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-4">
+
+            {/* AI 추천 의견 */}
+            <div className={`rounded-2xl border overflow-hidden ${cfg.border}`} style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
+              {/* 상단 컬러 바 */}
+              <div className={`h-1 w-full ${
+                result.recommendation === '추가매수' ? 'bg-gradient-to-r from-emerald-500 to-teal-400' :
+                result.recommendation === '홀딩' ? 'bg-gradient-to-r from-blue-500 to-indigo-400' :
+                'bg-gradient-to-r from-orange-500 to-red-500'
+              }`} />
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  {/* 아이콘 뱃지 */}
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black ${cfg.bg} border ${cfg.border}`}>
+                    <span className={cfg.color}>{cfg.icon}</span>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">AI 추천 의견</p>
+                    <p className={`text-xl font-black ${cfg.color}`}>{result.recommendation}</p>
+                  </div>
+                </div>
+                <p className="text-[13px] text-slate-300 leading-relaxed">{result.summary}</p>
               </div>
-              <p className="text-[14px] text-slate-300 leading-relaxed">{result.summary}</p>
             </div>
-            {/* 수익 스냅샷 */}
-            <div className="grid grid-cols-1 gap-3 w-full md:w-52">
-              <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl px-5 py-4">
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">현재가</p>
-                <p className="text-xl font-bold text-white font-mono">{fmt(result.currentPrice)}원</p>
+
+            {/* PERFORMANCE SNAPSHOT */}
+            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl overflow-hidden">
+              <div className="px-5 pt-4 pb-2 border-b border-slate-700/50">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Performance Snapshot</p>
               </div>
-              <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl px-5 py-4">
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">수익률</p>
-                <p className={`text-xl font-bold font-mono ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                  {fmtRate(result.profitRate)}
-                </p>
-              </div>
-              <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl px-5 py-4">
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">평가손익</p>
-                <p className={`text-lg font-bold font-mono ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                  {result.profitAmount > 0 ? '+' : ''}{fmt(result.profitAmount)}원
-                </p>
+              <div className="divide-y divide-slate-700/40">
+                <div className="flex items-center justify-between px-5 py-3.5">
+                  <span className="text-[12px] text-slate-400">현재가</span>
+                  <span className="text-[15px] font-bold text-white font-mono">{fmt(result.currentPrice)} <span className="text-[11px] text-slate-500 font-normal">KRW</span></span>
+                </div>
+                <div className="flex items-center justify-between px-5 py-3.5">
+                  <span className="text-[12px] text-slate-400">수익률</span>
+                  <span className={`text-[15px] font-bold font-mono flex items-center gap-1 ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
+                    {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                    {fmtRate(result.profitRate)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-5 py-3.5">
+                  <span className="text-[12px] text-slate-400">평가손익</span>
+                  <span className={`text-[14px] font-bold font-mono ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
+                    {result.profitAmount > 0 ? '+' : ''}{fmt(result.profitAmount)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-5 py-3.5">
+                  <span className="text-[12px] text-slate-400">매수평균가</span>
+                  <span className="text-[13px] text-slate-300 font-mono">{fmt(result.avgPrice)}</span>
+                </div>
+                <div className="flex items-center justify-between px-5 py-3.5">
+                  <span className="text-[12px] text-slate-400">보유수량</span>
+                  <span className="text-[13px] text-slate-300 font-mono">{fmt(result.quantity)}주</span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* 2행: 목표가 / 손절가 */}
+          {/* ── 2행: Target Price / Stop Loss ── */}
           <div className="grid grid-cols-2 gap-4 mb-4">
-            <ResultCard title="Target Price">
-              <p className="text-2xl font-bold text-emerald-300 font-mono">{fmt(result.targetPrice)}원</p>
-              <p className="text-[12px] text-slate-500 mt-1">
-                현재가 대비 {((result.targetPrice - result.currentPrice) / result.currentPrice * 100) >= 0 ? '+' : ''}
-                {((result.targetPrice - result.currentPrice) / result.currentPrice * 100).toFixed(1)}%
-              </p>
-            </ResultCard>
-            <ResultCard title="Stop Loss">
-              <p className="text-2xl font-bold text-red-300 font-mono">{fmt(result.stopLoss)}원</p>
-              <p className="text-[12px] text-slate-500 mt-1">
-                현재가 대비 {((result.stopLoss - result.currentPrice) / result.currentPrice * 100).toFixed(1)}%
-              </p>
-            </ResultCard>
-          </div>
-
-          {/* 3행: 추천 이유 / 기술적 분석 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <ResultCard title="추천 이유">
-              <p className="text-[13px] text-slate-300 leading-relaxed whitespace-pre-line">{result.reason}</p>
-            </ResultCard>
-            <ResultCard title="기술적 분석">
-              <p className="text-[13px] text-slate-300 leading-relaxed">{result.technical}</p>
-            </ResultCard>
-          </div>
-
-          {/* 4행: 수급 동향 / 리스크·기회 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <ResultCard title="수급 동향">
-              <div className="flex flex-col gap-3">
-                <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">기관</p>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.institutional}</p>
+            {/* Target Price */}
+            <div className="rounded-2xl border border-emerald-500/25 overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, #1a1f2e 100%)' }}>
+              <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-emerald-500/15">
+                <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+                  </svg>
                 </div>
-                <div className="border-t border-slate-700/50 pt-3">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">외국인</p>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.foreign}</p>
-                </div>
+                <p className="text-[10px] font-bold text-emerald-400/70 uppercase tracking-widest">Target Price (목표가)</p>
               </div>
-            </ResultCard>
-            <div className="flex flex-col gap-4">
-              <ResultCard title="⚠️ 리스크 요인">
-                <p className="text-[13px] text-slate-300 leading-relaxed">{result.risk}</p>
-              </ResultCard>
-              <ResultCard title="💡 기회 요인">
-                <p className="text-[13px] text-slate-300 leading-relaxed">{result.opportunity}</p>
-              </ResultCard>
+              <div className="px-5 py-4">
+                <p className="text-2xl font-black text-emerald-300 font-mono mb-1">{fmt(result.targetPrice)} <span className="text-sm font-normal text-emerald-500/60">KRW</span></p>
+                <p className="text-[12px] text-emerald-400/60">
+                  현재가 대비 {targetUpRate >= 0 ? '+' : ''}{targetUpRate.toFixed(1)}%
+                </p>
+              </div>
+            </div>
+
+            {/* Stop Loss */}
+            <div className="rounded-2xl border border-red-500/25 overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.08) 0%, #1a1f2e 100%)' }}>
+              <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-red-500/15">
+                <div className="w-7 h-7 rounded-lg bg-red-500/15 flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                    <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                <p className="text-[10px] font-bold text-red-400/70 uppercase tracking-widest">Stop Loss (손절가)</p>
+              </div>
+              <div className="px-5 py-4">
+                <p className="text-2xl font-black text-red-300 font-mono mb-1">{fmt(result.stopLoss)} <span className="text-sm font-normal text-red-500/60">KRW</span></p>
+                <p className="text-[12px] text-red-400/60">
+                  현재가 대비 {stopDownRate.toFixed(1)}%
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* 5행: 뉴스 */}
-          {result.news?.length > 0 && (
-            <ResultCard title="뉴스 동향" className="mb-4">
-              <div className="flex flex-col divide-y divide-slate-700/50">
-                {result.news.map((n, i) => (
-                  <div key={i} className="py-3 first:pt-0 last:pb-0">
-                    <p className="text-[13px] font-medium text-white leading-snug">{n.title}</p>
-                    {n.description && (
-                      <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.description}</p>
-                    )}
+          {/* ── 3행: 추천 이유 ── */}
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">추천 이유</p>
+            <div className="flex flex-col gap-2.5">
+              {reasonBullets.map((line, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <span className="mt-1 w-4 h-4 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center shrink-0">
+                    <svg className="w-2 h-2 text-indigo-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="2"/></svg>
+                  </span>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{line}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── 4행: 기술적 분석 ── */}
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">기술적 분석</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {technicalLines.map((line, i) => (
+                <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
+                  <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">{String(i + 1).padStart(2, '0')}</span>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{line}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── 5행: 기관/외국인 동향 + 리스크 + 기회 ── */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+
+            {/* 기관/외국인 동향 */}
+            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">기관/외국인 동향</p>
+              <div className="flex flex-col gap-4">
+                {/* 기관 */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] text-slate-400">기관</span>
+                  </div>
+                  <p className="text-[12px] text-slate-300 leading-relaxed">{result.institutional}</p>
+                </div>
+                <div className="border-t border-slate-700/40 pt-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] text-slate-400">외국인</span>
+                  </div>
+                  <p className="text-[12px] text-slate-300 leading-relaxed">{result.foreign}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 리스크 요인 */}
+            <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                  Risk Factors
+                </span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {result.risk.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
                   </div>
                 ))}
               </div>
-            </ResultCard>
+            </div>
+
+            {/* 기회 요인 */}
+            <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                  Opportunity Factors
+                </span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {result.opportunity.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── 6행: 뉴스 ── */}
+          {result.news?.length > 0 && (
+            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">뉴스 동향</p>
+              <div className="flex flex-col divide-y divide-slate-700/40">
+                {result.news.map((n, i) => (
+                  <div key={i} className="py-3.5 first:pt-0 last:pb-0">
+                    <div className="flex items-start gap-2.5">
+                      <span className="mt-1 text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                      <div>
+                        <p className="text-[13px] font-medium text-white leading-snug">{n.title}</p>
+                        {n.description && (
+                          <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* 면책 */}
-          <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6">
+          <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6 px-4">
             본 분석은 AI가 공개 정보를 바탕으로 생성한 참고 자료입니다. 투자 판단의 책임은 본인에게 있습니다.
           </p>
 
           {/* 다시 진단받기 */}
-          <button
-            onClick={handleReset}
+          <button onClick={handleReset}
             className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl
               bg-slate-800 hover:bg-slate-700 border border-slate-700
-              text-slate-300 text-[14px] transition-colors cursor-pointer"
-          >
+              text-slate-300 text-[13px] transition-colors cursor-pointer">
             <ChevronLeft className="w-4 h-4" /> 다시 종목진단 받기
           </button>
         </div>
