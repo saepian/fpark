@@ -220,6 +220,19 @@ ${newsBlock}
 
     const result = JSON.parse(jsonMatch[0]);
 
+    // 기관/외국인 flow 지표 계산
+    let flowType: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+    let flowPercent = 50;
+    if (investorData) {
+      const netAmount = investorData.foreign.amount + investorData.institution.amount;
+      flowType = netAmount > 0 ? 'BUY' : netAmount < 0 ? 'SELL' : 'NEUTRAL';
+      // ±1000억 기준으로 25~95% 사이로 스케일
+      const raw = Math.min(Math.abs(netAmount) / 1000 * 70 + 25, 95);
+      flowPercent = Math.round(raw);
+    }
+
+    const finalResult = { ...result, flowType, flowPercent };
+
     // DB 저장
     await supabase.from('stock_diagnosis').insert({
       user_id: user.id,
@@ -228,10 +241,10 @@ ${newsBlock}
       avg_price: avgPrice,
       quantity,
       buy_date: buyDate || null,
-      result,
+      result: finalResult,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(finalResult);
   } catch (e) {
     console.error('[DIAGNOSIS]', e);
     return NextResponse.json({ error: 'AI 분석 생성 실패' }, { status: 500 });

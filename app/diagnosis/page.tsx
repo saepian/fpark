@@ -22,6 +22,42 @@ interface DiagnosisResult {
   stopLoss: number;
   risk: string;
   opportunity: string;
+  flowType?: 'BUY' | 'SELL' | 'NEUTRAL';
+  flowPercent?: number;
+}
+
+function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
+  const r = 54;
+  const circ = 2 * Math.PI * r;
+  const filled = circ * (percent / 100);
+  const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
+  const label = type === 'BUY' ? 'BUY FLOW' : type === 'SELL' ? 'SELL FLOW' : 'NEUTRAL';
+
+  return (
+    <svg width="148" height="148" viewBox="0 0 148 148">
+      {/* 배경 링 */}
+      <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
+      {/* 컬러 아크 */}
+      <circle
+        cx="74" cy="74" r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth="14"
+        strokeLinecap="round"
+        strokeDasharray={`${filled} ${circ}`}
+        transform="rotate(-90 74 74)"
+        style={{ filter: `drop-shadow(0 0 6px ${color}66)` }}
+      />
+      {/* 퍼센트 */}
+      <text x="74" y="69" textAnchor="middle" fill={color} fontSize="22" fontWeight="800" fontFamily="monospace">
+        {percent}%
+      </text>
+      {/* 라벨 */}
+      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="600" letterSpacing="1">
+        {label}
+      </text>
+    </svg>
+  );
 }
 
 interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
@@ -385,21 +421,36 @@ export default function DiagnosisPage() {
           {/* ── 5행: 기관/외국인 동향 + 리스크 + 기회 ── */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
 
-            {/* 기관/외국인 동향 */}
+            {/* 기관/외국인 동향 — 도넛 차트 */}
             <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">기관/외국인 동향</p>
-              <div className="flex flex-col gap-4">
-                {/* 기관 */}
+              <div className="flex items-center gap-2 mb-4">
+                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
+                  <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">기관/외국인 동향</p>
+              </div>
+
+              {/* 도넛 차트 */}
+              <div className="flex flex-col items-center py-2">
+                <DonutChart
+                  percent={result.flowPercent ?? 50}
+                  type={result.flowType ?? 'NEUTRAL'}
+                />
+              </div>
+
+              {/* 요약 텍스트 */}
+              <p className="text-center text-[12px] text-slate-400 mt-3 leading-relaxed">
+                {result.foreign.split(/[.。]/)[0].trim()}
+              </p>
+
+              {/* 기관/외국인 상세 */}
+              <div className="mt-4 flex flex-col gap-3 border-t border-slate-700/40 pt-4">
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] text-slate-400">기관</span>
-                  </div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">기관</p>
                   <p className="text-[12px] text-slate-300 leading-relaxed">{result.institutional}</p>
                 </div>
-                <div className="border-t border-slate-700/40 pt-4">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] text-slate-400">외국인</span>
-                  </div>
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">외국인</p>
                   <p className="text-[12px] text-slate-300 leading-relaxed">{result.foreign}</p>
                 </div>
               </div>
