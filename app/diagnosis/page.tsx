@@ -408,7 +408,7 @@ export default function DiagnosisPage() {
           {/* ── 4행: 기술적 분석 ── */}
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">기술적 분석</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-3">
               {technicalLines.map((line, i) => (
                 <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
                   <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">{String(i + 1).padStart(2, '0')}</span>
@@ -442,18 +442,6 @@ export default function DiagnosisPage() {
               <p className="text-center text-[12px] text-slate-400 mt-3 leading-relaxed">
                 {result.foreign.split(/[.。]/)[0].trim()}
               </p>
-
-              {/* 기관/외국인 상세 */}
-              <div className="mt-4 flex flex-col gap-3 border-t border-slate-700/40 pt-4">
-                <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">기관</p>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">{result.institutional}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">외국인</p>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">{result.foreign}</p>
-                </div>
-              </div>
             </div>
 
             {/* 리스크 요인 */}
@@ -491,7 +479,33 @@ export default function DiagnosisPage() {
             </div>
           </div>
 
-          {/* ── 6행: 뉴스 ── */}
+          {/* ── 6행: 기관 / 외국인 상세 ── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">기관 동향</p>
+              <div className="flex flex-col gap-2">
+                {result.institutional.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-violet-400/60 text-[10px] mt-1 shrink-0">▶</span>
+                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">외국인 동향</p>
+              <div className="flex flex-col gap-2">
+                {result.foreign.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-sky-400/60 text-[10px] mt-1 shrink-0">▶</span>
+                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ── 7행: 뉴스 ── */}
           {result.news?.length > 0 && (
             <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">뉴스 동향</p>
