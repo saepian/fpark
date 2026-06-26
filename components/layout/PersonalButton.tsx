@@ -207,8 +207,7 @@ export default function PersonalButton() {
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    setOpen(false);
-    router.refresh();
+    window.location.href = '/';
   };
 
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? '';
