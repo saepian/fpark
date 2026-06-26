@@ -61,7 +61,7 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
         {/* 우측: 네비 + 구분선 + 알림 + 개인화 + 햄버거(모바일) */}
         <div className="flex-shrink-0 ml-auto flex items-center gap-3 z-10">
           <nav className="hidden md:flex items-center gap-0.5">
-            {NAV_ITEMS.map(({ label, href, comingSoon }) =>
+            {NAV_ITEMS.map(({ label, href, comingSoon, special }) =>
               comingSoon ? (
                 <div key={href} className="relative group">
                   <span className="text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-default text-slate-600 select-none">
