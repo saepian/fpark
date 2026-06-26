@@ -4,10 +4,10 @@ import AppShell from '../components/AppShell';
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ code?: string; refresh?: string }>;
+  searchParams: Promise<{ code?: string }>;
 }) {
-  const { code, refresh } = await searchParams;
-  if (code && !refresh) {
+  const { code } = await searchParams;
+  if (code) {
     redirect(`/auth/callback?code=${code}`);
   }
 

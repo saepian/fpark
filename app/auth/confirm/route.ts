@@ -29,7 +29,7 @@ export async function GET(request: Request) {
 
     const { error } = await supabase.auth.verifyOtp({ token_hash, type });
     if (!error) {
-      return NextResponse.redirect(`https://fpark.com${next}?refresh=true`);
+      return NextResponse.redirect(`https://fpark.com${next}`);
     }
   }
 
