@@ -9,6 +9,12 @@ export async function GET(request: Request) {
   console.log('[auth/callback] 진입, code:', code ? '있음' : '없음');
   console.log('[auth/callback] 전체 URL:', request.url);
 
+  // netlify.app 도메인으로 온 경우 fpark.com으로 리다이렉트
+  if (request.url.includes('netlify.app') && code) {
+    console.log('[auth/callback] netlify.app 도메인 감지, fpark.com으로 리다이렉트');
+    return NextResponse.redirect(`https://fpark.com/auth/callback?code=${code}`);
+  }
+
   if (code) {
     const cookieStore = await cookies();
     const supabase = createServerClient(
@@ -33,12 +39,9 @@ export async function GET(request: Request) {
     console.log('[auth/callback] exchangeCodeForSession 결과:', error ? error.message : '성공');
 
     if (error) {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? origin;
-      return NextResponse.redirect(`${siteUrl}/?error=auth_failed`);
+      return NextResponse.redirect(`https://fpark.com/?error=auth_failed`);
     }
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? origin;
-  console.log('[auth/callback] 리다이렉트:', `${siteUrl}/`);
-  return NextResponse.redirect(`${siteUrl}/`);
+  return NextResponse.redirect(`https://fpark.com/`);
 }
