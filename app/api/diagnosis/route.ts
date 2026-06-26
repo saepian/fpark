@@ -102,7 +102,8 @@ export async function GET() {
     .eq('user_id', user.id)
     .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
-  return NextResponse.json({ count: count ?? 0, remaining: Math.max(0, 2 - (count ?? 0)) });
+  const isAdmin = user.email === 'saepian2@gmail.com';
+  return NextResponse.json({ count: count ?? 0, remaining: isAdmin ? 999 : Math.max(0, 2 - (count ?? 0)) });
 }
 
 export async function POST(request: NextRequest) {
@@ -118,7 +119,8 @@ export async function POST(request: NextRequest) {
     .eq('user_id', user.id)
     .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
-  if ((count ?? 0) >= 2) {
+  const isAdmin = user.email === 'saepian2@gmail.com';
+  if (!isAdmin && (count ?? 0) >= 2) {
     return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
   }
 
