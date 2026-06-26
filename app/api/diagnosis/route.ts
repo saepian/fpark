@@ -102,7 +102,7 @@ export async function GET() {
     .eq('user_id', user.id)
     .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
-  return NextResponse.json({ count: count ?? 0, remaining: Math.max(0, 1 - (count ?? 0)) });
+  return NextResponse.json({ count: count ?? 0, remaining: 999 }); // TODO: 테스트 중 — 제한 해제
 }
 
 export async function POST(request: NextRequest) {
@@ -118,9 +118,10 @@ export async function POST(request: NextRequest) {
     .eq('user_id', user.id)
     .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
-  if ((count ?? 0) >= 1) {
-    return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
-  }
+  // TODO: 테스트 중 — 횟수 제한 해제
+  // if ((count ?? 0) >= 1) {
+  //   return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
+  // }
 
   const { ticker, name, avgPrice, quantity, buyDate } = await request.json();
   if (!ticker || !name || !avgPrice || !quantity) {
