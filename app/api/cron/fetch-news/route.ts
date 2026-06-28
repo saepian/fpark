@@ -5,7 +5,7 @@ import { isFinanceRelated } from '@/lib/gemini';
 import { batchSummarize, type BatchArticle } from '@/lib/summarize';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 10; // Netlify 10초 타임아웃
+export const maxDuration = 60; // Vercel 60초
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,10 +44,9 @@ const MAX_ARTICLES = 5;
 const BATCH_SIZE = 3;
 const ITEMS_PER_FEED = 3;
 
-// 이미지 URL 추출 (우선순위: media > enclosure > img태그 > og:image)
+// 이미지 URL 추출 (우선순위: media > enclosure > img태그)
 async function extractImageUrl(
-  item: Parser.Item & CustomItem,
-  articleUrl: string
+  item: Parser.Item & CustomItem
 ): Promise<string | null> {
   // 1순위-a: media:content
   const mc = item['media:content'];
@@ -66,24 +65,6 @@ async function extractImageUrl(
   const html = item['content:encoded'] ?? item.content ?? item.summary ?? '';
   const imgMatch = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   if (imgMatch?.[1]?.startsWith('http')) return imgMatch[1];
-
-  // 3순위: 원문 페이지의 og:image (타임아웃 3초)
-  try {
-    const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(articleUrl, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FPark/1.0)' },
-    });
-    clearTimeout(tid);
-    const pageHtml = await res.text();
-    const ogMatch =
-      pageHtml.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
-      pageHtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-    if (ogMatch?.[1]?.startsWith('http')) return ogMatch[1];
-  } catch {
-    // 타임아웃·네트워크 오류 무시
-  }
 
   return null;
 }
@@ -134,50 +115,52 @@ export async function GET(request: NextRequest) {
     })
   );
 
-  for (const result of feedResults) {
-    if (candidates.length >= MAX_ARTICLES) break;
+  // 2단계: 모든 URL 수집 후 Supabase 중복 체크 일괄 처리
+  type RawItem = { source: (typeof RSS_SOURCES)[number]; item: Parser.Item & CustomItem; url: string };
+  const rawItems: RawItem[] = [];
 
+  for (const result of feedResults) {
     if (result.status === 'rejected') {
       console.error(`RSS fetch error:`, result.reason);
       results.errors++;
       continue;
     }
-
-    const { source, items } = result.value;
-
-    for (const item of items) {
-      if (candidates.length >= MAX_ARTICLES) break;
-
+    for (const item of result.value.items) {
       const url = item.link ?? item.guid;
-      if (!url) continue;
-
-      const { data: existing } = await supabase
-        .from('articles')
-        .select('id')
-        .eq('original_url', url)
-        .maybeSingle();
-
-      if (existing) { results.skipped++; continue; }
-
-      const title   = item.title ?? '(제목 없음)';
-      const content = item.contentSnippet ?? item.content ?? item.summary ?? '';
-
-      if (!isFinanceRelated(title, content)) {
-        console.log(`[키워드필터] ${source.source} — ${title.slice(0, 50)}`);
-        results.filtered++;
-        continue;
-      }
-
-      candidates.push({
-        title,
-        content,
-        url,
-        source:   source.source,
-        category: source.category,
-        pubDate:  item.pubDate ? new Date(item.pubDate).toISOString() : null,
-        item:     item as Parser.Item & CustomItem,
-      });
+      if (url) rawItems.push({ source: result.value.source, item: item as Parser.Item & CustomItem, url });
     }
+  }
+
+  const allUrls = rawItems.map((r) => r.url);
+  const { data: existingRows } = await supabase
+    .from('articles')
+    .select('original_url')
+    .in('original_url', allUrls);
+  const existingUrls = new Set((existingRows ?? []).map((r: { original_url: string }) => r.original_url));
+
+  for (const { source, item, url } of rawItems) {
+    if (candidates.length >= MAX_ARTICLES) break;
+
+    if (existingUrls.has(url)) { results.skipped++; continue; }
+
+    const title   = item.title ?? '(제목 없음)';
+    const content = item.contentSnippet ?? item.content ?? item.summary ?? '';
+
+    if (!isFinanceRelated(title, content)) {
+      console.log(`[키워드필터] ${source.source} — ${title.slice(0, 50)}`);
+      results.filtered++;
+      continue;
+    }
+
+    candidates.push({
+      title,
+      content,
+      url,
+      source:   source.source,
+      category: source.category,
+      pubDate:  item.pubDate ? new Date(item.pubDate).toISOString() : null,
+      item,
+    });
   }
 
   console.log(`[CRON] 후보: ${candidates.length}개 (건너뜀: ${results.skipped}, 키워드필터: ${results.filtered})`);
@@ -194,7 +177,7 @@ export async function GET(request: NextRequest) {
         console.error('[CRON] batchSummarize 오류:', e instanceof Error ? e.message.slice(0, 100) : e);
         return batch.map(() => null as string | null);
       }),
-      Promise.all(batch.map((c) => extractImageUrl(c.item, c.url).catch(() => null))),
+      Promise.all(batch.map((c) => extractImageUrl(c.item).catch(() => null))),
     ]);
 
     console.log(`[CRON] 요약 결과: ${summaries.filter(Boolean).length}/${summaries.length}개 성공`);
