@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import SearchDropdown from './SearchDropdown';
 import type { SearchResult } from '../../lib/types';
@@ -11,6 +12,7 @@ interface SearchBarProps {
 }
 
 export default function SearchBar({ onSelectStock }: SearchBarProps) {
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -98,6 +100,25 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
           onFocus={() => {
             updateDropPos();
             setIsOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { setIsOpen(false); return; }
+            if (e.key === 'Enter' && query.trim()) {
+              e.preventDefault();
+              if (results.length > 0) {
+                const first = results[0];
+                if (first.isOverseas && first.market) {
+                  router.push(`/overseas/${first.market}/${first.ticker}`);
+                } else {
+                  onSelectStock(first.ticker);
+                }
+                setIsOpen(false);
+                setQuery('');
+                setResults([]);
+              } else {
+                setIsOpen(true);
+              }
+            }
           }}
           className="bg-transparent border-none p-0 text-sm text-gray-900 dark:text-[#d4e4fa] focus:ring-0 w-full placeholder:text-gray-400 dark:placeholder:text-[#8c909f] focus:outline-none"
           placeholder="종목명 또는 코드 검색"

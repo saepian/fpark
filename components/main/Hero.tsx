@@ -355,10 +355,22 @@ export default function Hero() {
                 onChange={(e) => { setQuery(e.target.value); setShowDrop(true); }}
                 onFocus={() => { if (query.length >= 1) setShowDrop(true); }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') setShowDrop(false);
+                  if (e.key === 'Escape') { setShowDrop(false); return; }
                   if (e.key === 'Enter' && query.trim()) {
-                    router.push(`/search?q=${encodeURIComponent(query)}`);
-                    setShowDrop(false);
+                    e.preventDefault();
+                    if (results.length > 0) {
+                      const first = results[0];
+                      if (first.isOverseas && first.market) {
+                        router.push(`/overseas/${first.market}/${first.ticker}`);
+                        setShowDrop(false);
+                        setQuery('');
+                        setResults([]);
+                      } else {
+                        handleSelect(first.ticker);
+                      }
+                    } else {
+                      setShowDrop(true);
+                    }
                   }
                 }}
                 placeholder="종목명 또는 코드 검색  (예: 삼성전자, 005930)"
