@@ -24,6 +24,8 @@ interface DiagnosisResult {
   opportunity: string;
   flowType?: 'BUY' | 'SELL' | 'NEUTRAL';
   flowPercent?: number;
+  shortTermOutlook?: string;
+  midTermOutlook?: string;
 }
 
 function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
@@ -122,6 +124,7 @@ export default function DiagnosisPage() {
 
   // 상태
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState('');
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -158,6 +161,19 @@ export default function DiagnosisPage() {
     }, 200);
     return () => clearTimeout(t);
   }, [searchQuery]);
+
+  // 로딩 단계 자동 진행 (타이밍 기반 UX)
+  const LOADING_STEPS = ['종목 데이터 조회 중...', '뉴스 수집 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', 'AI 분석 중...'];
+  useEffect(() => {
+    if (!loading) { setLoadingStep(0); return; }
+    const timers = [
+      setTimeout(() => setLoadingStep(1), 2500),
+      setTimeout(() => setLoadingStep(2), 4500),
+      setTimeout(() => setLoadingStep(3), 6500),
+      setTimeout(() => setLoadingStep(4), 9000),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [loading]);
 
   // 드롭다운 외부 클릭 닫기
   useEffect(() => {
@@ -220,21 +236,32 @@ export default function DiagnosisPage() {
   // ── 로딩 오버레이 ──────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-[#0d1117]/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-6">
+      <div className="fixed inset-0 bg-[#0d1117]/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-8">
         <div className="relative w-16 h-16">
           <div className="absolute inset-0 rounded-full border-4 border-indigo-500/20" />
           <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin" />
           <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-emerald-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
         </div>
-        <div className="text-center">
+        <div className="text-center mb-2">
           <p className="text-white font-semibold text-lg mb-1">AI가 종목을 분석하고 있습니다...</p>
-          <p className="text-slate-400 text-sm">예상 소요 시간: 10~20초</p>
+          <p className="text-slate-400 text-sm">예상 소요 시간: 15~25초</p>
         </div>
-        <div className="flex gap-2 mt-2">
-          {['수급 분석', '뉴스 수집', 'AI 판단'].map((step, i) => (
-            <span key={step} className="text-[11px] px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-              {step}
-            </span>
+        <div className="flex flex-col gap-3 min-w-[230px]">
+          {LOADING_STEPS.map((step, i) => (
+            <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${
+              i < loadingStep ? 'text-emerald-400' :
+              i === loadingStep ? 'text-white' :
+              'text-slate-600'
+            }`}>
+              {i < loadingStep ? (
+                <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shrink-0 text-[10px]">✓</span>
+              ) : i === loadingStep ? (
+                <span className="w-5 h-5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
+              ) : (
+                <span className="w-5 h-5 rounded-full border border-slate-700 shrink-0" />
+              )}
+              <span className={`text-[13px] ${i === loadingStep ? 'font-semibold' : ''}`}>{step}</span>
+            </div>
           ))}
         </div>
       </div>
@@ -505,7 +532,33 @@ export default function DiagnosisPage() {
             </div>
           </div>
 
-          {/* ── 7행: 뉴스 ── */}
+          {/* ── 7행: 단기/중기 전망 ── */}
+          {(result.shortTermOutlook || result.midTermOutlook) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              {result.shortTermOutlook && (
+                <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
+                      단기 전망 1M
+                    </span>
+                  </div>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
+                </div>
+              )}
+              {result.midTermOutlook && (
+                <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
+                      중기 전망 3M
+                    </span>
+                  </div>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── 8행: 뉴스 ── */}
           {result.news?.length > 0 && (
             <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">뉴스 동향</p>

@@ -124,6 +124,7 @@ export default function PortfolioDiagnosisPage() {
 
   // submit
   const [loading,     setLoading]     = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error,       setError]       = useState('');
   const [result,      setResult]      = useState<PortfolioResult | null>(null);
   const [generatedAt, setGeneratedAt] = useState('');
@@ -147,6 +148,19 @@ export default function PortfolioDiagnosisPage() {
         .catch(() => {});
     });
   }, []); // eslint-disable-line
+
+  // 로딩 단계 자동 진행
+  const PORT_LOADING_STEPS = ['종목 데이터 조회 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', '뉴스 수집 중...', 'AI 분석 중...'];
+  useEffect(() => {
+    if (!loading) { setLoadingStep(0); return; }
+    const timers2 = [
+      setTimeout(() => setLoadingStep(1), 3000),
+      setTimeout(() => setLoadingStep(2), 7000),
+      setTimeout(() => setLoadingStep(3), 11000),
+      setTimeout(() => setLoadingStep(4), 15000),
+    ];
+    return () => timers2.forEach(clearTimeout);
+  }, [loading]);
 
   // close watch popover on outside click
   useEffect(() => {
@@ -261,22 +275,33 @@ export default function PortfolioDiagnosisPage() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-[#0d1117]/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-6">
+      <div className="fixed inset-0 bg-[#0d1117]/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-8">
         <div className="relative w-16 h-16">
           <div className="absolute inset-0 rounded-full border-4 border-indigo-500/20" />
           <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin" />
           <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-emerald-400 animate-spin"
             style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
         </div>
-        <div className="text-center">
+        <div className="text-center mb-2">
           <p className="text-white font-semibold text-lg mb-1">AI가 포트폴리오를 분석하고 있습니다...</p>
-          <p className="text-slate-400 text-sm">예상 소요 시간: 15~30초</p>
+          <p className="text-slate-400 text-sm">예상 소요 시간: 20~40초</p>
         </div>
-        <div className="flex gap-2 mt-2">
-          {['현재가 조회', '섹터 분석', 'AI 진단'].map(step => (
-            <span key={step} className="text-[11px] px-3 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-              {step}
-            </span>
+        <div className="flex flex-col gap-3 min-w-[240px]">
+          {PORT_LOADING_STEPS.map((step, i) => (
+            <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${
+              i < loadingStep ? 'text-emerald-400' :
+              i === loadingStep ? 'text-white' :
+              'text-slate-600'
+            }`}>
+              {i < loadingStep ? (
+                <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shrink-0 text-[10px]">✓</span>
+              ) : i === loadingStep ? (
+                <span className="w-5 h-5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
+              ) : (
+                <span className="w-5 h-5 rounded-full border border-slate-700 shrink-0" />
+              )}
+              <span className={`text-[13px] ${i === loadingStep ? 'font-semibold' : ''}`}>{step}</span>
+            </div>
           ))}
         </div>
       </div>
