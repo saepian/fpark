@@ -197,38 +197,31 @@ ${newsBlockStr}
 3. 실적·뉴스와 결합하여 업황 및 촉매 요인 분석
 4. 보유 기간·수익률을 고려한 최적 대응 전략 (목표가·손절가 수치 근거 포함)
 
-## 출력 형식 (JSON만, 한국어로)
+## 출력 JSON 스키마 (반드시 아래 구조 그대로 출력)
 {
-  "summary": "전체 분석 요약 (3-4문장: 주가 레벨·수급 방향·업황·투자의견 순서로)",
-  "currentPrice": ${Math.round(currentPrice)},
-  "avgPrice": ${Math.round(Number(avgPrice))},
-  "quantity": ${Number(quantity)},
-  "profitRate": ${parseFloat(profitRate.toFixed(2))},
-  "profitAmount": ${Math.round(profitAmount)},
-  "news": [{"title": "뉴스 제목", "description": "뉴스 내용 요약"}],
-  "institutional": "기관 수급 심층 분석 (5일 추이 방향성, 누적 규모, 업종 의미 해석, 2-3문장)",
-  "foreign": "외국인 수급 심층 분석 (5일 추이, 글로벌 매크로 관점, 2-3문장)",
-  "technical": "기술적 분석 (52주 위치 해석, 지지선·저항선 근거, 거래량 평가, 2-3문장)",
   "recommendation": "홀딩",
-  "reason": "추천 이유 (수치 근거 필수 포함, 3가지 핵심 논거를 번호 없이 줄바꿈으로 구분)",
+  "summary": "종합 의견 텍스트 (200자 이내)",
   "targetPrice": ${Math.round(currentPrice * 1.15)},
   "stopLoss": ${Math.round(currentPrice * 0.92)},
-  "risk": "핵심 리스크 3가지 (수치 포함, 각 항목 줄바꿈 구분)",
-  "opportunity": "핵심 기회 요인 3가지 (수치 포함, 각 항목 줄바꿈 구분)",
+  "reasons": ["추천 이유 1 (수치 근거 포함)", "추천 이유 2", "추천 이유 3"],
+  "technicalAnalysis": ["기술적 분석 1 (52주 위치·지지선·저항선)", "기술적 분석 2 (거래량·모멘텀)"],
+  "riskFactors": ["리스크 요인 1 (수치 포함)", "리스크 요인 2", "리스크 요인 3"],
+  "opportunityFactors": ["기회 요인 1 (수치 포함)", "기회 요인 2", "기회 요인 3"],
+  "institutionalFlow": "기관 수급 동향 상세 설명 (5일 추이·누적 규모·업종 의미, 2-3문장)",
+  "foreignFlow": "외국인 수급 동향 상세 설명 (5일 추이·글로벌 매크로 관점, 2-3문장)",
+  "flowPercentage": 50,
   "shortTermOutlook": "단기(1개월) 전망 (구체적 가격대 및 조건 포함, 2문장)",
-  "midTermOutlook": "중기(3개월) 전망 (업황 변수 및 목표 시나리오 포함, 2문장)",
-  "flowType": "NEUTRAL",
-  "flowPercent": 50
+  "midTermOutlook": "중기(3개월) 전망 (업황 변수 및 목표 시나리오 포함, 2문장)"
 }
 
+위 JSON 스키마를 반드시 준수하세요. 각 필드는 반드시 포함되어야 합니다.
 규칙:
-- 모든 숫자 필드(currentPrice, avgPrice, quantity, profitRate, profitAmount, targetPrice, stopLoss, flowPercent)는 반드시 숫자 타입
 - recommendation은 반드시 "홀딩", "매도", "분할매도", "추가매수", "손절" 중 하나
-- flowType은 반드시 "BUY", "SELL", "NEUTRAL" 중 하나
-- news 배열은 제공된 뉴스 데이터 기반 (없으면 빈 배열)
-- JSON 외 텍스트, 마크다운 코드블록 절대 금지
-
-반드시 순수 JSON만 응답하세요. 마크다운 코드블록(\`\`\`json), 설명 텍스트, preamble 없이 { 로 시작하는 JSON만 출력하세요.`;
+- reasons, technicalAnalysis, riskFactors, opportunityFactors는 반드시 문자열 배열 (JSON array)
+- targetPrice, stopLoss, flowPercentage는 반드시 숫자 타입
+- flowPercentage는 0~100 사이 정수 (외국인·기관 합산 매수 강도)
+- 순수 JSON만 출력하고 다른 텍스트는 절대 포함하지 마세요.
+- 마크다운 코드블록(\`\`\`json), 설명 텍스트, preamble 없이 { 로 시작하는 JSON만 출력하세요.`;
 
     console.log('[DIAGNOSIS] 4. Claude 분석 시작');
 
@@ -247,25 +240,25 @@ ${newsBlockStr}
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
 
     // fallback 결과 생성 헬퍼 (JSON 파싱 불가 시 최소한의 데이터라도 반환)
-    const buildFallback = (reason: string) => ({
-      summary:       rawText.slice(0, 600).trim() || 'AI 분석 결과를 가져오는 중 형식 오류가 발생했습니다.',
-      currentPrice:  Math.round(currentPrice),
-      avgPrice:      Math.round(Number(avgPrice)),
-      quantity:      Number(quantity),
-      profitRate:    parseFloat(profitRate.toFixed(2)),
-      profitAmount:  Math.round(profitAmount),
-      recommendation: '홀딩' as const,
-      reason:        `AI 응답 형식 오류로 세부 분석을 제공할 수 없습니다. (${reason})\n잠시 후 다시 시도해주세요.`,
-      targetPrice:   Math.round(currentPrice * 1.1),
-      stopLoss:      Math.round(currentPrice * 0.92),
-      institutional: '응답 형식 오류로 분석 불가',
-      foreign:       '응답 형식 오류로 분석 불가',
-      technical:     '응답 형식 오류로 분석 불가',
-      risk:          '응답 형식 오류로 리스크 요인 제공 불가',
-      opportunity:   '응답 형식 오류로 기회 요인 제공 불가',
-      flowType:      'NEUTRAL' as const,
-      flowPercent:   50,
-      news:          combinedNews,
+    const buildFallback = (errReason: string) => ({
+      summary:            rawText.slice(0, 600).trim() || 'AI 분석 결과를 가져오는 중 형식 오류가 발생했습니다.',
+      currentPrice:       Math.round(currentPrice),
+      avgPrice:           Math.round(Number(avgPrice)),
+      quantity:           Number(quantity),
+      profitRate:         parseFloat(profitRate.toFixed(2)),
+      profitAmount:       Math.round(profitAmount),
+      recommendation:     '홀딩' as const,
+      reasons:            [`AI 응답 형식 오류 (${errReason})`, '잠시 후 다시 시도해주세요.'],
+      targetPrice:        Math.round(currentPrice * 1.1),
+      stopLoss:           Math.round(currentPrice * 0.92),
+      institutionalFlow:  '응답 형식 오류로 분석 불가',
+      foreignFlow:        '응답 형식 오류로 분석 불가',
+      technicalAnalysis:  ['응답 형식 오류로 분석 불가'],
+      riskFactors:        ['응답 형식 오류로 리스크 요인 제공 불가'],
+      opportunityFactors: ['응답 형식 오류로 기회 요인 제공 불가'],
+      flowType:           'NEUTRAL' as const,
+      flowPercentage:     50,
+      news:               combinedNews,
     });
 
     if (!jsonMatch) {
@@ -281,28 +274,51 @@ ${newsBlockStr}
       return NextResponse.json(buildFallback('JSON 파싱 실패'));
     }
 
-    // flowType / flowPercent 보정
-    let flowType: 'BUY' | 'SELL' | 'NEUTRAL' =
-      (['BUY','SELL','NEUTRAL'].includes(result.flowType as string)
-        ? result.flowType as 'BUY' | 'SELL' | 'NEUTRAL'
-        : 'NEUTRAL');
-    let flowPercent: number = typeof result.flowPercent === 'number' ? result.flowPercent : 50;
+    // 배열 필드 방어적 정규화 (Claude가 string으로 반환할 경우 변환)
+    const toArr = (v: unknown): string[] => {
+      if (Array.isArray(v)) return (v as unknown[]).map(String).filter(Boolean);
+      if (typeof v === 'string' && v)
+        return v.split(/\n/).map(s => s.replace(/^[-·•\d]+[.)]\s*/, '').trim()).filter(Boolean);
+      return [];
+    };
+
+    // flowType·flowPercentage: 실제 KIS 수급 데이터 우선
+    let flowType: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+    let flowPercentage: number = typeof result.flowPercentage === 'number' ? result.flowPercentage : 50;
 
     if (analysisData?.investorLatest) {
       const { foreign, institution } = analysisData.investorLatest;
       const net = foreign.amount + institution.amount;
       if (Math.abs(net) > 10) {
-        flowType    = net > 0 ? 'BUY' : 'SELL';
-        const raw   = Math.min(Math.abs(net) / 1000 * 70 + 25, 95);
-        flowPercent = Math.round(raw);
+        flowType       = net > 0 ? 'BUY' : 'SELL';
+        flowPercentage = Math.round(Math.min(Math.abs(net) / 1000 * 70 + 25, 95));
       }
     }
 
     const finalResult = {
-      ...result,
-      news: combinedNews.length > 0 ? combinedNews : (Array.isArray(result.news) ? result.news : []),
+      // 서버 계산 수치 (Claude 응답 무시)
+      currentPrice:  Math.round(currentPrice),
+      avgPrice:      Math.round(Number(avgPrice)),
+      quantity:      Number(quantity),
+      profitRate:    parseFloat(profitRate.toFixed(2)),
+      profitAmount:  Math.round(profitAmount),
+      news:          combinedNews,
       flowType,
-      flowPercent,
+      flowPercentage,
+      // Claude 응답 필드 (정규화)
+      recommendation: (['홀딩','매도','분할매도','추가매수','손절'].includes(result.recommendation as string)
+        ? result.recommendation as string : '홀딩'),
+      summary:            typeof result.summary           === 'string' ? result.summary           : '',
+      targetPrice:        typeof result.targetPrice       === 'number' ? result.targetPrice       : Math.round(currentPrice * 1.15),
+      stopLoss:           typeof result.stopLoss          === 'number' ? result.stopLoss          : Math.round(currentPrice * 0.92),
+      reasons:            toArr(result.reasons),
+      technicalAnalysis:  toArr(result.technicalAnalysis),
+      riskFactors:        toArr(result.riskFactors),
+      opportunityFactors: toArr(result.opportunityFactors),
+      institutionalFlow:  typeof result.institutionalFlow === 'string' ? result.institutionalFlow : '',
+      foreignFlow:        typeof result.foreignFlow       === 'string' ? result.foreignFlow       : '',
+      shortTermOutlook:   typeof result.shortTermOutlook  === 'string' ? result.shortTermOutlook  : undefined,
+      midTermOutlook:     typeof result.midTermOutlook    === 'string' ? result.midTermOutlook    : undefined,
     };
 
     // DB 저장 (실패해도 결과 반환)

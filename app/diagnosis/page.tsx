@@ -13,17 +13,17 @@ interface DiagnosisResult {
   profitRate: number;
   profitAmount: number;
   news: { title: string; description: string }[];
-  institutional: string;
-  foreign: string;
-  technical: string;
+  institutionalFlow: string;
+  foreignFlow: string;
   recommendation: '홀딩' | '매도' | '분할매도' | '추가매수' | '손절';
-  reason: string;
+  reasons: string[];
+  technicalAnalysis: string[];
   targetPrice: number;
   stopLoss: number;
-  risk: string;
-  opportunity: string;
+  riskFactors: string[];
+  opportunityFactors: string[];
   flowType?: 'BUY' | 'SELL' | 'NEUTRAL';
-  flowPercent?: number;
+  flowPercentage?: number;
   shortTermOutlook?: string;
   midTermOutlook?: string;
 }
@@ -280,17 +280,8 @@ export default function DiagnosisPage() {
     const targetUpRate = ((result.targetPrice - result.currentPrice) / result.currentPrice * 100);
     const stopDownRate = ((result.stopLoss - result.currentPrice) / result.currentPrice * 100);
 
-    // 추천 이유 → 줄바꿈/·/- 기준 bullet 분리
-    const reasonBullets = result.reason
-      .split(/\n|(?<=\.|다\.) /)
-      .map(s => s.replace(/^[-·•]\s*/, '').trim())
-      .filter(Boolean);
-
-    // 기술적 분석 → 줄 분리
-    const technicalLines = result.technical
-      .split(/\n/)
-      .map(s => s.replace(/^[-·•]\s*/, '').trim())
-      .filter(Boolean);
+    const reasonBullets   = result.reasons          ?? [];
+    const technicalLines  = result.technicalAnalysis ?? [];
 
     return (
       <div className="min-h-screen bg-[#0d1117] pb-16">
@@ -463,14 +454,14 @@ export default function DiagnosisPage() {
               {/* 도넛 차트 */}
               <div className="flex flex-col items-center py-2">
                 <DonutChart
-                  percent={result.flowPercent ?? 50}
+                  percent={result.flowPercentage ?? 50}
                   type={result.flowType ?? 'NEUTRAL'}
                 />
               </div>
 
               {/* 요약 텍스트 */}
               <p className="text-center text-[12px] text-slate-400 mt-3 leading-relaxed">
-                {result.foreign.split(/[.。]/)[0].trim()}
+                {result.foreignFlow?.split(/[.。]/)[0]?.trim() ?? ''}
               </p>
             </div>
 
@@ -482,10 +473,10 @@ export default function DiagnosisPage() {
                 </span>
               </div>
               <div className="flex flex-col gap-2">
-                {result.risk.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                {(result.riskFactors ?? []).map((line, i) => (
                   <div key={i} className="flex items-start gap-2">
                     <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
+                    <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
                   </div>
                 ))}
               </div>
@@ -499,10 +490,10 @@ export default function DiagnosisPage() {
                 </span>
               </div>
               <div className="flex flex-col gap-2">
-                {result.opportunity.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                {(result.opportunityFactors ?? []).map((line, i) => (
                   <div key={i} className="flex items-start gap-2">
                     <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
+                    <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
                   </div>
                 ))}
               </div>
@@ -514,7 +505,7 @@ export default function DiagnosisPage() {
             <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">기관 동향</p>
               <div className="flex flex-col gap-2">
-                {result.institutional.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                {(result.institutionalFlow?.split(/\n|(?<=다\.) /).filter(Boolean) ?? []).map((line, i) => (
                   <div key={i} className="flex items-start gap-2">
                     <span className="text-violet-400/60 text-[10px] mt-1 shrink-0">▶</span>
                     <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
@@ -525,7 +516,7 @@ export default function DiagnosisPage() {
             <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">외국인 동향</p>
               <div className="flex flex-col gap-2">
-                {result.foreign.split(/\n|(?<=다\.) /).filter(Boolean).map((line, i) => (
+                {(result.foreignFlow?.split(/\n|(?<=다\.) /).filter(Boolean) ?? []).map((line, i) => (
                   <div key={i} className="flex items-start gap-2">
                     <span className="text-sky-400/60 text-[10px] mt-1 shrink-0">▶</span>
                     <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
