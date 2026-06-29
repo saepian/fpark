@@ -5,14 +5,13 @@ import { isFinanceRelated } from '@/lib/gemini';
 import { batchSummarize, type BatchArticle } from '@/lib/summarize';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Vercel 60초
+export const maxDuration = 60;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// rss-parser가 기본적으로 처리하지 않는 media 네임스페이스 타입
 type MediaContent = { $?: { url?: string } } | Array<{ $?: { url?: string } }>;
 type CustomItem = {
   'media:content'?: MediaContent;
@@ -31,45 +30,40 @@ const parser = new Parser<Record<string, never>, CustomItem>({
 });
 
 const RSS_SOURCES = [
-  { url: 'https://www.yna.co.kr/rss/economy.xml',                              source: '연합뉴스',  category: 'domestic' as const },
-  { url: 'https://www.hankyung.com/feed/economy',                               source: '한국경제',  category: 'domestic' as const },
-  { url: 'https://www.mk.co.kr/rss/30100041/',                                  source: '매일경제',  category: 'domestic' as const },
-  { url: 'https://www.sedaily.com/rss/economy',                                 source: '서울경제',  category: 'domestic' as const },
-  { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',              source: 'CNBC',      category: 'global'   as const },
-  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml',          source: 'NYT',       category: 'global'   as const },
-  { url: 'https://feeds.content.dowjones.io/public/rss/mw_marketpulse',        source: 'MarketWatch', category: 'global' as const },
+  // 국내
+  { url: 'https://www.yna.co.kr/rss/economy.xml',                            source: '연합뉴스',    category: 'domestic' as const },
+  { url: 'https://www.hankyung.com/feed/economy',                             source: '한국경제',    category: 'domestic' as const },
+  { url: 'https://www.mk.co.kr/rss/30100041/',                                source: '매일경제',    category: 'domestic' as const },
+  { url: 'https://www.sedaily.com/rss/economy',                               source: '서울경제',    category: 'domestic' as const },
+  // 해외
+  { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',            source: 'CNBC',        category: 'global'   as const },
+  { url: 'https://www.cnbc.com/id/10001147/device/rss/rss.html',             source: 'CNBC Top',    category: 'global'   as const },
+  { url: 'https://finance.yahoo.com/rss/topstories',                          source: 'Yahoo Finance', category: 'global' as const },
+  { url: 'https://feeds.content.dowjones.io/public/rss/mw_marketpulse',      source: 'MarketWatch', category: 'global'   as const },
+  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml',        source: 'NYT',         category: 'global'   as const },
 ];
 
-const MAX_ARTICLES = 5;
-const BATCH_SIZE = 3;
-const ITEMS_PER_FEED = 3;
+// 카테고리당 최대 수집 기사 수 — domestic 5 + global 5 = 총 10개
+const MAX_PER_CATEGORY = 5;
+const BATCH_SIZE       = 3;
+const ITEMS_PER_FEED   = 5;
 
-// 이미지 URL 추출 (우선순위: media > enclosure > img태그)
-async function extractImageUrl(
-  item: Parser.Item & CustomItem
-): Promise<string | null> {
-  // 1순위-a: media:content
+async function extractImageUrl(item: Parser.Item & CustomItem): Promise<string | null> {
   const mc = item['media:content'];
   if (mc) {
     const url = Array.isArray(mc) ? mc[0]?.$?.url : (mc as { $?: { url?: string } })?.$?.url;
     if (url && url.startsWith('http')) return url;
   }
-  // 1순위-b: media:thumbnail
   const mt = item['media:thumbnail'];
   if (mt?.$?.url && mt.$.url.startsWith('http')) return mt.$.url;
-  // 1순위-c: enclosure (rss-parser 네이티브)
   const enc = (item.enclosure ? [item.enclosure] : []).find((e) => e.type?.startsWith('image/'));
   if (enc?.url) return enc.url;
-
-  // 2순위: content:encoded 또는 description에서 첫 번째 img src 추출
   const html = item['content:encoded'] ?? item.content ?? item.summary ?? '';
   const imgMatch = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   if (imgMatch?.[1]?.startsWith('http')) return imgMatch[1];
-
   return null;
 }
 
-// 이미지 추출 실패 시 category별 기본 이미지
 const CATEGORY_IMAGE_FALLBACK: Record<string, string> = {
   domestic: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=200&fit=crop',
   global:   'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=200&fit=crop',
@@ -77,21 +71,17 @@ const CATEGORY_IMAGE_FALLBACK: Record<string, string> = {
 const DEFAULT_IMAGE_FALLBACK = 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=400&h=200&fit=crop';
 
 type Candidate = {
-  title: string;
-  content: string;
-  url: string;
-  source: string;
-  category: 'domestic' | 'global';
-  pubDate: string | null;
-  item: Parser.Item & CustomItem;
+  title: string; content: string; url: string;
+  source: string; category: 'domestic' | 'global';
+  pubDate: string | null; item: Parser.Item & CustomItem;
 };
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const secret = searchParams.get('secret');
+  const secret     = searchParams.get('secret');
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
-  const isValid =
+  const isValid    =
     (cronSecret && secret === cronSecret) ||
     (cronSecret && authHeader === `Bearer ${cronSecret}`);
   if (!isValid) {
@@ -99,16 +89,17 @@ export async function GET(request: NextRequest) {
   }
 
   const results = { saved: 0, skipped: 0, filtered: 0, errors: 0 };
-  const candidates: Candidate[] = [];
+  const domesticCandidates: Candidate[] = [];
+  const globalCandidates:   Candidate[] = [];
 
-  // 1단계: RSS 병렬 수집 (각 피드 3초 타임아웃)
+  // 1단계: RSS 병렬 수집
   const feedResults = await Promise.allSettled(
     RSS_SOURCES.map(async (source) => {
       const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 3000);
+      const tid = setTimeout(() => controller.abort(), 4000);
       try {
-        const res = await fetch(source.url, {
-          signal: controller.signal,
+        const res  = await fetch(source.url, {
+          signal:  controller.signal,
           headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FPark/1.0)' },
         });
         const text = await res.text();
@@ -120,13 +111,13 @@ export async function GET(request: NextRequest) {
     })
   );
 
-  // 2단계: 모든 URL 수집 후 Supabase 중복 체크 일괄 처리
+  // 2단계: URL 수집 후 일괄 중복 체크
   type RawItem = { source: (typeof RSS_SOURCES)[number]; item: Parser.Item & CustomItem; url: string };
   const rawItems: RawItem[] = [];
 
   for (const result of feedResults) {
     if (result.status === 'rejected') {
-      console.error(`RSS fetch error:`, result.reason);
+      console.error('[CRON] RSS fetch error:', result.reason instanceof Error ? result.reason.message : result.reason);
       results.errors++;
       continue;
     }
@@ -143,9 +134,11 @@ export async function GET(request: NextRequest) {
     .in('original_url', allUrls);
   const existingUrls = new Set((existingRows ?? []).map((r: { original_url: string }) => r.original_url));
 
+  // 3단계: 카테고리별로 분리해서 수집 (domestic / global 각각 MAX_PER_CATEGORY)
   for (const { source, item, url } of rawItems) {
-    if (candidates.length >= MAX_ARTICLES) break;
-
+    const cat = source.category;
+    const bucket = cat === 'domestic' ? domesticCandidates : globalCandidates;
+    if (bucket.length >= MAX_PER_CATEGORY) continue;
     if (existingUrls.has(url)) { results.skipped++; continue; }
 
     const title   = item.title ?? '(제목 없음)';
@@ -157,22 +150,18 @@ export async function GET(request: NextRequest) {
       continue;
     }
 
-    candidates.push({
-      title,
-      content,
-      url,
-      source:   source.source,
-      category: source.category,
-      pubDate:  item.pubDate ? new Date(item.pubDate).toISOString() : null,
-      item,
-    });
+    bucket.push({ title, content, url, source: source.source, category: cat, pubDate: item.pubDate ? new Date(item.pubDate).toISOString() : null, item });
   }
 
-  console.log(`[CRON] 후보: ${candidates.length}개 (건너뜀: ${results.skipped}, 키워드필터: ${results.filtered})`);
+  const candidates = [...domesticCandidates, ...globalCandidates];
+  console.log(
+    `[CRON] 후보: domestic=${domesticCandidates.length} global=${globalCandidates.length} 합계=${candidates.length}`,
+    `(건너뜀:${results.skipped} 필터:${results.filtered})`
+  );
 
-  // 2단계: 3개씩 배치로 Claude 요약 + 이미지 추출 병렬 처리 (딜레이 없음)
+  // 4단계: 3개씩 배치로 요약 + 이미지 추출
   for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-    const batch = candidates.slice(i, i + BATCH_SIZE);
+    const batch         = candidates.slice(i, i + BATCH_SIZE);
     const batchArticles: BatchArticle[] = batch.map((c) => ({ title: c.title, content: c.content }));
 
     console.log(`[CRON] 배치 처리 ${i + 1}~${i + batch.length}/${candidates.length}`);
@@ -212,11 +201,11 @@ export async function GET(request: NextRequest) {
       }
 
       if (error) {
-        console.error('Insert error:', error.message);
+        console.error('[CRON] Insert error:', error.message);
         results.errors++;
       } else {
         results.saved++;
-        console.log(`[저장] ${c.source} — ${c.title.slice(0, 50)}`);
+        console.log(`[저장] ${c.category} ${c.source} — ${c.title.slice(0, 50)}`);
       }
     }
   }
