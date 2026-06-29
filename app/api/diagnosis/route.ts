@@ -200,7 +200,7 @@ ${newsBlockStr}
 ## 출력 JSON 스키마 (반드시 아래 구조 그대로 출력)
 {
   "recommendation": "홀딩",
-  "summary": "종합 의견 텍스트 (200자 이내)",
+  "summary": "【400~600자 심층 종합 의견 — 반드시 아래 5개 항목을 순서대로 포함】① 현재 포지션 평가: 수익률·평가손익 수치와 52주 고저가 대비 현재 위치(예: '52주 저가 대비 +23% 구간') ② 수급 판단: 외국인·기관의 최근 동향이 갖는 시장 의미와 개인 역매매 해석 ③ 펀더멘털 근거: PER·PBR 밸류에이션 수치와 최근 실적·업황 전망 ④ 핵심 리스크 1가지 (수치 포함) ⑤ 최종 투자 판단: 왜 해당 recommendation인지 구체적 수치와 목표가·손절가 간략 언급. 스타일: 15년 경력 애널리스트 어조, '~로 판단됩니다' '~이 우려됩니다' 등 전문가 표현, 추상적 표현 금지, 모든 주장에 수치 근거 필수",
   "targetPrice": ${Math.round(currentPrice * 1.15)},
   "stopLoss": ${Math.round(currentPrice * 0.92)},
   "reasons": ["추천 이유 1 (수치 근거 포함)", "추천 이유 2", "추천 이유 3"],
@@ -227,7 +227,7 @@ ${newsBlockStr}
 
     const message = await claude.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 2500,
+      max_tokens: 3500,
       system: '당신은 15년 경력의 국내 주식 전문 애널리스트입니다. 제공된 실제 수급·밸류에이션·기술적 데이터를 모두 활용하여 기관급 수준의 분석 리포트를 작성합니다. 반드시 유효한 JSON만 출력하세요.',
       messages: [{ role: 'user', content: prompt }],
     });
