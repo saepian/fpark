@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Minus } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import type { MarketResponse, MarketIndexData } from '@/lib/types';
 
@@ -14,50 +13,63 @@ interface Props {
 }
 
 interface MarketItem {
-  label: string;
-  value: number;
-  change: number;
+  label:      string;
+  value:      number;
+  change:     number;
   changeRate: number;
-  isUp: boolean;
-  sparkline: number[];
-  href: string;
-  unit?: string;
+  unit?:      string;
+  href:       string;
 }
 
-// 등락 방향에 따른 더미 스파크라인 (실데이터 없을 때 fallback)
-function makeDummy(isUp: boolean) {
-  return isUp
+/* MarketSummary.tsx의 makeSparkData와 동일 */
+function makeSparkData(isUp: boolean) {
+  const pts = isUp
     ? [0.3, 0.5, 0.4, 0.6, 0.5, 0.7, 0.6, 0.8, 0.7, 0.9, 0.85, 1.0]
     : [1.0, 0.85, 0.9, 0.7, 0.8, 0.6, 0.7, 0.5, 0.6, 0.4, 0.45, 0.3];
+  return pts.map(v => ({ value: v }));
 }
 
-function MiniSparkline({ data, isUp, id }: { data: number[]; isUp: boolean; id: string }) {
+/* MarketSummary.tsx의 MiniAreaChart와 동일 — gradId만 prop으로 분리(다중 렌더 시 SVG ID 충돌 방지) */
+function MiniAreaChart({ isUp, gradId }: { isUp: boolean; gradId: string }) {
   const color = isUp ? '#ef4444' : '#3b82f6';
-  const chartData = data.map(v => ({ v }));
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={chartData} margin={{ top: 1, right: 0, bottom: 0, left: 0 }}>
+      <AreaChart data={makeSparkData(isUp)} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
         <defs>
-          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor={color} stopOpacity={0.3} />
             <stop offset="95%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
         <Area
-          type="monotone" dataKey="v"
+          type="monotone" dataKey="value"
           stroke={color} strokeWidth={1.5}
-          fill={`url(#${id})`} dot={false} isAnimationActive={false}
+          fill={`url(#${gradId})`} dot={false} isAnimationActive={false}
         />
       </AreaChart>
     </ResponsiveContainer>
   );
 }
 
+function buildMarketItems(data: MarketResponse): MarketItem[] {
+  const out: MarketItem[] = [];
+  const push = (label: string, d: MarketIndexData | null | undefined, href: string, unit?: string) => {
+    if (d && d.value > 0) out.push({ label, value: d.value, change: d.change, changeRate: d.changeRate, unit, href });
+  };
+  push('KOSPI',   data.KOSPI,   '/market/domestic');
+  push('KOSDAQ',  data.KOSDAQ,  '/market/domestic');
+  push('USD/KRW', data.USD_KRW, '/market/global', '원');
+  return out;
+}
+
+/* ────────── 공통 섹션 카드 ────────── */
 function SideCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4">
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">{title}</p>
-      {children}
+    <div className="rounded-xl bg-[#1a1d27] border border-slate-800">
+      <div className="px-4 pt-3 pb-2.5 border-b border-slate-800/70">
+        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{title}</p>
+      </div>
+      <div className="p-4">{children}</div>
     </div>
   );
 }
@@ -65,24 +77,68 @@ function SideCard({ title, children }: { title: string; children: React.ReactNod
 function fmt(n: number) { return n.toLocaleString(); }
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
-function buildMarketItems(data: MarketResponse): MarketItem[] {
-  const items: MarketItem[] = [];
-  const push = (label: string, d: MarketIndexData | null | undefined, href: string, unit?: string) => {
-    if (!d || d.value <= 0) return;
-    const isUp = d.changeRate >= 0;
-    items.push({
-      label, value: d.value, change: d.change, changeRate: d.changeRate, isUp, href, unit,
-      sparkline: d.sparkline?.length ? d.sparkline : makeDummy(isUp),
-    });
-  };
-  push('KOSPI',   data.KOSPI,   '/market/domestic');
-  push('KOSDAQ',  data.KOSDAQ,  '/market/domestic');
-  push('USD/KRW', data.USD_KRW, '/market/global', '원');
-  return items;
+/* ────────── MarketSummary 스타일 카드 1개 ────────── */
+function MarketCard({ item }: { item: MarketItem }) {
+  const isUp       = item.changeRate >= 0;
+  const badge      = isUp ? 'bg-red-400/10 text-red-400' : 'bg-blue-400/10 text-blue-400';
+  const color      = isUp ? 'text-red-400' : 'text-blue-400';
+  const changeSign = item.change >= 0 ? '+' : '';
+  const gradId     = `dsg-${item.label.replace('/', '')}-${isUp ? 'u' : 'd'}`;
+
+  return (
+    <Link href={item.href} className="block rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden hover:border-slate-600 transition-colors">
+      <div className="px-4 pt-3 pb-3">
+        {/* 지수명 + 등락률 뱃지 */}
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-bold text-slate-200">{item.label}</span>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge}`}>
+            {isUp ? '▲' : '▼'} {Math.abs(item.changeRate).toFixed(2)}%
+          </span>
+        </div>
+
+        {/* 현재가 (크게) */}
+        <div className="flex items-end gap-1.5 mb-0.5">
+          <span className="text-2xl font-extrabold font-mono text-white leading-none">
+            {item.label === 'USD/KRW'
+              ? item.value.toLocaleString('ko-KR', { minimumFractionDigits: 2 })
+              : item.value.toLocaleString()}
+          </span>
+          {item.unit && <span className="text-xs text-slate-500 mb-0.5">{item.unit}</span>}
+        </div>
+
+        {/* 등락값 */}
+        <div className={`text-xs font-mono ${color} mb-3`}>
+          {changeSign}{item.change.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          {' '}({changeSign}{item.changeRate.toFixed(2)}%)
+        </div>
+
+        {/* 미니 스파크차트 */}
+        <div className="h-14">
+          <MiniAreaChart isUp={isUp} gradId={gradId} />
+        </div>
+      </div>
+    </Link>
+  );
 }
 
+/* ────────── MarketCard 스켈레톤 ────────── */
+function MarketCardSkeleton() {
+  return (
+    <div className="rounded-xl bg-[#1a1d27] border border-slate-800 px-4 pt-3 pb-3 animate-pulse">
+      <div className="flex items-center justify-between mb-2">
+        <div className="h-3 bg-slate-700 rounded w-12" />
+        <div className="h-4 bg-slate-700 rounded w-16" />
+      </div>
+      <div className="h-7 bg-slate-700 rounded w-28 mb-1" />
+      <div className="h-3 bg-slate-700 rounded w-36 mb-3" />
+      <div className="h-14 bg-slate-700/50 rounded" />
+    </div>
+  );
+}
+
+/* ────────── 메인 컴포넌트 ────────── */
 export default function DiagnosisSidebar({ watchlist, onSelectStock }: Props) {
-  const [marketItems, setMarketItems] = useState<MarketItem[]>([]);
+  const [marketItems,   setMarketItems]   = useState<MarketItem[]>([]);
   const [marketLoading, setMarketLoading] = useState(true);
 
   useEffect(() => {
@@ -104,8 +160,7 @@ export default function DiagnosisSidebar({ watchlist, onSelectStock }: Props) {
           <div className="flex flex-col gap-1">
             {watchlist.map(item => (
               <button
-                key={item.ticker}
-                type="button"
+                key={item.ticker} type="button"
                 onClick={() => onSelectStock?.(item.ticker, item.name)}
                 className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-slate-700/30 transition-colors group w-full"
               >
@@ -127,62 +182,25 @@ export default function DiagnosisSidebar({ watchlist, onSelectStock }: Props) {
         )}
       </SideCard>
 
-      {/* ── MARKET TREND ── */}
-      <SideCard title="Market Trend">
+      {/* ── MARKET TREND — MarketSummary 스타일 카드 3개 세로 나열 ── */}
+      <div className="flex flex-col gap-2">
+        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-0.5">
+          Market Trend
+        </p>
         {marketLoading ? (
-          <div className="flex flex-col gap-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="flex items-center gap-3 animate-pulse">
-                <div className="flex-1">
-                  <div className="h-2.5 bg-slate-700 rounded w-14 mb-1.5" />
-                  <div className="h-4 bg-slate-700 rounded w-20" />
-                </div>
-                <div className="w-16 h-8 bg-slate-700 rounded" />
-              </div>
-            ))}
-          </div>
+          <>
+            <MarketCardSkeleton />
+            <MarketCardSkeleton />
+            <MarketCardSkeleton />
+          </>
         ) : marketItems.length === 0 ? (
-          <div className="flex items-center gap-2 text-slate-600">
-            <Minus className="w-4 h-4" />
-            <span className="text-[12px]">장 마감 시간</span>
+          <div className="rounded-xl bg-[#1a1d27] border border-slate-800 px-4 py-4">
+            <p className="text-[12px] text-slate-600">장 마감 시간</p>
           </div>
         ) : (
-          <div className="flex flex-col divide-y divide-slate-700/40">
-            {marketItems.map(item => {
-              const gradId = `dsg-${item.label.replace('/', '-')}-${item.isUp ? 'u' : 'd'}`;
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className="flex items-center gap-3 py-3 first:pt-0 last:pb-0 group"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[11px] font-bold text-slate-400 group-hover:text-white transition-colors">
-                        {item.label}
-                      </span>
-                      <span className={`text-[10px] font-mono font-semibold ${item.isUp ? 'text-red-400' : 'text-blue-400'}`}>
-                        {fmtRate(item.changeRate)}
-                      </span>
-                    </div>
-                    <span className="text-[14px] font-bold font-mono text-white leading-none">
-                      {item.label === 'USD/KRW'
-                        ? item.value.toLocaleString('ko-KR', { minimumFractionDigits: 2 })
-                        : item.value.toLocaleString()}
-                      {item.unit && (
-                        <span className="text-[10px] text-slate-500 font-normal ml-0.5">{item.unit}</span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="w-16 h-8 shrink-0">
-                    <MiniSparkline data={item.sparkline} isUp={item.isUp} id={gradId} />
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+          marketItems.map(item => <MarketCard key={item.label} item={item} />)
         )}
-      </SideCard>
+      </div>
 
       {/* ── RISK ALERT ── */}
       <SideCard title="Risk Alert">
