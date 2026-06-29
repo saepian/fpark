@@ -416,13 +416,7 @@ export default function Hero() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto mb-10">
           {/* 종목진단 */}
           <div className="group cursor-pointer" onClick={() => router.push('/diagnosis')}>
-            <div
-              className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_28px_rgba(99,102,241,0.45)]"
-              style={{
-                background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
-                boxShadow: '0 0 16px rgba(99,102,241,0.2)',
-              }}
-            >
+            <div className="hero-banner-border-blue p-px rounded-2xl transition-transform duration-300 group-hover:-translate-y-1">
               <div className="bg-[#080b18]/90 backdrop-blur-sm rounded-[15px] px-4 py-4 h-full flex flex-col gap-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
@@ -456,13 +450,7 @@ export default function Hero() {
 
           {/* 포트폴리오 진단 */}
           <div className="group cursor-pointer" onClick={() => router.push('/portfolio-diagnosis')}>
-            <div
-              className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_28px_rgba(168,85,247,0.45)]"
-              style={{
-                background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
-                boxShadow: '0 0 16px rgba(139,92,246,0.2)',
-              }}
-            >
+            <div className="hero-banner-border-purple p-px rounded-2xl transition-transform duration-300 group-hover:-translate-y-1">
               <div className="bg-[#080b18]/90 backdrop-blur-sm rounded-[15px] px-4 py-4 h-full flex flex-col gap-2.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
