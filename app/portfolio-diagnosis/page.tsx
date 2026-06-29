@@ -98,8 +98,8 @@ function MetricCard({ label, value, sub, up, highlight }: {
 }) {
   const bgStyle = highlight && up !== undefined
     ? up
-      ? { background: 'rgba(34, 197, 94, 0.12)', borderColor: 'rgba(34, 197, 94, 0.35)' }
-      : { background: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.35)' }
+      ? { background: 'rgba(34, 197, 94, 0.15)', borderColor: 'rgba(34, 197, 94, 0.4)' }
+      : { background: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.4)' }
     : {};
   return (
     <div className="border rounded-2xl p-4" style={{ background: '#1a1f2e', borderColor: '#334155', ...bgStyle }}>
@@ -588,8 +588,9 @@ export default function PortfolioDiagnosisPage() {
             <div className="flex flex-col gap-2">
               {result.suggestions.map((s, i) => {
                 const isOpen   = expandedSuggestion === i;
-                // 첫 문장만 미리보기로 표시
-                const preview  = s.split(/(?<=[.!?])\s+/)[0] ?? s;
+                // 첫 문장 미리보기 — 구두점 없을 때 80자 truncation 폴백
+                let preview = s.split(/(?<=[.!?])\s+/)[0] ?? s;
+                if (preview === s && s.length > 80) preview = s.slice(0, 80).trimEnd();
                 const hasMore  = preview.length < s.length;
                 return (
                   <div
