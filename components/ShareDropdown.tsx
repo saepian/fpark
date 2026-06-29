@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Share2, Link2, MessageCircle, Twitter, Check } from 'lucide-react';
+import { Share2, Link2, MessageCircle, Twitter, Check, Loader2 } from 'lucide-react';
 
 interface ShareDropdownProps {
   title: string;
   description: string;
-  hashtags?: string; // 쉼표 구분 (공백 없이)
+  hashtags?: string;
+  reportType?: 'diagnosis' | 'portfolio';
+  reportData?: unknown;
 }
 
 declare global {
@@ -25,9 +27,11 @@ const KAKAO_JS_KEY = process.env.NEXT_PUBLIC_KAKAO_JS_KEY;
 const OG_IMAGE     = 'https://fpark.com/og-image.png';
 
 
-export default function ShareDropdown({ title, description, hashtags = 'fpark,주식' }: ShareDropdownProps) {
-  const [open,   setOpen]   = useState(false);
-  const [copied, setCopied] = useState(false);
+export default function ShareDropdown({ title, description, hashtags = 'fpark,주식', reportType, reportData }: ShareDropdownProps) {
+  const [open,            setOpen]            = useState(false);
+  const [copied,          setCopied]          = useState(false);
+  const [shareUrl,        setShareUrl]        = useState<string | null>(null);
+  const [isCreatingLink,  setIsCreatingLink]  = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 시 닫기
@@ -40,17 +44,44 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
   }, []);
 
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const activeUrl  = shareUrl ?? currentUrl;
+
+  const createShareLink = async () => {
+    if (!reportData || shareUrl || isCreatingLink) return;
+    setIsCreatingLink(true);
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: reportType, data: reportData }),
+      });
+      if (res.ok) {
+        const { id } = await res.json();
+        setShareUrl(`https://fpark.com/share/${id}`);
+      }
+    } catch {
+      // 실패 시 현재 URL 사용
+    } finally {
+      setIsCreatingLink(false);
+    }
+  };
+
+  const handleToggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && reportData && !shareUrl) createShareLink();
+  };
 
   // ── 링크 복사 ────────────────────────────────────────────────────
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(currentUrl);
+      await navigator.clipboard.writeText(activeUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // clipboard API 미지원 시 fallback
       const el = document.createElement('textarea');
-      el.value = currentUrl;
+      el.value = activeUrl;
       document.body.appendChild(el);
       el.select();
       document.execCommand('copy');
@@ -75,9 +106,9 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
           title,
           description,
           imageUrl: OG_IMAGE,
-          link: { mobileWebUrl: currentUrl, webUrl: currentUrl },
+          link: { mobileWebUrl: activeUrl, webUrl: activeUrl },
         },
-        buttons: [{ title: '리포트 보기', link: { mobileWebUrl: currentUrl, webUrl: currentUrl } }],
+        buttons: [{ title: '리포트 보기', link: { mobileWebUrl: activeUrl, webUrl: activeUrl } }],
       });
     } catch (e) {
       console.error('[Kakao Share]', e);
@@ -90,7 +121,7 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
   const handleTwitter = () => {
     const tags = hashtags.split(',').join(' #');
     const text = `${description} #${tags}`;
-    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(currentUrl)}`;
+    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(activeUrl)}`;
     window.open(tweetUrl, '_blank', 'noopener,noreferrer');
     setOpen(false);
   };
@@ -98,7 +129,7 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={handleToggle}
         className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-700
           border border-slate-700 text-slate-400 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer"
       >
@@ -106,22 +137,32 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl bg-[#1e2130] border border-slate-700/60 shadow-xl shadow-black/40 z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl bg-[#1e2130] border border-slate-700/60 shadow-xl shadow-black/40 z-50 overflow-hidden">
+          {/* 링크 생성 중 표시 */}
+          {isCreatingLink && (
+            <div className="flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              공유 링크 생성 중...
+            </div>
+          )}
           {/* 링크 복사 */}
-          <button
-            onClick={handleCopyLink}
-            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Link2 className="w-3.5 h-3.5 text-slate-400" />}
-            {copied ? '복사되었습니다!' : '링크 복사'}
-          </button>
+          {!isCreatingLink && (
+            <button
+              onClick={handleCopyLink}
+              className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Link2 className="w-3.5 h-3.5 text-slate-400" />}
+              {copied ? '복사되었습니다!' : '링크 복사'}
+            </button>
+          )}
 
           <div className="h-px bg-slate-700/50 mx-3" />
 
           {/* 카카오톡 */}
           <button
             onClick={handleKakao}
-            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer"
+            disabled={isCreatingLink}
+            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer disabled:opacity-40"
           >
             <MessageCircle className="w-3.5 h-3.5 text-yellow-400" />
             카카오톡 공유
@@ -132,7 +173,8 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
           {/* 트위터/X */}
           <button
             onClick={handleTwitter}
-            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer"
+            disabled={isCreatingLink}
+            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer disabled:opacity-40"
           >
             <Twitter className="w-3.5 h-3.5 text-sky-400" />
             트위터(X) 공유

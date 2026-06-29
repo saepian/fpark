@@ -289,9 +289,11 @@ export default function DiagnosisPage() {
             </div>
             <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
               <ShareDropdown
-                title={`AI 종목진단 - ${stockName}`}
-                description={`수익률 ${result.profitRate >= 0 ? '+' : ''}${result.profitRate.toFixed(2)}% | AI 추천: ${result.recommendation}`}
+                title={`AI 종목진단 - ${stockName} | ${result.recommendation}`}
+                description={`수익률 ${result.profitRate >= 0 ? '+' : ''}${result.profitRate.toFixed(2)}% | ${result.summary?.slice(0, 80) ?? ''}`}
                 hashtags="fpark,주식,AI종목진단"
+                reportType="diagnosis"
+                reportData={{ ...result, stockName, ticker, generatedAt }}
               />
               <button
                 onClick={() => window.print()}

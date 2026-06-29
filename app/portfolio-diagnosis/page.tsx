@@ -436,6 +436,8 @@ export default function PortfolioDiagnosisPage() {
                 title="AI 포트폴리오 진단 리포트"
                 description={`총 수익률 ${result.totalProfitRate >= 0 ? '+' : ''}${result.totalProfitRate.toFixed(2)}% | ${result.holdings.length}개 종목 AI 분석`}
                 hashtags="fpark,주식,포트폴리오,AI진단"
+                reportType="portfolio"
+                reportData={{ ...result, generatedAt }}
               />
               <button
                 onClick={() => window.print()}
