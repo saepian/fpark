@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import Link from 'next/link';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import type { MarketResponse, MarketIndexData } from '@/lib/types';
 
@@ -13,7 +12,6 @@ interface MarketItem {
   change:     number;
   changeRate: number;
   unit?:      string;
-  href:       string;
 }
 
 /* MarketSummary.tsx와 동일 */
@@ -48,12 +46,12 @@ function MiniAreaChart({ isUp, gradId }: { isUp: boolean; gradId: string }) {
 
 function buildMarketItems(data: MarketResponse): MarketItem[] {
   const out: MarketItem[] = [];
-  const push = (label: string, d: MarketIndexData | null | undefined, href: string, unit?: string) => {
-    if (d && d.value > 0) out.push({ label, value: d.value, change: d.change, changeRate: d.changeRate, unit, href });
+  const push = (label: string, d: MarketIndexData | null | undefined, unit?: string) => {
+    if (d && d.value > 0) out.push({ label, value: d.value, change: d.change, changeRate: d.changeRate, unit });
   };
-  push('KOSPI',   data.KOSPI,   '/market/domestic');
-  push('KOSDAQ',  data.KOSDAQ,  '/market/domestic');
-  push('USD/KRW', data.USD_KRW, '/market/global', '원');
+  push('KOSPI',   data.KOSPI);
+  push('KOSDAQ',  data.KOSDAQ);
+  push('USD/KRW', data.USD_KRW, '원');
   return out;
 }
 
@@ -127,9 +125,8 @@ function MarketSlide({ items }: { items: MarketItem[] }) {
       </div>
 
       {/* 슬라이드 콘텐츠 */}
-      <Link
-        href={item.href}
-        className="block px-4 pt-3 pb-2 overflow-hidden"
+      <div
+        className="px-4 pt-3 pb-2 overflow-hidden cursor-default"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
@@ -169,7 +166,7 @@ function MarketSlide({ items }: { items: MarketItem[] }) {
             <MiniAreaChart isUp={isUp} gradId={gradId} />
           </div>
         </div>
-      </Link>
+      </div>
 
       {/* 페이지네이션 dots */}
       <div className="flex items-center justify-center gap-1.5 py-3">

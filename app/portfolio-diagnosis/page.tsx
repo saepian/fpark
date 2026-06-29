@@ -121,6 +121,7 @@ export default function PortfolioDiagnosisPage() {
   const [holdings,     setHoldings]     = useState<HoldingInput[]>([emptyHolding()]);
   const [watchlist,    setWatchlist]    = useState<WatchItem[]>([]);
   const [showWatchPop, setShowWatchPop] = useState(false);
+  const [watchChecked, setWatchChecked] = useState<Set<string>>(new Set());
   const watchBtnRef = useRef<HTMLButtonElement>(null);
 
   // submit
@@ -209,15 +210,25 @@ export default function PortfolioDiagnosisPage() {
     setHoldings(prev => prev.length <= 1 ? prev : prev.filter(h => h.id !== id));
   };
 
-  const importFromWatchlist = (item: WatchItem) => {
-    const already = holdings.some(h => h.ticker === item.ticker);
-    if (already || holdings.length >= 10) return;
-    const filled = holdings.find(h => !h.ticker);
-    if (filled) {
-      updateHolding(filled.id, { ticker: item.ticker, name: item.name, _q: item.name });
-    } else {
-      setHoldings(prev => [...prev, { ...emptyHolding(), ticker: item.ticker, name: item.name, _q: item.name }]);
-    }
+  const applyWatchlistSelection = () => {
+    const toAdd = watchlist.filter(w => watchChecked.has(w.ticker) && !holdings.some(h => h.ticker === w.ticker));
+    setHoldings(prev => {
+      let updated = [...prev];
+      for (const item of toAdd) {
+        if (updated.filter(h => h.ticker).length >= 10) break;
+        const emptySlot = updated.find(h => !h.ticker);
+        if (emptySlot) {
+          updated = updated.map(h => h.id === emptySlot.id
+            ? { ...h, ticker: item.ticker, name: item.name, _q: item.name }
+            : h
+          );
+        } else if (updated.length < 10) {
+          updated = [...updated, { ...emptyHolding(), ticker: item.ticker, name: item.name, _q: item.name }];
+        }
+      }
+      return updated;
+    });
+    setWatchChecked(new Set());
     setShowWatchPop(false);
   };
 
@@ -598,38 +609,93 @@ export default function PortfolioDiagnosisPage() {
               <button
                 ref={watchBtnRef}
                 type="button"
-                onClick={() => setShowWatchPop(v => !v)}
+                onClick={() => { setShowWatchPop(v => !v); setWatchChecked(new Set()); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold
                   bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-colors cursor-pointer"
               >
                 <BookMarked className="w-3 h-3" /> 워치리스트에서 불러오기
               </button>
               {showWatchPop && (
-                <div className="absolute right-0 top-full mt-1 w-64
-                  bg-[#1a1f2e] border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div className="absolute right-0 top-full mt-1 w-72
+                  bg-[#1a1f2e] border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col">
                   {watchlist.length === 0 ? (
                     <div className="px-4 py-3 text-[12px] text-slate-500">관심종목이 없습니다</div>
-                  ) : (
-                    <div className="max-h-60 overflow-y-auto">
-                      {watchlist.map(item => {
-                        const already = holdings.some(h => h.ticker === item.ticker);
-                        return (
+                  ) : (() => {
+                    const filledCount   = holdings.filter(h => h.ticker).length;
+                    const availableSlots = 10 - filledCount;
+                    const selectableItems = watchlist.filter(w => !holdings.some(h => h.ticker === w.ticker));
+                    const checkedCount  = watchlist.filter(w => watchChecked.has(w.ticker)).length;
+                    const allChecked    = selectableItems.length > 0 && selectableItems.every(w => watchChecked.has(w.ticker));
+                    const wouldExceed   = checkedCount > availableSlots;
+                    return (
+                      <>
+                        {/* 전체선택 */}
+                        <label className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-700/60 cursor-pointer hover:bg-slate-700/30 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={allChecked}
+                            onChange={e => {
+                              if (e.target.checked) setWatchChecked(new Set(selectableItems.map(w => w.ticker)));
+                              else setWatchChecked(new Set());
+                            }}
+                            className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer"
+                          />
+                          <span className="text-[11px] font-semibold text-slate-400">전체선택</span>
+                          <span className="ml-auto text-[10px] text-slate-600">{selectableItems.length}개</span>
+                        </label>
+
+                        {/* 종목 목록 */}
+                        <div className="max-h-52 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb:hover]:bg-slate-500">
+                          {watchlist.map(item => {
+                            const already  = holdings.some(h => h.ticker === item.ticker);
+                            const checked  = watchChecked.has(item.ticker);
+                            return (
+                              <label
+                                key={item.ticker}
+                                className={`flex items-center gap-3 px-4 py-2.5 transition-colors
+                                  ${already ? 'opacity-35 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-700/40'}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  disabled={already}
+                                  checked={checked}
+                                  onChange={e => {
+                                    setWatchChecked(prev => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(item.ticker);
+                                      else next.delete(item.ticker);
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer"
+                                />
+                                <span className="text-[13px] text-white flex-1">{item.name}</span>
+                                <span className="text-[11px] text-slate-500 font-mono">{item.ticker}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+
+                        {/* 하단 적용 버튼 */}
+                        <div className="px-4 py-3 border-t border-slate-700/60">
+                          {wouldExceed && (
+                            <p className="text-[11px] text-amber-400 mb-2">
+                              최대 10개까지 추가 가능합니다 (현재 {filledCount}개 입력됨)
+                            </p>
+                          )}
                           <button
-                            key={item.ticker} type="button"
-                            disabled={already || holdings.length >= 10}
-                            onClick={() => importFromWatchlist(item)}
-                            className={`flex items-center justify-between w-full px-4 py-2.5 transition-colors
-                              ${already || holdings.length >= 10
-                                ? 'opacity-40 cursor-not-allowed'
-                                : 'hover:bg-slate-700/40 cursor-pointer'}`}
+                            type="button"
+                            disabled={checkedCount === 0}
+                            onClick={applyWatchlistSelection}
+                            className="w-full py-2 rounded-lg text-[12px] font-semibold transition-colors cursor-pointer
+                              bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            <span className="text-[13px] text-white">{item.name}</span>
-                            <span className="text-[11px] text-slate-500 font-mono">{item.ticker}</span>
+                            선택 적용 ({checkedCount}개)
                           </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
