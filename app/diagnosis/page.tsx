@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
-import { Search, Sparkles, ChevronLeft, Share2, Printer, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Search, Sparkles, ChevronLeft, Share2, Printer, TrendingUp, TrendingDown } from 'lucide-react';
+
+import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 
 interface DiagnosisResult {
   summary: string;
@@ -63,7 +65,6 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
 }
 
 interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
-interface MarketData { value: number; changeRate: number }
 
 const REC_CONFIG: Record<string, { icon: string; color: string; bg: string; border: string; glow: string }> = {
   홀딩:   { icon: '◆', color: 'text-blue-300',   bg: 'bg-blue-500/10',   border: 'border-blue-500/30',   glow: 'shadow-blue-500/20' },
@@ -95,14 +96,6 @@ function ResultCard({ title, children, className = '' }: { title?: string; child
 }
 
 // ── 사이드바 카드 ──────────────────────────────────────────────────────────────
-function SideCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4">
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">{title}</p>
-      {children}
-    </div>
-  );
-}
 
 export default function DiagnosisPage() {
   const router = useRouter();
@@ -133,7 +126,6 @@ export default function DiagnosisPage() {
 
   // 사이드바
   const [watchlist, setWatchlist] = useState<WatchItem[]>([]);
-  const [kospi, setKospi] = useState<MarketData | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -142,9 +134,6 @@ export default function DiagnosisPage() {
       fetch('/api/diagnosis').then(r => r.json()).then(d => setRemaining(d.remaining ?? 0));
       fetch('/api/watchlist').then(r => r.json()).then(d => {
         if (Array.isArray(d)) setWatchlist(d.filter(i => i.market === 'kr' || !i.market).slice(0, 3));
-      }).catch(() => {});
-      fetch('/api/market').then(r => r.json()).then(d => {
-        if (d?.KOSPI) setKospi(d.KOSPI);
       }).catch(() => {});
     });
   }, []); // eslint-disable-line
@@ -775,84 +764,10 @@ export default function DiagnosisPage() {
           </form>
 
           {/* ── 우측 사이드바 ── */}
-          <div className="flex flex-col gap-4">
-
-            {/* WATCHLIST */}
-            <SideCard title="Watchlist">
-              {watchlist.length === 0 ? (
-                <p className="text-[12px] text-slate-600">관심종목이 없습니다</p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {watchlist.map(item => (
-                    <button
-                      key={item.ticker} type="button"
-                      onClick={() => selectStock(item.ticker, item.name)}
-                      className="flex items-center justify-between py-2 hover:bg-slate-700/30
-                        rounded-lg px-1 transition-colors group w-full"
-                    >
-                      <div className="text-left">
-                        <p className="text-[13px] font-medium text-white group-hover:text-indigo-300 transition-colors truncate max-w-[120px]">
-                          {item.name}
-                        </p>
-                        <p className="text-[10px] text-slate-600 font-mono">{item.ticker}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[12px] font-mono text-white">{fmt(item.price)}</p>
-                        <p className={`text-[11px] font-mono ${item.changeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                          {fmtRate(item.changeRate)}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </SideCard>
-
-            {/* MARKET TREND */}
-            <SideCard title="Market Trend">
-              {kospi ? (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[12px] text-white font-semibold">KOSPI</p>
-                    <p className="text-lg font-bold font-mono text-white">{fmt(Math.round(kospi.value))}</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    {kospi.changeRate >= 0
-                      ? <TrendingUp className="w-5 h-5 text-red-400" />
-                      : <TrendingDown className="w-5 h-5 text-blue-400" />
-                    }
-                    <p className={`text-[13px] font-mono font-bold ${kospi.changeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                      {fmtRate(kospi.changeRate)}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Minus className="w-4 h-4" />
-                  <span className="text-[12px]">장 마감 시간</span>
-                </div>
-              )}
-            </SideCard>
-
-            {/* RISK ALERT */}
-            <SideCard title="Risk Alert">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-start gap-2">
-                  <span className="text-amber-400 text-[11px] mt-0.5 shrink-0">●</span>
-                  <p className="text-[12px] text-slate-400 leading-relaxed">
-                    AI 분석은 참고 자료입니다. 투자 결정 전 반드시 직접 검토하세요.
-                  </p>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-blue-400 text-[11px] mt-0.5 shrink-0">●</span>
-                  <p className="text-[12px] text-slate-400 leading-relaxed">
-                    과거 수익률이 미래 수익을 보장하지 않습니다.
-                  </p>
-                </div>
-              </div>
-            </SideCard>
-
-          </div>
+          <DiagnosisSidebar
+            watchlist={watchlist}
+            onSelectStock={selectStock}
+          />
         </div>
       </div>
     </div>

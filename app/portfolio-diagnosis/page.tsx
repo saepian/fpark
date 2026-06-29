@@ -7,6 +7,7 @@ import {
   Sparkles, Plus, Trash2, Search, ChevronLeft,
   Share2, Printer, TrendingUp, TrendingDown, BookMarked, Lock,
 } from 'lucide-react';
+import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -552,7 +553,7 @@ export default function PortfolioDiagnosisPage() {
     <div className="min-h-screen bg-[#0d1117] pb-16">
       {showUpgradeModal && <UpgradeModal />}
 
-      <div className="max-w-4xl mx-auto px-4 pt-8">
+      <div className="max-w-5xl mx-auto px-4 pt-8">
 
         {/* 헤더 */}
         <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
@@ -580,6 +581,8 @@ export default function PortfolioDiagnosisPage() {
           </div>
         </div>
 
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+        <div>
         {/* 폼 영역 */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-6 mb-4">
           {/* 섹션 헤더 */}
@@ -695,6 +698,18 @@ export default function PortfolioDiagnosisPage() {
             ? 'Pro 플랜으로 업그레이드하면 포트폴리오 전체 진단을 이용할 수 있습니다.'
             : `월 30회 · 이번 달 ${remaining ?? 0}회 남음`}
         </p>
+        </div>{/* ← 좌측 컬럼 닫기 */}
+
+        {/* ── 우측 사이드바 (모바일 숨김) ── */}
+        <div className="hidden lg:block">
+          <DiagnosisSidebar
+            watchlist={watchlist}
+            onSelectStock={(ticker, name) =>
+              importFromWatchlist({ ticker, name, price: 0, changeRate: 0 })
+            }
+          />
+        </div>
+        </div>{/* ← 그리드 닫기 */}
       </div>
     </div>
   );
