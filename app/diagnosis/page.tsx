@@ -225,6 +225,14 @@ export default function DiagnosisPage() {
 
   const handleReset = () => {
     setShowResult(false);
+    setResult(null);
+    setTicker('');
+    setStockName('');
+    setSearchQuery('');
+    setAvgPrice('');
+    setQuantity('');
+    setBuyDate('');
+    setError('');
     fetch('/api/diagnosis').then(r => r.json()).then(d => setRemaining(d.remaining ?? 0));
   };
 
