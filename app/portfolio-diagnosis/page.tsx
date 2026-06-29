@@ -395,13 +395,13 @@ export default function PortfolioDiagnosisPage() {
             ))}
           </div>
           <button
-            onClick={() => setShowUpgradeModal(false)}
+            onClick={() => { setShowUpgradeModal(false); router.push('/pricing'); }}
             className="w-full py-3 rounded-xl text-[13px] font-semibold
               bg-gradient-to-r from-indigo-600 to-violet-600
               hover:from-indigo-500 hover:to-violet-500
               text-white transition-all cursor-pointer"
           >
-            Pro 업그레이드 (준비 중)
+            요금제 보기 →
           </button>
           <button
             onClick={() => setShowUpgradeModal(false)}

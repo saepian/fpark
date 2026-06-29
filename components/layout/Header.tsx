@@ -22,6 +22,7 @@ const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: 
   { label: '국내증시',       href: '/market/domestic' },
   { label: '해외증시',       href: '/market/global' },
   { label: '뉴스',           href: '/news' },
+  { label: '요금제',         href: '/pricing' },
 ];
 
 export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
