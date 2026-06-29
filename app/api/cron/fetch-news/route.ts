@@ -45,7 +45,6 @@ const RSS_SOURCES = [
 
 // 카테고리당 최대 수집 기사 수 — domestic 5 + global 5 = 총 10개
 const MAX_PER_CATEGORY = 5;
-const BATCH_SIZE       = 3;
 const ITEMS_PER_FEED   = 5;
 
 async function extractImageUrl(item: Parser.Item & CustomItem): Promise<string | null> {
@@ -159,56 +158,49 @@ export async function GET(request: NextRequest) {
     `(건너뜀:${results.skipped} 필터:${results.filtered})`
   );
 
-  // 4단계: 3개씩 배치로 요약 + 이미지 추출
-  for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-    const batch         = candidates.slice(i, i + BATCH_SIZE);
-    const batchArticles: BatchArticle[] = batch.map((c) => ({ title: c.title, content: c.content }));
+  // 4단계: 전체 기사 한 번에 요약 + 이미지 추출 동시 실행
+  console.log(`[CRON] 요약 + 이미지 추출 시작 (${candidates.length}개 병렬)`);
+  const [summaries, allImageUrls] = await Promise.all([
+    batchSummarize(candidates.map((c) => ({ title: c.title, content: c.content } as BatchArticle))).catch((e) => {
+      console.error('[CRON] batchSummarize 오류:', e instanceof Error ? e.message.slice(0, 100) : e);
+      return candidates.map(() => null as string | null);
+    }),
+    Promise.all(candidates.map((c) => extractImageUrl(c.item).catch(() => null))),
+  ]);
+  console.log(`[CRON] 요약 완료: ${summaries.filter(Boolean).length}/${summaries.length}개 성공`);
 
-    console.log(`[CRON] 배치 처리 ${i + 1}~${i + batch.length}/${candidates.length}`);
+  // 5단계: Supabase 저장 (병렬)
+  await Promise.all(candidates.map(async (c, j) => {
+    const summary  = summaries[j] || null;
+    const imageUrl = allImageUrls[j];
 
-    const [summaries, imageUrls] = await Promise.all([
-      batchSummarize(batchArticles).catch((e) => {
-        console.error('[CRON] batchSummarize 오류:', e instanceof Error ? e.message.slice(0, 100) : e);
-        return batch.map(() => null as string | null);
-      }),
-      Promise.all(batch.map((c) => extractImageUrl(c.item).catch(() => null))),
-    ]);
+    const payload = {
+      title:        c.title,
+      source:       c.source,
+      category:     c.category,
+      sub_category: 'general' as const,
+      original_url: c.url,
+      summary,
+      stocks:       [],
+      image_url:    imageUrl ?? CATEGORY_IMAGE_FALLBACK[c.category] ?? DEFAULT_IMAGE_FALLBACK,
+      published_at: c.pubDate,
+    };
 
-    console.log(`[CRON] 요약 결과: ${summaries.filter(Boolean).length}/${summaries.length}개 성공`);
+    let { error } = await supabase.from('articles').insert(payload);
 
-    for (let j = 0; j < batch.length; j++) {
-      const c        = batch[j];
-      const summary  = summaries[j] || null;
-      const imageUrl = imageUrls[j];
-
-      const payload = {
-        title:        c.title,
-        source:       c.source,
-        category:     c.category,
-        sub_category: 'general' as const,
-        original_url: c.url,
-        summary,
-        stocks:       [],
-        image_url:    imageUrl ?? CATEGORY_IMAGE_FALLBACK[c.category] ?? DEFAULT_IMAGE_FALLBACK,
-        published_at: c.pubDate,
-      };
-
-      let { error } = await supabase.from('articles').insert(payload);
-
-      if (error?.message.includes('sub_category')) {
-        const { sub_category: _sc, ...withoutSub } = payload;
-        ({ error } = await supabase.from('articles').insert(withoutSub));
-      }
-
-      if (error) {
-        console.error('[CRON] Insert error:', error.message);
-        results.errors++;
-      } else {
-        results.saved++;
-        console.log(`[저장] ${c.category} ${c.source} — ${c.title.slice(0, 50)}`);
-      }
+    if (error?.message.includes('sub_category')) {
+      const { sub_category: _sc, ...withoutSub } = payload;
+      ({ error } = await supabase.from('articles').insert(withoutSub));
     }
-  }
+
+    if (error) {
+      console.error('[CRON] Insert error:', error.message);
+      results.errors++;
+    } else {
+      results.saved++;
+      console.log(`[저장] ${c.category} ${c.source} — ${c.title.slice(0, 50)}`);
+    }
+  }));
 
   return NextResponse.json({ ok: true, ...results });
 }
