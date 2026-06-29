@@ -24,16 +24,6 @@ declare global {
 const KAKAO_JS_KEY = process.env.NEXT_PUBLIC_KAKAO_JS_KEY;
 const OG_IMAGE     = 'https://fpark.com/og-image.png';
 
-function loadKakaoSdk(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.Kakao) { resolve(); return; }
-    const script  = document.createElement('script');
-    script.src    = 'https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js';
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Kakao SDK 로드 실패'));
-    document.head.appendChild(script);
-  });
-}
 
 export default function ShareDropdown({ title, description, hashtags = 'fpark,주식' }: ShareDropdownProps) {
   const [open,   setOpen]   = useState(false);
@@ -72,15 +62,13 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
   };
 
   // ── 카카오톡 공유 ────────────────────────────────────────────────
-  const handleKakao = async () => {
-    if (!KAKAO_JS_KEY) {
+  const handleKakao = () => {
+    if (!KAKAO_JS_KEY || !window.Kakao?.isInitialized()) {
       alert('카카오 공유 기능을 준비 중입니다.');
       setOpen(false);
       return;
     }
     try {
-      await loadKakaoSdk();
-      if (!window.Kakao!.isInitialized()) window.Kakao!.init(KAKAO_JS_KEY);
       window.Kakao!.Share.sendDefault({
         objectType: 'feed',
         content: {
