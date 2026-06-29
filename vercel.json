@@ -1,5 +1,13 @@
 {
   "framework": "nextjs",
+  "functions": {
+    "app/api/cron/fetch-news/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/daily-pick/route.ts": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/fetch-news",
