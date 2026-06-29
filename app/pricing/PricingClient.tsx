@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Zap } from 'lucide-react';
+import { createClient } from '@/lib/supabase-browser';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,13 +81,16 @@ const FAQ_ITEMS = [
 // ── CardContent ───────────────────────────────────────────────────────────────
 
 function CardContent({
-  plan, annual, onCta, onFreeClick,
+  plan, annual, userPlan, isLoggedIn, onAction,
 }: {
-  plan: Plan; annual: boolean; onCta: () => void; onFreeClick: () => void;
+  plan: Plan; annual: boolean;
+  userPlan: PlanType | null; isLoggedIn: boolean;
+  onAction: (type: PlanType) => void;
 }) {
-  const isPro  = plan.type === 'pro';
+  const isPro   = plan.type === 'pro';
   const isBasic = plan.type === 'basic';
   const isFree  = plan.type === 'free';
+  const isCurrent = isLoggedIn && userPlan === plan.type;
   const p = annual ? plan.annual : plan.monthly;
 
   const checkHex   = isPro ? '#f59e0b' : '#6366f1';
@@ -100,12 +104,23 @@ function CardContent({
 
   return (
     <div className="flex flex-col gap-5 p-6 h-full">
-      {/* Plan name + description */}
+      {/* Plan name + 현재 플랜 배지 */}
       <div>
-        <span className="text-[10px] font-bold tracking-[0.18em]" style={{ color: nameColor }}>
-          {plan.name}
-        </span>
-        <p className="text-[12px] text-slate-500 mt-1.5 leading-snug">{plan.description}</p>
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <span className="text-[10px] font-bold tracking-[0.18em]" style={{ color: nameColor }}>
+            {plan.name}
+          </span>
+          {isCurrent && (
+            <span className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+              style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>
+              <svg width="7" height="6" viewBox="0 0 8 7" fill="none">
+                <path d="M1 3.5l2 2 4-4" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              현재 플랜
+            </span>
+          )}
+        </div>
+        <p className="text-[12px] text-slate-500 leading-snug">{plan.description}</p>
       </div>
 
       {/* Price */}
@@ -132,19 +147,29 @@ function CardContent({
       </div>
 
       {/* CTA */}
-      <button
-        onClick={isFree ? onFreeClick : onCta}
-        className={`w-full py-3 rounded-xl text-[13px] font-bold transition-all cursor-pointer ${
-          isFree
-            ? 'text-slate-300 border border-slate-600 hover:border-slate-500 hover:bg-slate-800/40'
-            : isPro
-            ? 'text-slate-900 hover:opacity-90'
-            : 'text-white hover:opacity-90'
-        }`}
-        style={ctaBg ? { background: ctaBg } : undefined}
-      >
-        {plan.cta}
-      </button>
+      {isCurrent ? (
+        <button
+          disabled
+          className="w-full py-3 rounded-xl text-[13px] font-bold cursor-default"
+          style={{ background: 'rgba(51,65,85,0.5)', color: '#64748b', border: '1px solid rgba(51,65,85,0.4)' }}
+        >
+          현재 이용 중
+        </button>
+      ) : (
+        <button
+          onClick={() => onAction(plan.type)}
+          className={`w-full py-3 rounded-xl text-[13px] font-bold transition-all cursor-pointer ${
+            isFree
+              ? 'text-slate-300 border border-slate-600 hover:border-slate-500 hover:bg-slate-800/40'
+              : isPro
+              ? 'text-slate-900 hover:opacity-90'
+              : 'text-white hover:opacity-90'
+          }`}
+          style={ctaBg ? { background: ctaBg } : undefined}
+        >
+          {plan.cta}
+        </button>
+      )}
 
       {/* Divider */}
       <div className="h-px bg-slate-700/30" />
@@ -179,24 +204,27 @@ function CardContent({
 
 // ── PlanCard ──────────────────────────────────────────────────────────────────
 
-function PlanCard({ plan, annual, onCta }: { plan: Plan; annual: boolean; onCta: () => void }) {
-  const router  = useRouter();
+function PlanCard({
+  plan, annual, userPlan, isLoggedIn, onAction,
+}: {
+  plan: Plan; annual: boolean;
+  userPlan: PlanType | null; isLoggedIn: boolean;
+  onAction: (type: PlanType) => void;
+}) {
   const isPro   = plan.type === 'pro';
   const isBasic = plan.type === 'basic';
   const innerBg = isPro ? '#0d0c18' : isBasic ? '#0a0d1f' : '#111827';
 
   const content = (
     <CardContent
-      plan={plan}
-      annual={annual}
-      onCta={onCta}
-      onFreeClick={() => router.push('/')}
+      plan={plan} annual={annual}
+      userPlan={userPlan} isLoggedIn={isLoggedIn}
+      onAction={onAction}
     />
   );
 
   if (isPro) return (
     <div className="group cursor-pointer relative mt-4">
-      {/* Popular badge */}
       <div className="absolute -top-4 left-0 right-0 flex justify-center z-10 pointer-events-none">
         <span
           className="text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg"
@@ -242,13 +270,42 @@ function PlanCard({ plan, annual, onCta }: { plan: Plan; annual: boolean; onCta:
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function PricingClient() {
-  const [annual,  setAnnual]  = useState(false);
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [toast,   setToast]   = useState(false);
+  const router  = useRouter();
+  const [annual,     setAnnual]     = useState(false);
+  const [openFaq,    setOpenFaq]    = useState<number | null>(null);
+  const [toast,      setToast]      = useState(false);
+  const [userPlan,   setUserPlan]   = useState<PlanType | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // 현재 로그인 유저 + plan 조회
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+      setIsLoggedIn(true);
+      try {
+        const { data: row } = await supabase
+          .from('users')
+          .select('plan')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        const plan = (row?.plan as PlanType | undefined) ?? 'free';
+        setUserPlan(plan);
+      } catch {
+        setUserPlan('free');
+      }
+    });
+  }, []); // eslint-disable-line
 
   const showToast = () => {
     setToast(true);
     setTimeout(() => setToast(false), 3000);
+  };
+
+  const handleAction = (type: PlanType) => {
+    if (!isLoggedIn) { router.push('/auth/login'); return; }
+    if (type === 'free') { router.push('/'); return; }
+    showToast();
   };
 
   return (
@@ -267,7 +324,6 @@ export default function PricingClient() {
 
       {/* ── 헤더 섹션 ── */}
       <section className="relative pt-20 pb-14 text-center overflow-hidden">
-        {/* 배경 글로우 */}
         <div
           className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[380px] pointer-events-none opacity-[0.13]"
           style={{ background: 'radial-gradient(ellipse, #4f46e5 0%, transparent 70%)' }}
@@ -278,7 +334,6 @@ export default function PricingClient() {
         />
 
         <div className="relative z-10 max-w-3xl mx-auto px-6">
-          {/* 뱃지 */}
           <div className="inline-flex items-center gap-2 mb-6 bg-indigo-500/10 border border-indigo-500/30 rounded-full px-4 py-1.5">
             <Zap className="w-3.5 h-3.5 text-indigo-400" />
             <span className="text-xs font-semibold text-indigo-300 tracking-wide">요금제</span>
@@ -322,14 +377,20 @@ export default function PricingClient() {
       <section className="max-w-5xl mx-auto px-4 pb-20">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
           {PLANS.map(plan => (
-            <PlanCard key={plan.type} plan={plan} annual={annual} onCta={showToast} />
+            <PlanCard
+              key={plan.type}
+              plan={plan}
+              annual={annual}
+              userPlan={userPlan}
+              isLoggedIn={isLoggedIn}
+              onAction={handleAction}
+            />
           ))}
         </div>
       </section>
 
       {/* ── 1회권 ── */}
       <section className="max-w-3xl mx-auto px-4 pb-20">
-        {/* 구분선 */}
         <div className="flex items-center gap-4 mb-10">
           <div className="flex-1 h-px bg-slate-800" />
           <div className="text-center">
@@ -340,60 +401,38 @@ export default function PricingClient() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* 종목진단 1회권 */}
-          <div
-            className="group cursor-pointer"
-            onClick={showToast}
-          >
+          <div className="group cursor-pointer" onClick={() => isLoggedIn ? showToast() : router.push('/auth/login')}>
             <div
               className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(99,102,241,0.38)]"
               style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', boxShadow: '0 0 12px rgba(99,102,241,0.18)' }}
             >
               <div className="rounded-[15px] px-5 py-4 flex items-center gap-4" style={{ backgroundColor: '#0a0d1f' }}>
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl"
-                  style={{ background: 'rgba(99,102,241,0.2)' }}
-                >
-                  🔍
-                </div>
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: 'rgba(99,102,241,0.2)' }}>🔍</div>
                 <div className="flex-1 text-left min-w-0">
                   <p className="text-[13px] font-bold text-white">종목진단 1회권</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">즉시 사용 가능</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-[17px] font-bold text-white">
-                    1,000<span className="text-[12px] font-medium text-slate-400">원</span>
-                  </p>
+                  <p className="text-[17px] font-bold text-white">1,000<span className="text-[12px] font-medium text-slate-400">원</span></p>
                   <p className="text-[10px] font-semibold" style={{ color: '#818cf8' }}>1회</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 포트폴리오 진단 1회권 */}
-          <div
-            className="group cursor-pointer"
-            onClick={showToast}
-          >
+          <div className="group cursor-pointer" onClick={() => isLoggedIn ? showToast() : router.push('/auth/login')}>
             <div
               className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(168,85,247,0.38)]"
               style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)', boxShadow: '0 0 12px rgba(139,92,246,0.18)' }}
             >
               <div className="rounded-[15px] px-5 py-4 flex items-center gap-4" style={{ backgroundColor: '#0a0d1f' }}>
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl"
-                  style={{ background: 'rgba(139,92,246,0.2)' }}
-                >
-                  📊
-                </div>
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: 'rgba(139,92,246,0.2)' }}>📊</div>
                 <div className="flex-1 text-left min-w-0">
                   <p className="text-[13px] font-bold text-white">포트폴리오 진단 1회권</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">즉시 사용 가능</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-[17px] font-bold text-white">
-                    1,900<span className="text-[12px] font-medium text-slate-400">원</span>
-                  </p>
+                  <p className="text-[17px] font-bold text-white">1,900<span className="text-[12px] font-medium text-slate-400">원</span></p>
                   <p className="text-[10px] font-semibold" style={{ color: '#c084fc' }}>1회</p>
                 </div>
               </div>
