@@ -121,7 +121,7 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
     const msg = await claude.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 2000,
-      system: '한국주식 애널리스트. 수급·밸류에이션 데이터 기반 간결한 종목 분석. JSON만 출력.',
+      system: '한국주식 애널리스트. 수급·밸류에이션 데이터 기반 간결한 종목 분석. JSON만 출력. reason 작성 시 종목명 사용, 숫자 종목코드 출력 금지.',
       messages: [{ role: 'user', content: prompt }],
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
@@ -136,25 +136,36 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
 
 async function analyzePortfolioSummary(
   stockResults: StockAiResult[],
+  nameMap: Record<string, string>,   // ticker → 종목명
   totalProfitRate: number,
   holdingCount: number,
 ): Promise<{ summary: string; sectors: unknown[]; suggestions: string[] }> {
+  // 종목명-종목코드 매핑 테이블
+  const mappingTable = Object.entries(nameMap)
+    .map(([ticker, name]) => `${ticker}: ${name}`)
+    .join(', ');
+
+  // 종목명으로 라인 구성
   const lines = stockResults
-    .map(s => `${s.ticker}(${s.sector || '기타'}): ${s.action} — ${s.reason}`)
+    .map(s => `${nameMap[s.ticker] ?? s.ticker}(${s.sector || '기타'}): ${s.action} — ${s.reason}`)
     .join('\n');
 
   const prompt =
     `포트폴리오 종합 분석 (JSON만 출력)\n\n` +
+    `[종목코드→종목명 매핑] ${mappingTable}\n\n` +
     `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개\n` +
     `${lines}\n\n` +
     `{"summary":"4-5문장 종합 평가(전체 수익률·강약점·수급·전략)","sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],"suggestions":["구체적 제안1","제안2","제안3","제안4"]}\n\n` +
-    `규칙: sectors weight 합계=100, suggestions는 구체적 전략(단순 모니터링 금지)`;
+    `규칙:\n` +
+    `- sectors weight 합계=100\n` +
+    `- suggestions는 구체적 전략(단순 모니터링 금지)\n` +
+    `- summary와 suggestions에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
 
   try {
     const msg = await claude.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 2000,
-      system: '한국주식 포트폴리오 매니저. 섹터분석·리스크분산·전략수립 전문. JSON만 출력.',
+      system: '한국주식 포트폴리오 매니저. 섹터분석·리스크분산·전략수립 전문. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.',
       messages: [{ role: 'user', content: prompt }],
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
@@ -258,7 +269,11 @@ export async function POST(request: NextRequest) {
         send(controller, { type: 'progress', label: '포트폴리오 종합 분석 중...' });
         console.log('[PORTFOLIO-DIAGNOSIS] Stage 2 시작 — 종합 분석');
 
-        const summary = await analyzePortfolioSummary(stockResults, totalProfitRate, enriched.length);
+        // ticker → 종목명 매핑 (AI가 summary/suggestions에 종목명 사용하도록)
+        const nameMap: Record<string, string> = {};
+        enriched.forEach(h => { nameMap[h.ticker] = h.name; });
+
+        const summary = await analyzePortfolioSummary(stockResults, nameMap, totalProfitRate, enriched.length);
 
         // 결과 병합
         const mergedHoldings = enriched.map(h => {
