@@ -15,13 +15,13 @@ interface HeaderProps {
   onGoHome?: () => void;
 }
 
-const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: boolean }[] = [
-  { label: '홈',               href: '/' },
-  { label: '종목진단',          href: '/diagnosis',           special: true },
-  { label: '포트폴리오 진단 🔒', href: '/portfolio-diagnosis', special: true },
-  { label: '국내증시',          href: '/market/domestic' },
-  { label: '해외증시',          href: '/market/global' },
-  { label: '뉴스',              href: '/news' },
+const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: boolean; pro?: boolean }[] = [
+  { label: '홈',            href: '/' },
+  { label: '종목진단',       href: '/diagnosis',           special: true },
+  { label: '포트폴리오 진단', href: '/portfolio-diagnosis', special: true, pro: true },
+  { label: '국내증시',       href: '/market/domestic' },
+  { label: '해외증시',       href: '/market/global' },
+  { label: '뉴스',           href: '/news' },
 ];
 
 export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
@@ -62,7 +62,7 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
         {/* 우측: 네비 + 구분선 + 알림 + 개인화 + 햄버거(모바일) */}
         <div className="flex-shrink-0 ml-auto flex items-center gap-3 z-10">
           <nav className="hidden md:flex items-center gap-0.5">
-            {NAV_ITEMS.map(({ label, href, comingSoon, special }) =>
+            {NAV_ITEMS.map(({ label, href, comingSoon, special, pro }) =>
               comingSoon ? (
                 <div key={href} className="relative group">
                   <span className="text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-default text-slate-600 select-none">
@@ -81,13 +81,19 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
                   key={href}
                   href={href}
                   className={[
-                    'text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all whitespace-nowrap',
+                    'relative text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all whitespace-nowrap flex items-center gap-1',
                     isActive(href) ? 'bg-slate-800' : 'hover:bg-slate-800/50',
                   ].join(' ')}
                 >
                   <span className={isActive(href) ? 'text-white' : 'nav-diagnosis-text'}>
                     {label}
                   </span>
+                  {pro && (
+                    <span className="nav-pro-badge">
+                      PRO
+                      <span className="nav-pro-tail" />
+                    </span>
+                  )}
                 </Link>
               ) : (
                 <Link
@@ -131,7 +137,7 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
       {/* 모바일 메뉴 드롭다운 */}
       {mobileMenuOpen && (
         <div className="md:hidden bg-[#0f1117] border-t border-slate-800 px-4 pb-3">
-          {NAV_ITEMS.map(({ label, href, comingSoon, special }) =>
+          {NAV_ITEMS.map(({ label, href, comingSoon, special, pro }) =>
             comingSoon ? (
               <div key={href} className="flex items-center justify-between py-3.5 border-b border-slate-800/60 last:border-0">
                 <span className="text-[15px] text-slate-600">{label}</span>
@@ -146,13 +152,19 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
                   if (href === '/' && onGoHome) onGoHome();
                 }}
                 className={[
-                  'flex items-center py-3.5 border-b border-slate-800/60 last:border-0 text-[15px] font-medium transition-colors',
+                  'flex items-center gap-2 py-3.5 border-b border-slate-800/60 last:border-0 text-[15px] font-medium transition-colors',
                   isActive(href) ? 'text-white' : (special ? '' : 'text-slate-400'),
                 ].join(' ')}
               >
                 {special && !isActive(href)
                   ? <span className="nav-diagnosis-text">{label}</span>
                   : label}
+                {pro && (
+                  <span className="nav-pro-badge">
+                    PRO
+                    <span className="nav-pro-tail" />
+                  </span>
+                )}
               </Link>
             )
           )}
