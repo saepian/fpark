@@ -226,7 +226,9 @@ ${newsBlockStr}
 - recommendation은 반드시 "홀딩", "매도", "분할매도", "추가매수", "손절" 중 하나
 - flowType은 반드시 "BUY", "SELL", "NEUTRAL" 중 하나
 - news 배열은 제공된 뉴스 데이터 기반 (없으면 빈 배열)
-- JSON 외 텍스트, 마크다운 코드블록 절대 금지`;
+- JSON 외 텍스트, 마크다운 코드블록 절대 금지
+
+반드시 순수 JSON만 응답하세요. 마크다운 코드블록(\`\`\`json), 설명 텍스트, preamble 없이 { 로 시작하는 JSON만 출력하세요.`;
 
     console.log('[DIAGNOSIS] 4. Claude 분석 시작');
 
@@ -239,19 +241,44 @@ ${newsBlockStr}
 
     console.log('[DIAGNOSIS] 5. Claude 응답 수신');
 
-    const text      = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const rawText = message.content[0].type === 'text' ? message.content[0].text : '';
+    // 마크다운 코드펜스 제거 후 JSON 추출
+    const cleaned   = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+
+    // fallback 결과 생성 헬퍼 (JSON 파싱 불가 시 최소한의 데이터라도 반환)
+    const buildFallback = (reason: string) => ({
+      summary:       rawText.slice(0, 600).trim() || 'AI 분석 결과를 가져오는 중 형식 오류가 발생했습니다.',
+      currentPrice:  Math.round(currentPrice),
+      avgPrice:      Math.round(Number(avgPrice)),
+      quantity:      Number(quantity),
+      profitRate:    parseFloat(profitRate.toFixed(2)),
+      profitAmount:  Math.round(profitAmount),
+      recommendation: '홀딩' as const,
+      reason:        `AI 응답 형식 오류로 세부 분석을 제공할 수 없습니다. (${reason})\n잠시 후 다시 시도해주세요.`,
+      targetPrice:   Math.round(currentPrice * 1.1),
+      stopLoss:      Math.round(currentPrice * 0.92),
+      institutional: '응답 형식 오류로 분석 불가',
+      foreign:       '응답 형식 오류로 분석 불가',
+      technical:     '응답 형식 오류로 분석 불가',
+      risk:          '응답 형식 오류로 리스크 요인 제공 불가',
+      opportunity:   '응답 형식 오류로 기회 요인 제공 불가',
+      flowType:      'NEUTRAL' as const,
+      flowPercent:   50,
+      news:          combinedNews,
+    });
+
     if (!jsonMatch) {
-      console.error('[DIAGNOSIS] JSON 없음, 응답:', text.slice(0, 200));
-      return NextResponse.json({ error: 'AI 응답 파싱 실패' }, { status: 500 });
+      console.error('[DIAGNOSIS] JSON 없음, 원문 앞 300자:', rawText.slice(0, 300));
+      return NextResponse.json(buildFallback('JSON 없음'));
     }
 
     let result: Record<string, unknown>;
     try {
       result = JSON.parse(jsonMatch[0]);
     } catch (e) {
-      console.error('[DIAGNOSIS] JSON.parse 실패:', e, jsonMatch[0].slice(0, 200));
-      return NextResponse.json({ error: 'AI 응답 JSON 파싱 실패' }, { status: 500 });
+      console.error('[DIAGNOSIS] JSON.parse 실패:', e, jsonMatch[0].slice(0, 300));
+      return NextResponse.json(buildFallback('JSON 파싱 실패'));
     }
 
     // flowType / flowPercent 보정
