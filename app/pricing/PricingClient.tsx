@@ -11,7 +11,10 @@ type PlanType = 'free' | 'basic' | 'pro';
 interface Feature { text: string; included: boolean }
 interface Plan {
   type: PlanType; name: string;
-  monthly: number; annual: number;
+  monthly: number;
+  annual: number;       // 연간 플랜 월 환산 금액
+  annualTotal: number;  // 연간 일시불 총액
+  annualSaving: number; // 월간 대비 절약 금액
   description: string; features: Feature[]; cta: string;
 }
 
@@ -19,7 +22,7 @@ interface Plan {
 
 const PLANS: Plan[] = [
   {
-    type: 'free', name: 'FREE', monthly: 0, annual: 0,
+    type: 'free', name: 'FREE', monthly: 0, annual: 0, annualTotal: 0, annualSaving: 0,
     description: '주식 분석을 처음 시작하는 분들을 위한 플랜',
     features: [
       { text: '종목진단 매일 1회', included: true },
@@ -32,7 +35,7 @@ const PLANS: Plan[] = [
     cta: '시작하기',
   },
   {
-    type: 'basic', name: 'BASIC', monthly: 4900, annual: 3900,
+    type: 'basic', name: 'BASIC', monthly: 4900, annual: 3920, annualTotal: 47040, annualSaving: 11760,
     description: '더 많은 분석이 필요한 투자자를 위한 플랜',
     features: [
       { text: '종목진단 매일 6회', included: true },
@@ -45,7 +48,7 @@ const PLANS: Plan[] = [
     cta: '시작하기',
   },
   {
-    type: 'pro', name: 'PRO', monthly: 19900, annual: 15900,
+    type: 'pro', name: 'PRO', monthly: 19900, annual: 15920, annualTotal: 191040, annualSaving: 47760,
     description: '전문적인 포트폴리오 관리가 필요한 투자자',
     features: [
       { text: '종목진단 매일 11회', included: true },
@@ -136,14 +139,20 @@ function CardContent({
             </>
           )}
           {annual && !isFree && (
-            <span className="ml-1.5 mb-[5px] text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
-              -20%
+            <span className="ml-1.5 mb-[5px] text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+              {plan.annualSaving.toLocaleString()}원 절약
             </span>
           )}
         </div>
-        <p className="text-[11px] text-slate-600 mt-1">
-          {isFree ? '영원히 무료' : annual ? `연 ${(p * 12).toLocaleString()}원 청구` : '월별 청구'}
-        </p>
+        {isFree ? (
+          <p className="text-[11px] text-slate-600 mt-1">영원히 무료</p>
+        ) : annual ? (
+          <p className="text-[11px] mt-1" style={{ color: '#34d399' }}>
+            {plan.annualTotal.toLocaleString()}원 일시불
+          </p>
+        ) : (
+          <p className="text-[11px] text-slate-600 mt-1">월별 청구</p>
+        )}
       </div>
 
       {/* CTA */}
@@ -167,7 +176,7 @@ function CardContent({
           }`}
           style={ctaBg ? { background: ctaBg } : undefined}
         >
-          {plan.cta}
+          {annual && !isFree ? '연간 시작하기' : plan.cta}
         </button>
       )}
 
@@ -366,7 +375,7 @@ export default function PricingClient() {
             >
               연간
               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white whitespace-nowrap">
-                20% 할인
+                20% 할인 · 일시불
               </span>
             </button>
           </div>
