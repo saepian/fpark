@@ -99,7 +99,7 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
       setOpen(false);
       return;
     }
-    const buttonUrl = activeUrl.startsWith('https://fpark.com')
+    const linkUrl = activeUrl.startsWith('https://fpark.com')
       ? activeUrl
       : reportType === 'portfolio'
         ? 'https://fpark.com/portfolio-diagnosis'
@@ -111,9 +111,9 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
           title,
           description,
           imageUrl: OG_IMAGE,
-          link: { mobileWebUrl: 'https://fpark.com', webUrl: 'https://fpark.com' },
+          link: { mobileWebUrl: linkUrl, webUrl: linkUrl },
         },
-        buttons: [{ title: '리포트 보기', link: { mobileWebUrl: buttonUrl, webUrl: buttonUrl } }],
+        buttons: [{ title: '리포트 보기', link: { mobileWebUrl: linkUrl, webUrl: linkUrl } }],
       });
     } catch (e) {
       console.error('[Kakao Share]', e);
