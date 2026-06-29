@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import {
-  Sparkles, Plus, Trash2, Search, ChevronLeft, ChevronDown, ChevronUp,
+  Sparkles, Plus, Trash2, Search, ChevronLeft,
   Printer, TrendingUp, TrendingDown, BookMarked, Lock,
 } from 'lucide-react';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
@@ -137,7 +137,6 @@ export default function PortfolioDiagnosisPage() {
   const [loadingLabel,        setLoadingLabel]        = useState('');
   const [loadingStep,         setLoadingStep]         = useState(0);
   const [error,               setError]               = useState('');
-  const [expandedSuggestion,  setExpandedSuggestion]  = useState<number>(0);
   const [result,      setResult]      = useState<PortfolioResult | null>(null);
   const [generatedAt, setGeneratedAt] = useState('');
 
@@ -161,15 +160,16 @@ export default function PortfolioDiagnosisPage() {
     });
   }, []); // eslint-disable-line
 
-  // 로딩 단계 자동 진행 — 각 단계 최대 10초 후 강제 진행
+  // 로딩 단계 순차 표시 — 2초 간격 타이머 (SSE와 무관하게 순서대로 진행)
   const PORT_LOADING_STEPS = ['종목 데이터 조회 중...', '뉴스 수집 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', 'AI 분석 중...'];
   useEffect(() => {
     if (!loading) { setLoadingStep(0); return; }
+    setLoadingStep(0);
     const t = [
-      setTimeout(() => setLoadingStep(prev => Math.max(prev, 1)), 8000),
-      setTimeout(() => setLoadingStep(prev => Math.max(prev, 2)), 16000),
-      setTimeout(() => setLoadingStep(prev => Math.max(prev, 3)), 24000),
-      setTimeout(() => setLoadingStep(prev => Math.max(prev, 4)), 32000),
+      setTimeout(() => setLoadingStep(1), 2000),
+      setTimeout(() => setLoadingStep(2), 4000),
+      setTimeout(() => setLoadingStep(3), 6000),
+      setTimeout(() => setLoadingStep(4), 8000),
     ];
     return () => t.forEach(clearTimeout);
   }, [loading]);
@@ -297,7 +297,6 @@ export default function PortfolioDiagnosisPage() {
             const event = JSON.parse(line.slice(6));
             if (event.type === 'progress') {
               setLoadingLabel(event.label);
-              if (event.label.includes('종합 분석')) setLoadingStep(4);
             } else if (event.type === 'result') {
               setResult(event.data);
               setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
@@ -585,40 +584,17 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 5행: 포트폴리오 개선 제안 (아코디언) */}
+          {/* 5행: 포트폴리오 개선 제안 (전체 펼침) */}
           <Card title="포트폴리오 개선 제안" className="mb-4">
-            <div className="flex flex-col gap-2">
-              {result.suggestions.map((s, i) => {
-                const isOpen   = expandedSuggestion === i;
-                // 첫 문장 미리보기 — 구두점 없을 때 80자 truncation 폴백
-                let preview = s.split(/(?<=[.!?])\s+/)[0] ?? s;
-                if (preview === s && s.length > 80) preview = s.slice(0, 80).trimEnd();
-                const hasMore  = preview.length < s.length;
-                return (
-                  <div
-                    key={i}
-                    className="rounded-xl border border-slate-700/50 overflow-hidden transition-all"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setExpandedSuggestion(isOpen ? -1 : i)}
-                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-700/30 transition-colors cursor-pointer text-left"
-                    >
-                      <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      <p className="text-[13px] text-slate-300 leading-relaxed flex-1">
-                        {isOpen ? s : preview}{!isOpen && hasMore && <span className="text-slate-600">...</span>}
-                      </p>
-                      {hasMore && (
-                        <span className="shrink-0 text-slate-600 mt-0.5">
-                          {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                );
-              })}
+            <div className="flex flex-col gap-3">
+              {result.suggestions.map((s, i) => (
+                <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
+                  <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{s}</p>
+                </div>
+              ))}
             </div>
           </Card>
 
