@@ -101,8 +101,8 @@ export async function POST(request: NextRequest) {
   if (!Array.isArray(holdings) || holdings.length === 0) {
     return NextResponse.json({ error: '종목을 하나 이상 입력해주세요.' }, { status: 400 });
   }
-  if (holdings.length > 10) {
-    return NextResponse.json({ error: '최대 10종목까지 분석 가능합니다.' }, { status: 400 });
+  if (holdings.length > 5) {
+    return NextResponse.json({ error: '최대 5종목까지 분석 가능합니다.' }, { status: 400 });
   }
 
   // 모든 종목 데이터 병렬 수집 (KIS 가격·52w·수급·네이버 재무·DB 뉴스)

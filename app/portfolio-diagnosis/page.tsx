@@ -202,7 +202,7 @@ export default function PortfolioDiagnosisPage() {
   }, [updateHolding]);
 
   const addHolding = () => {
-    if (holdings.length >= 10) return;
+    if (holdings.length >= 5) return;
     setHoldings(prev => [...prev, emptyHolding()]);
   };
 
@@ -215,14 +215,14 @@ export default function PortfolioDiagnosisPage() {
     setHoldings(prev => {
       let updated = [...prev];
       for (const item of toAdd) {
-        if (updated.filter(h => h.ticker).length >= 10) break;
+        if (updated.filter(h => h.ticker).length >= 5) break;
         const emptySlot = updated.find(h => !h.ticker);
         if (emptySlot) {
           updated = updated.map(h => h.id === emptySlot.id
             ? { ...h, ticker: item.ticker, name: item.name, _q: item.name }
             : h
           );
-        } else if (updated.length < 10) {
+        } else if (updated.length < 5) {
           updated = [...updated, { ...emptyHolding(), ticker: item.ticker, name: item.name, _q: item.name }];
         }
       }
@@ -335,7 +335,7 @@ export default function PortfolioDiagnosisPage() {
           </div>
           <div className="flex flex-col gap-2 text-left w-full">
             {[
-              '최대 10종목 동시 분석',
+              '최대 5종목 동시 분석',
               '섹터 편중도 자동 계산',
               '종목별 AI 매매 액션',
               '포트폴리오 개선 제안',
@@ -601,7 +601,7 @@ export default function PortfolioDiagnosisPage() {
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-400" />
               <span className="text-[11px] font-bold tracking-[0.2em] text-slate-400 uppercase">
-                Holdings  <span className="text-slate-600">({holdings.filter(h => h.ticker).length}/{holdings.length})</span>
+                Holdings  <span className="text-slate-600">({holdings.filter(h => h.ticker).length}/5)</span>
               </span>
             </div>
             {/* 워치리스트 불러오기 */}
@@ -622,7 +622,7 @@ export default function PortfolioDiagnosisPage() {
                     <div className="px-4 py-3 text-[12px] text-slate-500">관심종목이 없습니다</div>
                   ) : (() => {
                     const filledCount   = holdings.filter(h => h.ticker).length;
-                    const availableSlots = 10 - filledCount;
+                    const availableSlots = 5 - filledCount;
                     const selectableItems = watchlist.filter(w => !holdings.some(h => h.ticker === w.ticker));
                     const checkedCount  = watchlist.filter(w => watchChecked.has(w.ticker)).length;
                     const allChecked    = selectableItems.length > 0 && selectableItems.every(w => watchChecked.has(w.ticker));
@@ -657,7 +657,7 @@ export default function PortfolioDiagnosisPage() {
                               >
                                 <input
                                   type="checkbox"
-                                  disabled={already}
+                                  disabled={already || (!checked && checkedCount >= availableSlots)}
                                   checked={checked}
                                   onChange={e => {
                                     setWatchChecked(prev => {
@@ -680,7 +680,7 @@ export default function PortfolioDiagnosisPage() {
                         <div className="px-4 py-3 border-t border-slate-700/60">
                           {wouldExceed && (
                             <p className="text-[11px] text-amber-400 mb-2">
-                              최대 10개까지 추가 가능합니다 (현재 {filledCount}개 입력됨)
+                              최대 5개까지 선택 가능합니다 (현재 {filledCount}개 입력됨)
                             </p>
                           )}
                           <button
@@ -719,7 +719,7 @@ export default function PortfolioDiagnosisPage() {
           </div>
 
           {/* 종목 추가 버튼 */}
-          {holdings.length < 10 && (
+          {holdings.length < 5 && (
             <button
               type="button"
               onClick={addHolding}
@@ -727,7 +727,7 @@ export default function PortfolioDiagnosisPage() {
                 text-slate-500 hover:text-slate-300 hover:border-slate-500
                 text-[13px] flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> 종목 추가 (최대 10개)
+              <Plus className="w-4 h-4" /> 종목 추가 (최대 5개)
             </button>
           )}
         </div>
