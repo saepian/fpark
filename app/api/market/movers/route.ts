@@ -55,12 +55,15 @@ async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q'): Promise<Move
   }
 
   const items: any[] = data.output ?? [];
-  return items.slice(0, 40).map((item) => ({
+  const mapped = items.map((item) => ({
     name:       item.hts_kor_isnm,
     ticker:     item.stck_shrn_iscd,
     price:      Number(item.stck_prpr),
     changeRate: Number(item.prdy_ctrt),
   }));
+  // 디버그: 전체 응답 ticker 목록 출력 (앱클론 174900 포함 여부 확인용)
+  console.log(`[MOVERS] ${market} 전체 응답:`, mapped.map(s => `${s.ticker}(${s.changeRate}%)`).join(', '));
+  return mapped;
 }
 
 async function fetchNaverMovers(type: 'rise' | 'fall', count = 10): Promise<MoverStock[]> {
@@ -159,14 +162,15 @@ export async function GET() {
     const gainers = [...kospiGainers, ...kosdaqGainers]
       .filter((s) => s.price > 0 && s.name)
       .sort((a, b) => b.changeRate - a.changeRate)
-      .slice(0, 10);
+      .slice(0, 20);
 
     const losers = [...kospiLosers, ...kosdaqLosers]
       .filter((s) => s.price > 0 && s.name)
       .sort((a, b) => a.changeRate - b.changeRate)
-      .slice(0, 10);
+      .slice(0, 20);
 
     console.log(`[MOVERS] KIS 결합 — 급등:${gainers.length}개 급락:${losers.length}개`);
+    console.log('[MOVERS] 급등 top5:', gainers.slice(0, 5).map(s => `${s.name}(${s.changeRate}%)`).join(', '));
 
     if (gainers.length >= 3 || losers.length >= 3) {
       const result: MoversResponse = { gainers, losers };
@@ -181,8 +185,8 @@ export async function GET() {
   // 2순위: Naver Finance 급등/급락 스크래핑
   try {
     const [naverGainers, naverLosers] = await Promise.all([
-      fetchNaverMovers('rise', 10),
-      fetchNaverMovers('fall', 10),
+      fetchNaverMovers('rise', 20),
+      fetchNaverMovers('fall', 20),
     ]);
     if (naverGainers.length > 0 || naverLosers.length > 0) {
       const result: MoversResponse = { gainers: naverGainers, losers: naverLosers };
@@ -195,7 +199,7 @@ export async function GET() {
 
   // 3순위: curated 종목 등락률 정렬
   try {
-    const curated = await fetchCuratedMovers(10);
+    const curated = await fetchCuratedMovers(20);
     if (curated.gainers.length > 0 || curated.losers.length > 0) {
       const result: MoversResponse = { gainers: curated.gainers, losers: curated.losers };
       saveCache(result).catch(() => {});

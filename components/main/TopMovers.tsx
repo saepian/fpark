@@ -8,12 +8,12 @@ interface TopMoversProps {
   onSelectStock: (ticker: string) => void;
 }
 
-function padToTen(arr: MoverStock[]): MoverStock[] {
+function padToTwenty(arr: MoverStock[]): MoverStock[] {
   const result = [...arr];
-  while (result.length < 10) {
+  while (result.length < 20) {
     result.push({ name: '-', ticker: '-', price: 0, changeRate: 0, isEmpty: true });
   }
-  return result.slice(0, 10);
+  return result.slice(0, 20);
 }
 
 function SkeletonRow() {
@@ -106,8 +106,8 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const displayGainers = padToTen(movers?.gainers ?? []);
-  const displayLosers  = padToTen(movers?.losers  ?? []);
+  const displayGainers = padToTwenty(movers?.gainers ?? []);
+  const displayLosers  = padToTwenty(movers?.losers  ?? []);
   const list = tab === 'gainers' ? displayGainers : displayLosers;
 
   return (
@@ -146,7 +146,7 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
                 : 'border-transparent text-gray-400 hover:text-gray-200'
             }`}
           >
-            급등 TOP 10
+            급등 TOP 20
           </button>
           <button
             onClick={() => setTab('losers')}
@@ -156,14 +156,14 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
                 : 'border-transparent text-gray-400 hover:text-gray-200'
             }`}
           >
-            급락 TOP 10
+            급락 TOP 20
           </button>
         </div>
       </div>
 
       {/* 본문 */}
       <div className="flex-1 divide-y divide-gray-100 dark:divide-[#2d313e]/30">
-        {loading && Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} />)}
+        {loading && Array.from({ length: 20 }).map((_, i) => <SkeletonRow key={i} />)}
 
         {!loading && list.map((stock, i) => (
           <StockRow
