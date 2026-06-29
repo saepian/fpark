@@ -657,28 +657,29 @@ export default function GlobalMarketPage() {
           ))}
         </div>
 
-        {/* 2컬럼 레이아웃: 좌측 메인 + 우측 사이드바 */}
+        {/* 지수 카드 — 전체 너비 */}
+        {COUNTRY_TABS.map(tab => activeTab === tab.id && (
+          <div key={tab.id} className="flex gap-3 mb-7">
+            {TAB_INDEX_CARDS[tab.id].map(({ label, key, isFx }) => (
+              <IndexCard
+                key={key}
+                label={label}
+                data={indices[key]}
+                closes={indices[key]?.sparkline ?? chartData[key] ?? []}
+                uid={key}
+                isFx={isFx}
+              />
+            ))}
+          </div>
+        ))}
+
+        {/* 2컬럼: 주요 종목 + 사이드바 */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
 
-          {/* 좌측: 지수 카드 + 종목 테이블 */}
+          {/* 좌측: 종목 테이블 */}
           <div className="min-w-0">
             {COUNTRY_TABS.map(tab => activeTab === tab.id && (
               <div key={tab.id}>
-                {/* 지수 카드 */}
-                <div className="flex gap-3 mb-7">
-                  {TAB_INDEX_CARDS[tab.id].map(({ label, key, isFx }) => (
-                    <IndexCard
-                      key={key}
-                      label={label}
-                      data={indices[key]}
-                      closes={indices[key]?.sparkline ?? chartData[key] ?? []}
-                      uid={key}
-                      isFx={isFx}
-                    />
-                  ))}
-                </div>
-
-                {/* 종목 테이블 */}
                 <h2 className="text-[14px] font-bold text-white mb-3">주요 종목</h2>
                 <StockTable
                   stocks={stocksByTab[tab.id] ?? []}
