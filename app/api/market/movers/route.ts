@@ -8,6 +8,14 @@ export const dynamic = 'force-dynamic';
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 const CACHE_KEY = 'market_movers';
 
+function isKoreanMarketOpen(): boolean {
+  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const day = kst.getDay(); // 0=일, 6=토
+  if (day === 0 || day === 6) return false;
+  const minutes = kst.getHours() * 60 + kst.getMinutes();
+  return minutes >= 9 * 60 && minutes < 15 * 60 + 30;
+}
+
 // market: J=코스피, Q=코스닥
 async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q'): Promise<MoverStock[]> {
   const token = await getAccessToken();
@@ -150,68 +158,103 @@ async function saveCache(data: MoversResponse) {
 }
 
 export async function GET() {
-  // 1순위: KIS 급등락 순위 API — 코스피(J) + 코스닥(Q) 동시 조회
-  try {
-    const [kospiGainers, kosdaqGainers, kospiLosers, kosdaqLosers] = await Promise.all([
-      fetchMovers('0', 'J'),
-      fetchMovers('0', 'Q'),
-      fetchMovers('1', 'J'),
-      fetchMovers('1', 'Q'),
-    ]);
+  const marketOpen = isKoreanMarketOpen();
+  console.log(`[MOVERS] 장 ${marketOpen ? '중' : '외'}`);
 
-    const gainers = [...kospiGainers, ...kosdaqGainers]
-      .filter((s) => s.price > 0 && s.name)
-      .sort((a, b) => b.changeRate - a.changeRate)
-      .slice(0, 20);
+  if (marketOpen) {
+    // 장 중: 실시간 순위 조회
+    // 1순위: KIS 급등락 순위 API — 코스피(J) + 코스닥(Q) 동시 조회
+    try {
+      const [kospiGainers, kosdaqGainers, kospiLosers, kosdaqLosers] = await Promise.all([
+        fetchMovers('0', 'J'),
+        fetchMovers('0', 'Q'),
+        fetchMovers('1', 'J'),
+        fetchMovers('1', 'Q'),
+      ]);
 
-    const losers = [...kospiLosers, ...kosdaqLosers]
-      .filter((s) => s.price > 0 && s.name)
-      .sort((a, b) => a.changeRate - b.changeRate)
-      .slice(0, 20);
+      const gainers = [...kospiGainers, ...kosdaqGainers]
+        .filter((s) => s.price > 0 && s.name)
+        .sort((a, b) => b.changeRate - a.changeRate)
+        .slice(0, 20);
 
-    console.log(`[MOVERS] KIS 결합 — 급등:${gainers.length}개 급락:${losers.length}개`);
-    console.log('[MOVERS] 급등 top5:', gainers.slice(0, 5).map(s => `${s.name}(${s.changeRate}%)`).join(', '));
+      const losers = [...kospiLosers, ...kosdaqLosers]
+        .filter((s) => s.price > 0 && s.name)
+        .sort((a, b) => a.changeRate - b.changeRate)
+        .slice(0, 20);
 
-    if (gainers.length >= 3 || losers.length >= 3) {
-      const result: MoversResponse = { gainers, losers };
-      saveCache(result).catch(() => {});
-      return NextResponse.json({ ...result, isCached: false, cachedAt: null });
+      console.log(`[MOVERS] KIS 결합 — 급등:${gainers.length}개 급락:${losers.length}개`);
+
+      if (gainers.length >= 3 || losers.length >= 3) {
+        const result: MoversResponse = { gainers, losers };
+        saveCache(result).catch(() => {});
+        return NextResponse.json({ ...result, isCached: false, cachedAt: null, isPrevDay: false });
+      }
+      console.log('[MOVERS] KIS output empty, falling back to Naver');
+    } catch (e) {
+      console.error('[MOVERS] KIS API 오류:', e instanceof Error ? e.message : e);
     }
-    console.log('[MOVERS] KIS output empty, falling back to Naver');
-  } catch (e) {
-    console.error('[MOVERS] KIS API 오류:', e instanceof Error ? e.message : e);
-  }
 
-  // 2순위: Naver Finance 급등/급락 스크래핑
-  try {
-    const [naverGainers, naverLosers] = await Promise.all([
-      fetchNaverMovers('rise', 20),
-      fetchNaverMovers('fall', 20),
-    ]);
-    if (naverGainers.length > 0 || naverLosers.length > 0) {
-      const result: MoversResponse = { gainers: naverGainers, losers: naverLosers };
-      saveCache(result).catch(() => {});
-      return NextResponse.json({ ...result, isCached: false, cachedAt: null });
+    // 2순위: Naver Finance 급등/급락 스크래핑
+    try {
+      const [naverGainers, naverLosers] = await Promise.all([
+        fetchNaverMovers('rise', 20),
+        fetchNaverMovers('fall', 20),
+      ]);
+      if (naverGainers.length > 0 || naverLosers.length > 0) {
+        const result: MoversResponse = { gainers: naverGainers, losers: naverLosers };
+        saveCache(result).catch(() => {});
+        return NextResponse.json({ ...result, isCached: false, cachedAt: null, isPrevDay: false });
+      }
+    } catch (e) {
+      console.error('[MOVERS] Naver 스크래핑 오류:', e instanceof Error ? e.message : e);
     }
-  } catch (e) {
-    console.error('[MOVERS] Naver 스크래핑 오류:', e instanceof Error ? e.message : e);
-  }
 
-  // 3순위: curated 종목 등락률 정렬
-  try {
-    const curated = await fetchCuratedMovers(20);
-    if (curated.gainers.length > 0 || curated.losers.length > 0) {
-      const result: MoversResponse = { gainers: curated.gainers, losers: curated.losers };
-      saveCache(result).catch(() => {});
-      return NextResponse.json({ ...result, isCached: false, cachedAt: null });
+    // 3순위: curated 종목 등락률 정렬
+    try {
+      const curated = await fetchCuratedMovers(20);
+      if (curated.gainers.length > 0 || curated.losers.length > 0) {
+        const result: MoversResponse = { gainers: curated.gainers, losers: curated.losers };
+        saveCache(result).catch(() => {});
+        return NextResponse.json({ ...result, isCached: false, cachedAt: null, isPrevDay: false });
+      }
+    } catch (e) {
+      console.error('[MOVERS] curated movers 오류:', e instanceof Error ? e.message : e);
     }
-  } catch (e) {
-    console.error('[MOVERS] curated movers 오류:', e instanceof Error ? e.message : e);
-  }
 
-  // 4순위: 캐시
-  const cached = await loadCache();
-  if (cached) return NextResponse.json(cached);
+    // 4순위: 캐시
+    const cached = await loadCache();
+    if (cached) return NextResponse.json({ ...cached, isPrevDay: false });
+  } else {
+    // 장 외: 전일 기준 데이터 조회
+    // 1순위: Naver Finance (장 외에도 전일 마감 기준 데이터 제공)
+    try {
+      const [naverGainers, naverLosers] = await Promise.all([
+        fetchNaverMovers('rise', 20),
+        fetchNaverMovers('fall', 20),
+      ]);
+      if (naverGainers.length > 0 || naverLosers.length > 0) {
+        const result: MoversResponse = { gainers: naverGainers, losers: naverLosers };
+        saveCache(result).catch(() => {});
+        return NextResponse.json({ ...result, isCached: false, cachedAt: new Date().toISOString(), isPrevDay: true });
+      }
+    } catch (e) {
+      console.error('[MOVERS] 장외 Naver 스크래핑 오류:', e instanceof Error ? e.message : e);
+    }
+
+    // 2순위: 캐시된 전일 데이터
+    const cached = await loadCache();
+    if (cached) return NextResponse.json({ ...cached, isPrevDay: true });
+
+    // 3순위: curated 종목 등락률 정렬 (최후 수단)
+    try {
+      const curated = await fetchCuratedMovers(20);
+      if (curated.gainers.length > 0 || curated.losers.length > 0) {
+        return NextResponse.json({ gainers: curated.gainers, losers: curated.losers, isCached: false, cachedAt: null, isPrevDay: true });
+      }
+    } catch (e) {
+      console.error('[MOVERS] curated movers 오류:', e instanceof Error ? e.message : e);
+    }
+  }
 
   return NextResponse.json({ error: '시세 데이터를 불러올 수 없습니다.' }, { status: 503 });
 }

@@ -124,4 +124,5 @@ export interface MoversResponse {
   losers: MoverStock[];
   isCached?: boolean;
   cachedAt?: string | null;
+  isPrevDay?: boolean;
 }

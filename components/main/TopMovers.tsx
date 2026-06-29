@@ -119,12 +119,20 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
             <h2 className="font-sans text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-[#8c909f]">
               TOP MOVERS
             </h2>
-            {movers?.isCached && movers?.cachedAt && (
+            {movers?.isPrevDay && movers?.cachedAt && (
+              <span className="text-[10px] text-slate-500">
+                전일 기준 · {new Date(movers.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', timeZone: 'Asia/Seoul' })}
+              </span>
+            )}
+            {movers?.isPrevDay && !movers?.cachedAt && (
+              <span className="text-[10px] text-slate-500">전일 기준</span>
+            )}
+            {!movers?.isPrevDay && movers?.isCached && movers?.cachedAt && (
               <span className="text-[10px] text-slate-500">
                 장마감 · {new Date(movers.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' })} 기준
               </span>
             )}
-            {!movers?.isCached && movers && (
+            {!movers?.isPrevDay && !movers?.isCached && movers && (
               <span className="text-[10px] text-emerald-600 dark:text-emerald-500">실시간</span>
             )}
           </div>
