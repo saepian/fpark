@@ -432,10 +432,10 @@ export default function Hero() {
                     </div>
                   </div>
                   <span
-                    className="text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mt-0.5"
+                    className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mt-0.5"
                     style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)' }}
                   >
-                    무료 하루 2회
+                    무료 하루 1회
                   </span>
                 </div>
                 <div
@@ -466,7 +466,7 @@ export default function Hero() {
                     </div>
                   </div>
                   <span
-                    className="text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mt-0.5"
+                    className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mt-0.5"
                     style={{ background: 'rgba(234,179,8,0.15)', color: '#fbbf24', border: '1px solid rgba(234,179,8,0.35)' }}
                   >
                     PRO
