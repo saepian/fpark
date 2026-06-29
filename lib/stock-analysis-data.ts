@@ -155,7 +155,7 @@ async function fetchNaverFinancials(ticker: string): Promise<{ operatingProfit?:
         'Accept-Language': 'ko-KR,ko;q=0.9',
         'Referer': 'https://finance.naver.com/',
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
       cache: 'no-store',
     });
     if (!res.ok) {

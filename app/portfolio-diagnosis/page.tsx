@@ -161,14 +161,15 @@ export default function PortfolioDiagnosisPage() {
     });
   }, []); // eslint-disable-line
 
-  // 로딩 단계 자동 진행 (데이터 수집 시각적 표시, step 4는 SSE로 제어)
+  // 로딩 단계 자동 진행 — 각 단계 최대 10초 후 강제 진행
   const PORT_LOADING_STEPS = ['종목 데이터 조회 중...', '뉴스 수집 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', 'AI 분석 중...'];
   useEffect(() => {
     if (!loading) { setLoadingStep(0); return; }
     const t = [
-      setTimeout(() => setLoadingStep(1), 4000),
-      setTimeout(() => setLoadingStep(2), 8000),
-      setTimeout(() => setLoadingStep(3), 12000),
+      setTimeout(() => setLoadingStep(prev => Math.max(prev, 1)), 8000),
+      setTimeout(() => setLoadingStep(prev => Math.max(prev, 2)), 16000),
+      setTimeout(() => setLoadingStep(prev => Math.max(prev, 3)), 24000),
+      setTimeout(() => setLoadingStep(prev => Math.max(prev, 4)), 32000),
     ];
     return () => t.forEach(clearTimeout);
   }, [loading]);

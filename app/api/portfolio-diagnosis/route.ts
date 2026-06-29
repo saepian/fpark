@@ -89,6 +89,11 @@ function parseAiJson<T>(text: string, fallback: T): T {
   try { return JSON.parse(match[0]); } catch { return fallback; }
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  const timer = new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms));
+  return Promise.race([promise, timer]);
+}
+
 // 종목 1개 프롬프트 — PER·52주위치·수급·뉴스 1개만 포함
 function buildStockPrompt(h: EnrichedHolding): string {
   const ad  = h.analysisData;
@@ -98,13 +103,18 @@ function buildStockPrompt(h: EnrichedHolding): string {
   ];
   if (ad) {
     const tech: string[] = [];
-    if (ad.per > 0)        tech.push(`PER:${ad.per.toFixed(1)}배`);
-    if (ad.week52Position) tech.push(`52주위치:${ad.week52Position.toFixed(0)}%`);
+    if (ad.per > 0)         tech.push(`PER:${ad.per.toFixed(1)}배`);
+    if (ad.week52Position)  tech.push(`52주위치:${ad.week52Position.toFixed(0)}%`);
     if (ad.operatingProfit) tech.push(`영업이익:${ad.operatingProfit}`);
-    if (tech.length)       lines.push(tech.join(' | '));
+    if (tech.length)        lines.push(tech.join(' | '));
     const inv = buildInvestorBlock(ad);
     if (inv && inv !== '데이터 없음') lines.push(`수급: ${inv.replace(/\n/g, ' ')}`);
-    if (ad.news?.[0])      lines.push(`뉴스: ${ad.news[0].title}`);
+    if (ad.news?.[0])       lines.push(`뉴스: ${ad.news[0].title}`);
+    if (!ad.operatingProfit && !ad.revenue) {
+      lines.push('재무 데이터 없음 - 수급과 뉴스 기반으로만 분석');
+    }
+  } else {
+    lines.push('데이터 조회 실패 - 수익률 기반으로만 분석');
   }
   return lines.join('\n');
 }
@@ -239,7 +249,9 @@ export async function POST(request: NextRequest) {
         console.log(`[PORTFOLIO-DIAGNOSIS] 데이터 수집 시작 (${holdings.length}개 종목)`);
 
         const analysisResults = await Promise.allSettled(
-          holdings.map(h => collectStockAnalysisData(h.ticker, h.name)),
+          holdings.map(h =>
+            withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
+          ),
         );
 
         const enriched: EnrichedHolding[] = holdings.map((h, i) => {
