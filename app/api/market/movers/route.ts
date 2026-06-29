@@ -16,8 +16,23 @@ function isKoreanMarketOpen(): boolean {
   return minutes >= 9 * 60 && minutes < 15 * 60 + 30;
 }
 
-// market: J=코스피, Q=코스닥
-async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q'): Promise<MoverStock[]> {
+// 가장 최근에 완료된 거래일을 YYYYMMDD 형식으로 반환
+// 평일 15:30 이후 → 오늘 / 그 외 → 주말 건너뛰며 이전 영업일
+function getLastTradingDate(): string {
+  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const day = kst.getDay();
+  const minutes = kst.getHours() * 60 + kst.getMinutes();
+  if (day >= 1 && day <= 5 && minutes >= 15 * 60 + 30) return fmt(kst);
+  const d = new Date(kst);
+  d.setDate(d.getDate() - 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+  return fmt(d);
+}
+
+// market: J=코스피, Q=코스닥 / date: YYYYMMDD (장 외 시간에 최근 거래일 지정)
+async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q', date = ''): Promise<MoverStock[]> {
   const token = await getAccessToken();
   const iscdMap = { J: '0001', Q: '1001' };
 
@@ -34,7 +49,7 @@ async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q'): Promise<Move
     FID_TRGT_CLS_CODE: '111111111',
     FID_TRGT_EXLS_CLS_CODE: '000000',
     FID_DIV_CLS_CODE: '0',
-    FID_INPUT_DATE_1: '',
+    FID_INPUT_DATE_1: date,
     FID_RSFL_RATE1: '',
     FID_RSFL_RATE2: '',
     FID_RST_CLB_CODE: '',
@@ -225,8 +240,43 @@ export async function GET() {
     const cached = await loadCache();
     if (cached) return NextResponse.json({ ...cached, isPrevDay: false });
   } else {
-    // 장 외: 전일 기준 데이터 조회
-    // 1순위: Naver Finance (장 외에도 전일 마감 기준 데이터 제공)
+    // 장 외: 최근 거래일 기준 데이터 조회
+    const prevDate = getLastTradingDate();
+    const prevDateLabel = `${prevDate.slice(4, 6)}/${prevDate.slice(6, 8)}`;
+    console.log(`[MOVERS] 장외 — 최근 거래일: ${prevDate}`);
+
+    // 1순위: KIS 급등락 순위 API — 최근 거래일 날짜 지정
+    try {
+      const [kospiGainers, kosdaqGainers, kospiLosers, kosdaqLosers] = await Promise.all([
+        fetchMovers('0', 'J', prevDate),
+        fetchMovers('0', 'Q', prevDate),
+        fetchMovers('1', 'J', prevDate),
+        fetchMovers('1', 'Q', prevDate),
+      ]);
+
+      const gainers = [...kospiGainers, ...kosdaqGainers]
+        .filter((s) => s.price > 0 && s.name)
+        .sort((a, b) => b.changeRate - a.changeRate)
+        .slice(0, 20);
+
+      const losers = [...kospiLosers, ...kosdaqLosers]
+        .filter((s) => s.price > 0 && s.name)
+        .sort((a, b) => a.changeRate - b.changeRate)
+        .slice(0, 20);
+
+      console.log(`[MOVERS] KIS 장외(${prevDate}) — 급등:${gainers.length}개 급락:${losers.length}개`);
+
+      if (gainers.length >= 3 || losers.length >= 3) {
+        const result: MoversResponse = { gainers, losers };
+        saveCache(result).catch(() => {});
+        return NextResponse.json({ ...result, isCached: false, cachedAt: new Date().toISOString(), isPrevDay: true, prevDateLabel });
+      }
+      console.log('[MOVERS] KIS 장외 output empty, falling back to Naver');
+    } catch (e) {
+      console.error('[MOVERS] KIS 장외 오류:', e instanceof Error ? e.message : e);
+    }
+
+    // 2순위: Naver Finance (장 외에도 전일 마감 기준 데이터 제공)
     try {
       const [naverGainers, naverLosers] = await Promise.all([
         fetchNaverMovers('rise', 20),
@@ -235,21 +285,21 @@ export async function GET() {
       if (naverGainers.length > 0 || naverLosers.length > 0) {
         const result: MoversResponse = { gainers: naverGainers, losers: naverLosers };
         saveCache(result).catch(() => {});
-        return NextResponse.json({ ...result, isCached: false, cachedAt: new Date().toISOString(), isPrevDay: true });
+        return NextResponse.json({ ...result, isCached: false, cachedAt: new Date().toISOString(), isPrevDay: true, prevDateLabel });
       }
     } catch (e) {
       console.error('[MOVERS] 장외 Naver 스크래핑 오류:', e instanceof Error ? e.message : e);
     }
 
-    // 2순위: 캐시된 전일 데이터
+    // 3순위: 캐시된 전일 데이터
     const cached = await loadCache();
     if (cached) return NextResponse.json({ ...cached, isPrevDay: true });
 
-    // 3순위: curated 종목 등락률 정렬 (최후 수단)
+    // 4순위: curated 종목 등락률 정렬 (최후 수단)
     try {
       const curated = await fetchCuratedMovers(20);
       if (curated.gainers.length > 0 || curated.losers.length > 0) {
-        return NextResponse.json({ gainers: curated.gainers, losers: curated.losers, isCached: false, cachedAt: null, isPrevDay: true });
+        return NextResponse.json({ gainers: curated.gainers, losers: curated.losers, isCached: false, cachedAt: null, isPrevDay: true, prevDateLabel });
       }
     } catch (e) {
       console.error('[MOVERS] curated movers 오류:', e instanceof Error ? e.message : e);

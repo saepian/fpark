@@ -119,13 +119,10 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
             <h2 className="font-sans text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-[#8c909f]">
               TOP MOVERS
             </h2>
-            {movers?.isPrevDay && movers?.cachedAt && (
+            {movers?.isPrevDay && (
               <span className="text-[10px] text-slate-500">
-                전일 기준 · {new Date(movers.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', timeZone: 'Asia/Seoul' })}
+                전일 기준{movers.prevDateLabel ? ` · ${movers.prevDateLabel}` : ''}
               </span>
-            )}
-            {movers?.isPrevDay && !movers?.cachedAt && (
-              <span className="text-[10px] text-slate-500">전일 기준</span>
             )}
             {!movers?.isPrevDay && movers?.isCached && movers?.cachedAt && (
               <span className="text-[10px] text-slate-500">

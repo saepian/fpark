@@ -125,4 +125,5 @@ export interface MoversResponse {
   isCached?: boolean;
   cachedAt?: string | null;
   isPrevDay?: boolean;
+  prevDateLabel?: string; // "MM/DD" 형식
 }
