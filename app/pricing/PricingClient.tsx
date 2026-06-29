@@ -147,9 +147,12 @@ function CardContent({
         {isFree ? (
           <p className="text-[11px] text-slate-600 mt-1">영원히 무료</p>
         ) : annual ? (
-          <p className="text-[11px] mt-1" style={{ color: '#34d399' }}>
-            {plan.annualTotal.toLocaleString()}원 일시불
-          </p>
+          <div className="mt-2.5 pt-2.5 border-t border-slate-700/40">
+            <p className="text-[10px] text-slate-500 mb-1">연간 총 결제금액</p>
+            <p className="text-[17px] font-bold text-slate-100 leading-none">
+              {plan.annualTotal.toLocaleString()}<span className="text-[13px] font-medium text-slate-400 ml-0.5">원</span>
+            </p>
+          </div>
         ) : (
           <p className="text-[11px] text-slate-600 mt-1">월별 청구</p>
         )}
@@ -233,8 +236,8 @@ function PlanCard({
   );
 
   if (isPro) return (
-    <div className="group cursor-pointer relative mt-4">
-      <div className="absolute -top-4 left-0 right-0 flex justify-center z-10 pointer-events-none">
+    <div className="group cursor-pointer relative pt-7">
+      <div className="absolute top-0 left-0 right-0 flex justify-center pointer-events-none z-10">
         <span
           className="text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg"
           style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#0f1117' }}
@@ -254,7 +257,7 @@ function PlanCard({
   );
 
   if (isBasic) return (
-    <div className="group cursor-pointer">
+    <div className="group cursor-pointer pt-7">
       <div
         className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_0_32px_rgba(99,102,241,0.38)]"
         style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', boxShadow: '0 0 16px rgba(99,102,241,0.18)' }}
@@ -267,11 +270,13 @@ function PlanCard({
   );
 
   return (
-    <div
-      className="group cursor-pointer border border-slate-700/60 rounded-2xl transition-all duration-300 group-hover:-translate-y-2 hover:border-slate-600/80"
-      style={{ backgroundColor: innerBg }}
-    >
-      {content}
+    <div className="group cursor-pointer pt-7">
+      <div
+        className="border border-slate-700/60 rounded-2xl transition-all duration-300 group-hover:-translate-y-2 hover:border-slate-600/80"
+        style={{ backgroundColor: innerBg }}
+      >
+        {content}
+      </div>
     </div>
   );
 }
@@ -384,7 +389,7 @@ export default function PricingClient() {
 
       {/* ── 플랜 카드 ── */}
       <section className="max-w-5xl mx-auto px-4 pb-20">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {PLANS.map(plan => (
             <PlanCard
               key={plan.type}
