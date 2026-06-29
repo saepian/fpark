@@ -22,8 +22,10 @@
   50%       { transform: rotate(10deg);  }
 }
 
-html, body {
+html {
   overflow-x: hidden;
+}
+body {
   max-width: 100%;
 }
 
