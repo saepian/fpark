@@ -161,11 +161,17 @@ button, [role="button"], a {
     font-size: 0.9em;
   }
 
-  /* 모든 요소 배경·테두리 리셋 */
-  *:not(svg):not(svg *):not(canvas) {
+  /* 모든 요소 배경·테두리 리셋 (인라인 style 있는 요소는 제외) */
+  *:not(svg):not(svg *):not(canvas):not([style*="background-color"]) {
     background-color: #ffffff !important;
     border-color: #e5e7eb !important;
     color: #111827 !important;
+  }
+
+  /* 인라인 style로 지정된 배경색(섹터 막대그래프 등) 강제 유지 */
+  [style*="background-color"] {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
   }
 
   /* 수익률 색상 유지 */

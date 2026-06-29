@@ -75,6 +75,11 @@ const SECTOR_COLORS = [
   'bg-amber-500',  'bg-pink-500',   'bg-teal-500', 'bg-orange-500',
 ];
 
+const SECTOR_HEX = [
+  '#6366f1', '#8b5cf6', '#0ea5e9', '#10b981',
+  '#f59e0b', '#ec4899', '#14b8a6', '#f97316',
+];
+
 function fmt(n: number)  { return n.toLocaleString(); }
 function fmtR(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 function uid()           { return Math.random().toString(36).slice(2, 9); }
@@ -508,32 +513,35 @@ export default function PortfolioDiagnosisPage() {
           {/* 3행: 섹터 편중도 */}
           <Card title="섹터 편중도 분석" className="mb-4">
             <div className="flex flex-col gap-3">
-              {sortedSectors.map((s, i) => (
-                <div key={s.name}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${SECTOR_COLORS[i % SECTOR_COLORS.length]}`} />
-                      <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
-                      {s.warning && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 font-semibold">
-                          과집중
-                        </span>
-                      )}
+              {sortedSectors.map((s, i) => {
+                const hex = SECTOR_HEX[i % SECTOR_HEX.length];
+                const barColor = s.warning ? '#ef4444' : hex;
+                return (
+                  <div key={s.name}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hex }} />
+                        <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
+                        {s.warning && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
+                            style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                          >
+                            과집중
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
                     </div>
-                    <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${s.weight}%`, backgroundColor: barColor }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        s.warning
-                          ? 'bg-red-500'
-                          : SECTOR_COLORS[i % SECTOR_COLORS.length].replace('bg-', 'bg-')
-                      }`}
-                      style={{ width: `${s.weight}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
 
