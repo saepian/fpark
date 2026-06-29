@@ -11,7 +11,7 @@ import {
 } from '@/lib/stock-analysis-data';
 
 export const dynamic    = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -37,17 +37,18 @@ async function fetchNaverNews(stockName: string) {
       `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(stockName)}&display=5`,
       {
         headers: {
-          'X-Naver-Client-Id':     process.env.NAVER_CLIENT_ID!,
-          'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET!,
+          'X-Naver-Client-Id':     process.env.NAVER_CLIENT_ID ?? '',
+          'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET ?? '',
         },
         signal: AbortSignal.timeout(4000),
       }
     );
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.items ?? []).map((item: { title: string; description: string }) => ({
-      title:       item.title.replace(/<[^>]*>/g, ''),
-      description: item.description.replace(/<[^>]*>/g, ''),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (data.items ?? []).map((item: any) => ({
+      title:       String(item.title ?? '').replace(/<[^>]*>/g, ''),
+      description: String(item.description ?? '').replace(/<[^>]*>/g, ''),
     }));
   } catch {
     return [];
@@ -71,74 +72,115 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = makeSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // 최상위 try-catch: 어느 단계에서든 예외 발생 시 반드시 JSON 반환
+  try {
+    const supabase = makeSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const { count } = await supabase
-    .from('stock_diagnosis')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .gte('created_at', `${todayKst}T00:00:00+09:00`);
+    const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const { count } = await supabase
+      .from('stock_diagnosis')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
-  const isAdmin = user.email === 'saepian2@gmail.com';
-  if (!isAdmin && (count ?? 0) >= 2) {
-    return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
-  }
+    const isAdmin = user.email === 'saepian2@gmail.com';
+    if (!isAdmin && (count ?? 0) >= 2) {
+      return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
+    }
 
-  const { ticker, name, avgPrice, quantity, buyDate } = await request.json();
-  if (!ticker || !name || !avgPrice || !quantity) {
-    return NextResponse.json({ error: '필수 항목이 누락되었습니다.' }, { status: 400 });
-  }
+    const body = await request.json().catch(() => ({}));
+    const { ticker, name, avgPrice, quantity, buyDate } = body as {
+      ticker?: string; name?: string; avgPrice?: number; quantity?: number; buyDate?: string;
+    };
 
-  // 모든 데이터 병렬 수집
-  const [priceResult, analysisResult, naverNewsResult] = await Promise.allSettled([
-    fetchStockPrice(ticker),
-    collectStockAnalysisData(ticker, name),
-    fetchNaverNews(name),
-  ]);
+    if (!ticker || !name || !avgPrice || !quantity) {
+      return NextResponse.json({ error: '필수 항목이 누락되었습니다.' }, { status: 400 });
+    }
 
-  const priceData    = priceResult.status    === 'fulfilled' ? priceResult.value    : null;
-  const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
-  const naverNews    = naverNewsResult.status === 'fulfilled' ? naverNewsResult.value : [];
+    // ── 1단계: 데이터 병렬 수집 ─────────────────────────────────────────────
+    console.log('[DIAGNOSIS] 1. 데이터 수집 시작', { ticker, name });
 
-  const currentPrice = priceData?.price || analysisData?.currentPrice || avgPrice;
-  const stockName    = (priceData?.name && priceData.name !== ticker)
-    ? priceData.name
-    : (analysisData?.stockName || name);
+    const [priceResult, analysisResult, naverNewsResult] = await Promise.allSettled([
+      fetchStockPrice(ticker),
+      collectStockAnalysisData(ticker, name),
+      fetchNaverNews(name),
+    ]);
 
-  // 수익률 계산
-  const profitRate   = ((currentPrice - avgPrice) / avgPrice * 100);
-  const profitAmount = (currentPrice - avgPrice) * quantity;
-  const holdDays     = buyDate
-    ? Math.floor((Date.now() - new Date(buyDate).getTime()) / (1000 * 60 * 60 * 24))
-    : null;
+    console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
+      price:    priceResult.status,
+      analysis: analysisResult.status,
+      news:     naverNewsResult.status,
+      priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
+      analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
+      newsErr:     naverNewsResult.status === 'rejected' ? String(naverNewsResult.reason): null,
+    });
 
-  // 프롬프트 블록 조립
-  const technicalBlock = analysisData ? buildTechnicalBlock(analysisData) : '데이터 없음';
-  const investorBlock  = analysisData ? buildInvestorBlock(analysisData)  : '데이터 없음';
-  const newsBlock      = buildNewsBlock(analysisData?.news ?? [], naverNews);
+    // ── 2단계: 결과 추출 ──────────────────────────────────────────────────────
+    const priceData    = priceResult.status    === 'fulfilled' ? priceResult.value    : null;
+    const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
+    const naverNewsRaw = naverNewsResult.status === 'fulfilled' ? naverNewsResult.value : [];
 
-  const dbNewsForResult = (analysisData?.news ?? []).map(n => ({
-    title:       n.title,
-    description: n.summary ?? '',
-  }));
-  const naverNewsForResult = naverNews.map((n: { title: string; description: string }) => ({
-    title:       n.title,
-    description: n.description,
-  }));
-  const combinedNews = [...dbNewsForResult, ...naverNewsForResult].slice(0, 5);
+    const currentPrice = (priceData?.price && priceData.price > 0)
+      ? priceData.price
+      : (analysisData?.currentPrice && analysisData.currentPrice > 0)
+        ? analysisData.currentPrice
+        : Number(avgPrice);
 
-  const prompt = `당신은 15년 경력의 국내 주식 전문 애널리스트입니다. 아래 실제 데이터를 기반으로 심층 분석하여 반드시 JSON만 출력하세요.
+    const stockName = (priceData?.name && priceData.name !== ticker)
+      ? priceData.name
+      : (analysisData?.stockName || String(name));
+
+    console.log('[DIAGNOSIS] 3. 가격·종목명', { currentPrice, stockName });
+
+    // ── 3단계: 프롬프트 블록 조립 ─────────────────────────────────────────────
+    let technicalBlock = '데이터 없음';
+    let investorBlock  = '데이터 없음';
+    let newsBlockStr   = '관련 뉴스 없음';
+
+    try {
+      if (analysisData) technicalBlock = buildTechnicalBlock(analysisData);
+    } catch (e) { console.error('[DIAGNOSIS] buildTechnicalBlock 실패:', e); }
+
+    try {
+      if (analysisData) investorBlock = buildInvestorBlock(analysisData);
+    } catch (e) { console.error('[DIAGNOSIS] buildInvestorBlock 실패:', e); }
+
+    try {
+      newsBlockStr = buildNewsBlock(analysisData?.news ?? [], naverNewsRaw);
+    } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock 실패:', e); }
+
+    const dbNewsForResult = (analysisData?.news ?? []).map(n => ({
+      title:       n.title,
+      description: n.summary ?? '',
+    }));
+    const naverNewsForResult = (Array.isArray(naverNewsRaw) ? naverNewsRaw : []).map(
+      (n: { title?: string; description?: string }) => ({
+        title:       String(n.title ?? ''),
+        description: String(n.description ?? ''),
+      }),
+    );
+    const combinedNews = [...dbNewsForResult, ...naverNewsForResult].slice(0, 5);
+
+    const profitRate   = currentPrice > 0 && avgPrice > 0
+      ? ((currentPrice - avgPrice) / avgPrice * 100)
+      : 0;
+    const profitAmount = (currentPrice - avgPrice) * quantity;
+    const holdDays = buyDate
+      ? Math.floor((Date.now() - new Date(buyDate).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // ── 4단계: Claude 분석 ────────────────────────────────────────────────────
+    const prompt = `당신은 15년 경력의 국내 주식 전문 애널리스트입니다. 아래 실제 데이터를 기반으로 심층 분석하여 반드시 JSON만 출력하세요.
 
 ## 종목 기본정보
 - 종목명: ${stockName} (${ticker})
 - 현재가: ${currentPrice.toLocaleString()}원
-- 매수 평균가: ${avgPrice.toLocaleString()}원
+- 매수 평균가: ${Number(avgPrice).toLocaleString()}원
 - 보유 수량: ${quantity}주
 - 수익률: ${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(2)}%
-- 평가손익: ${profitAmount >= 0 ? '+' : ''}${profitAmount.toLocaleString()}원${holdDays !== null ? `\n- 보유 기간: ${holdDays}일` : ''}
+- 평가손익: ${profitAmount >= 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}원${holdDays !== null ? `\n- 보유 기간: ${holdDays}일` : ''}
 
 ## 기술적 지표 및 밸류에이션
 ${technicalBlock}
@@ -147,7 +189,7 @@ ${technicalBlock}
 ${investorBlock}
 
 ## 관련 뉴스 (최근)
-${newsBlock}
+${newsBlockStr}
 
 분석 포인트:
 1. 52주 위치와 PER/PBR으로 현재 주가 레벨 평가 (과매수/과매도 여부)
@@ -158,50 +200,66 @@ ${newsBlock}
 ## 출력 형식 (JSON만, 한국어로)
 {
   "summary": "전체 분석 요약 (3-4문장: 주가 레벨·수급 방향·업황·투자의견 순서로)",
-  "currentPrice": ${currentPrice},
-  "avgPrice": ${avgPrice},
-  "quantity": ${quantity},
+  "currentPrice": ${Math.round(currentPrice)},
+  "avgPrice": ${Math.round(Number(avgPrice))},
+  "quantity": ${Number(quantity)},
   "profitRate": ${parseFloat(profitRate.toFixed(2))},
   "profitAmount": ${Math.round(profitAmount)},
   "news": [{"title": "뉴스 제목", "description": "뉴스 내용 요약"}],
-  "institutional": "기관 수급 심층 분석 (5일 추이 방향성, 누적 매수/매도 규모, 업종 내 의미 해석, 2-3문장)",
-  "foreign": "외국인 수급 심층 분석 (5일 추이, 글로벌 매크로 관점, 환율·지수 연동 해석, 2-3문장)",
+  "institutional": "기관 수급 심층 분석 (5일 추이 방향성, 누적 규모, 업종 의미 해석, 2-3문장)",
+  "foreign": "외국인 수급 심층 분석 (5일 추이, 글로벌 매크로 관점, 2-3문장)",
   "technical": "기술적 분석 (52주 위치 해석, 지지선·저항선 근거, 거래량 평가, 2-3문장)",
-  "recommendation": "홀딩" | "매도" | "분할매도" | "추가매수" | "손절",
+  "recommendation": "홀딩",
   "reason": "추천 이유 (수치 근거 필수 포함, 3가지 핵심 논거를 번호 없이 줄바꿈으로 구분)",
-  "targetPrice": 목표가 정수 (PER 또는 기술적 저항선 기반, 현재가 대비 합리적 범위),
-  "stopLoss": 손절가 정수 (기술적 지지선 기반, 현재가 대비 -5~-15% 범위),
+  "targetPrice": ${Math.round(currentPrice * 1.15)},
+  "stopLoss": ${Math.round(currentPrice * 0.92)},
   "risk": "핵심 리스크 3가지 (수치 포함, 각 항목 줄바꿈 구분)",
   "opportunity": "핵심 기회 요인 3가지 (수치 포함, 각 항목 줄바꿈 구분)",
   "shortTermOutlook": "단기(1개월) 전망 (구체적 가격대 및 조건 포함, 2문장)",
   "midTermOutlook": "중기(3개월) 전망 (업황 변수 및 목표 시나리오 포함, 2문장)",
-  "flowType": "BUY" | "SELL" | "NEUTRAL",
-  "flowPercent": 0~100 정수 (25=강한매도, 50=중립, 75=강한매수 기준)
+  "flowType": "NEUTRAL",
+  "flowPercent": 50
 }
 
 규칙:
-- targetPrice, stopLoss, currentPrice, avgPrice, quantity, profitRate, profitAmount, flowPercent는 반드시 숫자 타입
+- 모든 숫자 필드(currentPrice, avgPrice, quantity, profitRate, profitAmount, targetPrice, stopLoss, flowPercent)는 반드시 숫자 타입
+- recommendation은 반드시 "홀딩", "매도", "분할매도", "추가매수", "손절" 중 하나
+- flowType은 반드시 "BUY", "SELL", "NEUTRAL" 중 하나
 - news 배열은 제공된 뉴스 데이터 기반 (없으면 빈 배열)
-- flowType은 외국인+기관 순매수 합계 방향 기준
 - JSON 외 텍스트, 마크다운 코드블록 절대 금지`;
 
-  try {
+    console.log('[DIAGNOSIS] 4. Claude 분석 시작');
+
     const message = await claude.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 2500,
-      system: '당신은 15년 경력의 국내 주식 전문 애널리스트입니다. 제공된 실제 수급·밸류에이션·기술적 데이터를 모두 활용하여 기관급 수준의 분석 리포트를 작성합니다. 수치 근거 없는 막연한 서술은 금지입니다.',
+      system: '당신은 15년 경력의 국내 주식 전문 애널리스트입니다. 제공된 실제 수급·밸류에이션·기술적 데이터를 모두 활용하여 기관급 수준의 분석 리포트를 작성합니다. 반드시 유효한 JSON만 출력하세요.',
       messages: [{ role: 'user', content: prompt }],
     });
 
+    console.log('[DIAGNOSIS] 5. Claude 응답 수신');
+
     const text      = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('JSON 파싱 실패');
+    if (!jsonMatch) {
+      console.error('[DIAGNOSIS] JSON 없음, 응답:', text.slice(0, 200));
+      return NextResponse.json({ error: 'AI 응답 파싱 실패' }, { status: 500 });
+    }
 
-    const result = JSON.parse(jsonMatch[0]);
+    let result: Record<string, unknown>;
+    try {
+      result = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      console.error('[DIAGNOSIS] JSON.parse 실패:', e, jsonMatch[0].slice(0, 200));
+      return NextResponse.json({ error: 'AI 응답 JSON 파싱 실패' }, { status: 500 });
+    }
 
-    // flowType / flowPercent 보정 (AI가 잘못 계산하면 데이터 기반으로 재계산)
-    let flowType: 'BUY' | 'SELL' | 'NEUTRAL' = result.flowType ?? 'NEUTRAL';
-    let flowPercent: number = result.flowPercent ?? 50;
+    // flowType / flowPercent 보정
+    let flowType: 'BUY' | 'SELL' | 'NEUTRAL' =
+      (['BUY','SELL','NEUTRAL'].includes(result.flowType as string)
+        ? result.flowType as 'BUY' | 'SELL' | 'NEUTRAL'
+        : 'NEUTRAL');
+    let flowPercent: number = typeof result.flowPercent === 'number' ? result.flowPercent : 50;
 
     if (analysisData?.investorLatest) {
       const { foreign, institution } = analysisData.investorLatest;
@@ -215,24 +273,31 @@ ${newsBlock}
 
     const finalResult = {
       ...result,
-      news: combinedNews.length > 0 ? combinedNews : (result.news ?? []),
+      news: combinedNews.length > 0 ? combinedNews : (Array.isArray(result.news) ? result.news : []),
       flowType,
       flowPercent,
     };
 
-    await supabase.from('stock_diagnosis').insert({
-      user_id:  user.id,
-      ticker,
-      name:     stockName,
-      avg_price: avgPrice,
-      quantity,
-      buy_date:  buyDate || null,
-      result:    finalResult,
-    });
+    // DB 저장 (실패해도 결과 반환)
+    try {
+      await supabase.from('stock_diagnosis').insert({
+        user_id:   user.id,
+        ticker,
+        name:      stockName,
+        avg_price: avgPrice,
+        quantity,
+        buy_date:  buyDate || null,
+        result:    finalResult,
+      });
+      console.log('[DIAGNOSIS] 6. DB 저장 완료');
+    } catch (dbErr) {
+      console.error('[DIAGNOSIS] DB 저장 실패 (결과는 반환):', dbErr);
+    }
 
     return NextResponse.json(finalResult);
+
   } catch (e) {
-    console.error('[DIAGNOSIS]', e);
+    console.error('[DIAGNOSIS] 최상위 예외:', e);
     return NextResponse.json({ error: 'AI 분석 생성 실패' }, { status: 500 });
   }
 }

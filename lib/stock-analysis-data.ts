@@ -62,6 +62,7 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
   week52High: number; week52Low: number; week52Position: number; volume: number;
 } | null> {
   try {
+    console.log('[ANALYSIS] fetchKisPrice 시작', ticker);
     const token = await getAccessToken();
     for (const mkt of ['J', 'Q']) {
       const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
@@ -72,9 +73,9 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
         cache: 'no-store',
         signal: AbortSignal.timeout(6000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) { console.log(`[ANALYSIS] fetchKisPrice ${mkt} HTTP ${res.status}`); continue; }
       const data = await res.json();
-      if (data.rt_cd !== '0') continue;
+      if (data.rt_cd !== '0') { console.log(`[ANALYSIS] fetchKisPrice ${mkt} rt_cd=${data.rt_cd}`); continue; }
       const o   = data.output;
       const cur  = parseInt(o.stck_prpr, 10) || 0;
       const high = parseInt(o.w52_hgpr,  10) || 0;
@@ -82,6 +83,7 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
       const pos  = (high > low && cur > 0)
         ? Math.min(100, Math.max(0, Math.round((cur - low) / (high - low) * 100)))
         : 50;
+      console.log(`[ANALYSIS] fetchKisPrice 성공 ${mkt}`, { cur, per: o.per, pbr: o.pbr });
       return {
         currentPrice:   cur,
         stockName:      (o.hts_kor_isnm || o.prdt_abrv_name || fallbackName).trim() || fallbackName,
@@ -94,12 +96,14 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
         volume:         parseInt(o.acml_vol, 10) || 0,
       };
     }
-  } catch { /* ignore */ }
+    console.log('[ANALYSIS] fetchKisPrice 모든 시장 실패');
+  } catch (e) { console.error('[ANALYSIS] fetchKisPrice 예외:', e); }
   return null;
 }
 
 async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[] }> {
   try {
+    console.log('[ANALYSIS] fetchInvestorTrend 시작', ticker);
     const token    = await getAccessToken();
     const kst      = new Date(Date.now() + 9 * 60 * 60 * 1000);
     const todayStr = kst.toISOString().split('T')[0].replace(/-/g, '');
@@ -108,14 +112,21 @@ async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlo
       `${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${ticker}`,
       { headers: kisHdr(token, 'FHKST01010900'), cache: 'no-store', signal: AbortSignal.timeout(6000) },
     );
-    if (!res.ok) return { latest: null, trend: [] };
+    if (!res.ok) {
+      console.log('[ANALYSIS] fetchInvestorTrend HTTP', res.status);
+      return { latest: null, trend: [] };
+    }
 
     const data   = await res.json();
     const output: Record<string, string>[] = data?.output ?? [];
     const valid  = output.filter(d => d.stck_bsop_date && d.frgn_ntby_tr_pbmn !== '');
-    if (!valid.length) return { latest: null, trend: [] };
+    if (!valid.length) {
+      console.log('[ANALYSIS] fetchInvestorTrend 유효 데이터 없음, rt_cd=', data?.rt_cd);
+      return { latest: null, trend: [] };
+    }
 
     const today = valid.find(d => d.stck_bsop_date === todayStr) ?? valid[0];
+    console.log('[ANALYSIS] fetchInvestorTrend 성공, 데이터 수:', valid.length);
     return {
       latest: {
         foreign:     { qty: Number(today.frgn_ntby_qty || 0), amount: toAuk(today.frgn_ntby_tr_pbmn) },
@@ -129,13 +140,15 @@ async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlo
         individual:  toAuk(d.prsn_ntby_tr_pbmn),
       })),
     };
-  } catch {
+  } catch (e) {
+    console.error('[ANALYSIS] fetchInvestorTrend 예외:', e);
     return { latest: null, trend: [] };
   }
 }
 
 async function fetchNaverFinancials(ticker: string): Promise<{ operatingProfit?: string; revenue?: string }> {
   try {
+    console.log('[ANALYSIS] fetchNaverFinancials 시작', ticker);
     const res = await fetch(`https://finance.naver.com/item/main.naver?code=${ticker}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -145,7 +158,10 @@ async function fetchNaverFinancials(ticker: string): Promise<{ operatingProfit?:
       signal: AbortSignal.timeout(8000),
       cache: 'no-store',
     });
-    if (!res.ok) return {};
+    if (!res.ok) {
+      console.log('[ANALYSIS] fetchNaverFinancials HTTP', res.status);
+      return {};
+    }
 
     const html = new TextDecoder('euc-kr').decode(await res.arrayBuffer());
     const $    = load(html);
@@ -175,27 +191,58 @@ async function fetchNaverFinancials(ticker: string): Promise<{ operatingProfit?:
       if (!operatingProfit && (th.includes('영업이익') || th.includes('영업손익'))) operatingProfit = label;
     });
 
+    console.log('[ANALYSIS] fetchNaverFinancials 완료', { revenue, operatingProfit });
     return { revenue, operatingProfit };
-  } catch {
+  } catch (e) {
+    console.error('[ANALYSIS] fetchNaverFinancials 예외:', e);
     return {};
   }
 }
 
 async function fetchDBNews(name: string, ticker: string): Promise<{ title: string; summary?: string; date?: string }[]> {
   try {
-    const { data } = await getSb()
-      .from('articles')
-      .select('title, summary, published_at')
-      .or(`title.ilike.%${name}%,stocks.cs.[{"code":"${ticker}"}]`)
-      .order('published_at', { ascending: false })
-      .limit(5);
+    console.log('[ANALYSIS] fetchDBNews 시작', { name, ticker });
+    const sb = getSb();
 
-    return (data ?? []).map((a: { title: string; summary: string | null; published_at: string | null }) => ({
-      title:   a.title,
-      summary: a.summary ?? undefined,
-      date:    a.published_at ? new Date(a.published_at).toLocaleDateString('ko-KR') : undefined,
-    }));
-  } catch {
+    // 두 쿼리를 분리하여 JSONB 구문 오류 방지
+    const [byTitle, byTicker] = await Promise.allSettled([
+      sb.from('articles')
+        .select('title, summary, published_at')
+        .ilike('title', `%${name}%`)
+        .order('published_at', { ascending: false })
+        .limit(5),
+      sb.from('articles')
+        .select('title, summary, published_at')
+        .contains('stocks', [{ code: ticker }])
+        .order('published_at', { ascending: false })
+        .limit(5),
+    ]);
+
+    const seen  = new Set<string>();
+    const items: { title: string; summary?: string; date?: string }[] = [];
+
+    const merge = (rows: { title: string; summary: string | null; published_at: string | null }[]) => {
+      for (const a of rows) {
+        if (seen.has(a.title)) continue;
+        seen.add(a.title);
+        items.push({
+          title:   a.title,
+          summary: a.summary ?? undefined,
+          date:    a.published_at ? new Date(a.published_at).toLocaleDateString('ko-KR') : undefined,
+        });
+      }
+    };
+
+    if (byTitle.status === 'fulfilled' && byTitle.value.data) merge(byTitle.value.data);
+    if (byTicker.status === 'fulfilled' && byTicker.value.data) merge(byTicker.value.data);
+
+    if (byTitle.status  === 'rejected') console.error('[ANALYSIS] fetchDBNews byTitle 실패:', byTitle.reason);
+    if (byTicker.status === 'rejected') console.error('[ANALYSIS] fetchDBNews byTicker 실패:', byTicker.reason);
+
+    console.log('[ANALYSIS] fetchDBNews 완료, 건수:', items.length);
+    return items.slice(0, 5);
+  } catch (e) {
+    console.error('[ANALYSIS] fetchDBNews 예외:', e);
     return [];
   }
 }
@@ -204,12 +251,21 @@ export async function collectStockAnalysisData(
   ticker: string,
   name: string,
 ): Promise<StockAnalysisData> {
+  console.log('[ANALYSIS] collectStockAnalysisData 시작', { ticker, name });
   const [priceRes, invRes, naverRes, newsRes] = await Promise.allSettled([
     fetchKisPrice(ticker, name),
     fetchInvestorTrend(ticker),
     fetchNaverFinancials(ticker),
     fetchDBNews(name, ticker),
   ]);
+
+  console.log('[ANALYSIS] collectStockAnalysisData 결과', {
+    price: priceRes.status, inv: invRes.status, naver: naverRes.status, news: newsRes.status,
+    priceErr: priceRes.status === 'rejected' ? String(priceRes.reason) : null,
+    invErr:   invRes.status   === 'rejected' ? String(invRes.reason)   : null,
+    naverErr: naverRes.status === 'rejected' ? String(naverRes.reason) : null,
+    newsErr:  newsRes.status  === 'rejected' ? String(newsRes.reason)  : null,
+  });
 
   const price = priceRes.status === 'fulfilled' ? priceRes.value : null;
   const inv   = invRes.status   === 'fulfilled' ? invRes.value   : { latest: null, trend: [] };
