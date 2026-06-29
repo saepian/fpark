@@ -49,6 +49,7 @@ async function fetchNaverNews(stockName: string) {
     return (data.items ?? []).map((item: any) => ({
       title:       String(item.title ?? '').replace(/<[^>]*>/g, ''),
       description: String(item.description ?? '').replace(/<[^>]*>/g, ''),
+      url:         String(item.originallink || item.link || ''),
     }));
   } catch {
     return [];
@@ -154,11 +155,13 @@ export async function POST(request: NextRequest) {
     const dbNewsForResult = (analysisData?.news ?? []).map(n => ({
       title:       n.title,
       description: n.summary ?? '',
+      url:         n.url ?? '',
     }));
     const naverNewsForResult = (Array.isArray(naverNewsRaw) ? naverNewsRaw : []).map(
-      (n: { title?: string; description?: string }) => ({
+      (n: { title?: string; description?: string; url?: string }) => ({
         title:       String(n.title ?? ''),
         description: String(n.description ?? ''),
+        url:         String(n.url ?? ''),
       }),
     );
     const combinedNews = [...dbNewsForResult, ...naverNewsForResult].slice(0, 5);

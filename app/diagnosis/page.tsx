@@ -12,7 +12,7 @@ interface DiagnosisResult {
   quantity: number;
   profitRate: number;
   profitAmount: number;
-  news: { title: string; description: string }[];
+  news: { title: string; description: string; url?: string }[];
   institutionalFlow: string;
   foreignFlow: string;
   recommendation: '홀딩' | '매도' | '분할매도' | '추가매수' | '손절';
@@ -565,19 +565,30 @@ export default function DiagnosisPage() {
             <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">뉴스 동향</p>
               <div className="flex flex-col divide-y divide-slate-700/40">
-                {result.news.map((n, i) => (
-                  <div key={i} className="py-3.5 first:pt-0 last:pb-0">
-                    <div className="flex items-start gap-2.5">
-                      <span className="mt-1 text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                      <div>
-                        <p className="text-[13px] font-medium text-white leading-snug">{n.title}</p>
-                        {n.description && (
-                          <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.description}</p>
-                        )}
+                {result.news.map((n, i) => {
+                  const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
+                  return (
+                    <a
+                      key={i}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-3.5 first:pt-0 last:pb-0 group cursor-pointer block"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <span className="mt-1 text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                        <div>
+                          <p className="text-[13px] font-medium text-white leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
+                            {n.title}
+                          </p>
+                          {n.description && (
+                            <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.description}</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
+                    </a>
+                  );
+                })}
               </div>
             </div>
           )}

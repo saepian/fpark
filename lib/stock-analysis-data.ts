@@ -54,7 +54,7 @@ export interface StockAnalysisData {
   revenue?:         string;
   investorLatest:   InvestorFlow | null;
   investorTrend:    InvestorDay[];
-  news:             { title: string; summary?: string; date?: string }[];
+  news:             { title: string; summary?: string; date?: string; url?: string }[];
 }
 
 async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
@@ -199,7 +199,7 @@ async function fetchNaverFinancials(ticker: string): Promise<{ operatingProfit?:
   }
 }
 
-async function fetchDBNews(name: string, ticker: string): Promise<{ title: string; summary?: string; date?: string }[]> {
+async function fetchDBNews(name: string, ticker: string): Promise<{ title: string; summary?: string; date?: string; url?: string }[]> {
   try {
     console.log('[ANALYSIS] fetchDBNews 시작', { name, ticker });
     const sb = getSb();
@@ -207,21 +207,21 @@ async function fetchDBNews(name: string, ticker: string): Promise<{ title: strin
     // 두 쿼리를 분리하여 JSONB 구문 오류 방지
     const [byTitle, byTicker] = await Promise.allSettled([
       sb.from('articles')
-        .select('title, summary, published_at')
+        .select('title, summary, published_at, url')
         .ilike('title', `%${name}%`)
         .order('published_at', { ascending: false })
         .limit(5),
       sb.from('articles')
-        .select('title, summary, published_at')
+        .select('title, summary, published_at, url')
         .contains('stocks', [{ code: ticker }])
         .order('published_at', { ascending: false })
         .limit(5),
     ]);
 
     const seen  = new Set<string>();
-    const items: { title: string; summary?: string; date?: string }[] = [];
+    const items: { title: string; summary?: string; date?: string; url?: string }[] = [];
 
-    const merge = (rows: { title: string; summary: string | null; published_at: string | null }[]) => {
+    const merge = (rows: { title: string; summary: string | null; published_at: string | null; url?: string | null }[]) => {
       for (const a of rows) {
         if (seen.has(a.title)) continue;
         seen.add(a.title);
@@ -229,6 +229,7 @@ async function fetchDBNews(name: string, ticker: string): Promise<{ title: strin
           title:   a.title,
           summary: a.summary ?? undefined,
           date:    a.published_at ? new Date(a.published_at).toLocaleDateString('ko-KR') : undefined,
+          url:     a.url ?? undefined,
         });
       }
     };
