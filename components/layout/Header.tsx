@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Zap } from 'lucide-react';
 import SearchBar from '../search/SearchBar';
 import MarketTicker from './MarketTicker';
 import AlertButton from './AlertButton';
@@ -15,14 +15,14 @@ interface HeaderProps {
   onGoHome?: () => void;
 }
 
-const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: boolean; pro?: boolean }[] = [
+const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: boolean; pro?: boolean; pricing?: boolean }[] = [
   { label: '홈',            href: '/' },
   { label: '종목진단',       href: '/diagnosis',           special: true },
   { label: '포트폴리오 진단', href: '/portfolio-diagnosis', special: true, pro: true },
   { label: '국내증시',       href: '/market/domestic' },
   { label: '해외증시',       href: '/market/global' },
   { label: '뉴스',           href: '/news' },
-  { label: '요금제',         href: '/pricing' },
+  { label: '요금제',         href: '/pricing',             pricing: true },
 ];
 
 export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
@@ -63,8 +63,17 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
         {/* 우측: 네비 + 구분선 + 알림 + 개인화 + 햄버거(모바일) */}
         <div className="flex-shrink-0 ml-auto flex items-center gap-3 z-10">
           <nav className="hidden md:flex items-center gap-0.5">
-            {NAV_ITEMS.map(({ label, href, comingSoon, special, pro }) =>
-              comingSoon ? (
+            {NAV_ITEMS.map(({ label, href, comingSoon, special, pro, pricing }) =>
+              pricing ? (
+                <Link
+                  key={href}
+                  href={href}
+                  className="nav-pricing-btn ml-1 flex items-center gap-1.5 text-[11px] font-bold px-4 py-1.5 rounded-full whitespace-nowrap text-white"
+                >
+                  <Zap className="w-3 h-3" />
+                  {label}
+                </Link>
+              ) : comingSoon ? (
                 <div key={href} className="relative group">
                   <span className="text-[12px] font-medium px-3 py-1.5 rounded-lg transition-all whitespace-nowrap cursor-default text-slate-600 select-none">
                     {label}
@@ -138,8 +147,29 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
       {/* 모바일 메뉴 드롭다운 */}
       {mobileMenuOpen && (
         <div className="md:hidden bg-[#0f1117] border-t border-slate-800 px-4 pb-3">
-          {NAV_ITEMS.map(({ label, href, comingSoon, special, pro }) =>
-            comingSoon ? (
+          {NAV_ITEMS.map(({ label, href, comingSoon, special, pro, pricing }) =>
+            pricing ? (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-between py-3.5 border-b border-slate-800/60 last:border-0"
+              >
+                <span
+                  className="flex items-center gap-2 text-[15px] font-bold"
+                  style={{ background: 'linear-gradient(135deg, #818cf8, #c084fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}
+                >
+                  <Zap className="w-4 h-4 shrink-0" style={{ color: '#818cf8', WebkitTextFillColor: 'initial' }} />
+                  {label}
+                </span>
+                <span
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-full text-white"
+                  style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}
+                >
+                  플랜 보기 →
+                </span>
+              </Link>
+            ) : comingSoon ? (
               <div key={href} className="flex items-center justify-between py-3.5 border-b border-slate-800/60 last:border-0">
                 <span className="text-[15px] text-slate-600">{label}</span>
                 <span className="text-[11px] text-amber-500 font-medium">준비중</span>

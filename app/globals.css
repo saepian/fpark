@@ -138,6 +138,26 @@ button, [role="button"], a {
   100% { transform: rotate(0deg); }
 }
 
+/* Nav: 요금제 버튼 */
+@keyframes pricing-shimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.nav-pricing-btn {
+  background: linear-gradient(135deg, #4338ca, #7c3aed, #a78bfa, #7c3aed, #4338ca);
+  background-size: 300% 100%;
+  animation: pricing-shimmer 3s ease infinite;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.35);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.nav-pricing-btn:hover {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.6);
+  transform: translateY(-1px);
+}
+
 /* ── 인쇄 스타일 ─────────────────────────────────────────────────── */
 @media print {
   * {
