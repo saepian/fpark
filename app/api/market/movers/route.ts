@@ -8,13 +8,15 @@ export const dynamic = 'force-dynamic';
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 const CACHE_KEY = 'market_movers';
 
-async function fetchMovers(sortCode: '0' | '1'): Promise<MoverStock[]> {
+// market: J=코스피, Q=코스닥
+async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q'): Promise<MoverStock[]> {
   const token = await getAccessToken();
+  const iscdMap = { J: '0001', Q: '1001' };
 
   const params = new URLSearchParams({
-    FID_COND_MRKT_DIV_CODE: 'J',
+    FID_COND_MRKT_DIV_CODE: market,
     FID_COND_SCR_DIV_CODE: '170',
-    FID_INPUT_ISCD: '0001',
+    FID_INPUT_ISCD: iscdMap[market],
     FID_RANK_SORT_CLS_CODE: sortCode,
     FID_INPUT_CNT_1: '0',
     FID_PRC_CLS_CODE: '0',
@@ -46,22 +48,22 @@ async function fetchMovers(sortCode: '0' | '1'): Promise<MoverStock[]> {
   );
 
   const data = await res.json();
-  console.log('[MOVERS] sortCode:', sortCode, 'rt_cd:', data.rt_cd, 'count:', (data.output ?? []).length);
+  console.log(`[MOVERS] ${market} sortCode:${sortCode} rt_cd:${data.rt_cd} count:${(data.output ?? []).length}`);
 
   if (!res.ok || data.rt_cd !== '0') {
-    throw new Error(`fluctuation API 오류 [${res.status}]: ${data.msg1 ?? ''}`);
+    throw new Error(`fluctuation API 오류 [${res.status}] ${market}: ${data.msg1 ?? ''}`);
   }
 
   const items: any[] = data.output ?? [];
-  return items.slice(0, 5).map((item) => ({
-    name: item.hts_kor_isnm,
-    ticker: item.stck_shrn_iscd,
-    price: Number(item.stck_prpr),
+  return items.slice(0, 40).map((item) => ({
+    name:       item.hts_kor_isnm,
+    ticker:     item.stck_shrn_iscd,
+    price:      Number(item.stck_prpr),
     changeRate: Number(item.prdy_ctrt),
   }));
 }
 
-async function fetchNaverMovers(type: 'rise' | 'fall', count = 5): Promise<MoverStock[]> {
+async function fetchNaverMovers(type: 'rise' | 'fall', count = 10): Promise<MoverStock[]> {
   const url = type === 'rise'
     ? 'https://finance.naver.com/sise/sise_rise.naver'
     : 'https://finance.naver.com/sise/sise_fall.naver';
@@ -100,13 +102,13 @@ async function fetchNaverMovers(type: 'rise' | 'fall', count = 5): Promise<Mover
     }
     if (cells.length < 5) continue;
 
-    const name = cells[1];
-    const price = parseInt(cells[2].replace(/,/g, ''), 10);
+    const name       = cells[1];
+    const price      = parseInt(cells[2].replace(/,/g, ''), 10);
     const changeRate = parseFloat(cells[4].replace('%', ''));
 
     if (!name || isNaN(price) || isNaN(changeRate)) continue;
     raw.push({ ticker, name, price, changeRate });
-    if (raw.length >= 20) break;
+    if (raw.length >= 50) break;
   }
 
   const results = raw
@@ -145,28 +147,42 @@ async function saveCache(data: MoversResponse) {
 }
 
 export async function GET() {
-  // 항상 실시간 조회 시도 — 장중/장후 무관하게 당일 데이터 반환
-  // 1순위: KIS 급등락 순위 API (FHPST01700000)
+  // 1순위: KIS 급등락 순위 API — 코스피(J) + 코스닥(Q) 동시 조회
   try {
-    const [gainers, losers] = await Promise.all([fetchMovers('0'), fetchMovers('1')]);
-    const validGainers = gainers.filter((s) => s.price > 0 && s.name);
-    const validLosers  = losers.filter((s) => s.price > 0 && s.name);
+    const [kospiGainers, kosdaqGainers, kospiLosers, kosdaqLosers] = await Promise.all([
+      fetchMovers('0', 'J'),
+      fetchMovers('0', 'Q'),
+      fetchMovers('1', 'J'),
+      fetchMovers('1', 'Q'),
+    ]);
 
-    if (validGainers.length >= 3 || validLosers.length >= 3) {
-      const result: MoversResponse = { gainers: validGainers, losers: validLosers };
+    const gainers = [...kospiGainers, ...kosdaqGainers]
+      .filter((s) => s.price > 0 && s.name)
+      .sort((a, b) => b.changeRate - a.changeRate)
+      .slice(0, 10);
+
+    const losers = [...kospiLosers, ...kosdaqLosers]
+      .filter((s) => s.price > 0 && s.name)
+      .sort((a, b) => a.changeRate - b.changeRate)
+      .slice(0, 10);
+
+    console.log(`[MOVERS] KIS 결합 — 급등:${gainers.length}개 급락:${losers.length}개`);
+
+    if (gainers.length >= 3 || losers.length >= 3) {
+      const result: MoversResponse = { gainers, losers };
       saveCache(result).catch(() => {});
       return NextResponse.json({ ...result, isCached: false, cachedAt: null });
     }
-    console.log('[MOVERS] fluctuation output empty, falling back to Naver');
+    console.log('[MOVERS] KIS output empty, falling back to Naver');
   } catch (e) {
-    console.error('[MOVERS] fluctuation API 오류:', e instanceof Error ? e.message : e);
+    console.error('[MOVERS] KIS API 오류:', e instanceof Error ? e.message : e);
   }
 
-  // 2순위: Naver Finance 급등/급락 스크래핑 (장 전후 모두 유효)
+  // 2순위: Naver Finance 급등/급락 스크래핑
   try {
     const [naverGainers, naverLosers] = await Promise.all([
-      fetchNaverMovers('rise', 5),
-      fetchNaverMovers('fall', 5),
+      fetchNaverMovers('rise', 10),
+      fetchNaverMovers('fall', 10),
     ]);
     if (naverGainers.length > 0 || naverLosers.length > 0) {
       const result: MoversResponse = { gainers: naverGainers, losers: naverLosers };
@@ -177,9 +193,9 @@ export async function GET() {
     console.error('[MOVERS] Naver 스크래핑 오류:', e instanceof Error ? e.message : e);
   }
 
-  // 3순위: 인기 20개 종목 조회 후 등락률 정렬
+  // 3순위: curated 종목 등락률 정렬
   try {
-    const curated = await fetchCuratedMovers(5);
+    const curated = await fetchCuratedMovers(10);
     if (curated.gainers.length > 0 || curated.losers.length > 0) {
       const result: MoversResponse = { gainers: curated.gainers, losers: curated.losers };
       saveCache(result).catch(() => {});
