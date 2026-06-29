@@ -16,11 +16,12 @@ interface HeaderProps {
 }
 
 const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: boolean }[] = [
-  { label: '홈',     href: '/' },
-  { label: '종목진단', href: '/diagnosis', special: true },
-  { label: '국내증시', href: '/market/domestic' },
-  { label: '해외증시', href: '/market/global' },
-  { label: '뉴스',   href: '/news' },
+  { label: '홈',               href: '/' },
+  { label: '종목진단',          href: '/diagnosis',           special: true },
+  { label: '포트폴리오 진단 🔒', href: '/portfolio-diagnosis', special: true },
+  { label: '국내증시',          href: '/market/domestic' },
+  { label: '해외증시',          href: '/market/global' },
+  { label: '뉴스',              href: '/news' },
 ];
 
 export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
