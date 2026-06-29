@@ -108,6 +108,7 @@ export default function DiagnosisPage() {
   const router = useRouter();
   const supabase = createClient();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const skipSearch  = useRef(false);
 
   const [authChecked, setAuthChecked] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -148,9 +149,10 @@ export default function DiagnosisPage() {
     });
   }, []); // eslint-disable-line
 
-  // 검색 자동완성
+  // 검색 자동완성 (종목 직접 선택 시 skipSearch로 드롭다운 억제)
   useEffect(() => {
     if (!searchQuery.trim()) { setSearchResults([]); return; }
+    if (skipSearch.current) { skipSearch.current = false; return; }
     const t = setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
@@ -187,6 +189,7 @@ export default function DiagnosisPage() {
   }, []);
 
   const selectStock = (t: string, n: string) => {
+    skipSearch.current = true;
     setTicker(t); setStockName(n); setSearchQuery(n); setShowDropdown(false);
   };
 
