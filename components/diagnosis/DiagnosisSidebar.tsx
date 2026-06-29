@@ -26,7 +26,7 @@ function makeSparkData(isUp: boolean) {
 function MiniAreaChart({ isUp, gradId }: { isUp: boolean; gradId: string }) {
   const color = isUp ? '#ef4444' : '#3b82f6';
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height={56}>
       <AreaChart data={makeSparkData(isUp)} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
