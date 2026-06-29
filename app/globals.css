@@ -140,9 +140,9 @@ button, [role="button"], a {
 
 /* ── 인쇄 스타일 ─────────────────────────────────────────────────── */
 @media print {
-  /* 배경색·색상 그대로 출력 (다크테마 유지) */
   * {
     -webkit-print-color-adjust: exact !important;
+    color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
@@ -152,20 +152,39 @@ button, [role="button"], a {
     size: A4;
   }
 
+  /* 흰 배경 + 검정 텍스트 (라이트모드) */
+  body, html {
+    background: #ffffff !important;
+    color: #111827 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 0.9em;
+  }
+
+  /* 모든 요소 배경·테두리 리셋 */
+  *:not(svg):not(svg *):not(canvas) {
+    background-color: #ffffff !important;
+    border-color: #e5e7eb !important;
+    color: #111827 !important;
+  }
+
+  /* 수익률 색상 유지 */
+  .text-red-400, .text-red-500, [class*="text-red-"] { color: #dc2626 !important; }
+  .text-green-400, .text-green-500, [class*="text-green-"] { color: #16a34a !important; }
+  .text-blue-400, .text-blue-500, [class*="text-blue-"] { color: #2563eb !important; }
+  .text-emerald-400, .text-emerald-500, [class*="text-emerald-"] { color: #059669 !important; }
+  .text-yellow-400, .text-yellow-500, [class*="text-yellow-"] { color: #d97706 !important; }
+  .text-purple-400, .text-purple-500, [class*="text-purple-"] { color: #7c3aed !important; }
+  .text-violet-400, .text-violet-500, [class*="text-violet-"] { color: #6d28d9 !important; }
+
   /* 숨길 요소 */
   header,
   nav,
   aside,
   footer,
+  button,
   .no-print {
     display: none !important;
-  }
-
-  /* body 여백 최소화 */
-  body, html {
-    margin: 0 !important;
-    padding: 0 !important;
-    font-size: 0.9em;
   }
 
   /* 최대 너비 해제 + 패딩 축소 */
@@ -176,7 +195,7 @@ button, [role="button"], a {
   }
 
   /* 상단 여백 줄이기 */
-  .pt-8 { padding-top: 12px !important; }
+  .pt-8  { padding-top: 12px !important; }
   .pt-10 { padding-top: 12px !important; }
   .pb-16 { padding-bottom: 8px !important; }
 
@@ -187,8 +206,8 @@ button, [role="button"], a {
   .gap-6 { gap: 10px !important; }
 
   /* 카드 안쪽 여백 줄이기 */
-  .p-6 { padding: 12px !important; }
-  .p-4 { padding: 8px !important; }
+  .p-6  { padding: 12px !important; }
+  .p-4  { padding: 8px !important; }
   .px-8 { padding-left: 12px !important; padding-right: 12px !important; }
   .py-6 { padding-top: 10px !important; padding-bottom: 10px !important; }
 
