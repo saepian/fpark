@@ -64,8 +64,6 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
   );
 }
 
-interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
-
 const REC_CONFIG: Record<string, { icon: string; color: string; bg: string; border: string; glow: string }> = {
   홀딩:   { icon: '◆', color: 'text-blue-300',   bg: 'bg-blue-500/10',   border: 'border-blue-500/30',   glow: 'shadow-blue-500/20' },
   매도:   { icon: '▼', color: 'text-red-300',    bg: 'bg-red-500/10',    border: 'border-red-500/30',    glow: 'shadow-red-500/20' },
@@ -124,17 +122,11 @@ export default function DiagnosisPage() {
   const [showResult, setShowResult] = useState(false);
   const [generatedAt, setGeneratedAt] = useState('');
 
-  // 사이드바
-  const [watchlist, setWatchlist] = useState<WatchItem[]>([]);
-
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) { router.replace('/auth/login'); return; }
       setAuthChecked(true);
       fetch('/api/diagnosis').then(r => r.json()).then(d => setRemaining(d.remaining ?? 0));
-      fetch('/api/watchlist').then(r => r.json()).then(d => {
-        if (Array.isArray(d)) setWatchlist(d.filter(i => i.market === 'kr' || !i.market).slice(0, 3));
-      }).catch(() => {});
     });
   }, []); // eslint-disable-line
 
@@ -764,10 +756,7 @@ export default function DiagnosisPage() {
           </form>
 
           {/* ── 우측 사이드바 ── */}
-          <DiagnosisSidebar
-            watchlist={watchlist}
-            onSelectStock={selectStock}
-          />
+          <DiagnosisSidebar />
         </div>
       </div>
     </div>

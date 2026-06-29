@@ -5,12 +5,7 @@ import Link from 'next/link';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import type { MarketResponse, MarketIndexData } from '@/lib/types';
 
-interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
-
-interface Props {
-  watchlist: WatchItem[];
-  onSelectStock?: (ticker: string, name: string) => void;
-}
+interface Props {}
 
 interface MarketItem {
   label:      string;
@@ -74,8 +69,6 @@ function SideCard({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
-function fmt(n: number) { return n.toLocaleString(); }
-function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
 /* ────────── MARKET TREND 슬라이드 카드 ────────── */
 function MarketSlide({ items }: { items: MarketItem[] }) {
@@ -224,7 +217,7 @@ function MarketSlideSkeleton() {
 }
 
 /* ────────── 메인 컴포넌트 ────────── */
-export default function DiagnosisSidebar({ watchlist, onSelectStock }: Props) {
+export default function DiagnosisSidebar(_props: Props) {
   const [marketItems,   setMarketItems]   = useState<MarketItem[]>([]);
   const [marketLoading, setMarketLoading] = useState(true);
 
@@ -238,36 +231,6 @@ export default function DiagnosisSidebar({ watchlist, onSelectStock }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-
-      {/* ── WATCHLIST ── */}
-      <SideCard title="Watchlist">
-        {watchlist.length === 0 ? (
-          <p className="text-[12px] text-slate-600">관심종목이 없습니다</p>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {watchlist.map(item => (
-              <button
-                key={item.ticker} type="button"
-                onClick={() => onSelectStock?.(item.ticker, item.name)}
-                className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-slate-700/30 transition-colors group w-full"
-              >
-                <div className="text-left">
-                  <p className="text-[13px] font-medium text-white group-hover:text-indigo-300 transition-colors truncate max-w-[110px]">
-                    {item.name}
-                  </p>
-                  <p className="text-[10px] text-slate-600 font-mono">{item.ticker}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[12px] font-mono text-white">{fmt(item.price)}</p>
-                  <p className={`text-[11px] font-mono ${item.changeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                    {fmtRate(item.changeRate)}
-                  </p>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </SideCard>
 
       {/* ── MARKET TREND 슬라이드 ── */}
       {marketLoading ? <MarketSlideSkeleton /> : <MarketSlide items={marketItems} />}

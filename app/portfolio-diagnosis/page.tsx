@@ -702,12 +702,7 @@ export default function PortfolioDiagnosisPage() {
 
         {/* ── 우측 사이드바 (모바일 숨김) ── */}
         <div className="hidden lg:block">
-          <DiagnosisSidebar
-            watchlist={watchlist}
-            onSelectStock={(ticker, name) =>
-              importFromWatchlist({ ticker, name, price: 0, changeRate: 0 })
-            }
-          />
+          <DiagnosisSidebar />
         </div>
         </div>{/* ← 그리드 닫기 */}
       </div>
