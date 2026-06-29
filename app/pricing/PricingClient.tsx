@@ -236,17 +236,17 @@ function PlanCard({
   );
 
   if (isPro) return (
-    <div className="group cursor-pointer relative pt-7">
-      <div className="absolute top-0 left-0 right-0 flex justify-center pointer-events-none z-10">
+    <div className="group cursor-pointer relative pt-7 flex flex-col">
+      <div className="absolute top-[15px] left-0 right-0 flex justify-center pointer-events-none z-10">
         <span
-          className="text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg"
+          className="text-xs font-bold px-3 py-1 rounded-full shadow-lg"
           style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#0f1117' }}
         >
           🔥 가장 인기
         </span>
       </div>
       <div
-        className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_0_44px_rgba(245,158,11,0.45)]"
+        className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_0_44px_rgba(245,158,11,0.45)] flex-1"
         style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #f97316 60%, #ef4444 100%)', boxShadow: '0 0 24px rgba(245,158,11,0.28)' }}
       >
         <div className="rounded-[15px] overflow-hidden h-full" style={{ backgroundColor: innerBg }}>
@@ -257,9 +257,9 @@ function PlanCard({
   );
 
   if (isBasic) return (
-    <div className="group cursor-pointer pt-7">
+    <div className="group cursor-pointer pt-7 flex flex-col">
       <div
-        className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_0_32px_rgba(99,102,241,0.38)]"
+        className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_0_32px_rgba(99,102,241,0.38)] flex-1"
         style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', boxShadow: '0 0 16px rgba(99,102,241,0.18)' }}
       >
         <div className="rounded-[15px] overflow-hidden h-full" style={{ backgroundColor: innerBg }}>
@@ -270,9 +270,9 @@ function PlanCard({
   );
 
   return (
-    <div className="group cursor-pointer pt-7">
+    <div className="group cursor-pointer pt-7 flex flex-col">
       <div
-        className="border border-slate-700/60 rounded-2xl transition-all duration-300 group-hover:-translate-y-2 hover:border-slate-600/80"
+        className="border border-slate-700/60 rounded-2xl transition-all duration-300 group-hover:-translate-y-2 hover:border-slate-600/80 flex-1"
         style={{ backgroundColor: innerBg }}
       >
         {content}
@@ -389,7 +389,7 @@ export default function PricingClient() {
 
       {/* ── 플랜 카드 ── */}
       <section className="max-w-5xl mx-auto px-4 pb-20">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
           {PLANS.map(plan => (
             <PlanCard
               key={plan.type}
