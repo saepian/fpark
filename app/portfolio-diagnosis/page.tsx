@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import {
-  Sparkles, Plus, Trash2, Search, ChevronLeft,
+  Sparkles, Plus, Trash2, Search, ChevronLeft, ChevronDown, ChevronUp,
   Share2, Printer, TrendingUp, TrendingDown, BookMarked, Lock,
 } from 'lucide-react';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
@@ -93,9 +93,16 @@ function Card({ title, children, className = '' }: { title?: string; children: R
   );
 }
 
-function MetricCard({ label, value, sub, up }: { label: string; value: string; sub?: string; up?: boolean }) {
+function MetricCard({ label, value, sub, up, highlight }: {
+  label: string; value: string; sub?: string; up?: boolean; highlight?: boolean;
+}) {
+  const bgStyle = highlight && up !== undefined
+    ? up
+      ? { background: 'rgba(34, 197, 94, 0.12)', borderColor: 'rgba(34, 197, 94, 0.35)' }
+      : { background: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.35)' }
+    : {};
   return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4">
+    <div className="border rounded-2xl p-4" style={{ background: '#1a1f2e', borderColor: '#334155', ...bgStyle }}>
       <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">{label}</p>
       <p className={`text-xl font-bold font-mono ${up === undefined ? 'text-white' : up ? 'text-red-400' : 'text-blue-400'}`}>
         {value}
@@ -125,9 +132,10 @@ export default function PortfolioDiagnosisPage() {
   const watchBtnRef = useRef<HTMLButtonElement>(null);
 
   // submit
-  const [loading,      setLoading]      = useState(false);
-  const [loadingLabel, setLoadingLabel] = useState('');
-  const [error,        setError]        = useState('');
+  const [loading,             setLoading]             = useState(false);
+  const [loadingLabel,        setLoadingLabel]        = useState('');
+  const [error,               setError]               = useState('');
+  const [expandedSuggestion,  setExpandedSuggestion]  = useState<number>(0);
   const [result,      setResult]      = useState<PortfolioResult | null>(null);
   const [generatedAt, setGeneratedAt] = useState('');
 
@@ -388,7 +396,7 @@ export default function PortfolioDiagnosisPage() {
               <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">
                 AI 포트폴리오 진단 리포트
               </p>
-              <h1 className="text-[22px] font-bold text-white">Portfolio Analysis</h1>
+              <h1 className="text-[22px] font-bold text-white">포트폴리오 진단 리포트</h1>
               <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성: {generatedAt}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0 mt-1">
@@ -423,12 +431,14 @@ export default function PortfolioDiagnosisPage() {
               label="총 손익"
               value={`${result.totalProfit >= 0 ? '+' : ''}${fmt(result.totalProfit)}원`}
               up={isUp}
+              highlight
             />
             <MetricCard
               label="수익률"
               value={fmtR(result.totalProfitRate)}
               sub={`${result.holdings.length}개 종목`}
               up={isUp}
+              highlight
             />
           </div>
 
@@ -438,12 +448,28 @@ export default function PortfolioDiagnosisPage() {
             style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}
           >
             <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
-            <div className="p-6">
-              <div className="flex items-center gap-2 mb-3">
+            <div className="px-8 py-6">
+              <div className="flex items-center gap-2 mb-4">
                 <Sparkles className="w-4 h-4 text-indigo-400" />
                 <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
               </div>
-              <p className="text-[14px] text-slate-300 leading-relaxed">{result.summary}</p>
+              <div className="flex flex-col gap-3">
+                {result.summary
+                  .replace(/([.!?])\s+/g, '$1\n')
+                  .split('\n')
+                  .filter(Boolean)
+                  .reduce<string[][]>((acc, s, i) => {
+                    if (i % 2 === 0) acc.push([s]);
+                    else acc[acc.length - 1].push(s);
+                    return acc;
+                  }, [])
+                  .map((group, i) => (
+                    <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>
+                      {group.join(' ')}
+                    </p>
+                  ))
+                }
+              </div>
             </div>
           </div>
 
@@ -526,17 +552,39 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 5행: 포트폴리오 개선 제안 */}
+          {/* 5행: 포트폴리오 개선 제안 (아코디언) */}
           <Card title="포트폴리오 개선 제안" className="mb-4">
-            <div className="flex flex-col gap-3">
-              {result.suggestions.map((s, i) => (
-                <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
-                  <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{s}</p>
-                </div>
-              ))}
+            <div className="flex flex-col gap-2">
+              {result.suggestions.map((s, i) => {
+                const isOpen   = expandedSuggestion === i;
+                // 첫 문장만 미리보기로 표시
+                const preview  = s.split(/(?<=[.!?])\s+/)[0] ?? s;
+                const hasMore  = preview.length < s.length;
+                return (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-slate-700/50 overflow-hidden transition-all"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setExpandedSuggestion(isOpen ? -1 : i)}
+                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-700/30 transition-colors cursor-pointer text-left"
+                    >
+                      <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      <p className="text-[13px] text-slate-300 leading-relaxed flex-1">
+                        {isOpen ? s : preview}{!isOpen && hasMore && <span className="text-slate-600">...</span>}
+                      </p>
+                      {hasMore && (
+                        <span className="shrink-0 text-slate-600 mt-0.5">
+                          {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </Card>
 
