@@ -14,9 +14,13 @@ export async function POST(req: Request) {
       .select('id')
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error('[share] supabase error:', error.code, error.message, error.details);
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 500 });
+    }
     return NextResponse.json({ id: row.id });
-  } catch {
-    return NextResponse.json({ error: 'server error' }, { status: 500 });
+  } catch (e) {
+    console.error('[share] unexpected error:', e);
+    return NextResponse.json({ error: 'server error', detail: String(e) }, { status: 500 });
   }
 }
