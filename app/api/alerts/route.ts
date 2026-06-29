@@ -48,17 +48,24 @@ async function fetchHighLow(sortCode: '1' | '2'): Promise<AlertStock[]> {
     }
   );
 
-  const data = await res.json();
+  if (!res.ok) throw new Error(`high-price API HTTP [${res.status}]`);
+
+  let data: Record<string, unknown>;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`high-price API 응답 파싱 실패 [${res.status}] — 빈 응답`);
+  }
+
   console.log(
-    `[ALERTS] sortCode:${sortCode} rt_cd:${data.rt_cd} msg1:${data.msg1} count:${data.output?.length ?? 0}`,
-    'first:', JSON.stringify(data.output?.[0]).slice(0, 200)
+    `[ALERTS] sortCode:${sortCode} rt_cd:${data.rt_cd} msg1:${data.msg1} count:${(data.output as unknown[])?.length ?? 0}`,
   );
 
-  if (!res.ok || data.rt_cd !== '0') {
+  if (data.rt_cd !== '0') {
     throw new Error(`high-price API [${res.status}] ${data.msg1 ?? ''}`);
   }
 
-  return (data.output ?? []).slice(0, 10).map((item: any) => ({
+  return ((data.output as any[]) ?? []).slice(0, 10).map((item: any) => ({
     ticker: item.stck_shrn_iscd,
     name: item.hts_kor_isnm,
     price: Number(item.stck_prpr),

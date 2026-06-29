@@ -15,21 +15,21 @@ async function fetchUsdKrwWithFallback(): Promise<MarketIndexData | null> {
     console.warn('[MARKET] fetchUsdKrw 실패, manana.kr 시도:', e instanceof Error ? e.message : e);
   }
 
-  // 2순위: manana.kr 공개 환율 API (change 없음 → 3순위로 보완)
+  // 2순위: open.er-api.com (무료, 안정적, API 키 불필요)
   try {
-    const res = await fetch('https://api.manana.kr/exchange/rate/KRW/USD.json', {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
       cache: 'no-store',
       signal: AbortSignal.timeout(5000),
     });
     const data = await res.json();
-    if (Array.isArray(data) && data[0]?.rate) {
-      // change=0 이므로 Yahoo FX로 change 보완 시도
+    if (data.result === 'success' && data.rates?.KRW) {
+      // Yahoo FX로 change/changeRate 보완 시도
       const yahoo = await fetchYahooFX('KRW=X').catch(() => null);
       if (yahoo) return yahoo;
-      return { value: data[0].rate, change: 0, changeRate: 0 };
+      return { value: data.rates.KRW, change: 0, changeRate: 0 };
     }
   } catch (e) {
-    console.warn('[MARKET] manana.kr 환율 조회 실패:', e instanceof Error ? e.message : e);
+    console.warn('[MARKET] open.er-api.com 환율 조회 실패:', e instanceof Error ? e.message : e);
   }
 
   // 3순위: Yahoo Finance

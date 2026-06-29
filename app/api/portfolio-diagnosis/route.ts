@@ -197,19 +197,31 @@ ${holdingsDetailBlock}
   try {
     const message = await claude.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 3000,
+      max_tokens: 6000,
       system: '당신은 15년 경력의 국내 주식 포트폴리오 매니저입니다. 제공된 실제 수급·밸류에이션·기술적 데이터를 모두 활용하여 기관급 수준의 포트폴리오 분석을 제공합니다.',
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const text      = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('JSON 파싱 실패');
+    if (message.stop_reason === 'max_tokens') {
+      console.error('[PORTFOLIO-DIAGNOSIS] Claude 응답이 max_tokens에서 잘림 — JSON 불완전할 수 있음');
+    }
 
-    const aiResult = JSON.parse(jsonMatch[0]);
+    const raw  = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+    // 마크다운 코드블록 제거
+    const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('JSON 파싱 실패: JSON 블록 없음');
+
+    let aiResult: Record<string, unknown>;
+    try {
+      aiResult = JSON.parse(jsonMatch[0]);
+    } catch (parseErr) {
+      const reason = message.stop_reason === 'max_tokens' ? 'max_tokens로 응답 잘림' : String(parseErr);
+      throw new Error(`JSON 파싱 실패: ${reason}`);
+    }
 
     const mergedHoldings = enriched.map(h => {
-      const aiH = (aiResult.holdings ?? []).find((a: { ticker: string }) => a.ticker === h.ticker);
+      const aiH = ((aiResult.holdings as { ticker: string; action?: string; reason?: string; sector?: string }[]) ?? []).find((a) => a.ticker === h.ticker);
       return {
         ticker:       h.ticker,
         name:         h.name,
