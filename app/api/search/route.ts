@@ -190,11 +190,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(overseas.slice(0, 8));
   }
 
-  const lower = q.toLowerCase();
+  const norm = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, '');
+  const lower     = q.normalize('NFC').toLowerCase();
+  const lowerFlat = norm(q);
+
   const scored = stockList
-    .filter(s => s.ticker.includes(q) || s.name.toLowerCase().includes(lower))
+    .filter(s => {
+      const n     = s.name.normalize('NFC').toLowerCase();
+      const nFlat = norm(s.name);
+      return s.ticker.includes(q) || n.includes(lower) || nFlat.includes(lowerFlat);
+    })
     .map(s => {
-      const n = s.name.toLowerCase();
+      const n = s.name.normalize('NFC').toLowerCase();
       const score = n === lower || s.ticker === q ? 0 : n.startsWith(lower) ? 1 : 2;
       return { ...s, score };
     })
