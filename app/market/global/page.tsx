@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -19,6 +20,14 @@ interface OverseasStock {
   price: number;
   change: number;
   changeRate: number;
+}
+
+interface NewsItem {
+  id: string;
+  title: string;
+  source: string;
+  published_at: string;
+  original_url: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -157,6 +166,152 @@ function IndexCard({
   );
 }
 
+// ── Sidebar: Global Movers ────────────────────────────────────────────────────
+
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1)   return '방금 전';
+  if (mins < 60)  return `${mins}분 전`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  return `${Math.floor(hours / 24)}일 전`;
+}
+
+function GlobalMoversSidebar({ stocks, loading }: { stocks: OverseasStock[]; loading: boolean }) {
+  const [tab, setTab] = useState<'gainers' | 'losers'>('gainers');
+
+  const sorted = [...stocks].filter(s => s.price > 0);
+  const gainers = sorted.sort((a, b) => b.changeRate - a.changeRate).slice(0, 5);
+  const losers  = [...stocks].filter(s => s.price > 0)
+    .sort((a, b) => a.changeRate - b.changeRate).slice(0, 5);
+  const list = tab === 'gainers' ? gainers : losers;
+
+  return (
+    <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
+      {/* 헤더 + 탭 */}
+      <div className="px-4 pt-3 pb-0 border-b border-slate-800/70">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">TOP MOVERS</h2>
+          <span className="text-[10px] text-emerald-500">실시간</span>
+        </div>
+        <div className="flex gap-0">
+          <button
+            onClick={() => setTab('gainers')}
+            className={`flex-1 py-2 text-xs font-bold transition-colors border-b-2 ${
+              tab === 'gainers'
+                ? 'border-red-500 text-red-500'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            급등 TOP 5
+          </button>
+          <button
+            onClick={() => setTab('losers')}
+            className={`flex-1 py-2 text-xs font-bold transition-colors border-b-2 ${
+              tab === 'losers'
+                ? 'border-blue-500 text-blue-500'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            급락 TOP 5
+          </button>
+        </div>
+      </div>
+
+      {/* 목록 */}
+      <div className="divide-y divide-slate-800/30">
+        {loading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3 animate-pulse">
+              <div className="w-5 h-5 rounded-full bg-slate-700/50 shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3 bg-slate-700/50 rounded w-20" />
+                <div className="h-2.5 bg-slate-700/30 rounded w-12" />
+              </div>
+              <div className="space-y-1.5 text-right">
+                <div className="h-3 bg-slate-700/50 rounded w-14" />
+                <div className="h-2.5 bg-slate-700/30 rounded w-10 ml-auto" />
+              </div>
+            </div>
+          ))
+        ) : list.length === 0 ? (
+          <p className="py-8 text-center text-slate-600 text-xs">데이터 없음</p>
+        ) : (
+          list.map((stock, i) => {
+            const rank      = i + 1;
+            const isUp      = stock.changeRate >= 0;
+            const color     = isUp ? 'text-red-400' : 'text-blue-400';
+            const badgeMap: Record<number, string> = {
+              1: 'bg-amber-400/20 text-amber-300 border border-amber-400/30',
+              2: 'bg-slate-400/15 text-slate-300 border border-slate-500/30',
+              3: 'bg-orange-800/20 text-orange-400 border border-orange-700/30',
+            };
+            return (
+              <div key={stock.ticker} className="flex items-center gap-3 px-4 py-3">
+                {badgeMap[rank] ? (
+                  <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${badgeMap[rank]}`}>
+                    {rank}
+                  </span>
+                ) : (
+                  <span className="shrink-0 text-[11px] font-semibold text-slate-500 w-5 text-center">{rank}</span>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-white truncate">{stock.name}</p>
+                  <p className="text-[10px] text-slate-600 font-mono">{stock.ticker}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`text-[13px] font-bold font-mono ${color}`}>
+                    ${stock.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                  <p className={`text-[11px] font-mono font-semibold ${color}`}>
+                    {isUp ? '+' : ''}{stock.changeRate.toFixed(2)}%
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Sidebar: News Feed ────────────────────────────────────────────────────────
+
+function GlobalNewsFeed({ news }: { news: NewsItem[] }) {
+  if (news.length === 0) return null;
+  return (
+    <div className="bg-[#1e2130] rounded-2xl overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800/70">
+        <p className="text-[12px] font-bold text-white">실시간 뉴스</p>
+        <Link
+          href="/news"
+          className="text-[22px] font-light text-slate-500 hover:text-slate-300 transition-all duration-200 leading-none hover:rotate-90 inline-block"
+        >
+          +
+        </Link>
+      </div>
+      <div className="divide-y divide-slate-800/50 px-4 pb-[2px]">
+        {news.map(item => (
+          <a
+            key={item.id}
+            href={item.original_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col gap-0.5 py-[11px] hover:opacity-75 transition-opacity"
+          >
+            <p className="text-sm font-medium text-white truncate leading-snug">{item.title}</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {item.source} · {relativeTime(item.published_at)}
+            </p>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Stock Table ────────────────────────────────────────────────────────────────
 
 function StockSkeleton({ rows }: { rows: number }) {
@@ -267,6 +422,7 @@ export default function GlobalMarketPage() {
   const [loadingByTab, setLoadingByTab] = useState<Record<CountryTab, boolean>>(
     { us: true, jp: true, hk: true, cn: true }
   );
+  const [news, setNews]                 = useState<NewsItem[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -314,6 +470,12 @@ export default function GlobalMarketPage() {
           setLoadingByTab(prev => ({ ...prev, [tabId]: false }));
         });
     });
+
+    // 해외 뉴스
+    fetch('/api/news?limit=5&category=global')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.news)) setNews(d.news); })
+      .catch(() => {});
   }, []);
 
   // ── Canvas 파티클 배경 ──────────────────────────────────────────
@@ -495,34 +657,50 @@ export default function GlobalMarketPage() {
           ))}
         </div>
 
-        {/* 지수 카드 + 종목 테이블 */}
-        {COUNTRY_TABS.map(tab => activeTab === tab.id && (
-          <div key={tab.id}>
-            {/* 지수 카드 */}
-            <div className="flex gap-3 mb-7">
-              {TAB_INDEX_CARDS[tab.id].map(({ label, key, isFx }) => (
-                <IndexCard
-                  key={key}
-                  label={label}
-                  data={indices[key]}
-                  closes={indices[key]?.sparkline ?? chartData[key] ?? []}
-                  uid={key}
-                  isFx={isFx}
-                />
-              ))}
-            </div>
+        {/* 2컬럼 레이아웃: 좌측 메인 + 우측 사이드바 */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
 
-            {/* 종목 테이블 */}
-            <h2 className="text-[14px] font-bold text-white mb-3">주요 종목</h2>
-            <StockTable
-              stocks={stocksByTab[tab.id] ?? []}
-              loading={loadingByTab[tab.id]}
-              currency={TAB_CURRENCY[tab.id]}
-              rows={tab.id === 'us' ? 20 : 10}
-              onRowClick={(ticker) => router.push(`/overseas/${tab.id}/${ticker}`)}
-            />
+          {/* 좌측: 지수 카드 + 종목 테이블 */}
+          <div className="min-w-0">
+            {COUNTRY_TABS.map(tab => activeTab === tab.id && (
+              <div key={tab.id}>
+                {/* 지수 카드 */}
+                <div className="flex gap-3 mb-7">
+                  {TAB_INDEX_CARDS[tab.id].map(({ label, key, isFx }) => (
+                    <IndexCard
+                      key={key}
+                      label={label}
+                      data={indices[key]}
+                      closes={indices[key]?.sparkline ?? chartData[key] ?? []}
+                      uid={key}
+                      isFx={isFx}
+                    />
+                  ))}
+                </div>
+
+                {/* 종목 테이블 */}
+                <h2 className="text-[14px] font-bold text-white mb-3">주요 종목</h2>
+                <StockTable
+                  stocks={stocksByTab[tab.id] ?? []}
+                  loading={loadingByTab[tab.id]}
+                  currency={TAB_CURRENCY[tab.id]}
+                  rows={tab.id === 'us' ? 20 : 10}
+                  onRowClick={(ticker) => router.push(`/overseas/${tab.id}/${ticker}`)}
+                />
+              </div>
+            ))}
           </div>
-        ))}
+
+          {/* 우측 사이드바 */}
+          <div className="flex flex-col gap-4">
+            <GlobalMoversSidebar
+              stocks={stocksByTab['us'] ?? []}
+              loading={loadingByTab['us']}
+            />
+            <GlobalNewsFeed news={news} />
+          </div>
+
+        </div>
       </div>
     </div>
   );
