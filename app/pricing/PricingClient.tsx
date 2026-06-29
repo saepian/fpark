@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
+import PageBackground from '@/components/layout/PageBackground';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -323,7 +324,8 @@ export default function PricingClient() {
   };
 
   return (
-    <div className="min-h-screen relative" style={{ background: 'linear-gradient(180deg, #0f1117 0%, #0d1033 55%, #0a0d1f 100%)' }}>
+    <div className="min-h-screen relative">
+      <PageBackground />
 
       {/* Toast */}
       {toast && (

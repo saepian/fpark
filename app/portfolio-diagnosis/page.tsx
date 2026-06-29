@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import ShareDropdown from '@/components/ShareDropdown';
+import PageBackground from '@/components/layout/PageBackground';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,7 +325,8 @@ export default function PortfolioDiagnosisPage() {
 
   if (!authChecked) {
     return (
-      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
+        <PageBackground />
         <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -423,7 +425,8 @@ export default function PortfolioDiagnosisPage() {
     const sortedSectors = [...result.sectors].sort((a, b) => b.weight - a.weight);
 
     return (
-      <div className="min-h-screen bg-[#0d1117] pb-16">
+      <div className="min-h-screen pb-16">
+        <PageBackground />
         {showUpgradeModal && <UpgradeModal />}
         <div className="max-w-5xl mx-auto px-4 pt-8">
 
@@ -629,7 +632,8 @@ export default function PortfolioDiagnosisPage() {
   // ════════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="min-h-screen bg-[#0d1117] pb-16">
+    <div className="min-h-screen pb-16">
+      <PageBackground />
       {showUpgradeModal && <UpgradeModal />}
 
       <div className="max-w-5xl mx-auto px-4 pt-8">

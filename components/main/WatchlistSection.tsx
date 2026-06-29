@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { createClient } from '../../lib/supabase-browser';
@@ -19,6 +19,31 @@ interface WatchItem {
   changeRate: number;
 }
 
+// 3개씩 나눠 개별 종목 가격 재조회
+async function refetchPrices(tickers: string[]): Promise<Map<string, { price: number; changeRate: number }>> {
+  const result = new Map<string, { price: number; changeRate: number }>();
+  const CHUNK = 3;
+  for (let i = 0; i < tickers.length; i += CHUNK) {
+    const chunk = tickers.slice(i, i + CHUNK);
+    await Promise.allSettled(
+      chunk.map(async (ticker) => {
+        try {
+          const res = await fetch(`/api/stock/${ticker}/price`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.price > 0) {
+            result.set(ticker, { price: data.price, changeRate: data.changeRate ?? 0 });
+          }
+        } catch { /* 재시도 실패 무시 */ }
+      }),
+    );
+    if (i + CHUNK < tickers.length) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+  return result;
+}
+
 export default function WatchlistSection() {
   const router = useRouter();
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
@@ -27,10 +52,26 @@ export default function WatchlistSection() {
   const [editing, setEditing]   = useState(false);
   const [paused, setPaused]     = useState(false);
   const [index, setIndex]       = useState(0);
-  // noAnim: transition 끄고 조용히 리셋할 때 true
-  const [noAnim, setNoAnim]     = useState(false);
-  // goPrev에서 noAnim 리셋 후 이어서 실행할 목표 인덱스
+  // price === 0 인 종목 — 3초 후 재시도 중
+  const [retrying, setRetrying] = useState<Set<string>>(new Set());
+  const noAnim                  = useRef(false);
   const pendingRef              = useRef<number | null>(null);
+  const retryTimerRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleRetry = useCallback((failed: string[]) => {
+    if (failed.length === 0) return;
+    setRetrying(new Set(failed));
+    retryTimerRef.current = setTimeout(async () => {
+      const updates = await refetchPrices(failed);
+      setItems(prev =>
+        prev.map(item => {
+          const u = updates.get(item.ticker);
+          return u ? { ...item, ...u } : item;
+        }),
+      );
+      setRetrying(new Set());
+    }, 3000);
+  }, []);
 
   useEffect(() => {
     const supabase = createClient();
@@ -39,64 +80,73 @@ export default function WatchlistSection() {
       setLoggedIn(true);
       fetch('/api/watchlist')
         .then(r => r.json())
-        .then(data => { if (Array.isArray(data)) setItems(data); })
+        .then(data => {
+          if (Array.isArray(data)) {
+            setItems(data);
+            const failed = (data as WatchItem[])
+              .filter(i => i.price === 0)
+              .map(i => i.ticker);
+            scheduleRetry(failed);
+          }
+        })
         .catch(() => {})
         .finally(() => setLoading(false));
     });
-  }, []);
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, [scheduleRetry]);
 
   const n            = items.length;
   const needCarousel = n > VISIBLE;
-  // 5개 이하면 단순 렌더, 6개 이상이면 2배 복제로 무한 루프
   const track        = needCarousel ? [...items, ...items] : items;
 
-  // noAnim이 true가 된 직후 → 브라우저가 해당 위치를 paint한 뒤
-  // pendingRef가 있으면 이어서 애니메이션 실행, 없으면 transition만 재활성화
-  useEffect(() => {
-    if (!noAnim) return;
-    const raf = requestAnimationFrame(() => {
-      const pending = pendingRef.current;
-      pendingRef.current = null;
-      setNoAnim(false);
-      if (pending !== null) setIndex(pending);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [noAnim]);
+  // ── 캐러셀 헬퍼 ──────────────────────────────────────────────────────────
 
-  // 3초마다 자동 슬라이드 (hover 시 정지)
+  const animateTo = useCallback((next: number) => {
+    noAnim.current = false;
+    setIndex(next);
+  }, []);
+
+  const silentJumpTo = useCallback((pos: number, then?: number) => {
+    noAnim.current = true;
+    pendingRef.current = then ?? null;
+    setIndex(pos);
+  }, []);
+
   useEffect(() => {
     if (!needCarousel || paused) return;
     const id = setInterval(() => setIndex(i => i + 1), AUTO_MS);
     return () => clearInterval(id);
   }, [needCarousel, paused]);
 
-  // 앞으로 이동 후 index가 n에 도달하면 조용히 0으로 리셋
-  const onTransitionEnd = () => {
-    if (index >= n) {
-      setNoAnim(true);
-      setIndex(i => i - n);
-    }
-  };
-
-  const goNext = () => {
-    if (!needCarousel) return;
-    setIndex(i => i + 1);
-  };
-
+  const goNext = () => { if (needCarousel) animateTo(index + 1); };
   const goPrev = () => {
     if (!needCarousel) return;
-    if (index <= 0) {
-      // 0 위치에서 뒤로: n으로 조용히 점프(0과 동일한 화면) → n-1로 애니메이션
-      pendingRef.current = n - 1;
-      setNoAnim(true);
-      setIndex(n);
-    } else {
-      setIndex(i => i - 1);
+    if (index <= 0) silentJumpTo(n, n - 1);
+    else animateTo(index - 1);
+  };
+
+  const onTransitionEnd = () => {
+    if (index >= n) {
+      silentJumpTo(index - n);
+      // requestAnimationFrame으로 noAnim 해제 후 pendingRef 처리
+      requestAnimationFrame(() => {
+        noAnim.current = false;
+        if (pendingRef.current !== null) {
+          const p = pendingRef.current;
+          pendingRef.current = null;
+          setIndex(p);
+        } else {
+          setIndex(i => i); // force re-render to restore transition
+        }
+      });
     }
   };
 
   const remove = async (ticker: string) => {
     setItems(prev => prev.filter(i => i.ticker !== ticker));
+    setRetrying(prev => { const s = new Set(prev); s.delete(ticker); return s; });
     setIndex(0);
     await fetch('/api/watchlist', {
       method: 'DELETE',
@@ -153,7 +203,7 @@ export default function WatchlistSection() {
         </div>
       )}
 
-      {/* 로딩 */}
+      {/* 초기 로딩 스켈레톤 */}
       {loggedIn && loading && (
         <div className="flex gap-3">
           {[...Array(VISIBLE)].map((_, i) => (
@@ -199,13 +249,16 @@ export default function WatchlistSection() {
               className="flex gap-3"
               style={{
                 transform: `translateX(-${index * STEP}px)`,
-                transition: noAnim ? 'none' : 'transform 500ms ease-in-out',
+                transition: noAnim.current ? 'none' : 'transform 500ms ease-in-out',
               }}
               onTransitionEnd={onTransitionEnd}
             >
               {track.map((stock, i) => {
-                const isUp       = stock.changeRate >= 0;
-                const priceColor = isUp ? 'text-red-400' : 'text-blue-400';
+                const isUp         = stock.changeRate >= 0;
+                const priceColor   = isUp ? 'text-red-400' : 'text-blue-400';
+                const isPriceReady = stock.price > 0;
+                const isRetrying   = !isPriceReady && retrying.has(stock.ticker);
+
                 return (
                   <div
                     key={`${stock.ticker}-${i}`}
@@ -234,16 +287,25 @@ export default function WatchlistSection() {
                     </div>
 
                     {/* 현재가 + 등락률 */}
-                    <div className="flex items-baseline gap-2">
-                      <p className="text-xl font-bold font-mono text-white">
-                        {stock.price > 0 ? stock.price.toLocaleString() : '—'}
-                      </p>
-                      {stock.price > 0 && (
+                    {isPriceReady ? (
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-xl font-bold font-mono text-white">
+                          {stock.price.toLocaleString()}
+                        </p>
                         <p className={`text-sm font-mono font-semibold ${priceColor}`}>
                           {isUp ? '+' : ''}{stock.changeRate.toFixed(1)}%
                         </p>
-                      )}
-                    </div>
+                      </div>
+                    ) : isRetrying ? (
+                      /* 재시도 중: 스켈레톤 */
+                      <div className="flex flex-col gap-1.5 mt-0.5">
+                        <div className="h-5 w-24 rounded bg-slate-700/70 animate-pulse" />
+                        <div className="h-3.5 w-14 rounded bg-slate-700/40 animate-pulse" />
+                      </div>
+                    ) : (
+                      /* 재시도 후에도 실패 */
+                      <p className="text-xl font-bold font-mono text-slate-600">—</p>
+                    )}
                   </div>
                 );
               })}

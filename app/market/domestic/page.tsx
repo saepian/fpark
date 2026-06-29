@@ -341,8 +341,8 @@ export default function DomesticMarketPage() {
       })
       .catch(() => {});
 
-    // 뉴스
-    fetch('/api/news?limit=5')
+    // 뉴스 (국내 카테고리만)
+    fetch('/api/news?limit=5&category=domestic')
       .then(r => r.json())
       .then(d => { if (Array.isArray(d.news)) setNews(d.news); })
       .catch(() => {});

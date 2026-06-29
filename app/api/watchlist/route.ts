@@ -22,6 +22,37 @@ function makeSupabase() {
   );
 }
 
+// 1회 재시도 래퍼 (KIS rate limit 대비)
+async function withRetry<T>(fn: () => Promise<T>, delayMs = 1000): Promise<T> {
+  try {
+    return await fn();
+  } catch {
+    await new Promise(r => setTimeout(r, delayMs));
+    return fn();
+  }
+}
+
+// 3개씩 청크 처리 — KIS API rate limit 회피
+async function fetchInChunks<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  chunkSize = 3,
+  gapMs = 250,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    const settled = await Promise.allSettled(chunk.map(fn));
+    for (const r of settled) {
+      if (r.status === 'fulfilled') results.push(r.value);
+    }
+    if (i + chunkSize < items.length) {
+      await new Promise(r => setTimeout(r, gapMs));
+    }
+  }
+  return results;
+}
+
 export async function GET() {
   const supabase = makeSupabase();
   const { data: { user } } = await supabase.auth.getUser();
@@ -35,31 +66,29 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const withPrice = await Promise.all(
-    (data ?? []).map(async (item) => {
+  const items = data ?? [];
+
+  const withPrice = await fetchInChunks(
+    items,
+    async (item) => {
       const market = item.market ?? 'kr';
       try {
-        if (market === 'kr') {
-          const stock = await fetchStockPrice(item.ticker);
-          return {
-            ...item,
-            price:      stock.price,
-            changeRate: stock.changeRate,
-            currency:   'KRW',
-          };
-        } else {
-          const quote = await fetchOverseasQuote(item.ticker);
-          return {
-            ...item,
-            price:      quote.price,
-            changeRate: quote.changeRate,
-            currency:   quote.currency,
-          };
-        }
+        return await withRetry(async () => {
+          if (market === 'kr') {
+            const stock = await fetchStockPrice(item.ticker);
+            return { ...item, price: stock.price, changeRate: stock.changeRate, currency: 'KRW' };
+          } else {
+            const quote = await fetchOverseasQuote(item.ticker);
+            return { ...item, price: quote.price, changeRate: quote.changeRate, currency: quote.currency };
+          }
+        });
       } catch {
-        return { ...item, price: 0, changeRate: 0 };
+        // 재시도 후에도 실패 — price: 0으로 반환해 클라이언트가 재시도하게 함
+        return { ...item, price: 0, changeRate: 0, currency: market === 'kr' ? 'KRW' : 'USD' };
       }
-    }),
+    },
+    3,   // 3개씩
+    250, // 250ms 간격
   );
 
   return NextResponse.json(withPrice);

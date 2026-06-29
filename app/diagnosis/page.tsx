@@ -7,6 +7,7 @@ import { Search, Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown } from
 
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import ShareDropdown from '@/components/ShareDropdown';
+import PageBackground from '@/components/layout/PageBackground';
 
 interface DiagnosisResult {
   summary: string;
@@ -220,7 +221,8 @@ export default function DiagnosisPage() {
 
   if (!authChecked) {
     return (
-      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
+        <PageBackground />
         <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -274,7 +276,8 @@ export default function DiagnosisPage() {
     const technicalLines  = result.technicalAnalysis ?? [];
 
     return (
-      <div className="min-h-screen bg-[#0d1117] pb-16">
+      <div className="min-h-screen pb-16">
+        <PageBackground />
         <div className="max-w-5xl mx-auto px-4 pt-8">
 
           {/* ── 헤더 ── */}
@@ -602,7 +605,8 @@ export default function DiagnosisPage() {
   const isDisabled = remaining === 0;
 
   return (
-    <div className="min-h-screen bg-[#0d1117] pb-16">
+    <div className="min-h-screen pb-16">
+      <PageBackground />
       <div className="max-w-5xl mx-auto px-4 pt-8">
 
         {/* 페이지 제목 */}
