@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import {
   Sparkles, Plus, Trash2, Search, ChevronLeft, ChevronDown, ChevronUp,
-  Share2, Printer, TrendingUp, TrendingDown, BookMarked, Lock,
+  Printer, TrendingUp, TrendingDown, BookMarked, Lock,
 } from 'lucide-react';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
+import ShareDropdown from '@/components/ShareDropdown';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -430,14 +431,12 @@ export default function PortfolioDiagnosisPage() {
               <h1 className="text-[22px] font-bold text-white">포트폴리오 진단 리포트</h1>
               <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성: {generatedAt}</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0 mt-1">
-              <button
-                onClick={() => alert('준비 중입니다.')}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-700
-                  border border-slate-700 text-slate-400 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer"
-              >
-                <Share2 className="w-3 h-3" /> SHARE
-              </button>
+            <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
+              <ShareDropdown
+                title="AI 포트폴리오 진단 리포트"
+                description={`총 수익률 ${result.totalProfitRate >= 0 ? '+' : ''}${result.totalProfitRate.toFixed(2)}% | ${result.holdings.length}개 종목 AI 분석`}
+                hashtags="fpark,주식,포트폴리오,AI진단"
+              />
               <button
                 onClick={() => window.print()}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30

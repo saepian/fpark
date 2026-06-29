@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
-import { Search, Sparkles, ChevronLeft, Share2, Printer, TrendingUp, TrendingDown } from 'lucide-react';
+import { Search, Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown } from 'lucide-react';
 
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
+import ShareDropdown from '@/components/ShareDropdown';
 
 interface DiagnosisResult {
   summary: string;
@@ -286,15 +287,17 @@ export default function DiagnosisPage() {
               </h1>
               <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성 시각: {generatedAt}</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0 mt-1">
-              <button onClick={() => alert('준비 중입니다.')}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-700
-                  border border-slate-700 text-slate-400 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer">
-                <Share2 className="w-3 h-3" /> SHARE
-              </button>
-              <button onClick={() => alert('준비 중입니다.')}
+            <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
+              <ShareDropdown
+                title={`AI 종목진단 - ${stockName}`}
+                description={`수익률 ${result.profitRate >= 0 ? '+' : ''}${result.profitRate.toFixed(2)}% | AI 추천: ${result.recommendation}`}
+                hashtags="fpark,주식,AI종목진단"
+              />
+              <button
+                onClick={() => window.print()}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30
-                  border border-indigo-500/40 text-indigo-300 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer">
+                  border border-indigo-500/40 text-indigo-300 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer"
+              >
                 <Printer className="w-3 h-3" /> PRINT REPORT
               </button>
             </div>

@@ -138,3 +138,63 @@ button, [role="button"], a {
   100% { transform: rotate(0deg); }
 }
 
+/* ── 인쇄 스타일 ─────────────────────────────────────────────────── */
+@media print {
+  /* 네비게이션, 버튼, 사이드바 숨김 */
+  header, nav, aside,
+  .no-print,
+  button:not(.print-show) {
+    display: none !important;
+  }
+
+  body, html {
+    background: #ffffff !important;
+    color: #111111 !important;
+    font-size: 12pt;
+  }
+
+  /* 어두운 배경 → 흰색 */
+  [class*="bg-[#"],
+  [class*="bg-slate"],
+  [class*="bg-indigo"],
+  [class*="bg-gray"] {
+    background: #ffffff !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  /* 텍스트 색상 정규화 */
+  [class*="text-slate"],
+  [class*="text-gray"],
+  [class*="text-white"] {
+    color: #111111 !important;
+  }
+
+  .text-red-400, .text-red-500 { color: #dc2626 !important; }
+  .text-blue-400, .text-blue-500 { color: #2563eb !important; }
+  .text-indigo-400, .text-indigo-300 { color: #4338ca !important; }
+  .text-emerald-400, .text-emerald-500 { color: #059669 !important; }
+
+  /* 페이지 여백 */
+  @page {
+    margin: 15mm 12mm;
+  }
+
+  /* 페이지 나눔 방지 */
+  .rounded-2xl, .rounded-xl {
+    page-break-inside: avoid;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    background: #f8fafc !important;
+    margin-bottom: 12px;
+  }
+
+  /* 최대 너비 해제 */
+  .max-w-5xl, .max-w-4xl {
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+
+  /* 차트는 그대로 유지 */
+  canvas, svg { display: block !important; }
+}
+
