@@ -7,12 +7,16 @@ import {
   buildTechnicalBlock,
   buildInvestorBlock,
 } from '@/lib/stock-analysis-data';
+import type { StockAnalysisData } from '@/lib/stock-analysis-data';
 
-export const dynamic    = 'force-dynamic';
+export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
-const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const claude        = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 const MONTHLY_LIMIT = 30;
+const MAX_HOLDINGS  = 10;
+
+// ── Supabase ────────────────────────────────────────────────────────────────
 
 function makeSupabase() {
   const cookieStore = cookies();
@@ -39,9 +43,7 @@ async function checkPro(
   try {
     const { data } = await supabase.from('users').select('plan').eq('id', userId).maybeSingle();
     return data?.plan === 'pro';
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 async function getMonthlyCount(
@@ -58,10 +60,118 @@ async function getMonthlyCount(
       .eq('user_id', userId)
       .gte('created_at', monthStart.toISOString());
     return count ?? 0;
-  } catch {
-    return 0;
+  } catch { return 0; }
+}
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
+interface HoldingInput {
+  ticker: string; name: string;
+  avgPrice: number; quantity: number; buyDate?: string;
+}
+
+interface EnrichedHolding extends HoldingInput {
+  currentPrice: number; invested: number; value: number;
+  profit: number; profitRate: number;
+  analysisData: StockAnalysisData | null;
+}
+
+interface StockAiResult {
+  ticker: string; action: string; reason: string; sector: string;
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+function parseAiJson<T>(text: string, fallback: T): T {
+  const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (!match) return fallback;
+  try { return JSON.parse(match[0]); } catch { return fallback; }
+}
+
+// 종목 1개 프롬프트 — PER·52주위치·수급·뉴스 1개만 포함
+function buildStockPrompt(h: EnrichedHolding): string {
+  const ad  = h.analysisData;
+  const pr  = h.profitRate >= 0 ? '+' : '';
+  const lines: string[] = [
+    `종목: ${h.name}(${h.ticker}) | 매수가:${h.avgPrice.toLocaleString()} | 현재가:${h.currentPrice.toLocaleString()} | 수익률:${pr}${h.profitRate.toFixed(1)}%`,
+  ];
+  if (ad) {
+    const tech: string[] = [];
+    if (ad.per > 0)        tech.push(`PER:${ad.per.toFixed(1)}배`);
+    if (ad.week52Position) tech.push(`52주위치:${ad.week52Position.toFixed(0)}%`);
+    if (ad.operatingProfit) tech.push(`영업이익:${ad.operatingProfit}`);
+    if (tech.length)       lines.push(tech.join(' | '));
+    const inv = buildInvestorBlock(ad);
+    if (inv && inv !== '데이터 없음') lines.push(`수급: ${inv.replace(/\n/g, ' ')}`);
+    if (ad.news?.[0])      lines.push(`뉴스: ${ad.news[0].title}`);
+  }
+  return lines.join('\n');
+}
+
+// ── Stage 1: 종목 개별 분석 ─────────────────────────────────────────────────
+
+async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
+  const prompt =
+    `다음 한국 주식을 분석하고 JSON만 출력하세요.\n\n` +
+    buildStockPrompt(h) +
+    `\n\n{"ticker":"${h.ticker}","action":"매수"|"보유"|"분할매도"|"전량매도","reason":"2문장 이내 근거","sector":"실제업종명"}`;
+
+  try {
+    const msg = await claude.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 2000,
+      system: '한국주식 애널리스트. 수급·밸류에이션 데이터 기반 간결한 종목 분석. JSON만 출력.',
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
+    return parseAiJson<StockAiResult>(text, { ticker: h.ticker, action: '보유', reason: '', sector: '' });
+  } catch (e) {
+    console.error(`[PORTFOLIO-DIAGNOSIS] 종목 분석 실패 ${h.ticker}:`, e);
+    return { ticker: h.ticker, action: '보유', reason: '', sector: '' };
   }
 }
+
+// ── Stage 2: 포트폴리오 종합 분석 ──────────────────────────────────────────
+
+async function analyzePortfolioSummary(
+  stockResults: StockAiResult[],
+  totalProfitRate: number,
+  holdingCount: number,
+): Promise<{ summary: string; sectors: unknown[]; suggestions: string[] }> {
+  const lines = stockResults
+    .map(s => `${s.ticker}(${s.sector || '기타'}): ${s.action} — ${s.reason}`)
+    .join('\n');
+
+  const prompt =
+    `포트폴리오 종합 분석 (JSON만 출력)\n\n` +
+    `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개\n` +
+    `${lines}\n\n` +
+    `{"summary":"4-5문장 종합 평가(전체 수익률·강약점·수급·전략)","sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],"suggestions":["구체적 제안1","제안2","제안3","제안4"]}\n\n` +
+    `규칙: sectors weight 합계=100, suggestions는 구체적 전략(단순 모니터링 금지)`;
+
+  try {
+    const msg = await claude.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 2000,
+      system: '한국주식 포트폴리오 매니저. 섹터분석·리스크분산·전략수립 전문. JSON만 출력.',
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
+    return parseAiJson(text, { summary: '', sectors: [], suggestions: [] });
+  } catch (e) {
+    console.error('[PORTFOLIO-DIAGNOSIS] 종합 분석 실패:', e);
+    return { summary: '', sectors: [], suggestions: [] };
+  }
+}
+
+// ── SSE helper ──────────────────────────────────────────────────────────────
+
+function sseEncode(ctrl: ReadableStreamDefaultController, encoder: TextEncoder, data: object) {
+  ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+}
+
+// ── GET ─────────────────────────────────────────────────────────────────────
 
 export async function GET() {
   const supabase = makeSupabase();
@@ -70,7 +180,6 @@ export async function GET() {
 
   const isPro  = await checkPro(supabase, user.id, user.email);
   const count  = await getMonthlyCount(supabase, user.id);
-
   return NextResponse.json({
     isPro,
     count,
@@ -78,7 +187,10 @@ export async function GET() {
   });
 }
 
+// ── POST ─────────────────────────────────────────────────────────────────────
+
 export async function POST(request: NextRequest) {
+  // ── 1. Auth (정상 JSON 에러 반환) ──────────────────────────────────────────
   const supabase = makeSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -94,171 +206,115 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { holdings } = (await request.json()) as {
-    holdings: { ticker: string; name: string; avgPrice: number; quantity: number; buyDate?: string }[];
-  };
-
+  // ── 2. 입력 검증 ──────────────────────────────────────────────────────────
+  const { holdings } = (await request.json()) as { holdings: HoldingInput[] };
   if (!Array.isArray(holdings) || holdings.length === 0) {
     return NextResponse.json({ error: '종목을 하나 이상 입력해주세요.' }, { status: 400 });
   }
-  if (holdings.length > 5) {
-    return NextResponse.json({ error: '최대 5종목까지 분석 가능합니다.' }, { status: 400 });
+  if (holdings.length > MAX_HOLDINGS) {
+    return NextResponse.json({ error: `최대 ${MAX_HOLDINGS}종목까지 분석 가능합니다.` }, { status: 400 });
   }
 
-  // 모든 종목 데이터 병렬 수집 (KIS 가격·52w·수급·네이버 재무·DB 뉴스)
-  const analysisResults = await Promise.allSettled(
-    holdings.map(h => collectStockAnalysisData(h.ticker, h.name)),
-  );
+  // ── 3. SSE 스트림 시작 ────────────────────────────────────────────────────
+  const encoder = new TextEncoder();
+  const send    = (ctrl: ReadableStreamDefaultController, data: object) =>
+    sseEncode(ctrl, encoder, data);
 
-  const enriched = holdings.map((h, i) => {
-    const ar           = analysisResults[i];
-    const ad           = ar.status === 'fulfilled' ? ar.value : null;
-    const currentPrice = (ad?.currentPrice && ad.currentPrice > 0) ? ad.currentPrice : h.avgPrice;
-    const resolvedName = (ad?.stockName && ad.stockName !== h.ticker) ? ad.stockName : h.name;
-    const invested     = h.avgPrice * h.quantity;
-    const value        = currentPrice * h.quantity;
-    const profit       = value - invested;
-    const profitRate   = h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : 0;
-    return { ...h, name: resolvedName, currentPrice, invested, value, profit, profitRate, analysisData: ad };
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        // Stage 0: 데이터 수집
+        send(controller, { type: 'progress', label: '종목 데이터 수집 중...' });
+        console.log(`[PORTFOLIO-DIAGNOSIS] 데이터 수집 시작 (${holdings.length}개 종목)`);
+
+        const analysisResults = await Promise.allSettled(
+          holdings.map(h => collectStockAnalysisData(h.ticker, h.name)),
+        );
+
+        const enriched: EnrichedHolding[] = holdings.map((h, i) => {
+          const ar           = analysisResults[i];
+          const ad           = ar.status === 'fulfilled' ? ar.value : null;
+          const currentPrice = (ad?.currentPrice && ad.currentPrice > 0) ? ad.currentPrice : h.avgPrice;
+          const resolvedName = (ad?.stockName && ad.stockName !== h.ticker) ? ad.stockName : h.name;
+          const invested     = h.avgPrice * h.quantity;
+          const value        = currentPrice * h.quantity;
+          const profit       = value - invested;
+          const profitRate   = h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : 0;
+          return { ...h, name: resolvedName, currentPrice, invested, value, profit, profitRate, analysisData: ad };
+        });
+
+        const totalInvested   = enriched.reduce((s, h) => s + h.invested, 0);
+        const totalValue      = enriched.reduce((s, h) => s + h.value, 0);
+        const totalProfit     = totalValue - totalInvested;
+        const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
+
+        // Stage 1: 종목별 개별 분석 (병렬)
+        send(controller, { type: 'progress', label: `${enriched.length}개 종목 개별 분석 중...` });
+        console.log(`[PORTFOLIO-DIAGNOSIS] Stage 1 시작 — ${enriched.length}개 병렬 분석`);
+
+        const stockResults = await Promise.all(enriched.map(h => analyzeOneStock(h)));
+
+        // Stage 2: 포트폴리오 종합 분석
+        send(controller, { type: 'progress', label: '포트폴리오 종합 분석 중...' });
+        console.log('[PORTFOLIO-DIAGNOSIS] Stage 2 시작 — 종합 분석');
+
+        const summary = await analyzePortfolioSummary(stockResults, totalProfitRate, enriched.length);
+
+        // 결과 병합
+        const mergedHoldings = enriched.map(h => {
+          const aiH = stockResults.find(s => s.ticker === h.ticker);
+          return {
+            ticker:       h.ticker,
+            name:         h.name,
+            currentPrice: h.currentPrice,
+            avgPrice:     h.avgPrice,
+            quantity:     h.quantity,
+            value:        h.value,
+            invested:     h.invested,
+            profit:       h.profit,
+            profitRate:   parseFloat(h.profitRate.toFixed(2)),
+            action:       aiH?.action ?? '보유',
+            reason:       aiH?.reason ?? '',
+            sector:       aiH?.sector ?? '',
+          };
+        });
+
+        const finalResult = {
+          totalInvested,
+          totalValue,
+          totalProfit,
+          totalProfitRate: parseFloat(totalProfitRate.toFixed(2)),
+          summary:     summary.summary     ?? '',
+          sectors:     summary.sectors     ?? [],
+          holdings:    mergedHoldings,
+          suggestions: summary.suggestions ?? [],
+        };
+
+        // DB 저장
+        try {
+          await supabase.from('portfolio_diagnosis').insert({
+            user_id: user.id,
+            result:  finalResult,
+          });
+        } catch { /* ignore */ }
+
+        console.log('[PORTFOLIO-DIAGNOSIS] 완료');
+        send(controller, { type: 'result', data: finalResult });
+      } catch (e) {
+        console.error('[PORTFOLIO-DIAGNOSIS] 치명적 오류:', e);
+        send(controller, { type: 'error', message: 'AI 분석 생성 실패' });
+      } finally {
+        controller.close();
+      }
+    },
   });
 
-  const totalInvested   = enriched.reduce((s, h) => s + h.invested, 0);
-  const totalValue      = enriched.reduce((s, h) => s + h.value, 0);
-  const totalProfit     = totalValue - totalInvested;
-  const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
-
-  // 종목별 상세 블록 생성
-  const holdingsDetailBlock = enriched.map(h => {
-    const ad  = h.analysisData;
-    const pr  = h.profitRate >= 0 ? '+' : '';
-    const lines: string[] = [
-      `### ${h.name} (${h.ticker})`,
-      `현황: 현재가 ${h.currentPrice.toLocaleString()}원 | 매수가 ${h.avgPrice.toLocaleString()}원 | ${h.quantity}주 | 수익률 ${pr}${h.profitRate.toFixed(2)}% | 평가금액 ${h.value.toLocaleString()}원`,
-    ];
-    if (ad) {
-      lines.push('기술/밸류: ' + buildTechnicalBlock(ad).replace(/\n- /g, ' | ').replace(/^- /, ''));
-      const invBlock = buildInvestorBlock(ad);
-      if (invBlock !== '데이터 없음') {
-        lines.push('수급 동향:');
-        lines.push(invBlock);
-      }
-      if (ad.news.length > 0) {
-        lines.push('관련 뉴스: ' + ad.news.slice(0, 3).map(n => n.title).join(' / '));
-      }
-    }
-    return lines.join('\n');
-  }).join('\n\n');
-
-  const prompt = `당신은 15년 경력의 국내 주식 포트폴리오 매니저입니다. 아래 실제 데이터를 종합 분석하여 반드시 JSON만 출력하세요.
-
-## 포트폴리오 현황
-- 총 투자금: ${totalInvested.toLocaleString()}원
-- 총 평가금액: ${totalValue.toLocaleString()}원
-- 총 손익: ${totalProfit >= 0 ? '+' : ''}${totalProfit.toLocaleString()}원 (${totalProfitRate >= 0 ? '+' : ''}${totalProfitRate.toFixed(2)}%)
-- 보유 종목 수: ${enriched.length}개
-
-## 종목별 상세 데이터
-${holdingsDetailBlock}
-
-분석 포인트:
-1. 각 종목의 52주 위치·PER/PBR로 현재 주가 레벨 및 밸류에이션 평가
-2. 외국인·기관 수급 추이로 스마트머니 방향 파악
-3. 실적·뉴스와 결합한 업황 전망
-4. 포트폴리오 전체 섹터 집중도·리스크 분산 평가
-5. 각 종목 보유/매도/추가매수 액션 근거
-
-## 출력 형식 (JSON만)
-{
-  "summary": "포트폴리오 종합 평가 (4-5문장: 전체 수익률 상태·강점·약점·수급 시그널·향후 전략 포함)",
-  "sectors": [
-    {"name": "섹터명", "tickers": ["코드1", "코드2"], "weight": 비중정수(합계100), "warning": 40이상true}
-  ],
-  "holdings": [
-    {
-      "ticker": "종목코드",
-      "action": "매수" | "보유" | "분할매도" | "전량매도",
-      "reason": "액션 이유 (수급·밸류에이션·수익률 수치 근거 포함, 2-3문장)",
-      "sector": "실제 업종명"
-    }
-  ],
-  "suggestions": [
-    "구체적 개선 제안 1 (리스크 분산·비중 조정·신규 편입 등 수치 포함)",
-    "제안 2", "제안 3", "제안 4"
-  ]
-}
-
-규칙:
-- sectors 비중 합계 반드시 100
-- 각 종목 sector는 실제 업종(반도체/배터리/금융/바이오/IT서비스/자동차/철강/에너지 등)
-- action은 수급·밸류에이션·수익률 종합 판단 (손절 수준 종목은 전량매도 고려)
-- suggestions는 포트폴리오 전략 수준의 구체적 조언 (단순 모니터링 권유 금지)
-- JSON 외 텍스트, 마크다운 코드블록 절대 금지`;
-
-  try {
-    const message = await claude.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 6000,
-      system: '당신은 15년 경력의 국내 주식 포트폴리오 매니저입니다. 제공된 실제 수급·밸류에이션·기술적 데이터를 모두 활용하여 기관급 수준의 포트폴리오 분석을 제공합니다.',
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    if (message.stop_reason === 'max_tokens') {
-      console.error('[PORTFOLIO-DIAGNOSIS] Claude 응답이 max_tokens에서 잘림 — JSON 불완전할 수 있음');
-    }
-
-    const raw  = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-    // 마크다운 코드블록 제거
-    const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('JSON 파싱 실패: JSON 블록 없음');
-
-    let aiResult: Record<string, unknown>;
-    try {
-      aiResult = JSON.parse(jsonMatch[0]);
-    } catch (parseErr) {
-      const reason = message.stop_reason === 'max_tokens' ? 'max_tokens로 응답 잘림' : String(parseErr);
-      throw new Error(`JSON 파싱 실패: ${reason}`);
-    }
-
-    const mergedHoldings = enriched.map(h => {
-      const aiH = ((aiResult.holdings as { ticker: string; action?: string; reason?: string; sector?: string }[]) ?? []).find((a) => a.ticker === h.ticker);
-      return {
-        ticker:       h.ticker,
-        name:         h.name,
-        currentPrice: h.currentPrice,
-        avgPrice:     h.avgPrice,
-        quantity:     h.quantity,
-        value:        h.value,
-        invested:     h.invested,
-        profit:       h.profit,
-        profitRate:   parseFloat(h.profitRate.toFixed(2)),
-        action:       aiH?.action ?? '보유',
-        reason:       aiH?.reason ?? '',
-        sector:       aiH?.sector ?? '',
-      };
-    });
-
-    const finalResult = {
-      totalInvested,
-      totalValue,
-      totalProfit,
-      totalProfitRate: parseFloat(totalProfitRate.toFixed(2)),
-      summary:     aiResult.summary    ?? '',
-      sectors:     aiResult.sectors    ?? [],
-      holdings:    mergedHoldings,
-      suggestions: aiResult.suggestions ?? [],
-    };
-
-    try {
-      await supabase.from('portfolio_diagnosis').insert({
-        user_id: user.id,
-        result:  finalResult,
-      });
-    } catch { /* ignore if table missing */ }
-
-    return NextResponse.json(finalResult);
-  } catch (e) {
-    console.error('[PORTFOLIO-DIAGNOSIS]', e);
-    return NextResponse.json({ error: 'AI 분석 생성 실패' }, { status: 500 });
-  }
+  return new Response(stream, {
+    headers: {
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':    'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }

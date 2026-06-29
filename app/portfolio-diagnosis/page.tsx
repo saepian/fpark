@@ -125,9 +125,9 @@ export default function PortfolioDiagnosisPage() {
   const watchBtnRef = useRef<HTMLButtonElement>(null);
 
   // submit
-  const [loading,     setLoading]     = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
-  const [error,       setError]       = useState('');
+  const [loading,      setLoading]      = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState('');
+  const [error,        setError]        = useState('');
   const [result,      setResult]      = useState<PortfolioResult | null>(null);
   const [generatedAt, setGeneratedAt] = useState('');
 
@@ -150,19 +150,6 @@ export default function PortfolioDiagnosisPage() {
         .catch(() => {});
     });
   }, []); // eslint-disable-line
-
-  // 로딩 단계 자동 진행
-  const PORT_LOADING_STEPS = ['종목 데이터 조회 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', '뉴스 수집 중...', 'AI 분석 중...'];
-  useEffect(() => {
-    if (!loading) { setLoadingStep(0); return; }
-    const timers2 = [
-      setTimeout(() => setLoadingStep(1), 3000),
-      setTimeout(() => setLoadingStep(2), 7000),
-      setTimeout(() => setLoadingStep(3), 11000),
-      setTimeout(() => setLoadingStep(4), 15000),
-    ];
-    return () => timers2.forEach(clearTimeout);
-  }, [loading]);
 
   // close watch popover on outside click
   useEffect(() => {
@@ -202,7 +189,7 @@ export default function PortfolioDiagnosisPage() {
   }, [updateHolding]);
 
   const addHolding = () => {
-    if (holdings.length >= 5) return;
+    if (holdings.length >= 10) return;
     setHoldings(prev => [...prev, emptyHolding()]);
   };
 
@@ -215,14 +202,14 @@ export default function PortfolioDiagnosisPage() {
     setHoldings(prev => {
       let updated = [...prev];
       for (const item of toAdd) {
-        if (updated.filter(h => h.ticker).length >= 5) break;
+        if (updated.filter(h => h.ticker).length >= 10) break;
         const emptySlot = updated.find(h => !h.ticker);
         if (emptySlot) {
           updated = updated.map(h => h.id === emptySlot.id
             ? { ...h, ticker: item.ticker, name: item.name, _q: item.name }
             : h
           );
-        } else if (updated.length < 5) {
+        } else if (updated.length < 10) {
           updated = [...updated, { ...emptyHolding(), ticker: item.ticker, name: item.name, _q: item.name }];
         }
       }
@@ -243,6 +230,8 @@ export default function PortfolioDiagnosisPage() {
 
     setError('');
     setLoading(true);
+    setLoadingLabel('분석 준비 중...');
+
     try {
       const res = await fetch('/api/portfolio-diagnosis', {
         method:  'POST',
@@ -257,15 +246,45 @@ export default function PortfolioDiagnosisPage() {
           })),
         }),
       });
-      const data = await res.json();
+
+      // 인증·검증 에러는 JSON으로 반환
       if (!res.ok) {
+        const data = await res.json();
         if (data.error === 'PRO_REQUIRED') { setShowUpgradeModal(true); return; }
         setError(data.error || '분석 실패');
         return;
       }
-      setResult(data);
-      setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
-      setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
+
+      // 성공 → SSE 스트림 수신
+      const reader  = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === 'progress') {
+              setLoadingLabel(event.label);
+            } else if (event.type === 'result') {
+              setResult(event.data);
+              setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+              setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
+            } else if (event.type === 'error') {
+              if (event.message === 'PRO_REQUIRED') setShowUpgradeModal(true);
+              else setError(event.message || '분석 실패');
+            }
+          } catch { /* malformed SSE line 무시 */ }
+        }
+      }
     } catch {
       setError('네트워크 오류가 발생했습니다.');
     } finally {
@@ -294,27 +313,10 @@ export default function PortfolioDiagnosisPage() {
           <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-emerald-400 animate-spin"
             style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
         </div>
-        <div className="text-center mb-2">
-          <p className="text-white font-semibold text-lg mb-1">AI가 포트폴리오를 분석하고 있습니다...</p>
-          <p className="text-slate-400 text-sm">예상 소요 시간: 20~40초</p>
-        </div>
-        <div className="flex flex-col gap-3 min-w-[240px]">
-          {PORT_LOADING_STEPS.map((step, i) => (
-            <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${
-              i < loadingStep ? 'text-emerald-400' :
-              i === loadingStep ? 'text-white' :
-              'text-slate-600'
-            }`}>
-              {i < loadingStep ? (
-                <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shrink-0 text-[10px]">✓</span>
-              ) : i === loadingStep ? (
-                <span className="w-5 h-5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
-              ) : (
-                <span className="w-5 h-5 rounded-full border border-slate-700 shrink-0" />
-              )}
-              <span className={`text-[13px] ${i === loadingStep ? 'font-semibold' : ''}`}>{step}</span>
-            </div>
-          ))}
+        <div className="text-center">
+          <p className="text-white font-semibold text-lg mb-2">AI가 포트폴리오를 분석하고 있습니다...</p>
+          <p className="text-indigo-400 text-sm font-medium min-h-[20px]">{loadingLabel}</p>
+          <p className="text-slate-500 text-xs mt-1">예상 소요 시간: 20~40초</p>
         </div>
       </div>
     );
@@ -335,7 +337,7 @@ export default function PortfolioDiagnosisPage() {
           </div>
           <div className="flex flex-col gap-2 text-left w-full">
             {[
-              '최대 5종목 동시 분석',
+              '최대 10종목 동시 분석',
               '섹터 편중도 자동 계산',
               '종목별 AI 매매 액션',
               '포트폴리오 개선 제안',
@@ -601,7 +603,7 @@ export default function PortfolioDiagnosisPage() {
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-400" />
               <span className="text-[11px] font-bold tracking-[0.2em] text-slate-400 uppercase">
-                Holdings  <span className="text-slate-600">({holdings.filter(h => h.ticker).length}/5)</span>
+                Holdings  <span className="text-slate-600">({holdings.filter(h => h.ticker).length}/10)</span>
               </span>
             </div>
             {/* 워치리스트 불러오기 */}
@@ -622,7 +624,7 @@ export default function PortfolioDiagnosisPage() {
                     <div className="px-4 py-3 text-[12px] text-slate-500">관심종목이 없습니다</div>
                   ) : (() => {
                     const filledCount   = holdings.filter(h => h.ticker).length;
-                    const availableSlots = 5 - filledCount;
+                    const availableSlots = 10 - filledCount;
                     const selectableItems = watchlist.filter(w => !holdings.some(h => h.ticker === w.ticker));
                     const checkedCount  = watchlist.filter(w => watchChecked.has(w.ticker)).length;
                     const allChecked    = selectableItems.length > 0 && selectableItems.every(w => watchChecked.has(w.ticker));
@@ -680,7 +682,7 @@ export default function PortfolioDiagnosisPage() {
                         <div className="px-4 py-3 border-t border-slate-700/60">
                           {wouldExceed && (
                             <p className="text-[11px] text-amber-400 mb-2">
-                              최대 5개까지 선택 가능합니다 (현재 {filledCount}개 입력됨)
+                              최대 10개까지 선택 가능합니다 (현재 {filledCount}개 입력됨)
                             </p>
                           )}
                           <button
@@ -719,7 +721,7 @@ export default function PortfolioDiagnosisPage() {
           </div>
 
           {/* 종목 추가 버튼 */}
-          {holdings.length < 5 && (
+          {holdings.length < 10 && (
             <button
               type="button"
               onClick={addHolding}
@@ -727,7 +729,7 @@ export default function PortfolioDiagnosisPage() {
                 text-slate-500 hover:text-slate-300 hover:border-slate-500
                 text-[13px] flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> 종목 추가 (최대 5개)
+              <Plus className="w-4 h-4" /> 종목 추가 (최대 10개)
             </button>
           )}
         </div>
