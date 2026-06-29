@@ -412,6 +412,89 @@ export default function Hero() {
           ))}
         </div>
 
+        {/* AI 진단 바로가기 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto mb-10">
+          {/* 종목진단 */}
+          <div className="group cursor-pointer" onClick={() => router.push('/diagnosis')}>
+            <div
+              className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_28px_rgba(99,102,241,0.45)]"
+              style={{
+                background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                boxShadow: '0 0 16px rgba(99,102,241,0.2)',
+              }}
+            >
+              <div className="bg-[#080b18]/90 backdrop-blur-sm rounded-[15px] px-4 py-4 h-full flex flex-col gap-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ background: 'rgba(99,102,241,0.2)', fontSize: '18px' }}
+                    >
+                      🔍
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[13px] font-bold text-white leading-tight">AI 종목진단</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">종목 하나를 깊이 분석해드립니다</p>
+                    </div>
+                  </div>
+                  <span
+                    className="text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mt-0.5"
+                    style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)' }}
+                  >
+                    무료 하루 2회
+                  </span>
+                </div>
+                <div
+                  className="flex items-center gap-1 text-[11px] font-semibold transition-all duration-200 group-hover:gap-1.5"
+                  style={{ color: '#818cf8' }}
+                >
+                  진단 시작하기 <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 포트폴리오 진단 */}
+          <div className="group cursor-pointer" onClick={() => router.push('/portfolio-diagnosis')}>
+            <div
+              className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_28px_rgba(168,85,247,0.45)]"
+              style={{
+                background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)',
+                boxShadow: '0 0 16px rgba(139,92,246,0.2)',
+              }}
+            >
+              <div className="bg-[#080b18]/90 backdrop-blur-sm rounded-[15px] px-4 py-4 h-full flex flex-col gap-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                      style={{ background: 'rgba(139,92,246,0.2)', fontSize: '18px' }}
+                    >
+                      📊
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[13px] font-bold text-white leading-tight">AI 포트폴리오 진단</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">보유 종목 전체를 한번에 분석</p>
+                    </div>
+                  </div>
+                  <span
+                    className="text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mt-0.5"
+                    style={{ background: 'rgba(234,179,8,0.15)', color: '#fbbf24', border: '1px solid rgba(234,179,8,0.35)' }}
+                  >
+                    PRO
+                  </span>
+                </div>
+                <div
+                  className="flex items-center gap-1 text-[11px] font-semibold transition-all duration-200 group-hover:gap-1.5"
+                  style={{ color: '#c084fc' }}
+                >
+                  진단 시작하기 <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* 시장 현황 */}
         {market && (
           <div className="inline-flex flex-wrap items-center justify-center gap-4 sm:gap-6
