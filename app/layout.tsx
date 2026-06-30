@@ -29,9 +29,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" className="dark">
-      <body className="antialiased min-h-screen bg-[#f4f6f9] dark:bg-[#0f1117] text-[#0f1117] dark:text-[#d4e4fa] font-sans transition-colors duration-300">
+      <body className="antialiased min-h-screen flex flex-col bg-[#f4f6f9] dark:bg-[#0f1117] text-[#0f1117] dark:text-[#d4e4fa] font-sans transition-colors duration-300">
         <Header />
-        {children}
+        <main className="flex-1">{children}</main>
         <Footer />
         <KakaoScript />
       </body>
