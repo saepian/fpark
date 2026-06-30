@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Share2, Link2, MessageCircle, Twitter, Check, Loader2 } from 'lucide-react';
+import { Share2, Link2, Twitter, Check, Loader2 } from 'lucide-react';
 
 interface ShareDropdownProps {
   title: string;
@@ -180,19 +180,6 @@ export default function ShareDropdown({
                 ? <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" />
                 : <Link2 className="w-3.5 h-3.5 text-slate-400" />}
             {copied ? '복사되었습니다!' : '링크 복사'}
-          </button>
-
-          <div className="h-px bg-slate-700/50 mx-3" />
-
-          {/* 카카오톡 */}
-          <button
-            onClick={handleKakao}
-            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer"
-          >
-            {isCreatingLink
-              ? <Loader2 className="w-3.5 h-3.5 text-yellow-400/60 animate-spin" />
-              : <MessageCircle className="w-3.5 h-3.5 text-yellow-400" />}
-            카카오톡 공유
           </button>
 
           <div className="h-px bg-slate-700/50 mx-3" />
