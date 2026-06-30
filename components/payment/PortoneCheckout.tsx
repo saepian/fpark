@@ -3,17 +3,18 @@
 // PortOne V2 결제 모달
 // 빌링키 발급 → 서버에서 즉시 결제 → 플랜 업데이트
 // 테스트 모드: 실제 카드 승인 없음 (PortOne 테스트 환경)
+// 이니시스 V2: customer.phoneNumber 필수 (하이픈 없는 숫자 11자리)
 
 import { useState } from 'react';
 import * as PortOne from '@portone/browser-sdk/v2';
 import { createClient } from '@/lib/supabase-browser';
-import { X, CreditCard, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, CreditCard, Loader2, CheckCircle, AlertCircle, Phone } from 'lucide-react';
 
 interface Props {
-  plan:     'basic' | 'pro';
-  amount:   number;
-  isAnnual: boolean;
-  onClose:  () => void;
+  plan:      'basic' | 'pro';
+  amount:    number;
+  isAnnual:  boolean;
+  onClose:   () => void;
   onSuccess: (plan: 'basic' | 'pro') => void;
 }
 
@@ -22,19 +23,49 @@ const PLAN_NAMES: Record<'basic' | 'pro', string> = {
   pro:   'Finance Park Pro',
 };
 
-// 카카오페이 easy_provider 값
-const KAKAO_PROVIDER  = 'KAKAOPAY';
-const NAVER_PROVIDER  = 'NAVERPAY';
+const KAKAO_PROVIDER = 'KAKAOPAY';
+const NAVER_PROVIDER = 'NAVERPAY';
 
 type Step = 'select' | 'processing' | 'success' | 'error';
 
+// 숫자만 추출 (하이픈 등 제거) — 이니시스 V2 요구 형식
+function toRawPhone(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+// 입력 중 자동 하이픈 포매팅 (표시용)
+function formatPhone(value: string) {
+  const digits = toRawPhone(value).slice(0, 11);
+  if (digits.length < 4)  return digits;
+  if (digits.length < 8)  return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function isValidPhone(raw: string) {
+  return /^01[016789]\d{7,8}$/.test(raw);
+}
+
 export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuccess }: Props) {
-  const [step, setStep]     = useState<Step>('select');
-  const [errMsg, setErrMsg] = useState('');
+  const [step,     setStep]     = useState<Step>('select');
+  const [errMsg,   setErrMsg]   = useState('');
+  const [phone,    setPhone]    = useState('');
+  const [phoneErr, setPhoneErr] = useState('');
 
   const planLabel = `${PLAN_NAMES[plan]} ${isAnnual ? '연간' : '월간'} 구독`;
 
+  function handlePhoneChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setPhone(formatPhone(e.target.value));
+    setPhoneErr('');
+  }
+
   async function startPayment(method: 'CARD' | typeof KAKAO_PROVIDER | typeof NAVER_PROVIDER) {
+    // 휴대폰 번호 검증
+    const rawPhone = toRawPhone(phone);
+    if (!isValidPhone(rawPhone)) {
+      setPhoneErr('올바른 휴대폰 번호를 입력해주세요. (예: 010-1234-5678)');
+      return;
+    }
+
     setStep('processing');
     setErrMsg('');
 
@@ -50,6 +81,12 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
       const channelKey = process.env.NEXT_PUBLIC_PORTONE_CHANNEL_KEY!;
       const issueId    = crypto.randomUUID();
 
+      const customer = {
+        customerId:  user.id,
+        email:       user.email,
+        phoneNumber: rawPhone,  // 이니시스 V2 필수: 하이픈 없는 숫자 (e.g. "01012345678")
+      };
+
       // 빌링키 발급 — 카드/카카오/네이버 분기
       let billingKeyResp: PortOne.IssueBillingKeyResponse | null = null;
 
@@ -60,7 +97,7 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
           billingKeyMethod: 'CARD',
           issueId,
           issueName: planLabel,
-          customer: { customerId: user.id, email: user.email },
+          customer,
         });
       } else {
         billingKeyResp = await PortOne.requestIssueBillingKey({
@@ -69,7 +106,7 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
           billingKeyMethod: 'EASY_PAY',
           issueId,
           issueName: planLabel,
-          customer: { customerId: user.id, email: user.email },
+          customer,
           easyPay: { easyPayProvider: method },
         });
       }
@@ -106,7 +143,6 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
       setTimeout(() => onSuccess(plan), 1800);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '결제 중 오류가 발생했습니다.';
-      // 사용자가 직접 닫은 경우
       if (msg.includes('USER_CANCEL') || msg.includes('사용자')) {
         setStep('select');
         return;
@@ -118,7 +154,7 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={step !== 'processing' ? onClose : undefined} />
 
       <div
         className="relative w-full max-w-sm rounded-2xl p-6 shadow-2xl"
@@ -136,10 +172,38 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
           <>
             <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">결제 수단 선택</p>
             <h2 className="text-[17px] font-bold text-white mb-1">{planLabel}</h2>
-            <p className="text-[22px] font-bold text-white mb-6">
+            <p className="text-[22px] font-bold text-white mb-5">
               {amount.toLocaleString()}원
               <span className="text-[13px] text-slate-500 ml-1">{isAnnual ? '/ 1년' : '/ 월'}</span>
             </p>
+
+            {/* 휴대폰 번호 입력 */}
+            <div className="mb-4">
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                휴대폰 번호 <span className="text-red-400">*</span>
+              </label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="010-0000-0000"
+                  value={phone}
+                  onChange={handlePhoneChange}
+                  maxLength={13}
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl text-[13px] text-white placeholder-slate-600 outline-none transition-colors"
+                  style={{
+                    background:  '#1a1f2e',
+                    border:      phoneErr ? '1px solid rgba(239,68,68,0.6)' : '1px solid rgba(51,65,85,0.6)',
+                  }}
+                  onFocus={e => (e.currentTarget.style.borderColor = phoneErr ? 'rgba(239,68,68,0.8)' : 'rgba(99,102,241,0.6)')}
+                  onBlur={e  => (e.currentTarget.style.borderColor = phoneErr ? 'rgba(239,68,68,0.6)' : 'rgba(51,65,85,0.6)')}
+                />
+              </div>
+              {phoneErr && (
+                <p className="mt-1.5 text-[11px] text-red-400">{phoneErr}</p>
+              )}
+            </div>
 
             <div className="flex flex-col gap-3">
               <PayMethodButton
