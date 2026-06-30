@@ -102,33 +102,50 @@ export default function ShareDropdown({
     setOpen(false);
   };
 
-  // ── 카카오톡 공유 ────────────────────────────────────────────────
+  // ── 카카오톡 공유 (임시: navigator.share / 클립보드 폴백) ──────────
+  // TODO: Kakao 비즈니스 채널 연결 해제 후 아래 _handleKakaoSDK 로 교체
   const handleKakao = async () => {
-    if (!window.Kakao?.isInitialized()) {
-      alert('카카오 공유 기능을 준비 중입니다.');
-      setOpen(false);
-      return;
-    }
     setOpen(false);
     const kakaoUrl = await getOrCreateShareUrl();
-    const sharePayload = {
-      objectType: 'feed',
-      content: {
-        title,
-        description,
-        imageUrl: OG_IMAGE,
-        link: { webUrl: kakaoUrl, mobileWebUrl: kakaoUrl },
-      },
-      buttons: [
-        { title: '리포트 보기', link: { webUrl: kakaoUrl, mobileWebUrl: kakaoUrl } },
-      ],
-    };
-    console.log('[Kakao] isInitialized:', window.Kakao?.isInitialized());
-    console.log('[Kakao] Share 객체:', window.Kakao?.Share);
-    console.log('[Kakao] sendDefault 타입:', typeof window.Kakao?.Share?.sendDefault);
-    console.log('[Kakao] payload:', JSON.stringify(sharePayload, null, 2));
-    window.Kakao!.Share.sendDefault(sharePayload);
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      // 모바일: OS 네이티브 공유 시트 → 카카오톡 선택 가능
+      try {
+        await navigator.share({ title, text: description, url: kakaoUrl });
+      } catch {
+        // 사용자가 공유 취소한 경우 무시
+      }
+    } else {
+      // 데스크톱: 클립보드 복사 후 안내
+      try {
+        await navigator.clipboard.writeText(kakaoUrl);
+      } catch {
+        const el = document.createElement('textarea');
+        el.value = kakaoUrl;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
+
+  // ── (보존) 카카오 SDK sendDefault — 채널 연결 해제 후 재활성화 ────
+  // const _handleKakaoSDK = async () => {
+  //   if (!window.Kakao?.isInitialized()) return;
+  //   const kakaoUrl = await getOrCreateShareUrl();
+  //   window.Kakao!.Share.sendDefault({
+  //     objectType: 'feed',
+  //     content: {
+  //       title, description,
+  //       imageUrl: OG_IMAGE,
+  //       link: { webUrl: kakaoUrl, mobileWebUrl: kakaoUrl },
+  //     },
+  //     buttons: [{ title: '리포트 보기', link: { webUrl: kakaoUrl, mobileWebUrl: kakaoUrl } }],
+  //   });
+  // };
 
   // ── 트위터/X 공유 ─────────────────────────────────────────────────
   const handleTwitter = async () => {
