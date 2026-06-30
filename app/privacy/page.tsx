@@ -42,7 +42,30 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">6. 투자 정보 면책조항</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">6. 개인정보 처리업무 위탁</h2>
+          <p className="mb-3">FINANCE PARK는 원활한 서비스 제공을 위해 아래와 같이 개인정보 처리업무를 외부에 위탁하고 있습니다.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px] text-slate-400 border-collapse">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="text-left py-2 pr-6 text-slate-300 font-semibold whitespace-nowrap">위탁받는 자</th>
+                  <th className="text-left py-2 pr-6 text-slate-300 font-semibold">위탁업무 내용</th>
+                  <th className="text-left py-2 text-slate-300 font-semibold whitespace-nowrap">보유 및 이용기간</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-slate-800">
+                  <td className="py-2.5 pr-6 whitespace-nowrap">포트원 주식회사</td>
+                  <td className="py-2.5 pr-6">전자결제 대행 서비스 (PG 연동)</td>
+                  <td className="py-2.5">회원 탈퇴 시 또는 위탁계약 종료 시까지<br />(관련 법령에 따른 보관기간 준수)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-3">7. 투자 정보 면책조항</h2>
           <p className="text-amber-400/80">
             본 사이트에서 제공하는 모든 투자 정보 및 AI 분석 내용은
             참고용 자료이며, 투자 권유를 목적으로 하지 않습니다.
@@ -52,7 +75,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">7. 문의</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">8. 문의</h2>
           <p>개인정보 관련 문의: <a href="mailto:saepian2@gmail.com"
             className="text-indigo-400 hover:underline">saepian2@gmail.com</a></p>
           <p className="mt-1 text-slate-500">최종 수정일: 2026년 6월 24일</p>
