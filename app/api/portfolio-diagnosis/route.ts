@@ -46,19 +46,43 @@ async function checkPro(
   } catch { return false; }
 }
 
+// subscription_start_date 기준 현재 사이클 시작일 계산 (null이면 매월 1일 폴백)
+function getBillingCycleStart(subscriptionStartDate: string | null, now: Date): Date {
+  if (!subscriptionStartDate) {
+    return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  }
+  const startDay = new Date(subscriptionStartDate).getDate();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  // 말일 클램핑 (e.g., 1월 31일 → 2월 28일)
+  const lastDay = (yr: number, mo: number) => new Date(yr, mo + 1, 0).getDate();
+  const thisMonthStart = new Date(y, m, Math.min(startDay, lastDay(y, m)), 0, 0, 0, 0);
+  if (thisMonthStart <= now) return thisMonthStart;
+  return new Date(y, m - 1, Math.min(startDay, lastDay(y, m - 1)), 0, 0, 0, 0);
+}
+
 async function getMonthlyCount(
   supabase: ReturnType<typeof makeSupabase>,
   userId: string,
 ): Promise<number> {
   try {
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
+    // subscription_start_date 조회 후 사이클 시작일 계산
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('subscription_start_date')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const cycleStart = getBillingCycleStart(
+      userRow?.subscription_start_date ?? null,
+      new Date(),
+    );
+
     const { count } = await supabase
       .from('portfolio_diagnosis')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .gte('created_at', monthStart.toISOString());
+      .gte('created_at', cycleStart.toISOString());
     return count ?? 0;
   } catch { return 0; }
 }

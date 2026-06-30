@@ -20,15 +20,56 @@ function makeSupabase() {
   );
 }
 
+// 날짜 d가 해당 월에 존재하지 않으면 말일로 클램핑 (e.g., 1월 31일 → 2월 28일)
+function monthDay(year: number, month: number, day: number): Date {
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(day, lastDay), 0, 0, 0, 0);
+}
+
+// subscription_start_date 기준 현재 사이클 시작일 & 다음 초기화일 계산
+// null이면 매월 1일 기준 폴백
+function getBillingCycle(subscriptionStartDate: string | null, now: Date): {
+  cycleStart: Date;
+  nextCycleStart: Date;
+} {
+  if (!subscriptionStartDate) {
+    return {
+      cycleStart:      new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
+      nextCycleStart:  new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0),
+    };
+  }
+  const startDay = new Date(subscriptionStartDate).getDate();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const thisMonthStart = monthDay(y, m, startDay);
+
+  if (thisMonthStart <= now) {
+    return { cycleStart: thisMonthStart, nextCycleStart: monthDay(y, m + 1, startDay) };
+  }
+  return { cycleStart: monthDay(y, m - 1, startDay), nextCycleStart: thisMonthStart };
+}
+
 export async function GET() {
   const supabase = makeSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const [userRow, diagnosisCount, portfolioCount, payments] = await Promise.all([
-    supabase.from('users').select('plan, created_at').eq('id', user.id).maybeSingle()
-      .then(r => r.data),
+  // users 테이블 조회 (subscription_start_date 포함)
+  const userRow = await supabase
+    .from('users')
+    .select('plan, created_at, subscription_start_date')
+    .eq('id', user.id)
+    .maybeSingle()
+    .then(r => r.data);
 
+  const plan = (userRow?.plan ?? 'free') as 'free' | 'basic' | 'pro';
+  const now  = new Date();
+  const { cycleStart, nextCycleStart } = getBillingCycle(
+    userRow?.subscription_start_date ?? null,
+    now,
+  );
+
+  const [diagnosisCount, portfolioCount, payments] = await Promise.all([
     (() => {
       const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().split('T')[0];
       return supabase
@@ -39,16 +80,12 @@ export async function GET() {
         .then(r => r.count ?? 0);
     })(),
 
-    (() => {
-      const monthStart = new Date();
-      monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-      return supabase
-        .from('portfolio_diagnosis')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', monthStart.toISOString())
-        .then(r => r.count ?? 0);
-    })(),
+    supabase
+      .from('portfolio_diagnosis')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', cycleStart.toISOString())
+      .then(r => r.count ?? 0),
 
     (async () => {
       try {
@@ -68,8 +105,6 @@ export async function GET() {
     })(),
   ]);
 
-  const plan = (userRow?.plan ?? 'free') as 'free' | 'basic' | 'pro';
-
   return NextResponse.json({
     email: user.email ?? '',
     name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
@@ -79,6 +114,7 @@ export async function GET() {
     usage: {
       diagnosisToday: diagnosisCount,
       portfolioMonth: portfolioCount,
+      nextResetDate:  nextCycleStart.toISOString(),
     },
     payments,
   });

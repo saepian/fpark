@@ -14,7 +14,7 @@ interface MyPageData {
   avatarUrl: string | null;
   plan: PlanType;
   createdAt: string;
-  usage: { diagnosisToday: number; portfolioMonth: number };
+  usage: { diagnosisToday: number; portfolioMonth: number; nextResetDate: string };
   payments: { id: string; created_at: string; plan: string; amount: number; status: string }[];
 }
 
@@ -218,6 +218,8 @@ export default function MyPage() {
   const joinedDate = new Date(data.createdAt).toLocaleDateString('ko-KR', {
     year: 'numeric', month: 'long', day: 'numeric',
   });
+  const nextReset  = new Date(data.usage.nextResetDate);
+  const nextResetLabel = nextReset.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) + ' 초기화';
 
   return (
     <div className="min-h-screen relative">
@@ -444,7 +446,7 @@ export default function MyPage() {
                     gradient="linear-gradient(90deg, #f59e0b, #f97316)"
                     glowColor="rgba(245,158,11,0.4)"
                   />
-                  <p className="text-[10px] text-slate-600 mt-2.5">매월 1일 초기화</p>
+                  <p className="text-[10px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
                 </>
               ) : (
                 <>
