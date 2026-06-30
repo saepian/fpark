@@ -1,14 +1,14 @@
 'use client';
 
-// PortOne V2 결제 모달
-// 빌링키 발급 → 서버에서 즉시 결제 → 플랜 업데이트
-// 테스트 모드: 실제 카드 승인 없음 (PortOne 테스트 환경)
-// 이니시스 V2: customer.phoneNumber 필수 (하이픈 없는 숫자 11자리)
+// PortOne V2 결제 모달 — 이니시스 V2 빌링키 발급
+// 이니시스 V2 customer 필수 필드: fullName, phoneNumber, email
+// (SDK 타입은 전부 optional이지만 PG 단에서 필수 처리)
+// 테스트 모드: 실제 카드 승인 없음
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as PortOne from '@portone/browser-sdk/v2';
 import { createClient } from '@/lib/supabase-browser';
-import { X, CreditCard, Loader2, CheckCircle, AlertCircle, Phone } from 'lucide-react';
+import { X, CreditCard, Loader2, CheckCircle, AlertCircle, Phone, User } from 'lucide-react';
 
 interface Props {
   plan:      'basic' | 'pro';
@@ -28,12 +28,10 @@ const NAVER_PROVIDER = 'NAVERPAY';
 
 type Step = 'select' | 'processing' | 'success' | 'error';
 
-// 숫자만 추출 (하이픈 등 제거) — 이니시스 V2 요구 형식
 function toRawPhone(value: string) {
   return value.replace(/\D/g, '');
 }
 
-// 입력 중 자동 하이픈 포매팅 (표시용)
 function formatPhone(value: string) {
   const digits = toRawPhone(value).slice(0, 11);
   if (digits.length < 4)  return digits;
@@ -46,48 +44,75 @@ function isValidPhone(raw: string) {
 }
 
 export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuccess }: Props) {
-  const [step,     setStep]     = useState<Step>('select');
-  const [errMsg,   setErrMsg]   = useState('');
-  const [phone,    setPhone]    = useState('');
-  const [phoneErr, setPhoneErr] = useState('');
+  const [step,      setStep]      = useState<Step>('select');
+  const [errMsg,    setErrMsg]    = useState('');
+
+  // 구매자 정보
+  const [phone,     setPhone]     = useState('');
+  const [phoneErr,  setPhoneErr]  = useState('');
+  const [fullName,  setFullName]  = useState('');
+  const [nameErr,   setNameErr]   = useState('');
+  const [userEmail, setUserEmail] = useState('');
+  const [userId,    setUserId]    = useState('');
+  const [accessToken, setAccessToken] = useState('');
 
   const planLabel = `${PLAN_NAMES[plan]} ${isAnnual ? '연간' : '월간'} 구독`;
+
+  // 로그인 유저 정보 + OAuth 이름 자동 주입
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      setUserId(user.id);
+      setUserEmail(user.email ?? '');
+      // Google/Naver OAuth 로그인 시 user_metadata에 이름이 들어있음
+      const oauthName = user.user_metadata?.full_name ?? user.user_metadata?.name ?? '';
+      if (oauthName) setFullName(oauthName);
+    });
+    supabase.auth.getSession().then(({ data }) => {
+      setAccessToken(data.session?.access_token ?? '');
+    });
+  }, []); // eslint-disable-line
 
   function handlePhoneChange(e: React.ChangeEvent<HTMLInputElement>) {
     setPhone(formatPhone(e.target.value));
     setPhoneErr('');
   }
 
-  async function startPayment(method: 'CARD' | typeof KAKAO_PROVIDER | typeof NAVER_PROVIDER) {
-    // 휴대폰 번호 검증
+  function validate() {
+    let ok = true;
+    if (!fullName.trim()) {
+      setNameErr('이름을 입력해주세요.');
+      ok = false;
+    }
     const rawPhone = toRawPhone(phone);
     if (!isValidPhone(rawPhone)) {
       setPhoneErr('올바른 휴대폰 번호를 입력해주세요. (예: 010-1234-5678)');
-      return;
+      ok = false;
     }
+    return ok;
+  }
+
+  async function startPayment(method: 'CARD' | typeof KAKAO_PROVIDER | typeof NAVER_PROVIDER) {
+    if (!validate()) return;
 
     setStep('processing');
     setErrMsg('');
 
     try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setErrMsg('로그인이 필요합니다.'); setStep('error'); return; }
-
-      const { data: session } = await supabase.auth.getSession();
-      const accessToken = session.session?.access_token ?? '';
-
+      const rawPhone = toRawPhone(phone);
       const storeId    = process.env.NEXT_PUBLIC_PORTONE_STORE_ID!;
       const channelKey = process.env.NEXT_PUBLIC_PORTONE_CHANNEL_KEY!;
       const issueId    = crypto.randomUUID();
 
+      // 이니시스 V2 필수 customer 필드: fullName, phoneNumber, email
       const customer = {
-        customerId:  user.id,
-        email:       user.email,
-        phoneNumber: rawPhone,  // 이니시스 V2 필수: 하이픈 없는 숫자 (e.g. "01012345678")
+        customerId:  userId,
+        fullName:    fullName.trim(),
+        phoneNumber: rawPhone,   // 하이픈 없는 숫자 (e.g. "01012345678")
+        email:       userEmail,
       };
 
-      // 빌링키 발급 — 카드/카카오/네이버 분기
       let billingKeyResp: PortOne.IssueBillingKeyResponse | null = null;
 
       if (method === 'CARD') {
@@ -118,7 +143,6 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
 
       const billingKey = billingKeyResp.billingKey;
 
-      // 서버에서 첫 결제 실행
       const res = await fetch('/api/payment/billing', {
         method:  'POST',
         headers: {
@@ -129,8 +153,8 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
           billingKey,
           plan,
           isAnnual,
-          userId:    user.id,
-          userEmail: user.email,
+          userId,
+          userEmail,
         }),
       });
 
@@ -154,13 +178,15 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={step !== 'processing' ? onClose : undefined} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={step !== 'processing' ? onClose : undefined}
+      />
 
       <div
         className="relative w-full max-w-sm rounded-2xl p-6 shadow-2xl"
         style={{ background: '#0f1117', border: '1px solid rgba(99,102,241,0.3)' }}
       >
-        {/* 닫기 */}
         {step !== 'processing' && (
           <button onClick={onClose} className="absolute top-4 right-4 text-slate-500 hover:text-slate-300 cursor-pointer">
             <X className="w-4 h-4" />
@@ -177,50 +203,62 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
               <span className="text-[13px] text-slate-500 ml-1">{isAnnual ? '/ 1년' : '/ 월'}</span>
             </p>
 
-            {/* 휴대폰 번호 입력 */}
-            <div className="mb-4">
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
-                휴대폰 번호 <span className="text-red-400">*</span>
-              </label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  placeholder="010-0000-0000"
-                  value={phone}
-                  onChange={handlePhoneChange}
-                  maxLength={13}
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl text-[13px] text-white placeholder-slate-600 outline-none transition-colors"
-                  style={{
-                    background:  '#1a1f2e',
-                    border:      phoneErr ? '1px solid rgba(239,68,68,0.6)' : '1px solid rgba(51,65,85,0.6)',
-                  }}
-                  onFocus={e => (e.currentTarget.style.borderColor = phoneErr ? 'rgba(239,68,68,0.8)' : 'rgba(99,102,241,0.6)')}
-                  onBlur={e  => (e.currentTarget.style.borderColor = phoneErr ? 'rgba(239,68,68,0.6)' : 'rgba(51,65,85,0.6)')}
-                />
+            <div className="flex flex-col gap-3 mb-4">
+              {/* 이름 */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                  구매자 이름 <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="홍길동"
+                    value={fullName}
+                    onChange={e => { setFullName(e.target.value); setNameErr(''); }}
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl text-[13px] text-white placeholder-slate-600 outline-none transition-colors"
+                    style={{
+                      background:  '#1a1f2e',
+                      border:      nameErr ? '1px solid rgba(239,68,68,0.6)' : '1px solid rgba(51,65,85,0.6)',
+                    }}
+                    onFocus={e => (e.currentTarget.style.borderColor = nameErr ? 'rgba(239,68,68,0.8)' : 'rgba(99,102,241,0.6)')}
+                    onBlur={e  => (e.currentTarget.style.borderColor = nameErr ? 'rgba(239,68,68,0.6)' : 'rgba(51,65,85,0.6)')}
+                  />
+                </div>
+                {nameErr && <p className="mt-1.5 text-[11px] text-red-400">{nameErr}</p>}
               </div>
-              {phoneErr && (
-                <p className="mt-1.5 text-[11px] text-red-400">{phoneErr}</p>
-              )}
+
+              {/* 휴대폰 번호 */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                  휴대폰 번호 <span className="text-red-400">*</span>
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="010-0000-0000"
+                    value={phone}
+                    onChange={handlePhoneChange}
+                    maxLength={13}
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl text-[13px] text-white placeholder-slate-600 outline-none transition-colors"
+                    style={{
+                      background:  '#1a1f2e',
+                      border:      phoneErr ? '1px solid rgba(239,68,68,0.6)' : '1px solid rgba(51,65,85,0.6)',
+                    }}
+                    onFocus={e => (e.currentTarget.style.borderColor = phoneErr ? 'rgba(239,68,68,0.8)' : 'rgba(99,102,241,0.6)')}
+                    onBlur={e  => (e.currentTarget.style.borderColor = phoneErr ? 'rgba(239,68,68,0.6)' : 'rgba(51,65,85,0.6)')}
+                  />
+                </div>
+                {phoneErr && <p className="mt-1.5 text-[11px] text-red-400">{phoneErr}</p>}
+              </div>
             </div>
 
             <div className="flex flex-col gap-3">
-              <PayMethodButton
-                label="신용·체크카드"
-                icon={<CreditCard className="w-4 h-4" />}
-                onClick={() => startPayment('CARD')}
-              />
-              <PayMethodButton
-                label="카카오페이"
-                icon={<KakaoIcon />}
-                onClick={() => startPayment(KAKAO_PROVIDER)}
-              />
-              <PayMethodButton
-                label="네이버페이"
-                icon={<NaverIcon />}
-                onClick={() => startPayment(NAVER_PROVIDER)}
-              />
+              <PayMethodButton label="신용·체크카드" icon={<CreditCard className="w-4 h-4" />} onClick={() => startPayment('CARD')} />
+              <PayMethodButton label="카카오페이"    icon={<KakaoIcon />}                      onClick={() => startPayment(KAKAO_PROVIDER)} />
+              <PayMethodButton label="네이버페이"    icon={<NaverIcon />}                      onClick={() => startPayment(NAVER_PROVIDER)} />
             </div>
 
             <p className="mt-5 text-[10px] text-slate-600 text-center leading-relaxed">
