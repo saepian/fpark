@@ -887,6 +887,12 @@ function HoldingRow({ h, idx, onSearch, onSelect, onBlurSearch, onChange, onRemo
               onChange={e => onSearch(e.target.value)}
               onFocus={() => h._results.length > 0 && onChange({ _open: true })}
               onBlur={onBlurSearch}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && h._results.length > 0) {
+                  e.preventDefault();
+                  onSelect(h._results[0].ticker, h._results[0].name);
+                }
+              }}
               placeholder="종목명 또는 코드"
               className="w-full bg-[#1a1f2e] border border-slate-700 rounded-lg pl-9 pr-3 py-2.5
                 text-[13px] text-white placeholder-slate-600

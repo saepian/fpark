@@ -634,6 +634,12 @@ export default function DiagnosisPage() {
                   value={searchQuery}
                   onChange={e => { setSearchQuery(e.target.value); setTicker(''); setStockName(''); }}
                   onFocus={() => searchResults.length > 0 && setShowDropdown(true)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && searchResults.length > 0) {
+                      e.preventDefault();
+                      selectStock(searchResults[0].ticker, searchResults[0].name);
+                    }
+                  }}
                   placeholder="종목명 또는 코드 검색"
                   className="w-full bg-[#0d1117] border border-slate-700 rounded-xl pl-10 pr-4 py-3
                     text-[14px] text-white placeholder-slate-600
