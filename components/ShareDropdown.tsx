@@ -111,7 +111,7 @@ export default function ShareDropdown({
     }
     setOpen(false);
     const kakaoUrl = await getOrCreateShareUrl();
-    window.Kakao!.Share.sendDefault({
+    const sharePayload = {
       objectType: 'feed',
       content: {
         title,
@@ -122,7 +122,12 @@ export default function ShareDropdown({
       buttons: [
         { title: '리포트 보기', link: { webUrl: kakaoUrl, mobileWebUrl: kakaoUrl } },
       ],
-    });
+    };
+    console.log('[Kakao] isInitialized:', window.Kakao?.isInitialized());
+    console.log('[Kakao] Share 객체:', window.Kakao?.Share);
+    console.log('[Kakao] sendDefault 타입:', typeof window.Kakao?.Share?.sendDefault);
+    console.log('[Kakao] payload:', JSON.stringify(sharePayload, null, 2));
+    window.Kakao!.Share.sendDefault(sharePayload);
   };
 
   // ── 트위터/X 공유 ─────────────────────────────────────────────────
