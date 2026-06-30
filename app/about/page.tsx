@@ -120,9 +120,9 @@ export default function AboutPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8 text-[13px]">
           {[
             { label: '서비스명', value: 'Finance Park (fpark.com)' },
-            { label: '운영사', value: 'SAEPIAN' },
+            { label: '운영사', value: '디지웹 디자인' },
             { label: '대표', value: '김대우' },
-            { label: '이메일', value: 'ad@fpark.com', href: 'mailto:ad@fpark.com' },
+            { label: '이메일', value: 'saepian2@gmail.com', href: 'mailto:saepian2@gmail.com' },
           ].map(row => (
             <div key={row.label} className="flex items-baseline gap-3">
               <span className="text-slate-500 w-24 shrink-0">{row.label}</span>
