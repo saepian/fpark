@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase-browser';
 import type { User } from '@supabase/supabase-js';
@@ -249,6 +250,19 @@ export default function PersonalButton() {
 
             {/* 메뉴 */}
             <div className="py-1">
+              <Link
+                href="/mypage"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 w-full px-4 py-2.5
+                  text-[13px] text-slate-300 hover:text-white hover:bg-slate-700/60
+                  transition-colors cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <path d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                마이페이지
+              </Link>
+
               <button
                 onClick={() => { setOpen(false); setWatchlistOpen(true); }}
                 className="flex items-center gap-2.5 w-full px-4 py-2.5
