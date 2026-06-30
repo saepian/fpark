@@ -23,8 +23,7 @@ declare global {
   }
 }
 
-const KAKAO_JS_KEY = process.env.NEXT_PUBLIC_KAKAO_JS_KEY;
-const OG_IMAGE     = 'https://fpark.com/og-image.png';
+const OG_IMAGE = 'https://fpark.com/og-image.png';
 
 
 export default function ShareDropdown({ title, description, hashtags = 'fpark,주식', reportType, reportData }: ShareDropdownProps) {
@@ -68,7 +67,6 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
 
   const handleToggle = () => {
     const next = !open;
-    console.log('[SHARE] 버튼 클릭 — open:', next, '/ shareUrl:', shareUrl, '/ isCreatingLink:', isCreatingLink);
     setOpen(next);
     if (next && reportData && !shareUrl) createShareLink();
   };
@@ -95,44 +93,27 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
 
   // ── 카카오톡 공유 ────────────────────────────────────────────────
   const handleKakao = () => {
-    console.log('[KAKAO] 카카오 공유 실행');
-    console.log('[KAKAO] KAKAO_JS_KEY:', KAKAO_JS_KEY);
-    console.log('[KAKAO] isInitialized:', window.Kakao?.isInitialized());
-    console.log('[KAKAO] shareUrl:', shareUrl);
-    console.log('[KAKAO] currentUrl:', currentUrl);
-    console.log('[KAKAO] activeUrl (실제 전달 URL):', activeUrl);
-
-    if (!KAKAO_JS_KEY || !window.Kakao?.isInitialized()) {
-      console.warn('[Kakao Debug] ❌ 초기화 실패 — KAKAO_JS_KEY:', KAKAO_JS_KEY, '/ isInitialized:', window.Kakao?.isInitialized());
+    if (!window.Kakao?.isInitialized()) {
       alert('카카오 공유 기능을 준비 중입니다.');
       setOpen(false);
       return;
     }
-    const linkUrl = activeUrl.startsWith('https://fpark.com')
-      ? activeUrl
-      : reportType === 'portfolio'
-        ? 'https://fpark.com/portfolio-diagnosis'
-        : 'https://fpark.com/diagnosis';
+    const kakaoUrl = reportType === 'portfolio'
+      ? 'https://fpark.com/portfolio-diagnosis'
+      : 'https://fpark.com/diagnosis';
 
-    const payload = {
-      objectType: 'feed' as const,
+    window.Kakao!.Share.sendDefault({
+      objectType: 'feed',
       content: {
         title,
         description,
         imageUrl: OG_IMAGE,
-        link: { mobileWebUrl: linkUrl, webUrl: linkUrl },
+        link: { webUrl: kakaoUrl, mobileWebUrl: kakaoUrl },
       },
       buttons: [
-        { title: '리포트 보기', link: { mobileWebUrl: linkUrl, webUrl: linkUrl } },
+        { title: '리포트 보기', link: { webUrl: kakaoUrl, mobileWebUrl: kakaoUrl } },
       ],
-    };
-    console.log('[KAKAO] sendDefault payload:', JSON.stringify(payload, null, 2));
-
-    try {
-      window.Kakao!.Share.sendDefault(payload);
-    } catch (e) {
-      console.error('[Kakao Share] error:', e);
-    }
+    });
     setOpen(false);
   };
 
