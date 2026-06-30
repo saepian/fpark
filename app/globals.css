@@ -277,8 +277,9 @@ button, [role="button"], a {
     break-inside: avoid;
   }
 
-  /* 차트/SVG 표시 유지 */
-  canvas, svg { display: block !important; }
+  /* SVG 차트 표시 유지 (canvas는 배경 애니메이션용이므로 숨김) */
+  svg { display: block !important; }
+  canvas { display: none !important; }
 
   /* 스크롤 영역 해제 */
   .overflow-y-auto, .overflow-auto {
@@ -286,30 +287,36 @@ button, [role="button"], a {
     max-height: none !important;
   }
 
-  /* 마지막 페이지 하단 검은 빈 영역 제거 */
+  /* ── 마지막 페이지 하단 빈 영역 제거 ── */
+
+  /* html/body 높이 auto — viewport 기준 늘어나는 배경 차단 */
   html, body {
     height: auto !important;
     min-height: 0 !important;
+    overflow: visible !important;
   }
 
+  /* 페이지 래퍼 높이 제한 해제 */
+  main,
+  .min-h-screen {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+
+  /* 마지막 요소 여백 제거 */
   body > *:last-child,
-  main > *:last-child {
+  main > *:last-child,
+  *:last-child {
     margin-bottom: 0 !important;
     padding-bottom: 0 !important;
   }
 
-  /* 배경 캔버스·파티클·애니메이션 요소 숨기기 */
-  canvas,
+  /* PageBackground(fixed inset-0)·파티클·애니메이션 숨기기
+     — 컴포넌트에 print:hidden 추가로 1차 처리, CSS로 2차 보장 */
   [class*="particle"],
-  [class*="animation"],
-  [class*="PageBackground"],
-  [class*="background"] {
+  [class*="star"],
+  [class*="animation"] {
     display: none !important;
-  }
-
-  /* 최하단 컨테이너 여백 제거 */
-  .min-h-screen {
-    min-height: 0 !important;
   }
 }
 
