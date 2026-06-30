@@ -128,6 +128,7 @@ export default function PortfolioDiagnosisPage() {
   // auth / plan
   const [authChecked,      setAuthChecked]      = useState(false);
   const [isPro,            setIsPro]            = useState(false);
+  const [isBasic,          setIsBasic]          = useState(false);
   const [remaining,        setRemaining]        = useState<number | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
@@ -157,7 +158,7 @@ export default function PortfolioDiagnosisPage() {
       setAuthChecked(true);
       fetch('/api/portfolio-diagnosis')
         .then(r => r.json())
-        .then(d => { setIsPro(d.isPro); setRemaining(d.remaining ?? 0); })
+        .then(d => { setIsPro(d.isPro); setIsBasic(d.isBasic ?? false); setRemaining(d.remaining ?? 0); })
         .catch(() => {});
       fetch('/api/watchlist')
         .then(r => r.json())
@@ -251,8 +252,8 @@ export default function PortfolioDiagnosisPage() {
   // ── Submit ────────────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
-    if (!isPro) { setShowUpgradeModal(true); return; }
-    if (remaining === 0) { setError('이번 달 사용 한도(30회)를 초과했습니다.'); return; }
+    if (!isPro && !isBasic) { setShowUpgradeModal(true); return; }
+    if (remaining === 0) { setError('이번 달 사용 한도를 초과했습니다.'); return; }
 
     const valid = holdings.filter(h => h.ticker && h.avgPrice && h.quantity);
     if (valid.length === 0) { setError('종목·매수가·수량을 하나 이상 입력해주세요.'); return; }
@@ -379,7 +380,7 @@ export default function PortfolioDiagnosisPage() {
             <Lock className="w-6 h-6 text-indigo-400" />
           </div>
           <div>
-            <p className="text-[11px] font-bold tracking-widest text-indigo-400 uppercase mb-1">Pro 전용 기능</p>
+            <p className="text-[11px] font-bold tracking-widest text-indigo-400 uppercase mb-1">유료 플랜 전용 기능</p>
             <h2 className="text-xl font-bold text-white">포트폴리오 전체 진단</h2>
           </div>
           <div className="flex flex-col gap-2 text-left w-full">
@@ -405,6 +406,7 @@ export default function PortfolioDiagnosisPage() {
           >
             요금제 보기 →
           </button>
+          <p className="text-[11px] text-slate-500">Basic 월 1회 · Pro 월 30회</p>
           <button
             onClick={() => setShowUpgradeModal(false)}
             className="text-[12px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
@@ -649,7 +651,7 @@ export default function PortfolioDiagnosisPage() {
           </div>
           {/* 잔여 횟수 */}
           <div className="flex items-center gap-2 bg-[#1a1f2e] border border-slate-700/50 rounded-xl px-4 py-2.5 shrink-0">
-            {isPro ? (
+            {(isPro || isBasic) ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
                 <span className="text-[12px] text-slate-400">이번 달 잔여</span>
@@ -658,7 +660,7 @@ export default function PortfolioDiagnosisPage() {
             ) : (
               <>
                 <Lock className="w-3.5 h-3.5 text-slate-500" />
-                <span className="text-[12px] text-slate-500">Pro 전용</span>
+                <span className="text-[12px] text-slate-500">유료 플랜 전용</span>
               </>
             )}
           </div>
@@ -816,25 +818,27 @@ export default function PortfolioDiagnosisPage() {
           onClick={handleSubmit}
           className={`w-full relative py-4 rounded-xl font-bold text-[15px] transition-all
             flex items-center justify-center gap-2 overflow-hidden
-            ${!isPro || remaining === 0
+            ${(!isPro && !isBasic) || remaining === 0
               ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
               : 'text-white cursor-pointer hover:opacity-90 active:scale-[0.99]'
             }`}
-          style={!isPro || remaining === 0 ? {} : {
+          style={(!isPro && !isBasic) || remaining === 0 ? {} : {
             background: 'linear-gradient(135deg, #4f46e5 0%, #0ea5e9 50%, #10b981 100%)',
             boxShadow:  '0 0 30px rgba(79,70,229,0.3)',
           }}
         >
-          {isPro && remaining !== 0 && (
+          {(isPro || isBasic) && remaining !== 0 && (
             <span className="absolute inset-0 bg-white/0 hover:bg-white/5 transition-colors rounded-xl" />
           )}
-          {!isPro ? <Lock className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-          {!isPro ? 'Pro 전용 기능 — 업그레이드 필요' : '✦ START AI DIAGNOSIS'}
+          {(!isPro && !isBasic) ? <Lock className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+          {(!isPro && !isBasic) ? '유료 플랜 전용 기능 — 업그레이드 필요' : '✦ START AI DIAGNOSIS'}
         </button>
         <p className="text-center text-[11px] text-slate-600 mt-2">
-          {!isPro
-            ? 'Pro 플랜으로 업그레이드하면 포트폴리오 전체 진단을 이용할 수 있습니다.'
-            : `월 30회 · 이번 달 ${remaining ?? 0}회 남음`}
+          {(!isPro && !isBasic)
+            ? 'Basic 또는 Pro 플랜으로 업그레이드하면 포트폴리오 전체 진단을 이용할 수 있습니다.'
+            : isPro
+              ? `월 30회 · 이번 달 ${remaining ?? 0}회 남음`
+              : `월 1회 · 이번 달 ${remaining ?? 0}회 남음`}
         </p>
         </div>{/* ← 좌측 컬럼 닫기 */}
 

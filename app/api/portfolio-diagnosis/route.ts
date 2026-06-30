@@ -13,8 +13,9 @@ export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
 const claude        = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const MONTHLY_LIMIT = 30;
-const MAX_HOLDINGS  = 10;
+const MONTHLY_LIMIT       = 30;
+const BASIC_MONTHLY_LIMIT = 1;
+const MAX_HOLDINGS        = 10;
 
 // ── Supabase ────────────────────────────────────────────────────────────────
 
@@ -34,16 +35,19 @@ function makeSupabase() {
   );
 }
 
-async function checkPro(
+async function checkPlan(
   supabase: ReturnType<typeof makeSupabase>,
   userId: string,
   email: string | undefined,
-): Promise<boolean> {
-  if (email === 'saepian2@gmail.com') return true;
+): Promise<'admin' | 'pro' | 'basic' | 'free'> {
+  if (email === 'saepian2@gmail.com') return 'admin';
   try {
     const { data } = await supabase.from('users').select('plan').eq('id', userId).maybeSingle();
-    return data?.plan === 'pro';
-  } catch { return false; }
+    const plan = data?.plan;
+    if (plan === 'pro')   return 'pro';
+    if (plan === 'basic') return 'basic';
+    return 'free';
+  } catch { return 'free'; }
 }
 
 // subscription_start_date 기준 현재 사이클 시작일 계산 (null이면 매월 1일 폴백)
@@ -223,12 +227,16 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const isPro  = await checkPro(supabase, user.id, user.email);
-  const count  = await getMonthlyCount(supabase, user.id);
+  const plan    = await checkPlan(supabase, user.id, user.email);
+  const count   = await getMonthlyCount(supabase, user.id);
+  const isPro   = plan === 'pro' || plan === 'admin';
+  const isBasic = plan === 'basic';
+  const limit   = plan === 'admin' ? 999 : isPro ? MONTHLY_LIMIT : isBasic ? BASIC_MONTHLY_LIMIT : 0;
   return NextResponse.json({
     isPro,
+    isBasic,
     count,
-    remaining: isPro ? Math.max(0, MONTHLY_LIMIT - count) : 0,
+    remaining: Math.max(0, limit - count),
   });
 }
 
@@ -240,13 +248,16 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const isPro = await checkPro(supabase, user.id, user.email);
-  if (!isPro) return NextResponse.json({ error: 'PRO_REQUIRED' }, { status: 403 });
+  const plan    = await checkPlan(supabase, user.id, user.email);
+  const isPro   = plan === 'pro' || plan === 'admin';
+  const isBasic = plan === 'basic';
+  if (!isPro && !isBasic) return NextResponse.json({ error: 'PRO_REQUIRED' }, { status: 403 });
 
   const count = await getMonthlyCount(supabase, user.id);
-  if (count >= MONTHLY_LIMIT) {
+  const limit = plan === 'admin' ? 999 : isPro ? MONTHLY_LIMIT : BASIC_MONTHLY_LIMIT;
+  if (count >= limit) {
     return NextResponse.json(
-      { error: `이번 달 사용 한도(${MONTHLY_LIMIT}회)를 초과했습니다.` },
+      { error: `이번 달 사용 한도(${limit}회)를 초과했습니다.` },
       { status: 429 },
     );
   }
