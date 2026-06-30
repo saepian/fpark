@@ -45,7 +45,23 @@ export default function TermsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">제6조 (문의)</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">제6조 (유료 서비스 및 환불 정책)</h2>
+          <div className="space-y-3 text-slate-400">
+            <p><span className="text-slate-300 font-medium">결제 방식:</span> 구독 플랜(Basic / Pro)은 최초 결제 시 빌링키를 발급하여 매월 자동 결제됩니다.</p>
+            <p><span className="text-slate-300 font-medium">해지:</span> 마이페이지에서 언제든지 구독을 해지할 수 있으며, 해지 즉시 다음 달 자동 결제가 중단됩니다. 해지 후 현재 결제 기간이 끝날 때까지 서비스를 계속 이용할 수 있습니다.</p>
+            <p><span className="text-slate-300 font-medium">환불 기준:</span></p>
+            <ul className="list-disc list-inside space-y-1 pl-2">
+              <li>결제일로부터 <span className="text-slate-300">7일 이내</span>이고 서비스를 이용하지 않은 경우: 전액 환불</li>
+              <li>결제일로부터 7일 이내이나 서비스를 이용한 경우: 이용 일수에 해당하는 금액을 제외하고 환불</li>
+              <li>결제일로부터 7일 초과: 환불 불가 (단, 서비스 중대한 결함으로 인한 장애 시 협의 가능)</li>
+            </ul>
+            <p><span className="text-slate-300 font-medium">환불 신청:</span> 아래 이메일 또는 연락처로 결제 정보(이름, 이메일, 결제일)를 포함하여 문의해주세요. 영업일 기준 3일 이내 처리됩니다.</p>
+            <p>이메일: <a href="mailto:ad@fpark.com" className="text-indigo-400 hover:underline">ad@fpark.com</a>&ensp;|&ensp;전화: 010-2198-9685</p>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-lg font-semibold text-white mb-3">제7조 (문의)</h2>
           <p>서비스 관련 문의: <a href="mailto:ad@fpark.com"
             className="text-indigo-400 hover:underline">ad@fpark.com</a></p>
           <p className="mt-1 text-slate-500">시행일: 2026년 6월 24일</p>
