@@ -13,9 +13,6 @@ export default function Footer() {
             <Link href="/">
               <Logo className="opacity-70 hover:opacity-100 transition-opacity" />
             </Link>
-            <p className="font-sans text-xs text-[#c2c6d6] text-center md:text-left">
-              © 2026 fpark.com. All financial data is delayed by at least 15 minutes.
-            </p>
           </div>
 
           <div className="flex flex-wrap justify-center gap-6 text-xs text-[#8c909f]">
@@ -60,6 +57,9 @@ export default function Footer() {
                   </a>
                 </dd>
               </div>
+            </div>
+            <div className="mt-2">
+              <p className="text-[11px] text-[#6b7280]">© 2026 Finance Park, All rights reserved.</p>
             </div>
           </dl>
         </div>
