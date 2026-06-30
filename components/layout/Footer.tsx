@@ -28,34 +28,38 @@ export default function Footer() {
 
         {/* 하단: 사업자 정보 */}
         <div className="border-t border-[#2d313e] pt-6">
-          <dl className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-[#6b7280]">
-            <div className="flex gap-1.5">
-              <dt className="text-[#4b5563]">상호</dt>
-              <dd>Finance Park</dd>
+          <dl className="flex flex-col gap-y-1 text-[11px] text-[#6b7280]">
+            <div className="flex flex-wrap gap-x-6">
+              <div className="flex gap-1.5">
+                <dt className="text-[#4b5563]">상호</dt>
+                <dd>디지웹 디자인</dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="text-[#4b5563]">대표자</dt>
+                <dd>김대우</dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="text-[#4b5563]">사업자등록번호</dt>
+                <dd>730-08-00465</dd>
+              </div>
             </div>
-            <div className="flex gap-1.5">
-              <dt className="text-[#4b5563]">대표자</dt>
-              <dd>김대우</dd>
-            </div>
-            <div className="flex gap-1.5">
-              <dt className="text-[#4b5563]">사업자등록번호</dt>
-              <dd>730-08-00465</dd>
-            </div>
-            <div className="flex gap-1.5">
-              <dt className="text-[#4b5563]">주소</dt>
-              <dd>서울특별시 강동구</dd>
-            </div>
-            <div className="flex gap-1.5">
-              <dt className="text-[#4b5563]">연락처</dt>
-              <dd>010-2198-9685</dd>
-            </div>
-            <div className="flex gap-1.5">
-              <dt className="text-[#4b5563]">이메일</dt>
-              <dd>
-                <a href="mailto:ad@fpark.com" className="hover:text-[#adc6ff] transition-colors">
-                  ad@fpark.com
-                </a>
-              </dd>
+            <div className="flex flex-wrap gap-x-6">
+              <div className="flex gap-1.5">
+                <dt className="text-[#4b5563]">주소</dt>
+                <dd>서울특별시 강동구 암사동</dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="text-[#4b5563]">연락처</dt>
+                <dd>010-2198-9685</dd>
+              </div>
+              <div className="flex gap-1.5">
+                <dt className="text-[#4b5563]">이메일</dt>
+                <dd>
+                  <a href="mailto:saepian2@gmail.com" className="hover:text-[#adc6ff] transition-colors">
+                    saepian2@gmail.com
+                  </a>
+                </dd>
+              </div>
             </div>
           </dl>
         </div>
