@@ -142,7 +142,7 @@ export default function ContactPage() {
                 </div>
 
                 {status === 'error' && (
-                  <p className="text-red-400 text-[12px]">전송 중 오류가 발생했습니다. 직접 이메일(ad@fpark.com)로 연락해주세요.</p>
+                  <p className="text-red-400 text-[12px]">전송 중 오류가 발생했습니다. 직접 이메일(saepian2@gmail.com)로 연락해주세요.</p>
                 )}
 
                 <button
@@ -166,9 +166,9 @@ export default function ContactPage() {
             {
               icon: <Mail className="w-4 h-4 text-indigo-400" />,
               label: '이메일',
-              value: 'ad@fpark.com',
+              value: 'saepian2@gmail.com',
               sub: '이메일로도 직접 문의 가능합니다',
-              href: 'mailto:ad@fpark.com',
+              href: 'mailto:saepian2@gmail.com',
             },
             {
               icon: <Clock className="w-4 h-4 text-sky-400" />,

@@ -53,8 +53,8 @@ export default function PrivacyPage() {
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">7. 문의</h2>
-          <p>개인정보 관련 문의: <a href="mailto:ad@fpark.com"
-            className="text-indigo-400 hover:underline">ad@fpark.com</a></p>
+          <p>개인정보 관련 문의: <a href="mailto:saepian2@gmail.com"
+            className="text-indigo-400 hover:underline">saepian2@gmail.com</a></p>
           <p className="mt-1 text-slate-500">최종 수정일: 2026년 6월 24일</p>
         </section>
       </div>

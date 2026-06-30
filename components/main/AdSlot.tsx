@@ -29,7 +29,7 @@ export default function AdSlot({ size = 'feed' }: AdSlotProps) {
           파트너스 기업 매칭 광고 지면
         </p>
         <div className="font-mono text-sm font-bold text-blue-600 dark:text-[#d4e4fa] group-hover:underline">
-          광고 문의: ad@fpark.com
+          광고 문의: saepian2@gmail.com
         </div>
       </div>
     );

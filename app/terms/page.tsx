@@ -56,14 +56,14 @@ export default function TermsPage() {
               <li>결제일로부터 7일 초과: 환불 불가 (단, 서비스 중대한 결함으로 인한 장애 시 협의 가능)</li>
             </ul>
             <p><span className="text-slate-300 font-medium">환불 신청:</span> 아래 이메일 또는 연락처로 결제 정보(이름, 이메일, 결제일)를 포함하여 문의해주세요. 영업일 기준 3일 이내 처리됩니다.</p>
-            <p>이메일: <a href="mailto:ad@fpark.com" className="text-indigo-400 hover:underline">ad@fpark.com</a>&ensp;|&ensp;전화: 010-2198-9685</p>
+            <p>이메일: <a href="mailto:saepian2@gmail.com" className="text-indigo-400 hover:underline">saepian2@gmail.com</a>&ensp;|&ensp;전화: 010-2198-9685</p>
           </div>
         </section>
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">제7조 (문의)</h2>
-          <p>서비스 관련 문의: <a href="mailto:ad@fpark.com"
-            className="text-indigo-400 hover:underline">ad@fpark.com</a></p>
+          <p>서비스 관련 문의: <a href="mailto:saepian2@gmail.com"
+            className="text-indigo-400 hover:underline">saepian2@gmail.com</a></p>
           <p className="mt-1 text-slate-500">시행일: 2026년 6월 24일</p>
         </section>
       </div>
