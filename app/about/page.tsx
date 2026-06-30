@@ -1,10 +1,10 @@
-import Link from 'next/link';
-import { Sparkles, Newspaper, TrendingUp, BarChart2, Search } from 'lucide-react';
+'use client';
 
-export const metadata = {
-  title: 'About | Finance Park',
-  description: 'AI 기술로 모든 투자자에게 전문가 수준의 주식 분석을 제공합니다.',
-};
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { Sparkles, Newspaper, TrendingUp, BarChart2, Search } from 'lucide-react';
+import { createClient } from '@/lib/supabase-browser';
+
 
 const FEATURES = [
   {
@@ -43,6 +43,15 @@ const TECH_STACK = [
 ];
 
 export default function AboutPage() {
+  const [startHref, setStartHref] = useState('/auth/login');
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setStartHref('/diagnosis');
+    });
+  }, []);
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-16">
 
@@ -141,7 +150,7 @@ export default function AboutPage() {
         <p className="text-slate-500 text-[13px] mb-6">지금 바로 시작해보세요</p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link
-            href="/auth/login"
+            href={startHref}
             className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:opacity-90"
             style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #0ea5e9 50%, #10b981 100%)' }}
           >
