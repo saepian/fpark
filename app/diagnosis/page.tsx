@@ -765,7 +765,7 @@ export default function DiagnosisPage() {
               <p className="text-center text-[11px] text-slate-600 mt-2">
                 {isDisabled
                   ? '오늘 무료 진단을 이미 사용했습니다. 내일 다시 이용해주세요.'
-                  : '하루 2회 무료 · 매일 자정 초기화'}
+                  : '하루 1회 무료 · 매일 자정 초기화'}
               </p>
             </div>
           </form>
