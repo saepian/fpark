@@ -115,6 +115,8 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
         email:       userEmail,
       };
 
+      console.log('빌링 채널키:', channelKey);
+
       let billingKeyResp: PortOne.IssueBillingKeyResponse | null = null;
 
       if (method === 'CARD') {
