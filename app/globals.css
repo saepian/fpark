@@ -290,34 +290,46 @@ button, [role="button"], a {
   /* 포트폴리오 개선 제안 섹션 강제 표시 */
   [data-suggestions-section] {
     display: block !important;
-    visibility: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
     overflow: visible !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: none !important;
+    position: relative !important;
     break-inside: auto !important;
-    page-break-inside: auto !important;  /* Chrome은 두 속성 별개 처리 */
+    page-break-inside: auto !important;
   }
   [data-suggestions-list] {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 6px !important;
+    display: block !important;   /* flex 대신 block — Chrome flex+break-inside 버그 우회 */
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
     visibility: visible !important;
   }
   [data-suggestions-item] {
-    display: flex !important;
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    opacity: 1 !important;
     visibility: visible !important;
     border: 1px solid #d1d5db !important;
     background-color: #f9fafb !important;
     padding: 8px 12px !important;
-    break-inside: avoid !important;
+    margin-bottom: 4px !important;
+    /* break-inside: avoid 제거 — flex 컨테이너 height collapse 유발 */
   }
   [data-suggestions-item] span {
-    display: inline-block !important;
+    display: inline !important;
     visibility: visible !important;
     color: #4f46e5 !important;
     font-weight: 700 !important;
-    min-width: 20px !important;
+    margin-right: 8px !important;
   }
   [data-suggestions-item] p {
-    display: block !important;
+    display: inline !important;
     visibility: visible !important;
     color: #111827 !important;
     font-size: 12px !important;
