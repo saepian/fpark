@@ -101,9 +101,11 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
 
     try {
       const rawPhone = toRawPhone(phone);
-      const storeId    = process.env.NEXT_PUBLIC_PORTONE_STORE_ID!;
-      const channelKey = process.env.NEXT_PUBLIC_PORTONE_CHANNEL_KEY!;
-      const issueId    = crypto.randomUUID();
+      const storeId      = process.env.NEXT_PUBLIC_PORTONE_STORE_ID!;
+      // 빌링키 발급은 INIBillTst 전용 채널키 사용 (일반결제 INIpayTest와 MID 분리)
+      const channelKey   = process.env.NEXT_PUBLIC_PORTONE_BILLING_CHANNEL_KEY
+                        ?? process.env.NEXT_PUBLIC_PORTONE_CHANNEL_KEY!;
+      const issueId      = crypto.randomUUID();
 
       // 이니시스 V2 필수 customer 필드: fullName, phoneNumber, email
       // customerId 제외 — 이니시스 V2에서 전달 시 본인인증 계약 필요 [V023]
