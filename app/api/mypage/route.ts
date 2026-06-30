@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +20,12 @@ function makeSupabase() {
     },
   );
 }
+
+// RLS 우회를 위해 service role key 사용 (읽기 전용 조회)
+const adminClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
 
 // 날짜 d가 해당 월에 존재하지 않으면 말일로 클램핑 (e.g., 1월 31일 → 2월 28일)
 function monthDay(year: number, month: number, day: number): Date {
@@ -54,8 +61,8 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  // users 테이블 조회 (subscription_start_date 포함)
-  const userRow = await supabase
+  // users 테이블 조회 — service role key로 RLS 우회
+  const userRow = await adminClient
     .from('users')
     .select('plan, created_at, subscription_start_date')
     .eq('id', user.id)
@@ -72,7 +79,7 @@ export async function GET() {
   const [diagnosisCount, portfolioCount, payments] = await Promise.all([
     (() => {
       const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().split('T')[0];
-      return supabase
+      return adminClient
         .from('stock_diagnosis')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
@@ -80,7 +87,7 @@ export async function GET() {
         .then(r => r.count ?? 0);
     })(),
 
-    supabase
+    adminClient
       .from('portfolio_diagnosis')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
@@ -91,7 +98,7 @@ export async function GET() {
       try {
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-        const { data } = await supabase
+        const { data } = await adminClient
           .from('payments')
           .select('id, created_at, plan, amount, status')
           .eq('user_id', user.id)
