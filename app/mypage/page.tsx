@@ -233,16 +233,13 @@ export default function MyPage() {
 
         {/* ── 페이지 헤더 ─────────────────────────────────────────────────── */}
         <div className="mb-8">
-          <div className="inline-flex items-center gap-2 mb-5 bg-indigo-500/10 border border-indigo-500/30 rounded-full px-4 py-1.5">
-            <svg className="w-3 h-3 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+          <div className="flex items-center gap-2.5 mb-1">
+            <svg className="w-5 h-5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
               <path d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span className="text-[11px] font-semibold text-indigo-300 tracking-wide">마이페이지</span>
+            <h1 className="text-[26px] font-bold text-white leading-tight">마이페이지</h1>
           </div>
-          <h1 className="text-[26px] font-bold text-white leading-tight">
-            내 계정
-          </h1>
-          <p className="text-[13px] text-slate-500 mt-1">계정 정보 및 사용 현황을 확인하세요</p>
+          <p className="text-[13px] text-slate-500 mt-1 pl-[30px]">계정 정보 및 사용 현황을 확인하세요</p>
         </div>
 
         {/* ── 1. 프로필 ───────────────────────────────────────────────────── */}
