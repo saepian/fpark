@@ -68,6 +68,7 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
 
   const handleToggle = () => {
     const next = !open;
+    console.log('[SHARE] 버튼 클릭 — open:', next, '/ shareUrl:', shareUrl, '/ isCreatingLink:', isCreatingLink);
     setOpen(next);
     if (next && reportData && !shareUrl) createShareLink();
   };
@@ -94,12 +95,12 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
 
   // ── 카카오톡 공유 ────────────────────────────────────────────────
   const handleKakao = () => {
-    console.log('[Kakao Debug] KAKAO_JS_KEY:', KAKAO_JS_KEY);
-    console.log('[Kakao Debug] window.Kakao:', window.Kakao);
-    console.log('[Kakao Debug] isInitialized:', window.Kakao?.isInitialized());
-    console.log('[Kakao Debug] activeUrl:', activeUrl);
-    console.log('[Kakao Debug] shareUrl:', shareUrl);
-    console.log('[Kakao Debug] currentUrl:', currentUrl);
+    console.log('[KAKAO] 카카오 공유 실행');
+    console.log('[KAKAO] KAKAO_JS_KEY:', KAKAO_JS_KEY);
+    console.log('[KAKAO] isInitialized:', window.Kakao?.isInitialized());
+    console.log('[KAKAO] shareUrl:', shareUrl);
+    console.log('[KAKAO] currentUrl:', currentUrl);
+    console.log('[KAKAO] activeUrl (실제 전달 URL):', activeUrl);
 
     if (!KAKAO_JS_KEY || !window.Kakao?.isInitialized()) {
       console.warn('[Kakao Debug] ❌ 초기화 실패 — KAKAO_JS_KEY:', KAKAO_JS_KEY, '/ isInitialized:', window.Kakao?.isInitialized());
@@ -125,7 +126,7 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
         { title: '리포트 보기', link: { mobileWebUrl: linkUrl, webUrl: linkUrl } },
       ],
     };
-    console.log('[Kakao Debug] sendDefault payload:', JSON.stringify(payload, null, 2));
+    console.log('[KAKAO] sendDefault payload:', JSON.stringify(payload, null, 2));
 
     try {
       window.Kakao!.Share.sendDefault(payload);
@@ -176,11 +177,10 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
 
           <div className="h-px bg-slate-700/50 mx-3" />
 
-          {/* 카카오톡 */}
+          {/* 카카오톡 — 링크 생성 중에도 현재 URL로 즉시 공유 가능 */}
           <button
             onClick={handleKakao}
-            disabled={isCreatingLink}
-            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer disabled:opacity-40"
+            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer"
           >
             <MessageCircle className="w-3.5 h-3.5 text-yellow-400" />
             카카오톡 공유
@@ -191,8 +191,7 @@ export default function ShareDropdown({ title, description, hashtags = 'fpark,�
           {/* 트위터/X */}
           <button
             onClick={handleTwitter}
-            disabled={isCreatingLink}
-            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer disabled:opacity-40"
+            className="w-full flex items-center gap-2.5 px-4 py-3 text-[12px] text-slate-300 hover:bg-slate-700/50 transition-colors cursor-pointer"
           >
             <Twitter className="w-3.5 h-3.5 text-sky-400" />
             트위터(X) 공유
