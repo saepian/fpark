@@ -106,10 +106,10 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
       const issueId    = crypto.randomUUID();
 
       // 이니시스 V2 필수 customer 필드: fullName, phoneNumber, email
+      // customerId 제외 — 이니시스 V2에서 전달 시 본인인증 계약 필요 [V023]
       const customer = {
-        customerId:  userId,
         fullName:    fullName.trim(),
-        phoneNumber: rawPhone,   // 하이픈 없는 숫자 (e.g. "01012345678")
+        phoneNumber: rawPhone,
         email:       userEmail,
       };
 
