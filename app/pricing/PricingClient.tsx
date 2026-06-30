@@ -238,7 +238,7 @@ function PlanCard({
 
   if (isPro) return (
     <div className="group cursor-pointer relative pt-7 flex flex-col">
-      <div className="absolute top-[15px] left-0 right-0 flex justify-center pointer-events-none z-10">
+      <div className="absolute top-[15px] left-0 right-0 flex justify-center pointer-events-none z-10 transition-all duration-300 group-hover:-translate-y-2">
         <span
           className="text-xs font-bold px-3 py-1 rounded-full shadow-lg"
           style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#0f1117' }}
