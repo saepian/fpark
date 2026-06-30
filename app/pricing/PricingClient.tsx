@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import PageBackground from '@/components/layout/PageBackground';
+import PortoneCheckout from '@/components/payment/PortoneCheckout';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -288,9 +289,12 @@ export default function PricingClient() {
   const router  = useRouter();
   const [annual,     setAnnual]     = useState(false);
   const [openFaq,    setOpenFaq]    = useState<number | null>(null);
-  const [toast,      setToast]      = useState(false);
   const [userPlan,   setUserPlan]   = useState<PlanType | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // 결제 모달 상태
+  const [checkoutPlan,   setCheckoutPlan]   = useState<'basic' | 'pro' | null>(null);
+  const [checkoutAmount, setCheckoutAmount] = useState(0);
 
   // 현재 로그인 유저 + plan 조회
   useEffect(() => {
@@ -312,28 +316,47 @@ export default function PricingClient() {
     });
   }, []); // eslint-disable-line
 
-  const showToast = () => {
-    setToast(true);
-    setTimeout(() => setToast(false), 3000);
-  };
+  // 1회권 등 미구현 기능용 토스트
+  const [toast, setToast] = useState(false);
+  const showToast = () => { setToast(true); setTimeout(() => setToast(false), 3000); };
 
   const handleAction = (type: PlanType) => {
     if (!isLoggedIn) { router.push('/auth/login'); return; }
     if (type === 'free') { router.push('/'); return; }
-    showToast();
+
+    const planData = PLANS.find(p => p.type === type)!;
+    const amount   = annual ? planData.annualTotal : planData.monthly;
+    setCheckoutAmount(amount);
+    setCheckoutPlan(type as 'basic' | 'pro');
+  };
+
+  const handlePaymentSuccess = (newPlan: PlanType) => {
+    setUserPlan(newPlan);
+    setCheckoutPlan(null);
   };
 
   return (
     <div className="min-h-screen relative">
       <PageBackground />
 
-      {/* Toast */}
+      {/* 결제 모달 */}
+      {checkoutPlan && (
+        <PortoneCheckout
+          plan={checkoutPlan}
+          amount={checkoutAmount}
+          isAnnual={annual}
+          onClose={() => setCheckoutPlan(null)}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
+
+      {/* 1회권 준비 중 토스트 */}
       {toast && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
           <div className="flex items-center gap-3 px-5 py-3.5 rounded-full shadow-2xl shadow-black/40 backdrop-blur-sm"
             style={{ background: '#1e2130', border: '1px solid rgba(100,116,139,0.4)' }}>
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-            <span className="text-[13px] text-slate-200 font-medium whitespace-nowrap">결제 기능 준비 중입니다</span>
+            <span className="text-[13px] text-slate-200 font-medium whitespace-nowrap">1회권 결제 준비 중입니다</span>
           </div>
         </div>
       )}

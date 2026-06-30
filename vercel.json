@@ -6,6 +6,9 @@
     },
     "app/api/cron/daily-pick/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/billing/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -16,6 +19,10 @@
     {
       "path": "/api/cron/daily-pick",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/billing",
+      "schedule": "5 15 1 * *"
     }
   ]
 }

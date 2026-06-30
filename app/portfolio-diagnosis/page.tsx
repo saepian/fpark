@@ -91,9 +91,9 @@ function emptyHolding(): HoldingInput {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function Card({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
+function Card({ title, children, className = '', ...rest }: { title?: string; children: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
+    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`} {...rest}>
       {title && <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">{title}</p>}
       {children}
     </div>
@@ -596,10 +596,10 @@ export default function PortfolioDiagnosisPage() {
           </Card>
 
           {/* 5행: 포트폴리오 개선 제안 (전체 펼침) */}
-          <Card title="포트폴리오 개선 제안" className="mb-4">
-            <div className="flex flex-col gap-3">
-              {result.suggestions.map((s, i) => (
-                <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
+          <Card title="포트폴리오 개선 제안" className="mb-4" data-suggestions-section>
+            <div className="flex flex-col gap-3" data-suggestions-list>
+              {(result.suggestions ?? []).filter(Boolean).map((s, i) => (
+                <div key={i} data-suggestions-item className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
                   <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">
                     {String(i + 1).padStart(2, '0')}
                   </span>
