@@ -293,6 +293,7 @@ button, [role="button"], a {
     visibility: visible !important;
     overflow: visible !important;
     break-inside: auto !important;
+    page-break-inside: auto !important;  /* Chrome은 두 속성 별개 처리 */
   }
   [data-suggestions-list] {
     display: flex !important;
