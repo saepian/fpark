@@ -257,7 +257,7 @@ button, [role="button"], a {
   /* 상단 여백 줄이기 */
   .pt-8  { padding-top: 12px !important; }
   .pt-10 { padding-top: 12px !important; }
-  .pb-16 { padding-bottom: 8px !important; }
+  .pb-16 { padding-bottom: 0 !important; }
 
   /* 카드 간격 절반 */
   .mb-4 { margin-bottom: 8px !important; }
@@ -284,6 +284,32 @@ button, [role="button"], a {
   .overflow-y-auto, .overflow-auto {
     overflow: visible !important;
     max-height: none !important;
+  }
+
+  /* 마지막 페이지 하단 검은 빈 영역 제거 */
+  html, body {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  body > *:last-child,
+  main > *:last-child {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* 배경 캔버스·파티클·애니메이션 요소 숨기기 */
+  canvas,
+  [class*="particle"],
+  [class*="animation"],
+  [class*="PageBackground"],
+  [class*="background"] {
+    display: none !important;
+  }
+
+  /* 최하단 컨테이너 여백 제거 */
+  .min-h-screen {
+    min-height: 0 !important;
   }
 }
 
