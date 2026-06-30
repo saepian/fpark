@@ -276,7 +276,7 @@ export default function DiagnosisPage() {
     const technicalLines  = result.technicalAnalysis ?? [];
 
     return (
-      <div className="min-h-screen pb-16">
+      <div className="pb-8">
         <PageBackground />
         <div className="max-w-5xl mx-auto px-4 pt-8">
 
@@ -605,7 +605,7 @@ export default function DiagnosisPage() {
   const isDisabled = remaining === 0;
 
   return (
-    <div className="min-h-screen pb-16">
+    <div className="pb-8">
       <PageBackground />
       <div className="max-w-5xl mx-auto px-4 pt-8">
 

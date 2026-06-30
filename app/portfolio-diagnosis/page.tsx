@@ -425,7 +425,7 @@ export default function PortfolioDiagnosisPage() {
     const sortedSectors = [...result.sectors].sort((a, b) => b.weight - a.weight);
 
     return (
-      <div className="min-h-screen pb-16">
+      <div className="pb-8">
         <PageBackground />
         {showUpgradeModal && <UpgradeModal />}
         <div className="max-w-5xl mx-auto px-4 pt-8">
@@ -632,7 +632,7 @@ export default function PortfolioDiagnosisPage() {
   // ════════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="min-h-screen pb-16">
+    <div className="pb-8">
       <PageBackground />
       {showUpgradeModal && <UpgradeModal />}
 
