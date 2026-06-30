@@ -601,7 +601,7 @@ export default function PortfolioDiagnosisPage() {
           <Card title="포트폴리오 개선 제안" className="mb-4" data-suggestions-section>
             <div className="flex flex-col gap-3" data-suggestions-list>
               {(result.suggestions ?? []).filter(Boolean).map((s, i) => (
-                <div key={i} data-suggestions-item className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
+                <div key={i} data-suggestions-item className="flex gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
                   <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">
                     {String(i + 1).padStart(2, '0')}
                   </span>
