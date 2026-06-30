@@ -16,9 +16,10 @@ export default function Footer() {
         </div>
 
         <div className="flex flex-wrap justify-center gap-6 text-xs text-[#8c909f]">
+          <Link href="/about" className="hover:text-[#adc6ff] transition-colors hover:underline">소개</Link>
           <Link href="/terms" className="hover:text-[#adc6ff] transition-colors hover:underline">이용약관</Link>
           <Link href="/privacy" className="hover:text-[#adc6ff] transition-colors hover:underline">개인정보처리방침</Link>
-          <a href="mailto:ad@fpark.com" className="hover:text-[#adc6ff] transition-colors hover:underline">Contact</a>
+          <Link href="/contact" className="hover:text-[#adc6ff] transition-colors hover:underline">문의하기</Link>
         </div>
       </div>
     </footer>
