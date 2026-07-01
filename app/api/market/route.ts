@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchMarketIndex, fetchUsdKrw } from '../../../lib/kis-api';
 import { supabase } from '../../../lib/supabase';
+import { isKoreanMarketOpen, getLastTradingDate } from '../../../lib/market-utils';
 import type { MarketResponse, MarketIndexData } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -177,6 +178,8 @@ async function fetchLive(): Promise<MarketResponse> {
       shenzhenResult, usdJpyResult, eurJpyResult,
       usdHkdResult, cnyHkdResult, usdCnyResult,
       bond3yResult,
+      // KIS 실패 시 야후 폴백 (장외 시간 대비)
+      kospiYahooResult, kosdaqYahooResult,
     ] = await Promise.allSettled([
       fetchMarketIndex('0001', controller.signal),
       fetchMarketIndex('1001', controller.signal),
@@ -194,15 +197,22 @@ async function fetchLive(): Promise<MarketResponse> {
       fetchYahooFX('CNYHKD=X'),
       fetchYahooFX('CNY=X'),
       fetchBond3Y(),
+      fetchYahooIndex('^KS11'),   // KOSPI 야후 폴백
+      fetchYahooIndex('^KQ11'),   // KOSDAQ 야후 폴백
     ]);
     clearTimeout(timeout);
 
-    if (kospiResult.status === 'rejected') console.error('[MARKET] KOSPI 실패:', kospiResult.reason);
-    if (kosdaqResult.status === 'rejected') console.error('[MARKET] KOSDAQ 실패:', kosdaqResult.reason);
+    // KIS 성공 시 KIS 우선, 실패 시 야후 폴백
+    const kisKospi  = kospiResult.status  === 'fulfilled' ? kospiResult.value  : null;
+    const kisKosdaq = kosdaqResult.status === 'fulfilled' ? kosdaqResult.value : null;
 
-    const kospi  = kospiResult.status  === 'fulfilled' ? kospiResult.value  : null;
-    const kosdaq = kosdaqResult.status === 'fulfilled' ? kosdaqResult.value : null;
-    if (kospi)  console.log('[MARKET] live — KOSPI:', kospi.value, 'KOSDAQ:', kosdaq?.value);
+    if (!kisKospi)  console.warn('[MARKET] KOSPI KIS 실패, 야후 폴백');
+    if (!kisKosdaq) console.warn('[MARKET] KOSDAQ KIS 실패, 야후 폴백');
+
+    const kospi  = kisKospi  ?? (kospiYahooResult.status  === 'fulfilled' ? kospiYahooResult.value  : null);
+    const kosdaq = kisKosdaq ?? (kosdaqYahooResult.status === 'fulfilled' ? kosdaqYahooResult.value : null);
+
+    if (kospi) console.log('[MARKET] live — KOSPI:', kospi.value, 'KOSDAQ:', kosdaq?.value);
 
     return {
       KOSPI:    kospi,
@@ -242,6 +252,11 @@ async function getCache(): Promise<MarketResponse | null> {
 }
 
 export async function GET() {
+  const marketOpen  = isKoreanMarketOpen();
+  const prevDate    = marketOpen ? null : getLastTradingDate();
+  const isPrevDay   = !marketOpen;
+  const prevDateLabel = prevDate?.label;
+
   try {
     const live = await fetchLive();
     const hasAnyData = live.KOSPI || live.SP500 || live.NASDAQ || live.DOW || live.NIKKEI;
@@ -269,13 +284,13 @@ export async function GET() {
       },
       updated_at: new Date().toISOString(),
     });
-    return NextResponse.json({ ...live, isCached: false, cachedAt: null });
+    return NextResponse.json({ ...live, isCached: false, cachedAt: null, isPrevDay, prevDateLabel });
   } catch (e) {
     console.error('[MARKET] 지수 조회 실패, 캐시로 폴백:', e instanceof Error ? e.message : e);
   }
 
   const cached = await getCache();
-  if (cached) return NextResponse.json(cached);
+  if (cached) return NextResponse.json({ ...cached, isPrevDay, prevDateLabel });
 
   return NextResponse.json({ error: '시장 데이터를 불러올 수 없습니다.' }, { status: 503 });
 }

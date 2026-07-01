@@ -59,17 +59,23 @@ function buildItems(data: MarketResponse): SlideItem[] {
 }
 
 export default function MarketSummary() {
-  const [items,   setItems]   = useState<SlideItem[]>([]);
-  const [current, setCurrent] = useState(0);
-  const [sliding, setSliding] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [items,        setItems]       = useState<SlideItem[]>([]);
+  const [current,      setCurrent]     = useState(0);
+  const [sliding,      setSliding]     = useState(false);
+  const [loading,      setLoading]     = useState(true);
+  const [isPrevDay,    setIsPrevDay]   = useState(false);
+  const [prevDateLabel, setPrevDateLabel] = useState<string | undefined>();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
     try {
       const res  = await fetch('/api/market', { cache: 'no-store' });
       const data: MarketResponse = await res.json();
-      if (res.ok) setItems(buildItems(data));
+      if (res.ok) {
+        setItems(buildItems(data));
+        setIsPrevDay(data.isPrevDay ?? false);
+        setPrevDateLabel(data.prevDateLabel);
+      }
     } catch (e) {
       console.error('[MarketSummary] 로드 실패:', e);
     } finally {
@@ -126,9 +132,19 @@ export default function MarketSummary() {
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden select-none">
       {/* 헤더 */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2.5 border-b border-slate-800/70">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-          Market Summary
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Market Summary
+          </span>
+          {isPrevDay && (
+            <span className="text-[10px] text-slate-500">
+              {prevDateLabel ? `${prevDateLabel} 종가 기준` : '전일 종가 기준'}
+            </span>
+          )}
+          {!isPrevDay && !loading && (
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-500">실시간</span>
+          )}
+        </div>
         <button
           onClick={loadData}
           className="text-slate-600 hover:text-slate-400 transition-colors cursor-pointer"

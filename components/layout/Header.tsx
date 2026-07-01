@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Menu, X, Zap } from 'lucide-react';
 import SearchBar from '../search/SearchBar';
 import MarketTicker from './MarketTicker';
-import AlertButton from './AlertButton';
+import NotificationBell from './NotificationBell';
 import PersonalButton from './PersonalButton';
 import Logo from './Logo';
 
@@ -125,7 +125,7 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
 
           <div className="hidden md:block w-px h-4 bg-slate-700" />
 
-          <AlertButton />
+          <NotificationBell />
           <PersonalButton />
 
           {/* 햄버거 버튼 (모바일 전용) */}

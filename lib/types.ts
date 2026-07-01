@@ -53,6 +53,8 @@ export interface MarketResponse {
   BOND_3Y?: MarketIndexData | null;
   isCached?: boolean;
   cachedAt?: string | null;
+  isPrevDay?: boolean;
+  prevDateLabel?: string;
 }
 
 export interface SearchResult {
@@ -109,6 +111,25 @@ export interface AlertResponse {
   total: number;
   isCached?: boolean;
   cachedAt?: string | null;
+}
+
+export interface StockNotification {
+  id: string;
+  user_id: string;
+  stock_code: string;
+  stock_name: string;
+  type: 'price_up' | 'price_down' | 'foreign_buy' | 'foreign_sell' | 'institution_buy' | 'institution_sell';
+  message: string;
+  threshold: number;
+  current_value: number;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface NotificationsResponse {
+  notifications: StockNotification[];
+  unreadCount: number;
+  isPro: boolean;
 }
 
 export interface MoverStock {

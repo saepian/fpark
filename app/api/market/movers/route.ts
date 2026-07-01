@@ -1,35 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getAccessToken, fetchCuratedMovers } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
+import { isKoreanMarketOpen, getLastTradingDate } from '@/lib/market-utils';
 import type { MoversResponse, MoverStock } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 const CACHE_KEY = 'market_movers';
-
-function isKoreanMarketOpen(): boolean {
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  const day = kst.getDay(); // 0=일, 6=토
-  if (day === 0 || day === 6) return false;
-  const minutes = kst.getHours() * 60 + kst.getMinutes();
-  return minutes >= 9 * 60 && minutes < 15 * 60 + 30;
-}
-
-// 가장 최근에 완료된 거래일을 YYYYMMDD 형식으로 반환
-// 평일 15:30 이후 → 오늘 / 그 외 → 주말 건너뛰며 이전 영업일
-function getLastTradingDate(): string {
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-  const day = kst.getDay();
-  const minutes = kst.getHours() * 60 + kst.getMinutes();
-  if (day >= 1 && day <= 5 && minutes >= 15 * 60 + 30) return fmt(kst);
-  const d = new Date(kst);
-  d.setDate(d.getDate() - 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
-  return fmt(d);
-}
 
 // market: J=코스피, Q=코스닥 / date: YYYYMMDD (장 외 시간에 최근 거래일 지정)
 async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q', date = ''): Promise<MoverStock[]> {
@@ -241,8 +219,7 @@ export async function GET() {
     if (cached) return NextResponse.json({ ...cached, isPrevDay: false });
   } else {
     // 장 외: 최근 거래일 기준 데이터 조회
-    const prevDate = getLastTradingDate();
-    const prevDateLabel = `${prevDate.slice(4, 6)}/${prevDate.slice(6, 8)}`;
+    const { yyyymmdd: prevDate, label: prevDateLabel } = getLastTradingDate();
     console.log(`[MOVERS] 장외 — 최근 거래일: ${prevDate}`);
 
     // 1순위: KIS 급등락 순위 API — 최근 거래일 날짜 지정
