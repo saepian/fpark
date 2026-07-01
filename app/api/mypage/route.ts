@@ -68,7 +68,6 @@ export async function GET() {
     .eq('id', user.id)
     .maybeSingle();
 
-  if (userRowError) console.error('[MYPAGE] userRow 조회 에러:', JSON.stringify(userRowError));
 
   const plan = (userRow?.plan ?? 'free') as 'free' | 'basic' | 'pro';
   const now  = new Date();
@@ -113,17 +112,11 @@ export async function GET() {
     })(),
   ]);
 
-  // DEBUG: remove after verifying plan
-  console.log('[MYPAGE] user.id:', user.id, 'plan:', plan, 'userRow:', JSON.stringify(userRow), 'error:', JSON.stringify(userRowError));
-
   return NextResponse.json({
     email: user.email ?? '',
     name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
     avatarUrl: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
     plan,
-    _debug_userId: user.id,
-    _debug_userRow: userRow,
-    _debug_userRowError: userRowError,
     createdAt: userRow?.created_at ?? user.created_at,
     usage: {
       diagnosisToday: diagnosisCount,
