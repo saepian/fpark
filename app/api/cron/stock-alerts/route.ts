@@ -71,7 +71,6 @@ function kisHeaders(token: string): Record<string, string> {
 async function fetchInvestorFlow(
   ticker: string,
   token: string,
-  todayStr: string,
 ): Promise<{ foreignNetBuyAuk: number; institutionNetBuyAuk: number }> {
   for (const mktCode of ['J', 'Q']) {
     try {
@@ -90,16 +89,15 @@ async function fetchInvestorFlow(
       if (data.rt_cd !== '0') continue;
 
       const output: Record<string, string>[] = data.output ?? [];
-      // 오늘 날짜 데이터만 사용 (이전 거래일 데이터로 알림 발송 방지)
-      const todayRow = output.find(
-        (d) => d.stck_bsop_date === todayStr && d.frgn_ntby_tr_pbmn !== '',
-      );
-      if (!todayRow) return { foreignNetBuyAuk: 0, institutionNetBuyAuk: 0 };
+      // KIS API는 장중 당일 집계를 제공하지 않음 — 데이터가 있는 최근 거래일 행 사용
+      const latestRow = output.find((d) => d.frgn_ntby_tr_pbmn !== '');
+      if (!latestRow) return { foreignNetBuyAuk: 0, institutionNetBuyAuk: 0 };
 
       // frgn_ntby_tr_pbmn 단위: 백만원 → /100 = 억원
-      const foreignNetBuyAuk     = Math.round(Number(todayRow.frgn_ntby_tr_pbmn || 0) / 100);
-      const institutionNetBuyAuk = Math.round(Number(todayRow.orgn_ntby_tr_pbmn || 0) / 100);
+      const foreignNetBuyAuk     = Math.round(Number(latestRow.frgn_ntby_tr_pbmn || 0) / 100);
+      const institutionNetBuyAuk = Math.round(Number(latestRow.orgn_ntby_tr_pbmn || 0) / 100);
 
+      console.log(`[STOCK-ALERTS] ${ticker} 수급 (${latestRow.stck_bsop_date}): 외국인=${foreignNetBuyAuk}억, 기관=${institutionNetBuyAuk}억`);
       return { foreignNetBuyAuk, institutionNetBuyAuk };
     } catch {
       continue;
@@ -166,17 +164,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, inserted: 0, skipped: 0 });
   }
 
-  // 3. 오늘 미읽음 알림 조회 (중복 방지 + 재검증 대상)
+  // 3. 오늘 알림 전체 조회 (읽음 여부 무관 — 중복 방지 + 재검증 대상)
   const { data: todayNotifs } = await supabase
     .from('notifications')
-    .select('id, user_id, stock_code, type, threshold, is_active')
+    .select('id, user_id, stock_code, type, threshold, is_active, is_read')
     .in('user_id', userIds)
-    .gte('created_at', kstMidnightIso(todayStr))
-    .eq('is_read', false);
+    .gte('created_at', kstMidnightIso(todayStr));
 
-  // is_active = true인 알림만 sentKeys에 추가 (비활성 알림은 재트리거 허용)
+  type TodayNotif = { id: string; user_id: string; stock_code: string; type: string; threshold: number; is_active: boolean; is_read: boolean };
+
+  // sentKeys: is_active=true인 알림 전체 (읽음 포함) — 읽은 알림도 재삽입 방지
   const sentKeys = new Set<string>();
-  for (const n of (todayNotifs ?? []) as { id: string; user_id: string; stock_code: string; type: string; threshold: number; is_active: boolean }[]) {
+  for (const n of (todayNotifs ?? []) as TodayNotif[]) {
     if (n.is_active !== false) {
       sentKeys.add(`${n.user_id}:${n.stock_code}:${n.type}:${n.threshold}`);
     }
@@ -202,7 +201,7 @@ export async function GET(request: NextRequest) {
     async (ticker) => {
       const [priceRes, flowRes] = await Promise.allSettled([
         fetchStockPrice(ticker),
-        fetchInvestorFlow(ticker, token, todayStr),
+        fetchInvestorFlow(ticker, token),
       ]);
 
       if (priceRes.status !== 'fulfilled') {
@@ -222,9 +221,12 @@ export async function GET(request: NextRequest) {
     300,
   );
 
-  // 5-a. 기존 활성 미읽음 알림 재검증 → 조건 미충족 시 비활성화
+  // 5-a. 기존 활성 미읽음 알림 재검증 → 조건 미충족 시 비활성화 (읽은 알림은 건드리지 않음)
   const toDeactivate: string[] = [];
-  for (const n of (todayNotifs ?? []) as { id: string; user_id: string; stock_code: string; type: string; threshold: number; is_active: boolean }[]) {
+  const unreadActive = (todayNotifs ?? [] as TodayNotif[]).filter(
+    (n) => (n as TodayNotif).is_active !== false && !(n as TodayNotif).is_read,
+  );
+  for (const n of unreadActive as TodayNotif[]) {
     if (n.is_active === false) continue;
     const data = stockDataMap.get(n.stock_code);
     if (!data) continue; // 데이터 없으면 유지
