@@ -113,6 +113,10 @@ export default function NotificationBell() {
     setOpen(false);
   };
 
+  // ── 알림 타입 분류 ────────────────────────────────────────────
+  const isUpType   = (t: string) => ['price_up',   'foreign_buy',  'institution_buy' ].includes(t);
+  const isDownType = (t: string) => ['price_down', 'foreign_sell', 'institution_sell'].includes(t);
+
   // ── 배지 카운트 ────────────────────────────────────────────────
   const count52w   = alerts52w?.total ?? 0;
   const totalCount = count52w + (isPro ? unreadCount : 0);
@@ -178,39 +182,56 @@ export default function NotificationBell() {
                     </p>
                   </div>
                 ) : (
-                  notifications.map((n) => (
-                    <div
-                      key={n.id}
-                      onClick={() => handleNotifClick(n)}
-                      className={[
-                        'flex items-start gap-3 px-4 py-3 border-b border-slate-800/60 cursor-pointer transition-colors',
-                        n.is_read
-                          ? 'hover:bg-slate-800/30'
-                          : 'bg-indigo-950/30 hover:bg-indigo-950/50',
-                      ].join(' ')}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p
-                          className={`text-sm leading-snug ${
-                            n.is_read ? 'text-slate-400' : 'text-white font-medium'
-                          }`}
-                        >
-                          {n.message}
-                        </p>
-                        <p className="text-[10px] text-slate-600 mt-0.5">
-                          {new Date(n.created_at).toLocaleString('ko-KR', {
-                            month: 'numeric',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
+                  notifications.map((n) => {
+                    const isUp   = isUpType(n.type);
+                    const isDown = isDownType(n.type);
+                    const barColor = isUp
+                      ? 'bg-red-500/60'
+                      : isDown
+                      ? 'bg-blue-500/60'
+                      : 'bg-slate-700/40';
+                    const bgColor = isUp
+                      ? n.is_read ? 'bg-red-500/[0.04] hover:bg-red-500/[0.08]' : 'bg-red-500/[0.08] hover:bg-red-500/[0.12]'
+                      : isDown
+                      ? n.is_read ? 'bg-blue-500/[0.04] hover:bg-blue-500/[0.08]' : 'bg-blue-500/[0.08] hover:bg-blue-500/[0.12]'
+                      : n.is_read ? 'hover:bg-slate-800/30' : 'bg-indigo-950/30 hover:bg-indigo-950/50';
+
+                    return (
+                      <div
+                        key={n.id}
+                        onClick={() => handleNotifClick(n)}
+                        className={`flex items-stretch border-b border-slate-800/60 cursor-pointer transition-colors ${bgColor}`}
+                      >
+                        {/* 왼쪽 컬러 바 */}
+                        <div className={`w-[3px] shrink-0 rounded-r-full my-1 ${barColor}`} />
+
+                        <div className="flex items-start gap-2 flex-1 min-w-0 px-3 py-3">
+                          {/* 방향 아이콘 */}
+                          <span className={`mt-[2px] text-[11px] shrink-0 font-bold ${isUp ? 'text-red-400' : isDown ? 'text-blue-400' : 'text-slate-500'}`}>
+                            {isUp ? '▲' : isDown ? '▼' : '●'}
+                          </span>
+
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm leading-snug ${n.is_read ? 'text-slate-400' : 'text-white font-medium'}`}>
+                              {n.message}
+                            </p>
+                            <p className="text-[10px] text-slate-600 mt-0.5">
+                              {new Date(n.created_at).toLocaleString('ko-KR', {
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </div>
+
+                          {!n.is_read && (
+                            <span className={`mt-1.5 shrink-0 w-2 h-2 rounded-full ${isUp ? 'bg-red-500' : isDown ? 'bg-blue-500' : 'bg-indigo-500'}`} />
+                          )}
+                        </div>
                       </div>
-                      {!n.is_read && (
-                        <span className="mt-1.5 shrink-0 w-2 h-2 rounded-full bg-red-500" />
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
                 )}
                 {/* 구분선 */}
                 <div className="border-t border-slate-700/60 mx-4 my-1" />
