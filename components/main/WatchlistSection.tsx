@@ -50,13 +50,12 @@ export default function WatchlistSection() {
   const [items, setItems]       = useState<WatchItem[]>([]);
   const [loading, setLoading]   = useState(true);
   const [editing, setEditing]   = useState(false);
-  const [paused, setPaused]     = useState(false);
-  const [index, setIndex]       = useState(0);
+  const [paused, setPaused]       = useState(false);
+  const [index, setIndex]         = useState(0);
+  const [transition, setTransition] = useState(true);
   // price === 0 인 종목 — 3초 후 재시도 중
-  const [retrying, setRetrying] = useState<Set<string>>(new Set());
-  const noAnim                  = useRef(false);
-  const pendingRef              = useRef<number | null>(null);
-  const retryTimerRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [retrying, setRetrying]   = useState<Set<string>>(new Set());
+  const retryTimerRef             = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleRetry = useCallback((failed: string[]) => {
     if (failed.length === 0) return;
@@ -101,45 +100,50 @@ export default function WatchlistSection() {
   const needCarousel = n > VISIBLE;
   const track        = needCarousel ? [...items, ...items] : items;
 
-  // ── 캐러셀 헬퍼 ──────────────────────────────────────────────────────────
+  // ── 캐러셀 ──────────────────────────────────────────────────────────────
 
-  const animateTo = useCallback((next: number) => {
-    noAnim.current = false;
-    setIndex(next);
-  }, []);
-
-  const silentJumpTo = useCallback((pos: number, then?: number) => {
-    noAnim.current = true;
-    pendingRef.current = then ?? null;
-    setIndex(pos);
-  }, []);
-
+  // 자동 슬라이드
   useEffect(() => {
     if (!needCarousel || paused) return;
-    const id = setInterval(() => setIndex(i => i + 1), AUTO_MS);
+    const id = setInterval(() => {
+      setTransition(true);
+      setIndex(i => i + 1);
+    }, AUTO_MS);
     return () => clearInterval(id);
   }, [needCarousel, paused]);
 
-  const goNext = () => { if (needCarousel) animateTo(index + 1); };
-  const goPrev = () => {
+  const goNext = () => {
     if (!needCarousel) return;
-    if (index <= 0) silentJumpTo(n, n - 1);
-    else animateTo(index - 1);
+    setTransition(true);
+    setIndex(i => i + 1);
   };
 
-  const onTransitionEnd = () => {
-    if (index >= n) {
-      silentJumpTo(index - n);
-      // requestAnimationFrame으로 noAnim 해제 후 pendingRef 처리
+  const goPrev = () => {
+    if (!needCarousel) return;
+    if (index <= 0) {
+      // 1) 애니메이션 없이 position n으로 순간 이동 (position 0과 시각적으로 동일)
+      setTransition(false);
+      setIndex(n);
+      // 2) 브라우저가 렌더링한 뒤 n-1로 애니메이션
       requestAnimationFrame(() => {
-        noAnim.current = false;
-        if (pendingRef.current !== null) {
-          const p = pendingRef.current;
-          pendingRef.current = null;
-          setIndex(p);
-        } else {
-          setIndex(i => i); // force re-render to restore transition
-        }
+        requestAnimationFrame(() => {
+          setTransition(true);
+          setIndex(n - 1);
+        });
+      });
+    } else {
+      setTransition(true);
+      setIndex(i => i - 1);
+    }
+  };
+
+  // 오른쪽 끝 도달 시 처음으로 순간 이동 후 transition 복원
+  const handleTransitionEnd = () => {
+    if (index >= n) {
+      setTransition(false);
+      setIndex(i => i - n);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setTransition(true));
       });
     }
   };
@@ -147,6 +151,7 @@ export default function WatchlistSection() {
   const remove = async (ticker: string) => {
     setItems(prev => prev.filter(i => i.ticker !== ticker));
     setRetrying(prev => { const s = new Set(prev); s.delete(ticker); return s; });
+    setTransition(false);
     setIndex(0);
     await fetch('/api/watchlist', {
       method: 'DELETE',
@@ -249,9 +254,9 @@ export default function WatchlistSection() {
               className="flex gap-3"
               style={{
                 transform: `translateX(-${index * STEP}px)`,
-                transition: noAnim.current ? 'none' : 'transform 500ms ease-in-out',
+                transition: transition ? 'transform 500ms ease-in-out' : 'none',
               }}
-              onTransitionEnd={onTransitionEnd}
+              onTransitionEnd={handleTransitionEnd}
             >
               {track.map((stock, i) => {
                 const isUp         = stock.changeRate >= 0;
