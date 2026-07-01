@@ -112,11 +112,16 @@ export async function GET() {
     })(),
   ]);
 
+  // DEBUG: remove after verifying plan
+  console.log('[MYPAGE] user.id:', user.id, 'plan:', plan, 'userRow:', JSON.stringify(userRow));
+
   return NextResponse.json({
     email: user.email ?? '',
     name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
     avatarUrl: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
     plan,
+    _debug_userId: user.id,
+    _debug_userRow: userRow,
     createdAt: userRow?.created_at ?? user.created_at,
     usage: {
       diagnosisToday: diagnosisCount,
