@@ -123,6 +123,7 @@ export interface StockNotification {
   threshold: number;
   current_value: number;
   is_read: boolean;
+  is_active: boolean;
   created_at: string;
 }
 

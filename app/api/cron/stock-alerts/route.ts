@@ -38,6 +38,25 @@ function kstMidnightIso(todayStr: string): string {
   return `${y}-${m}-${d}T00:00:00+09:00`;
 }
 
+// 알림 타입별 조건 재검증
+function isConditionStillMet(
+  type: string,
+  threshold: number,
+  changeRate: number,
+  foreignNetBuyAuk: number,
+  institutionNetBuyAuk: number,
+): boolean {
+  switch (type) {
+    case 'price_up':         return changeRate >= threshold;
+    case 'price_down':       return changeRate <= -threshold;
+    case 'foreign_buy':      return foreignNetBuyAuk >= threshold;
+    case 'foreign_sell':     return foreignNetBuyAuk <= -threshold;
+    case 'institution_buy':  return institutionNetBuyAuk >= threshold;
+    case 'institution_sell': return institutionNetBuyAuk <= -threshold;
+    default: return true;
+  }
+}
+
 function kisHeaders(token: string): Record<string, string> {
   return {
     'content-type': 'application/json; charset=UTF-8',
@@ -147,19 +166,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, inserted: 0, skipped: 0 });
   }
 
-  // 3. 오늘 이미 발송된 알림 조회 (중복 방지)
+  // 3. 오늘 미읽음 알림 조회 (중복 방지 + 재검증 대상)
   const { data: todayNotifs } = await supabase
     .from('notifications')
-    .select('user_id, stock_code, type, threshold')
+    .select('id, user_id, stock_code, type, threshold, is_active')
     .in('user_id', userIds)
-    .gte('created_at', kstMidnightIso(todayStr));
+    .gte('created_at', kstMidnightIso(todayStr))
+    .eq('is_read', false);
 
-  const sentKeys = new Set<string>(
-    (todayNotifs ?? []).map(
-      (n: { user_id: string; stock_code: string; type: string; threshold: number }) =>
-        `${n.user_id}:${n.stock_code}:${n.type}:${n.threshold}`,
-    ),
-  );
+  // is_active = true인 알림만 sentKeys에 추가 (비활성 알림은 재트리거 허용)
+  const sentKeys = new Set<string>();
+  for (const n of (todayNotifs ?? []) as { id: string; user_id: string; stock_code: string; type: string; threshold: number; is_active: boolean }[]) {
+    if (n.is_active !== false) {
+      sentKeys.add(`${n.user_id}:${n.stock_code}:${n.type}:${n.threshold}`);
+    }
+  }
 
   // 4. 유니크 ticker 배치 조회
   const uniqueTickers = [...new Set(watchlistItems.map((w: { ticker: string }) => w.ticker))];
@@ -201,7 +222,34 @@ export async function GET(request: NextRequest) {
     300,
   );
 
-  // 5. 알림 조건 체크 및 toInsert 구성
+  // 5-a. 기존 활성 미읽음 알림 재검증 → 조건 미충족 시 비활성화
+  const toDeactivate: string[] = [];
+  for (const n of (todayNotifs ?? []) as { id: string; user_id: string; stock_code: string; type: string; threshold: number; is_active: boolean }[]) {
+    if (n.is_active === false) continue;
+    const data = stockDataMap.get(n.stock_code);
+    if (!data) continue; // 데이터 없으면 유지
+
+    const stillMet = isConditionStillMet(
+      n.type, n.threshold,
+      data.changeRate, data.foreignNetBuyAuk, data.institutionNetBuyAuk,
+    );
+    if (!stillMet) {
+      toDeactivate.push(n.id);
+      // sentKeys에서 제거해 조건 재충족 시 재트리거 가능하게
+      sentKeys.delete(`${n.user_id}:${n.stock_code}:${n.type}:${n.threshold}`);
+    }
+  }
+
+  if (toDeactivate.length > 0) {
+    const { error: deactErr } = await supabase
+      .from('notifications')
+      .update({ is_active: false })
+      .in('id', toDeactivate);
+    if (deactErr) console.error('[STOCK-ALERTS] 비활성화 실패:', deactErr.message);
+    else console.log(`[STOCK-ALERTS] ${toDeactivate.length}개 알림 비활성화`);
+  }
+
+  // 5-b. 알림 조건 체크 및 toInsert 구성
   for (const item of watchlistItems) {
     const { user_id, ticker, name: watchName } = item as { user_id: string; ticker: string; name: string };
     const data = stockDataMap.get(ticker);
@@ -227,6 +275,7 @@ export async function GET(request: NextRequest) {
         message,
         threshold,
         current_value: currentValue,
+        is_active: true,
       });
     };
 
@@ -294,5 +343,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, inserted, skipped, errors });
+  return NextResponse.json({ ok: true, inserted, skipped, errors, deactivated: toDeactivate.length });
 }
