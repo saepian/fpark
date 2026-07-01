@@ -62,12 +62,13 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // users 테이블 조회 — service role key로 RLS 우회
-  const userRow = await adminClient
+  const { data: userRow, error: userRowError } = await adminClient
     .from('users')
     .select('plan, created_at, subscription_start_date')
     .eq('id', user.id)
-    .maybeSingle()
-    .then(r => r.data);
+    .maybeSingle();
+
+  if (userRowError) console.error('[MYPAGE] userRow 조회 에러:', JSON.stringify(userRowError));
 
   const plan = (userRow?.plan ?? 'free') as 'free' | 'basic' | 'pro';
   const now  = new Date();
@@ -113,7 +114,7 @@ export async function GET() {
   ]);
 
   // DEBUG: remove after verifying plan
-  console.log('[MYPAGE] user.id:', user.id, 'plan:', plan, 'userRow:', JSON.stringify(userRow));
+  console.log('[MYPAGE] user.id:', user.id, 'plan:', plan, 'userRow:', JSON.stringify(userRow), 'error:', JSON.stringify(userRowError));
 
   return NextResponse.json({
     email: user.email ?? '',
@@ -122,6 +123,7 @@ export async function GET() {
     plan,
     _debug_userId: user.id,
     _debug_userRow: userRow,
+    _debug_userRowError: userRowError,
     createdAt: userRow?.created_at ?? user.created_at,
     usage: {
       diagnosisToday: diagnosisCount,
