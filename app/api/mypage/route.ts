@@ -64,7 +64,7 @@ export async function GET() {
   // users 테이블 조회 — service role key로 RLS 우회
   const { data: userRow, error: userRowError } = await adminClient
     .from('users')
-    .select('plan, created_at, subscription_start_date')
+    .select('plan, created_at')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -73,7 +73,7 @@ export async function GET() {
   const plan = (userRow?.plan ?? 'free') as 'free' | 'basic' | 'pro';
   const now  = new Date();
   const { cycleStart, nextCycleStart } = getBillingCycle(
-    userRow?.subscription_start_date ?? null,
+    null,
     now,
   );
 
