@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Bell } from 'lucide-react';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase-browser';
-import type { AlertResponse, StockNotification } from '@/lib/types';
+import type { StockNotification } from '@/lib/types';
 
 export default function NotificationBell() {
   const supabase     = createClient();
@@ -16,14 +16,11 @@ export default function NotificationBell() {
   const [authReady, setAuthReady]       = useState(false);
   const [open, setOpen]                 = useState(false);
 
-  // 52주 신고가/신저가 (모든 회원)
-  const [alerts52w, setAlerts52w]       = useState<AlertResponse | null>(null);
-  const [alerts52wLoading, setAlerts52wLoading] = useState(true);
-
   // Pro 관심종목 알림
   const [isPro, setIsPro]               = useState(false);
   const [notifications, setNotifications] = useState<StockNotification[]>([]);
   const [unreadCount, setUnreadCount]   = useState(0);
+  const [notifLoading, setNotifLoading] = useState(false);
 
   // ── 인증 상태 ──────────────────────────────────────────────────
   useEffect(() => {
@@ -37,40 +34,48 @@ export default function NotificationBell() {
     return () => listener.subscription.unsubscribe();
   }, []); // eslint-disable-line
 
-  // ── 52주 신고가/신저가 (로그인 여부 무관, 1분 폴링) ────────────
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch('/api/alerts');
-        if (res.ok) setAlerts52w(await res.json());
-      } catch {}
-      setAlerts52wLoading(false);
-    };
-    load();
-    const id = setInterval(load, 60_000);
-    return () => clearInterval(id);
-  }, []);
+  // ── Pro 관심종목 알림 fetch ────────────────────────────────────
+  const fetchNotifications = () =>
+    fetch('/api/notifications')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setIsPro(data.isPro);
+        setNotifications(data.notifications ?? []);
+        setUnreadCount(data.unreadCount ?? 0);
+      })
+      .catch(() => {});
 
-  // ── Pro 관심종목 알림 (로그인 후 1분 폴링) ──────────────────────
+  // 로그인 후 최초 로드 + 1분 폴링
   useEffect(() => {
     if (!authReady || !user) return;
-
-    const load = async () => {
-      try {
-        const res = await fetch('/api/notifications');
-        if (res.ok) {
-          const data = await res.json();
-          setIsPro(data.isPro);
-          setNotifications(data.notifications ?? []);
-          setUnreadCount(data.unreadCount ?? 0);
-        }
-      } catch {}
-    };
-
-    load();
-    const id = setInterval(load, 60_000);
+    fetchNotifications();
+    const id = setInterval(fetchNotifications, 60_000);
     return () => clearInterval(id);
   }, [authReady, user]); // eslint-disable-line
+
+  // 드롭다운 열고 닫을 때 상태 초기화 + 캐시 없이 재조회
+  useEffect(() => {
+    if (!open) {
+      setNotifications([]);
+      setUnreadCount(0);
+      setNotifLoading(false);
+      return;
+    }
+    setNotifications([]);
+    setUnreadCount(0);
+    setNotifLoading(true);
+    fetch('/api/notifications', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setIsPro(data.isPro);
+        setNotifications(data.notifications ?? []);
+        setUnreadCount(data.unreadCount ?? 0);
+      })
+      .catch(() => {})
+      .finally(() => setNotifLoading(false));
+  }, [open]);
 
   // ── 외부 클릭 시 닫기 ──────────────────────────────────────────
   useEffect(() => {
@@ -118,11 +123,7 @@ export default function NotificationBell() {
   const isDownType = (t: string) => ['price_down', 'foreign_sell', 'institution_sell'].includes(t);
 
   // ── 배지 카운트 ────────────────────────────────────────────────
-  const count52w   = alerts52w?.total ?? 0;
-  const totalCount = count52w + (isPro ? unreadCount : 0);
-  const badgeCount = Math.min(totalCount, 99);
-  const hasHigh    = (alerts52w?.highAlerts?.length ?? 0) > 0;
-  const hasLow     = (alerts52w?.lowAlerts?.length  ?? 0) > 0;
+  const badgeCount = Math.min(isPro ? unreadCount : 0, 99);
 
   return (
     <div ref={containerRef} className="relative">
@@ -133,10 +134,10 @@ export default function NotificationBell() {
       >
         <Bell
           className={`w-5 h-5 text-gray-400 dark:text-[#c2c6d6] ${
-            !alerts52wLoading && badgeCount > 0 ? 'animate-wiggle' : ''
+            badgeCount > 0 ? 'animate-wiggle' : ''
           }`}
         />
-        {!alerts52wLoading && badgeCount > 0 && (
+        {badgeCount > 0 && (
           <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
@@ -169,12 +170,24 @@ export default function NotificationBell() {
           <div className="max-h-[480px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded-full">
 
             {/* ── Pro: 관심종목 알림 섹션 ── */}
-            {isPro && (
+            {(isPro || notifLoading) && (
               <div>
                 <p className="px-4 pt-3 pb-1.5 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
                   ⭐ 관심종목 알림
                 </p>
-                {notifications.length === 0 ? (
+                {notifLoading ? (
+                  <div className="px-4 pb-4 flex flex-col gap-2">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <div className="w-[3px] h-10 rounded-full bg-slate-700/60 animate-pulse shrink-0" />
+                        <div className="flex-1 flex flex-col gap-1.5">
+                          <div className="h-3 w-full rounded bg-slate-700/60 animate-pulse" />
+                          <div className="h-2.5 w-1/3 rounded bg-slate-700/40 animate-pulse" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : notifications.length === 0 ? (
                   <div className="px-4 pb-4 text-center">
                     <p className="text-slate-500 text-xs">새 알림이 없습니다</p>
                     <p className="text-slate-600 text-[10px] mt-0.5">
@@ -238,83 +251,20 @@ export default function NotificationBell() {
               </div>
             )}
 
-            {/* ── 52주 신고가/신저가 섹션 (모든 회원) ── */}
-            <div>
-              <p className="px-4 pt-3 pb-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                52주 신고가 / 신저가
-              </p>
-
-              {alerts52wLoading && (
-                <div className="px-4 pb-6 text-center text-slate-500 text-sm">조회 중…</div>
-              )}
-
-              {!alerts52wLoading && !hasHigh && !hasLow && (
-                <div className="px-4 pb-6 text-center">
-                  <p className="text-slate-400 text-sm">현재 해당 종목 없음</p>
-                </div>
-              )}
-
-              {hasHigh && (
-                <div className="pb-1">
-                  <p className="px-4 pb-1 text-[10px] font-bold text-red-400 tracking-wider">
-                    📈 신고가 ({alerts52w!.highAlerts.length})
-                  </p>
-                  {alerts52w!.highAlerts.map((a) => (
-                    <div
-                      key={a.ticker}
-                      onClick={() => { router.push(`/stock/${a.ticker}`); setOpen(false); }}
-                      className="flex justify-between items-center py-1.5 hover:bg-slate-800/60 px-4 cursor-pointer transition-colors"
-                    >
-                      <div className="flex items-baseline gap-1.5 min-w-0">
-                        <span className="text-sm font-semibold text-white truncate">{a.name}</span>
-                        <span className="text-[10px] text-slate-500 shrink-0">{a.ticker}</span>
-                      </div>
-                      <span className="text-sm font-mono text-red-400 shrink-0 ml-2">
-                        {a.price.toLocaleString()}원
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {hasLow && (
-                <div className={`pb-3 ${hasHigh ? 'border-t border-slate-700/40 mt-1 pt-1' : ''}`}>
-                  <p className="px-4 pb-1 text-[10px] font-bold text-blue-400 tracking-wider">
-                    📉 신저가 ({alerts52w!.lowAlerts.length})
-                  </p>
-                  {alerts52w!.lowAlerts.map((a) => (
-                    <div
-                      key={a.ticker}
-                      onClick={() => { router.push(`/stock/${a.ticker}`); setOpen(false); }}
-                      className="flex justify-between items-center py-1.5 hover:bg-slate-800/60 px-4 cursor-pointer transition-colors"
-                    >
-                      <div className="flex items-baseline gap-1.5 min-w-0">
-                        <span className="text-sm font-semibold text-white truncate">{a.name}</span>
-                        <span className="text-[10px] text-slate-500 shrink-0">{a.ticker}</span>
-                      </div>
-                      <span className="text-sm font-mono text-blue-400 shrink-0 ml-2">
-                        {a.price.toLocaleString()}원
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* 비Pro 회원: 관심종목 알림 프로모 */}
-              {authReady && user && !isPro && (
-                <div className="mx-4 mb-3 mt-1 px-3 py-2.5 rounded-lg bg-indigo-950/40 border border-indigo-800/40">
-                  <p className="text-[11px] text-indigo-300 font-medium">
-                    ⭐ Pro 구독자는 관심종목 주가·수급 알림도 받을 수 있어요
-                  </p>
-                  <button
-                    onClick={() => { router.push('/pricing'); setOpen(false); }}
-                    className="mt-1.5 text-[10px] text-indigo-400 hover:text-indigo-200 transition-colors underline underline-offset-2"
-                  >
-                    Pro 플랜 보기 →
-                  </button>
-                </div>
-              )}
-            </div>
+            {/* 비Pro 회원: 관심종목 알림 프로모 */}
+            {authReady && user && !isPro && (
+              <div className="mx-4 mb-3 mt-1 px-3 py-2.5 rounded-lg bg-indigo-950/40 border border-indigo-800/40">
+                <p className="text-[11px] text-indigo-300 font-medium">
+                  ⭐ Pro 구독자는 관심종목 주가·수급 알림도 받을 수 있어요
+                </p>
+                <button
+                  onClick={() => { router.push('/pricing'); setOpen(false); }}
+                  className="mt-1.5 text-[10px] text-indigo-400 hover:text-indigo-200 transition-colors underline underline-offset-2"
+                >
+                  Pro 플랜 보기 →
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

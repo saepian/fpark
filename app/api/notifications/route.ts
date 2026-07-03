@@ -34,11 +34,11 @@ export async function GET(): Promise<NextResponse<NotificationsResponse>> {
 
   const { data: userData } = await supabase
     .from('users')
-    .select('subscription_plan')
+    .select('plan')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
-  const isPro = userData?.subscription_plan === 'pro';
+  const isPro = userData?.plan === 'pro';
   if (!isPro) {
     return NextResponse.json({ notifications: [], unreadCount: 0, isPro: false });
   }
@@ -49,7 +49,10 @@ export async function GET(): Promise<NextResponse<NotificationsResponse>> {
     .eq('user_id', user.id)
     .eq('is_active', true)
     .order('created_at', { ascending: false })
-    .limit(20);
+    // created_at 동률(같은 크론 배치에서 여러 threshold가 동시에 upsert된 경우) 시
+    // threshold가 큰(더 심한 조건) 알림이 먼저 오도록 2차 정렬
+    .order('threshold', { ascending: false })
+    .limit(50);
 
   const list = notifications ?? [];
   const unreadCount = list.filter((n: { is_read: boolean }) => !n.is_read).length;
