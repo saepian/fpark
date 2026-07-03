@@ -89,7 +89,7 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
   const circ = 2 * Math.PI * r;
   const filled = circ * (percent / 100);
   const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
-  const label = type === 'BUY' ? '순유입' : type === 'SELL' ? '순유출' : '중립';
+  const label = type === 'BUY' ? '자금 유입' : type === 'SELL' ? '자금 유출' : '중립';
   return (
     <svg width="148" height="148" viewBox="0 0 148 148">
       <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
@@ -279,9 +279,9 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           </div>
         </div>
 
-        {/* 4행: 기술적 분석 */}
+        {/* 4행: 가격 위치 데이터 */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">기술적 분석</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">가격 위치 데이터</p>
           <div className="flex flex-col gap-3">
             {(d.technicalAnalysis ?? []).map((line, i) => (
               <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
@@ -322,7 +322,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
 
           <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
-              <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Opportunity Factors</span>
+              <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">참고 데이터 포인트</span>
             </div>
             <div className="flex flex-col gap-2">
               {(d.opportunityFactors ?? []).map((line, i) => (
@@ -367,7 +367,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             {d.shortTermOutlook && (
               <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">단기 전망 1M</span>
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
                 </div>
                 <p className="text-[13px] text-slate-300 leading-relaxed">{d.shortTermOutlook}</p>
               </div>
@@ -375,7 +375,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             {d.midTermOutlook && (
               <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">중기 전망 3M</span>
+                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
                 </div>
                 <p className="text-[13px] text-slate-300 leading-relaxed">{d.midTermOutlook}</p>
               </div>

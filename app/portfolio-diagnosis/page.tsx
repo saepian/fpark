@@ -671,7 +671,7 @@ export default function PortfolioDiagnosisPage() {
               <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                    Opportunity Factors
+                    참고 데이터 포인트
                   </span>
                 </div>
                 <div className="flex flex-col gap-2">
@@ -693,7 +693,7 @@ export default function PortfolioDiagnosisPage() {
                 <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
-                      단기 전망 1M
+                      단기 관찰 변수
                     </span>
                   </div>
                   <p className="text-[13px] text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
@@ -703,7 +703,7 @@ export default function PortfolioDiagnosisPage() {
                 <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
-                      중기 전망 3M
+                      중기 관찰 변수
                     </span>
                   </div>
                   <p className="text-[13px] text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
