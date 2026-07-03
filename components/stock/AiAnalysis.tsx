@@ -162,9 +162,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
   const signal     = data.signal ?? '중립·관망';
   const badgeCls   = SIGNAL_BADGE[signal] ?? SIGNAL_BADGE['중립·관망'];
-  const timeLabel  = data.isCached
-    ? '오늘 분석 (캐시)'
-    : new Date(data.createdAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) + ' 기준';
+  const timeLabel  = `리포트 생성 시각: ${new Date(data.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`;
 
   return (
     <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden relative">

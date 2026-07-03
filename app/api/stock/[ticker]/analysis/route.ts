@@ -11,6 +11,9 @@ import {
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, type Signal } from '@/lib/ai-compliance';
 
 export const dynamic = 'force-dynamic';
+// 캐시 없이 매 요청마다 KIS + Claude를 호출 — 관측된 응답 시간이 16~21초로
+// Vercel 기본 함수 타임아웃을 넘길 수 있어 명시적으로 늘림 (diagnosis, portfolio-diagnosis와 동일)
+export const maxDuration = 60;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -25,7 +28,6 @@ export interface AnalysisResult {
   resistance: number; // 52주 고가 — 서버에서 직접 계산 (AI가 지어내지 않음)
   support: number;     // 52주 저가 — 서버에서 직접 계산
   disclaimer: string;
-  isCached: boolean;
   createdAt: string;
 }
 
@@ -34,9 +36,9 @@ export interface AnalysisResult {
 // 자유 텍스트(summary/points)는 AI 재량이라 유명 대형주에서 실측값과 다른 숫자를 쓰는 경우가 확인됨
 // (예: SK하이닉스 — 실제 2,987,000원을 "298,700원"으로 서술).
 function correctPriceMentions(
-  result: Omit<AnalysisResult, 'isCached'>,
+  result: AnalysisResult,
   ticker: string,
-): Omit<AnalysisResult, 'isCached'> {
+): AnalysisResult {
   const checks: { re: RegExp; truth: number; label: string }[] = [
     { re: /현재가\s*([\d,]+)\s*원/g, truth: result.current_price, label: '현재가' },
     { re: /52주\s*고[가점]\s*([\d,]+)\s*원/g, truth: result.resistance, label: '52주 고가' },
@@ -75,33 +77,6 @@ export async function GET(
   { params }: { params: Promise<{ ticker: string }> },
 ) {
   const { ticker } = await params;
-
-  // 1. 당일 캐시 확인 — details 컬럼에 새 포맷 JSON 저장
-  const today = new Date().toISOString().split('T')[0];
-  try {
-    const { data: cached } = await supabase
-      .from('stock_analysis')
-      .select('summary, details, sentiment, created_at')
-      .eq('ticker', ticker)
-      .gte('created_at', today)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (cached?.details) {
-      try {
-        const parsed = JSON.parse(cached.details as string);
-        // signal 필드가 없으면 구 스키마(opinion/target_price 등) 캐시 → 재생성
-        if (parsed?.sections && parsed?.signal) {
-          return NextResponse.json({ ...parsed, isCached: true, createdAt: cached.created_at });
-        }
-      } catch {
-        // 구포맷 캐시 → 재생성
-      }
-    }
-  } catch {
-    // 테이블 없으면 건너뜀
-  }
 
   // 2. 종목 정보 조회
   let priceInfo: [
@@ -239,10 +214,10 @@ ${tradingValueBlock}
 
     const analysis = JSON.parse(jsonMatch[0]) as Omit<
       AnalysisResult,
-      'current_price' | 'resistance' | 'support' | 'disclaimer' | 'isCached' | 'createdAt'
+      'current_price' | 'resistance' | 'support' | 'disclaimer' | 'createdAt'
     >;
 
-    let result: Omit<AnalysisResult, 'isCached'> = {
+    let result: AnalysisResult = {
       ...analysis,
       current_price: price.price,
       resistance: info.week52High, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
@@ -251,10 +226,10 @@ ${tradingValueBlock}
       createdAt: new Date().toISOString(),
     };
 
-    // 4-1. 본문 서술 중 현재가/52주 고저가 불일치 교정 (캐시 저장 전에 적용)
+    // 4-1. 본문 서술 중 현재가/52주 고저가 불일치 교정 (저장 전에 적용)
     result = correctPriceMentions(result, ticker);
 
-    // 5. 캐시 저장
+    // 5. 히스토리/로그 목적으로 저장 (캐시로 재사용하지 않음 — 응답을 기다리지 않는 비동기 저장)
     supabase
       .from('stock_analysis')
       .upsert({
@@ -266,10 +241,10 @@ ${tradingValueBlock}
         created_at: result.createdAt,
       })
       .then(({ error }) => {
-        if (error) console.error('[ANALYSIS] 캐시 저장 실패:', error.message);
+        if (error) console.error('[ANALYSIS] 결과 저장 실패:', error.message);
       });
 
-    return NextResponse.json({ ...result, isCached: false });
+    return NextResponse.json(result);
   } catch (e) {
     console.error('[ANALYSIS] Claude 오류:', e);
     return NextResponse.json({ error: 'AI 분석 생성 실패' }, { status: 500 });
