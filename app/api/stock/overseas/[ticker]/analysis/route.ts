@@ -2,17 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
 import YahooFinanceClass from 'yahoo-finance2';
+import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, type Signal } from '@/lib/ai-compliance';
 
 export const dynamic = 'force-dynamic';
 
+export type { Signal };
+
 export interface OverseasAnalysisResult {
-  opinion: '매수' | '관망' | '매도';
-  target_price: number;
-  stop_loss: number;
+  signal: Signal;
   summary: string;
   sections: { title: string; points: string[] }[];
   tags: string[];
   current_price: number;
+  resistance: number; // 52주 고가 — 서버에서 직접 계산 (AI가 지어내지 않음)
+  support: number;    // 52주 저가 — 서버에서 직접 계산
   currency: string;
   disclaimer: string;
   isCached: boolean;
@@ -52,7 +55,8 @@ export async function GET(
     if (cached?.details) {
       try {
         const parsed = JSON.parse(cached.details as string);
-        if (parsed?.sections) {
+        // signal 필드가 없으면 구 스키마(opinion/target_price 등) 캐시 → 재생성
+        if (parsed?.sections && parsed?.signal) {
           return NextResponse.json({ ...parsed, isCached: true, createdAt: cached.created_at });
         }
       } catch { /* 구포맷 재생성 */ }
@@ -115,7 +119,7 @@ export async function GET(
     return `${(n / 1e6).toFixed(2)}M ${currency}`;
   };
 
-  const prompt = `당신은 15년 경력의 글로벌 주식 전문 애널리스트입니다. 아래 종목 데이터를 분석하고 반드시 JSON만 출력하세요. JSON 외 텍스트는 절대 포함하지 마세요.
+  const prompt = `아래 종목 데이터를 관찰된 사실 위주로 정리하고 반드시 JSON만 출력하세요. JSON 외 텍스트는 절대 포함하지 마세요.
 
 ## 종목 데이터
 - 종목명: ${quote.name} (${ticker})
@@ -127,24 +131,22 @@ export async function GET(
 
 ## 출력 형식 (JSON만)
 {
-  "opinion": "매수" | "관망" | "매도",
-  "target_price": 숫자 (${currency} 단위, 소수점 2자리 이하),
-  "stop_loss": 숫자 (${currency} 단위, 소수점 2자리 이하),
-  "summary": "투자 판단이 담긴 한줄 — 종목명 제외, 35자 이내",
+  "signal": "매수세 우위" | "중립·관망" | "차익실현 관찰" | "매도세 우위",
+  "summary": "관찰된 특징을 담은 한줄 (예: '데이터센터 수요 증가와 52주 저항선 부근 위치가 관찰됨') — 종목명 제외, 35자 이내, 지시형 표현 금지",
   "sections": [
     {
       "title": "📊 현재 시황",
       "points": [
-        "주가 흐름과 맥락 — 50자 이내",
+        "주가 흐름과 맥락을 담은 문장 — 50자 이내",
         "52주 위치와 기술적 의미 — 50자 이내"
       ]
     },
     {
-      "title": "🎯 투자 포인트",
+      "title": "🎯 관찰 포인트",
       "points": [
-        "근거 → 기대효과 구조 — 55자 이내",
-        "밸류에이션 또는 수급 근거 — 55자 이내",
-        "추가 촉매 — 55자 이내"
+        "관찰된 사실 → 시장 해석 구조 (예: 'AI 인프라 수요 증가가 확인되며, 매출 성장 지속 가능성이 있다는 해석도 있음') — 55자 이내",
+        "밸류에이션 또는 수급 관찰 — 55자 이내",
+        "추가 촉매 또는 뉴스 기반 관찰 — 55자 이내"
       ]
     },
     {
@@ -155,11 +157,11 @@ export async function GET(
       ]
     },
     {
-      "title": "📈 대응 전략",
+      "title": "📈 참고 지표",
       "points": [
-        "목표가 근거 포함 — 60자 이내",
-        "손절가 근거 포함 — 60자 이내",
-        "진입 전략 — 50자 이내"
+        "저항선 관찰 (예: '52주 고점 X 부근이 과거 저항선으로 작용해왔다는 특징이 있음') — 60자 이내",
+        "지지선 관찰 (예: '52주 저점 X 부근이 과거 지지선으로 작용해왔다는 특징이 있음') — 60자 이내",
+        "투자자 참고 지표 안내 — 50자 이내"
       ]
     }
   ],
@@ -167,14 +169,19 @@ export async function GET(
 }
 
 규칙:
-- target_price, stop_loss는 숫자 (문자열 X), ${currency} 단위
-- 각 point는 실제 데이터를 인용해 구체적으로 작성
-- opinion은 전체 분석과 일관성 있게 선택`;
+- ${COMPLIANCE_PRINCIPLE}
+- signal은 매수/매도 지시가 아니라 수급·가격 패턴에 대한 관찰 결과입니다 — 상승 모멘텀이 강하면 "매수세 우위", 하락 압력이 강하면 "매도세 우위", 단기 급등 후 차익실현 흐름이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요
+- "참고 지표" 섹션은 목표가·손절가·진입전략·분할매수 같은 지시형 문구를 쓰지 말고, 52주 고/저점이 과거 저항·지지로 작용해온 사실 서술과 투자자들이 일반적으로 참고하는 지표 안내로만 구성하세요
+- "정당화", "충분", "권고", "~하는 것이 좋습니다" 같은 결론형·권유형 단어를 쓰지 말고 "~라는 해석도 있습니다", "~라는 특징이 관찰됩니다" 형태를 사용하세요
+- 각 point는 실제 데이터(주가·PER·52주가·매출·마진 등)를 인용해 구체적으로 작성하고, 제공되지 않은 수치를 지어내지 마세요
+- signal은 전체 분석과 일관성 있게 선택
+- JSON 키 순서 및 구조 변경 금지`;
 
   try {
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 2000,
+      system: COMPLIANCE_PRINCIPLE,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -182,13 +189,18 @@ export async function GET(
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + text.slice(0, 80));
 
-    const analysis = JSON.parse(jsonMatch[0]);
+    const analysis = JSON.parse(jsonMatch[0]) as Omit<
+      OverseasAnalysisResult,
+      'current_price' | 'resistance' | 'support' | 'currency' | 'disclaimer' | 'isCached' | 'createdAt'
+    >;
+
     const result: Omit<OverseasAnalysisResult, 'isCached'> = {
       ...analysis,
       current_price: price,
+      resistance: hi52, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
+      support: lo52,    // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
       currency,
-      disclaimer:
-        '본 분석은 AI가 공개 정보를 바탕으로 생성한 참고 자료입니다. 투자 판단의 책임은 본인에게 있습니다.',
+      disclaimer: INVESTMENT_DISCLAIMER,
       createdAt: new Date().toISOString(),
     };
 
@@ -199,10 +211,7 @@ export async function GET(
         summary: result.summary,
         details: JSON.stringify(result),
         keywords: result.tags,
-        sentiment:
-          result.opinion === '매수' ? 'bullish'
-          : result.opinion === '매도' ? 'bearish'
-          : 'neutral',
+        sentiment: signalToSentiment(result.signal),
         created_at: result.createdAt,
       })
       .then(({ error }) => {

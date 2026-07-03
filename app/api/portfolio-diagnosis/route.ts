@@ -6,14 +6,18 @@ import {
   collectStockAnalysisData,
   buildTechnicalBlock,
   buildInvestorBlock,
+  pickRelevantNews,
+  computeRiskMetrics,
 } from '@/lib/stock-analysis-data';
 import type { StockAnalysisData } from '@/lib/stock-analysis-data';
+import { fetchDailyChart, fetchIndexRangeChange } from '@/lib/kis-api';
+import { COMPLIANCE_PRINCIPLE, type Signal } from '@/lib/ai-compliance';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
 const claude        = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const MONTHLY_LIMIT       = 30;
+const MONTHLY_LIMIT       = 20;
 const BASIC_MONTHLY_LIMIT = 1;
 const MAX_HOLDINGS        = 10;
 
@@ -40,7 +44,7 @@ async function checkPlan(
   userId: string,
   email: string | undefined,
 ): Promise<'admin' | 'pro' | 'basic' | 'free'> {
-  if (email === 'saepian2@gmail.com') return 'admin';
+  if (email === process.env.ADMIN_EMAIL) return 'admin';
   try {
     const { data } = await supabase.from('users').select('plan').eq('id', userId).maybeSingle();
     const plan = data?.plan;
@@ -102,10 +106,14 @@ interface EnrichedHolding extends HoldingInput {
   currentPrice: number; invested: number; value: number;
   profit: number; profitRate: number;
   analysisData: StockAnalysisData | null;
+  relevantNews: { title: string; summary?: string; date?: string; url?: string }[];
+  mdd: number | null;         // 최근 3개월 최대낙폭(%), 음수
+  volatility: number | null;  // 최근 3개월 일별 변동성(표준편차, %)
 }
 
 interface StockAiResult {
-  ticker: string; action: string; reason: string; sector: string;
+  ticker: string; signal: Signal; reason: string; sector: string;
+  newsBasis: 'news' | 'estimated';
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -113,8 +121,16 @@ interface StockAiResult {
 function parseAiJson<T>(text: string, fallback: T): T {
   const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   const match = clean.match(/\{[\s\S]*\}/);
-  if (!match) return fallback;
-  try { return JSON.parse(match[0]); } catch { return fallback; }
+  if (!match) {
+    console.error('[PORTFOLIO-DIAGNOSIS] AI 응답에서 JSON을 찾지 못함, 길이:', text.length);
+    return fallback;
+  }
+  try {
+    return JSON.parse(match[0]);
+  } catch (e) {
+    console.error('[PORTFOLIO-DIAGNOSIS] JSON.parse 실패 (응답이 잘렸을 가능성):', e instanceof Error ? e.message : e);
+    return fallback;
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -122,7 +138,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   return Promise.race([promise, timer]);
 }
 
-// 종목 1개 프롬프트 — PER·52주위치·수급·뉴스 1개만 포함
+// 종목 1개 프롬프트 — PER·52주위치·수급·관련도 상위 뉴스 포함
 function buildStockPrompt(h: EnrichedHolding): string {
   const ad  = h.analysisData;
   const pr  = h.profitRate >= 0 ? '+' : '';
@@ -137,7 +153,17 @@ function buildStockPrompt(h: EnrichedHolding): string {
     if (tech.length)        lines.push(tech.join(' | '));
     const inv = buildInvestorBlock(ad);
     if (inv && inv !== '데이터 없음') lines.push(`수급: ${inv.replace(/\n/g, ' ')}`);
-    if (ad.news?.[0])       lines.push(`뉴스: ${ad.news[0].title}`);
+
+    if (h.relevantNews.length > 0) {
+      const newsLines = h.relevantNews
+        .map(n => `${n.title}${n.summary ? ` — ${n.summary}` : ''}`)
+        .join(' / ');
+      lines.push(`뉴스: ${newsLines}`);
+      lines.push('(위 뉴스를 근거로 reason을 작성하되, 뉴스에 없는 내용은 지어내지 말 것)');
+    } else {
+      lines.push('뉴스: 관련 뉴스 없음 — reason은 수급·기술적 요인으로만 작성하고 뉴스를 지어내지 말 것');
+    }
+
     if (!ad.operatingProfit && !ad.revenue) {
       lines.push('재무 데이터 없음 - 수급과 뉴스 기반으로만 분석');
     }
@@ -151,22 +177,28 @@ function buildStockPrompt(h: EnrichedHolding): string {
 
 async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
   const prompt =
-    `다음 한국 주식을 분석하고 JSON만 출력하세요.\n\n` +
+    `다음 한국 주식의 관찰된 데이터를 분석하고 JSON만 출력하세요.\n\n` +
     buildStockPrompt(h) +
-    `\n\n{"ticker":"${h.ticker}","action":"매수"|"보유"|"분할매도"|"전량매도","reason":"2문장 이내 근거","sector":"실제업종명"}`;
+    `\n\n{"ticker":"${h.ticker}","signal":"매수세 우위"|"중립·관망"|"차익실현 관찰"|"매도세 우위","reason":"2문장 이내, 관찰된 사실 설명","sector":"실제업종명"}\n\n` +
+    `signal은 매수/매도 지시가 아니라 현재 수급·가격 패턴에 대한 관찰 결과입니다 — ` +
+    `외국인·기관 매수세가 우위면 "매수세 우위", 매도세가 우위면 "매도세 우위", ` +
+    `수익률이 높고 밸류에이션 부담이 겹쳐 차익실현 패턴이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요.`;
+
+  const newsBasis: 'news' | 'estimated' = h.relevantNews.length > 0 ? 'news' : 'estimated';
 
   try {
     const msg = await claude.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 2000,
-      system: '한국주식 애널리스트. 수급·밸류에이션 데이터 기반 간결한 종목 분석. JSON만 출력. reason 작성 시 종목명 사용, 숫자 종목코드 출력 금지.',
+      system: `${COMPLIANCE_PRINCIPLE} 한국주식 데이터 정리자로서, 수급·밸류에이션·뉴스 데이터를 근거로 간결하게 관찰 사실을 정리합니다. 뉴스가 있으면 그 내용을 근거로 설명하고, 없으면 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요. JSON만 출력. reason 작성 시 종목명 사용, 숫자 종목코드 출력 금지.`,
       messages: [{ role: 'user', content: prompt }],
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
-    return parseAiJson<StockAiResult>(text, { ticker: h.ticker, action: '보유', reason: '', sector: '' });
+    const parsed = parseAiJson<Omit<StockAiResult, 'newsBasis'>>(text, { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '' });
+    return { ...parsed, newsBasis };
   } catch (e) {
     console.error(`[PORTFOLIO-DIAGNOSIS] 종목 분석 실패 ${h.ticker}:`, e);
-    return { ticker: h.ticker, action: '보유', reason: '', sector: '' };
+    return { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '', newsBasis };
   }
 }
 
@@ -175,43 +207,98 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
 async function analyzePortfolioSummary(
   stockResults: StockAiResult[],
   nameMap: Record<string, string>,   // ticker → 종목명
+  newsMap: Record<string, { title: string; summary?: string }[]>, // ticker → 관련도 상위 뉴스
   totalProfitRate: number,
   holdingCount: number,
-): Promise<{ summary: string; sectors: unknown[]; suggestions: string[] }> {
+  benchmark: { portfolioProfitRate: number; kospiChangeRate: number } | null,
+  portfolioFacts: { lossCount: number; lossWeightPct: number; riskiestLines: string[] },
+): Promise<{
+  summary: string; sectors: unknown[]; suggestions: string[];
+  riskFactors: string[]; opportunityFactors: string[];
+  shortTermOutlook: string; midTermOutlook: string;
+}> {
   // 종목명-종목코드 매핑 테이블
   const mappingTable = Object.entries(nameMap)
     .map(([ticker, name]) => `${ticker}: ${name}`)
     .join(', ');
 
-  // 종목명으로 라인 구성
+  // 종목명 + 뉴스 현황으로 라인 구성
   const lines = stockResults
-    .map(s => `${nameMap[s.ticker] ?? s.ticker}(${s.sector || '기타'}): ${s.action} — ${s.reason}`)
+    .map(s => {
+      const news = newsMap[s.ticker] ?? [];
+      const newsPart = news.length > 0 ? ` | 뉴스: ${news[0].title}` : ' | 뉴스: 없음(수급·기술적 요인)';
+      return `${nameMap[s.ticker] ?? s.ticker}(${s.sector || '기타'}): ${s.signal} — ${s.reason}${newsPart}`;
+    })
     .join('\n');
 
+  const benchmarkLine = benchmark
+    ? `\n벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 포트폴리오 수익률 ${benchmark.portfolioProfitRate.toFixed(2)}% vs 같은 기간 KOSPI 등락률 ${benchmark.kospiChangeRate.toFixed(2)}%`
+    : '';
+
+  const riskFactsLine =
+    `\n포트폴리오 리스크 참고 데이터:\n` +
+    `- 손실 종목: ${portfolioFacts.lossCount}/${holdingCount}개 (평가금액 기준 ${portfolioFacts.lossWeightPct.toFixed(1)}%)` +
+    (portfolioFacts.riskiestLines.length > 0 ? `\n- 변동성 참고: ${portfolioFacts.riskiestLines.join(', ')}` : '');
+
   const prompt =
-    `포트폴리오 종합 분석 (JSON만 출력)\n\n` +
+    `포트폴리오 관찰 데이터 정리 (JSON만 출력)\n\n` +
     `[종목코드→종목명 매핑] ${mappingTable}\n\n` +
-    `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개\n` +
-    `${lines}\n\n` +
-    `{"summary":"4-5문장 종합 평가(전체 수익률·강약점·수급·전략)","sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],"suggestions":["구체적 제안1","제안2","제안3","제안4"]}\n\n` +
+    `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개${benchmarkLine}\n` +
+    `${lines}\n${riskFactsLine}\n\n` +
+    `{"summary":"4-5문장 종합 설명(전체 수익률·구조적 특징·수급 현황, 뉴스가 있는 종목은 그 이슈를 구체적으로 언급, 벤치마크 수치가 있으면 사실로만 1회 언급)",` +
+    `"sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],` +
+    `"riskFactors":["포트폴리오 전체 관점의 리스크 요인1(수치 포함, 손실 종목 비중·섹터 과집중·벤치마크 대비 부진·개별 종목 변동성 등 근거)","요인2","요인3"],` +
+    `"opportunityFactors":["포트폴리오 전체 관점의 기회 요인1(수치 포함)","요인2","요인3"],` +
+    `"shortTermOutlook":"포트폴리오 관점 단기(1개월) 관찰 — 섹터 업황·수급 흐름 기준, 2문장",` +
+    `"midTermOutlook":"포트폴리오 관점 중기(3개월) 관찰 — 섹터 업황·리밸런싱 관점 시나리오, 2문장",` +
+    `"suggestions":["참고할 만한 관찰 포인트1","포인트2","포인트3","포인트4"]}\n\n` +
     `규칙:\n` +
     `- sectors weight 합계=100\n` +
-    `- suggestions는 구체적 전략(단순 모니터링 금지)\n` +
-    `- summary와 suggestions에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
+    `- riskFactors/opportunityFactors는 개별 종목이 아니라 포트폴리오 전체 구조(손실 비중·섹터 편중·벤치마크 대비·변동성)를 보는 관점으로 작성하세요\n` +
+    `- shortTermOutlook/midTermOutlook도 개별 종목이 아니라 포트폴리오 전체 관점으로 작성하고, 목표가·손절가·매수매도 지시는 금지하세요\n` +
+    `- suggestions는 "이렇게 하세요" 식 지시가 아니라, 관찰된 데이터 특징과 투자자들이 일반적으로 참고하는 지표를 안내하는 정보 형태로 작성\n` +
+    `- 뉴스가 있는 종목은 그 이슈를 근거로 언급하고, 뉴스가 없는 종목은 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요\n` +
+    `- 벤치마크 수치는 판단 없이 사실 비교로만 1회 언급(예: "~보다 높습니다/낮습니다" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)\n` +
+    `- summary·suggestions·riskFactors·opportunityFactors·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
 
   try {
     const msg = await claude.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system: '한국주식 포트폴리오 매니저. 섹터분석·리스크분산·전략수립 전문. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.',
+      max_tokens: 4096,
+      system: `${COMPLIANCE_PRINCIPLE} 한국주식 포트폴리오 데이터를 섹터·수급·뉴스 관점에서 있는 그대로 정리하는 정보 제공자입니다. 숫자(PER·수급 등) 근거와 실제 뉴스 이슈를 함께 담아 설명하되, 무엇을 하라고 지시하지 마세요. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.`,
       messages: [{ role: 'user', content: prompt }],
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
-    return parseAiJson(text, { summary: '', sectors: [], suggestions: [] });
+    return parseAiJson(text, {
+      summary: '', sectors: [], suggestions: [],
+      riskFactors: [], opportunityFactors: [], shortTermOutlook: '', midTermOutlook: '',
+    });
   } catch (e) {
     console.error('[PORTFOLIO-DIAGNOSIS] 종합 분석 실패:', e);
-    return { summary: '', sectors: [], suggestions: [] };
+    return {
+      summary: '', sectors: [], suggestions: [],
+      riskFactors: [], opportunityFactors: [], shortTermOutlook: '', midTermOutlook: '',
+    };
   }
+}
+
+// 여러 종목에 동일 뉴스가 매칭된 경우(예: 섹터 뉴스가 복수 종목에 매칭) url(없으면 정규화된 제목) 기준으로 병합
+function buildNewsDigest(
+  enriched: { name: string; relevantNews: { title: string; summary?: string; date?: string; url?: string }[] }[],
+): { title: string; summary?: string; url?: string; stocks: string[] }[] {
+  const map = new Map<string, { title: string; summary?: string; url?: string; stocks: string[] }>();
+  for (const h of enriched) {
+    for (const n of h.relevantNews) {
+      const key = (n.url && n.url.trim()) || n.title.trim().toLowerCase();
+      const existing = map.get(key);
+      if (existing) {
+        if (!existing.stocks.includes(h.name)) existing.stocks.push(h.name);
+      } else {
+        map.set(key, { title: n.title, summary: n.summary, url: n.url, stocks: [h.name] });
+      }
+    }
+  }
+  return [...map.values()];
 }
 
 // ── SSE helper ──────────────────────────────────────────────────────────────
@@ -283,11 +370,18 @@ export async function POST(request: NextRequest) {
         send(controller, { type: 'progress', label: '종목 데이터 수집 중...' });
         console.log(`[PORTFOLIO-DIAGNOSIS] 데이터 수집 시작 (${holdings.length}개 종목)`);
 
-        const analysisResults = await Promise.allSettled(
-          holdings.map(h =>
-            withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
+        const [analysisResults, chartResults] = await Promise.all([
+          Promise.allSettled(
+            holdings.map(h =>
+              withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
+            ),
           ),
-        );
+          Promise.allSettled(
+            holdings.map(h =>
+              withTimeout(fetchDailyChart(h.ticker, '3M'), 8000, null)
+            ),
+          ),
+        ]);
 
         const enriched: EnrichedHolding[] = holdings.map((h, i) => {
           const ar           = analysisResults[i];
@@ -298,13 +392,63 @@ export async function POST(request: NextRequest) {
           const value        = currentPrice * h.quantity;
           const profit       = value - invested;
           const profitRate   = h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : 0;
-          return { ...h, name: resolvedName, currentPrice, invested, value, profit, profitRate, analysisData: ad };
+          const relevantNews = ad ? pickRelevantNews(ad.news ?? [], resolvedName, ad.sector, 2) : [];
+
+          const cr     = chartResults[i];
+          const closes = (cr.status === 'fulfilled' && cr.value) ? cr.value.map(p => p.close) : [];
+          const risk   = computeRiskMetrics(closes);
+
+          return {
+            ...h, name: resolvedName, currentPrice, invested, value, profit, profitRate,
+            analysisData: ad, relevantNews,
+            mdd:        risk?.mdd        ?? null,
+            volatility: risk?.volatility ?? null,
+          };
         });
+
+        // 벤치마크 비교: 편입 종목 평균 매수일 ~ 현재 KOSPI 등락률 (매수일 입력된 종목이 있을 때만)
+        let benchmark: {
+          portfolioProfitRate: number; kospiChangeRate: number;
+          fromDate: string; toDate: string;
+        } | null = null;
+        try {
+          const buyDates = holdings
+            .map(h => h.buyDate)
+            .filter((d): d is string => !!d)
+            .map(d => new Date(d).getTime())
+            .filter(t => !isNaN(t));
+          if (buyDates.length > 0) {
+            const avgBuyDate = new Date(buyDates.reduce((s, t) => s + t, 0) / buyDates.length);
+            const kospi = await withTimeout(fetchIndexRangeChange('0001', avgBuyDate, new Date()), 8000, null);
+            if (kospi) {
+              benchmark = {
+                portfolioProfitRate: 0, // 아래에서 totalProfitRate 계산 후 채움
+                kospiChangeRate: parseFloat(kospi.changeRate.toFixed(2)),
+                fromDate: kospi.startDate,
+                toDate:   kospi.endDate,
+              };
+            }
+          }
+        } catch (e) {
+          console.error('[PORTFOLIO-DIAGNOSIS] 벤치마크 비교 실패:', e);
+        }
 
         const totalInvested   = enriched.reduce((s, h) => s + h.invested, 0);
         const totalValue      = enriched.reduce((s, h) => s + h.value, 0);
         const totalProfit     = totalValue - totalInvested;
         const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
+
+        if (benchmark) benchmark.portfolioProfitRate = parseFloat(totalProfitRate.toFixed(2));
+
+        // 포트폴리오 리스크 참고 데이터 (Stage 2 프롬프트에 사실로 주입)
+        const lossHoldings   = enriched.filter(h => h.profitRate < 0);
+        const lossCount      = lossHoldings.length;
+        const lossWeightPct  = totalValue > 0 ? (lossHoldings.reduce((s, h) => s + h.value, 0) / totalValue) * 100 : 0;
+        const riskiestLines  = [...enriched]
+          .filter(h => h.mdd != null)
+          .sort((a, b) => (a.mdd as number) - (b.mdd as number))
+          .slice(0, 2)
+          .map(h => `${h.name} 최근 3개월 MDD ${(h.mdd as number).toFixed(1)}%`);
 
         // Stage 1: 종목별 개별 분석 (병렬)
         send(controller, { type: 'progress', label: `${enriched.length}개 종목 개별 분석 중...` });
@@ -316,11 +460,21 @@ export async function POST(request: NextRequest) {
         send(controller, { type: 'progress', label: '포트폴리오 종합 분석 중...' });
         console.log('[PORTFOLIO-DIAGNOSIS] Stage 2 시작 — 종합 분석');
 
-        // ticker → 종목명 매핑 (AI가 summary/suggestions에 종목명 사용하도록)
+        // ticker → 종목명 / 관련 뉴스 매핑 (AI가 summary/suggestions에 종목명·뉴스 근거 사용하도록)
         const nameMap: Record<string, string> = {};
-        enriched.forEach(h => { nameMap[h.ticker] = h.name; });
+        const newsMap: Record<string, { title: string; summary?: string }[]> = {};
+        enriched.forEach(h => {
+          nameMap[h.ticker] = h.name;
+          newsMap[h.ticker] = h.relevantNews;
+        });
 
-        const summary = await analyzePortfolioSummary(stockResults, nameMap, totalProfitRate, enriched.length);
+        const summary = await analyzePortfolioSummary(
+          stockResults, nameMap, newsMap, totalProfitRate, enriched.length, benchmark,
+          { lossCount, lossWeightPct, riskiestLines },
+        );
+
+        // 뉴스 동향 집계 (여러 종목에 매칭된 동일 뉴스는 병합)
+        const newsDigest = buildNewsDigest(enriched);
 
         // 결과 병합
         const mergedHoldings = enriched.map(h => {
@@ -335,9 +489,13 @@ export async function POST(request: NextRequest) {
             invested:     h.invested,
             profit:       h.profit,
             profitRate:   parseFloat(h.profitRate.toFixed(2)),
-            action:       aiH?.action ?? '보유',
+            signal:       aiH?.signal ?? '중립·관망',
             reason:       aiH?.reason ?? '',
             sector:       aiH?.sector ?? '',
+            newsBasis:    aiH?.newsBasis ?? (h.relevantNews.length > 0 ? 'news' : 'estimated'),
+            news:         h.relevantNews,
+            mdd:          h.mdd,
+            volatility:   h.volatility,
           };
         });
 
@@ -346,19 +504,28 @@ export async function POST(request: NextRequest) {
           totalValue,
           totalProfit,
           totalProfitRate: parseFloat(totalProfitRate.toFixed(2)),
-          summary:     summary.summary     ?? '',
-          sectors:     summary.sectors     ?? [],
-          holdings:    mergedHoldings,
-          suggestions: summary.suggestions ?? [],
+          summary:            summary.summary            ?? '',
+          sectors:            summary.sectors            ?? [],
+          holdings:           mergedHoldings,
+          suggestions:        summary.suggestions        ?? [],
+          riskFactors:        summary.riskFactors        ?? [],
+          opportunityFactors: summary.opportunityFactors ?? [],
+          shortTermOutlook:   summary.shortTermOutlook    || '',
+          midTermOutlook:     summary.midTermOutlook      || '',
+          newsDigest,
+          benchmark,
         };
 
         // DB 저장
         try {
-          await supabase.from('portfolio_diagnosis').insert({
+          const { error: insertError } = await supabase.from('portfolio_diagnosis').insert({
             user_id: user.id,
             result:  finalResult,
           });
-        } catch { /* ignore */ }
+          if (insertError) console.error('[PORTFOLIO-DIAGNOSIS] DB 저장 실패:', insertError);
+        } catch (dbErr) {
+          console.error('[PORTFOLIO-DIAGNOSIS] DB 저장 실패:', dbErr);
+        }
 
         console.log('[PORTFOLIO-DIAGNOSIS] 완료');
         send(controller, { type: 'result', data: finalResult });

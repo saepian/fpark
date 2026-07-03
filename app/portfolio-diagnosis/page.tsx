@@ -44,9 +44,20 @@ interface HoldingResult {
   invested:     number;
   profit:       number;
   profitRate:   number;
-  action:       '매수' | '보유' | '분할매도' | '전량매도';
+  signal:       '매수세 우위' | '중립·관망' | '차익실현 관찰' | '매도세 우위';
   reason:       string;
   sector:       string;
+  newsBasis?:   'news' | 'estimated';
+  news?:        { title: string; summary?: string; url?: string }[];
+  mdd?:         number | null;
+  volatility?:  number | null;
+}
+
+interface NewsDigestItem {
+  title:   string;
+  summary?: string;
+  url?:    string;
+  stocks:  string[];
 }
 
 interface PortfolioResult {
@@ -58,17 +69,29 @@ interface PortfolioResult {
   sectors:          Sector[];
   holdings:         HoldingResult[];
   suggestions:      string[];
+  riskFactors?:        string[];
+  opportunityFactors?: string[];
+  shortTermOutlook?:   string;
+  midTermOutlook?:     string;
+  newsDigest?:         NewsDigestItem[];
+  benchmark?: {
+    portfolioProfitRate: number;
+    kospiChangeRate: number;
+    fromDate: string;
+    toDate: string;
+  } | null;
 }
 
 interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ACTION_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
-  '매수':    { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
-  '보유':    { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
-  '분할매도': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
-  '전량매도': { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
+// 매수/매도 지시가 아닌 관찰된 수급 패턴을 나타내는 라벨 스타일
+const SIGNAL_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
+  '매수세 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
+  '중립·관망':     { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
+  '차익실현 관찰': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
+  '매도세 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
 };
 
 const SECTOR_COLORS = [
@@ -387,9 +410,9 @@ export default function PortfolioDiagnosisPage() {
             {[
               '최대 10종목 동시 분석',
               '섹터 편중도 자동 계산',
-              '종목별 AI 매매 액션',
-              '포트폴리오 개선 제안',
-              '월 30회 사용 가능',
+              '종목별 AI 관찰 리포트',
+              '참고할 만한 관찰 포인트',
+              '월 20회 사용 가능',
             ].map(f => (
               <div key={f} className="flex items-center gap-2">
                 <span className="text-emerald-400 text-xs">✓</span>
@@ -406,7 +429,7 @@ export default function PortfolioDiagnosisPage() {
           >
             요금제 보기 →
           </button>
-          <p className="text-[11px] text-slate-500">Basic 월 1회 · Pro 월 30회</p>
+          <p className="text-[11px] text-slate-500">Basic 월 1회 · Pro 월 20회</p>
           <button
             onClick={() => setShowUpgradeModal(false)}
             className="text-[12px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
@@ -457,6 +480,15 @@ export default function PortfolioDiagnosisPage() {
                 <Printer className="w-3 h-3" /> PRINT REPORT
               </button>
             </div>
+          </div>
+
+          {/* 상단 면책 안내 (눈에 띄게) */}
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 mb-5">
+            <span className="text-amber-400 text-sm mt-0.5 shrink-0">ⓘ</span>
+            <p className="text-[12px] text-amber-200/90 leading-relaxed">
+              본 리포트는 투자 판단에 참고할 수 있는 정보를 제공할 뿐, 투자자문이나 매매 권유가 아닙니다.
+              투자 결정과 그 결과에 대한 책임은 투자자 본인에게 있습니다.
+            </p>
           </div>
 
           {/* 1행: 총 수익률 현황 */}
@@ -515,6 +547,29 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </div>
 
+          {/* 3행: 벤치마크 비교 (사실 수치만, 판단 없음) */}
+          {result.benchmark && (
+            <Card title="벤치마크 비교 (참고용 수치)" className="mb-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[10px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
+                  <p className={`text-lg font-mono font-bold ${result.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.benchmark.portfolioProfitRate)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[10px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
+                  <p className={`text-lg font-mono font-bold ${result.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.benchmark.kospiChangeRate)}
+                  </p>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-3">
+                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (편입 종목 평균 매수일 기준) · 판단이 아닌 수치 비교 정보입니다.
+              </p>
+            </Card>
+          )}
+
           {/* 3행: 섹터 편중도 */}
           <Card title="섹터 편중도 분석" className="mb-4">
             <div className="flex flex-col gap-3">
@@ -550,11 +605,40 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 4행: 종목별 AI 액션 */}
-          <Card title="종목별 AI 액션" className="mb-4">
+          {/* 4행: 종목별 관찰 지표 */}
+          <Card title="종목별 관찰 지표" className="mb-4">
+            {/* 수급 비율 세그먼트 바 (종목별 signal 라벨 집계, 백엔드 추가 호출 없음) */}
+            {(() => {
+              const counts = (Object.keys(SIGNAL_CFG) as (keyof typeof SIGNAL_CFG)[]).map(key => ({
+                key,
+                count: result.holdings.filter(h => h.signal === key).length,
+              })).filter(c => c.count > 0);
+              const total = result.holdings.length;
+              if (total === 0) return null;
+              return (
+                <div className="mb-4">
+                  <div className="flex h-2 rounded-full overflow-hidden border border-slate-700/40">
+                    {counts.map(c => (
+                      <div
+                        key={c.key}
+                        className={SIGNAL_CFG[c.key].bg.replace('/10', '')}
+                        style={{ width: `${(c.count / total) * 100}%` }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                    {counts.map(c => (
+                      <span key={c.key} className={`text-[11px] font-medium ${SIGNAL_CFG[c.key].color}`}>
+                        {SIGNAL_CFG[c.key].icon} {c.key} {c.count}종목
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             <div className="flex flex-col divide-y divide-slate-700/40">
               {result.holdings.map(h => {
-                const cfg = ACTION_CFG[h.action] ?? ACTION_CFG['보유'];
+                const cfg = SIGNAL_CFG[h.signal] ?? SIGNAL_CFG['중립·관망'];
                 const hUp = h.profitRate >= 0;
                 return (
                   <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
@@ -581,15 +665,22 @@ export default function PortfolioDiagnosisPage() {
                           <p className="text-[13px] font-mono text-slate-300">{fmt(h.value)}</p>
                         </div>
                       </div>
-                      {/* 액션 */}
+                      {/* 관찰 라벨 */}
                       <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold ${cfg.color} ${cfg.bg} border ${cfg.border}`}>
-                          {cfg.icon} {h.action}
+                          {cfg.icon} {h.signal}
                         </span>
                       </div>
                     </div>
                     {h.reason && (
                       <p className="mt-2 text-[12px] text-slate-500 leading-relaxed pl-0 md:pl-44">{h.reason}</p>
+                    )}
+                    {(h.mdd != null || h.volatility != null) && (
+                      <p className="mt-1 text-[11px] text-slate-600 pl-0 md:pl-44">
+                        {h.mdd != null && `최근 3개월 최대 ${h.mdd.toFixed(1)}% 하락 이력`}
+                        {h.mdd != null && h.volatility != null && ' · '}
+                        {h.volatility != null && `일별 변동성(표준편차) ${h.volatility.toFixed(2)}%`}
+                      </p>
                     )}
                   </div>
                 );
@@ -597,8 +688,109 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 5행: 포트폴리오 개선 제안 (전체 펼침) */}
-          <Card title="포트폴리오 개선 제안" className="mb-4" data-suggestions-section>
+          {/* 4-1행: 포트폴리오 Risk/Opportunity Factors */}
+          {((result.riskFactors?.length ?? 0) > 0 || (result.opportunityFactors?.length ?? 0) > 0) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                    Risk Factors
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {(result.riskFactors ?? []).map((line, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                    Opportunity Factors
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {(result.opportunityFactors ?? []).map((line, i) => (
+                    <div key={i} className="flex gap-2">
+                      <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 4-2행: 포트폴리오 단기/중기 전망 */}
+          {(result.shortTermOutlook || result.midTermOutlook) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              {result.shortTermOutlook && (
+                <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
+                      단기 전망 1M
+                    </span>
+                  </div>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
+                </div>
+              )}
+              {result.midTermOutlook && (
+                <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
+                      중기 전망 3M
+                    </span>
+                  </div>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 4-3행: 뉴스 동향 (종목별 매칭 뉴스 집계, 중복 병합) */}
+          {(result.newsDigest?.length ?? 0) > 0 && (
+            <Card title="뉴스 동향" className="mb-4">
+              <div className="flex flex-col divide-y divide-slate-700/40">
+                {result.newsDigest!.map((n, i) => {
+                  const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
+                  return (
+                    <a
+                      key={i}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-3.5 first:pt-0 last:pb-0 group cursor-pointer block"
+                    >
+                      <div className="flex gap-2.5">
+                        <span className="mt-1 text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                            {n.stocks.map(s => (
+                              <span key={s} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[13px] font-medium text-white leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
+                            {n.title}
+                          </p>
+                          {n.summary && (
+                            <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.summary}</p>
+                          )}
+                        </div>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {/* 5행: 참고할 만한 관찰 포인트 (전체 펼침) */}
+          <Card title="참고할 만한 관찰 포인트" className="mb-4" data-suggestions-section>
             <div className="flex flex-col gap-3" data-suggestions-list>
               {(result.suggestions ?? []).filter(Boolean).map((s, i) => (
                 <div key={i} data-suggestions-item className="flex gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
@@ -613,7 +805,8 @@ export default function PortfolioDiagnosisPage() {
 
           {/* 면책 */}
           <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6 px-4">
-            본 분석은 AI가 공개 정보를 바탕으로 생성한 참고 자료입니다. 투자 판단의 책임은 본인에게 있습니다.
+            본 리포트는 투자 판단에 참고할 수 있는 정보를 제공할 뿐, 투자자문이나 매매 권유가 아닙니다.
+            투자 결정과 그 결과에 대한 책임은 투자자 본인에게 있습니다.
           </p>
 
           <button
@@ -648,6 +841,7 @@ export default function PortfolioDiagnosisPage() {
             </p>
             <h1 className="text-2xl font-bold text-white">포트폴리오 전체 진단</h1>
             <p className="text-[13px] text-slate-500 mt-1">여러 종목을 한번에 입력하고 AI가 전체 포트폴리오를 종합 진단합니다.</p>
+            <p className="text-[13px] text-slate-500 mt-1">국내 종목만 지원됩니다 · 해외 종목 진단은 준비 중입니다</p>
           </div>
           {/* 잔여 횟수 */}
           <div className="flex items-center gap-2 bg-[#1a1f2e] border border-slate-700/50 rounded-xl px-4 py-2.5 shrink-0">
@@ -837,7 +1031,7 @@ export default function PortfolioDiagnosisPage() {
           {(!isPro && !isBasic)
             ? 'Basic 또는 Pro 플랜으로 업그레이드하면 포트폴리오 전체 진단을 이용할 수 있습니다.'
             : isPro
-              ? `월 30회 · 이번 달 ${remaining ?? 0}회 남음`
+              ? `월 20회 · 이번 달 ${remaining ?? 0}회 남음`
               : `월 1회 · 이번 달 ${remaining ?? 0}회 남음`}
         </p>
         </div>{/* ← 좌측 컬럼 닫기 */}

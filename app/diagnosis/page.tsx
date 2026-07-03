@@ -3,76 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
-import { Search, Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown } from 'lucide-react';
+import { Search, Sparkles } from 'lucide-react';
 
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
-import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
-
-interface DiagnosisResult {
-  summary: string;
-  currentPrice: number;
-  avgPrice: number;
-  quantity: number;
-  profitRate: number;
-  profitAmount: number;
-  news: { title: string; description: string; url?: string }[];
-  institutionalFlow: string;
-  foreignFlow: string;
-  recommendation: '홀딩' | '매도' | '분할매도' | '추가매수' | '손절';
-  reasons: string[];
-  technicalAnalysis: string[];
-  targetPrice: number;
-  stopLoss: number;
-  riskFactors: string[];
-  opportunityFactors: string[];
-  flowType?: 'BUY' | 'SELL' | 'NEUTRAL';
-  flowPercentage?: number;
-  shortTermOutlook?: string;
-  midTermOutlook?: string;
-}
-
-function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
-  const r = 54;
-  const circ = 2 * Math.PI * r;
-  const filled = circ * (percent / 100);
-  const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
-  const label = type === 'BUY' ? 'BUY FLOW' : type === 'SELL' ? 'SELL FLOW' : 'NEUTRAL';
-
-  return (
-    <svg width="148" height="148" viewBox="0 0 148 148">
-      {/* 배경 링 */}
-      <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
-      {/* 컬러 아크 */}
-      <circle
-        cx="74" cy="74" r={r}
-        fill="none"
-        stroke={color}
-        strokeWidth="14"
-        strokeLinecap="round"
-        strokeDasharray={`${filled} ${circ}`}
-        transform="rotate(-90 74 74)"
-        style={{ filter: `drop-shadow(0 0 6px ${color}66)` }}
-      />
-      {/* 퍼센트 */}
-      <text x="74" y="69" textAnchor="middle" fill={color} fontSize="22" fontWeight="800" fontFamily="monospace">
-        {percent}%
-      </text>
-      {/* 라벨 */}
-      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="600" letterSpacing="1">
-        {label}
-      </text>
-    </svg>
-  );
-}
-
-const REC_CONFIG: Record<string, { icon: string; color: string; bg: string; border: string; glow: string }> = {
-  홀딩:   { icon: '◆', color: 'text-blue-300',   bg: 'bg-blue-500/10',   border: 'border-blue-500/30',   glow: 'shadow-blue-500/20' },
-  매도:   { icon: '▼', color: 'text-red-300',    bg: 'bg-red-500/10',    border: 'border-red-500/30',    glow: 'shadow-red-500/20' },
-  분할매도: { icon: '▽', color: 'text-orange-300', bg: 'bg-orange-500/10', border: 'border-orange-500/30', glow: 'shadow-orange-500/20' },
-  추가매수: { icon: '▲', color: 'text-emerald-300',bg: 'bg-emerald-500/10',border: 'border-emerald-500/30',glow: 'shadow-emerald-500/20' },
-  손절:   { icon: '✕', color: 'text-red-400',    bg: 'bg-red-700/10',    border: 'border-red-700/30',    glow: 'shadow-red-700/20' },
-};
+import DiagnosisReport, { type DiagnosisResult } from '@/components/diagnosis/DiagnosisReport';
 
 const RECENT_STOCKS = [
   { ticker: '005930', name: '삼성전자' },
@@ -81,9 +16,6 @@ const RECENT_STOCKS = [
   { ticker: '035720', name: '카카오' },
   { ticker: '005380', name: '현대차' },
 ];
-
-function fmt(n: number) { return n.toLocaleString(); }
-function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
 // ── 결과 카드 ──────────────────────────────────────────────────────────────────
 function ResultCard({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
@@ -112,6 +44,7 @@ export default function DiagnosisPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<{ ticker: string; name: string }[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [overseasHint, setOverseasHint] = useState(false);
   const [avgPrice, setAvgPrice] = useState('');
   const [quantity, setQuantity] = useState('');
   const [buyDate, setBuyDate] = useState('');
@@ -134,15 +67,22 @@ export default function DiagnosisPage() {
 
   // 검색 자동완성 (종목 직접 선택 시 skipSearch로 드롭다운 억제)
   useEffect(() => {
-    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    if (!searchQuery.trim()) { setSearchResults([]); setOverseasHint(false); return; }
     if (skipSearch.current) { skipSearch.current = false; return; }
     const t = setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
         const data = await res.json();
-        setSearchResults(Array.isArray(data) ? data.slice(0, 6) : []);
+        // 종목진단은 아직 해외 종목 분석을 지원하지 않음 — 선택 가능하게 두면
+        // KIS 조회 실패 후 조용히 매수가로 폴백해 엉터리 리포트가 나가므로 검색 결과에서 제외
+        // (포트폴리오 진단과 동일한 필터)
+        const rows = Array.isArray(data) ? data : [];
+        const domesticOnly = rows.filter((s: { isOverseas?: boolean }) => !s.isOverseas);
+        const hasOverseas  = rows.some((s: { isOverseas?: boolean }) => s.isOverseas);
+        setSearchResults(domesticOnly.slice(0, 6));
+        setOverseasHint(domesticOnly.length === 0 && hasOverseas);
         setShowDropdown(true);
-      } catch { setSearchResults([]); }
+      } catch { setSearchResults([]); setOverseasHint(false); }
     }, 200);
     return () => clearTimeout(t);
   }, [searchQuery]);
@@ -267,335 +207,14 @@ export default function DiagnosisPage() {
   // VIEW 2: 결과
   // ══════════════════════════════════════════════════════════════════════════
   if (showResult && result) {
-    const cfg = REC_CONFIG[result.recommendation] ?? REC_CONFIG['홀딩'];
-    const isProfit = result.profitRate >= 0;
-    const targetUpRate = ((result.targetPrice - result.currentPrice) / result.currentPrice * 100);
-    const stopDownRate = ((result.stopLoss - result.currentPrice) / result.currentPrice * 100);
-
-    const reasonBullets   = result.reasons          ?? [];
-    const technicalLines  = result.technicalAnalysis ?? [];
-
     return (
-      <div className="pb-8">
-        <PageBackground />
-        <div className="max-w-5xl mx-auto px-4 pt-8">
-
-          {/* ── 헤더 ── */}
-          <div className="flex items-start justify-between mb-6 gap-4">
-            <div>
-              <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 진단 리포트</p>
-              <h1 className="text-[22px] font-bold text-white tracking-wide">
-                {stockName.toUpperCase()}{' '}
-                <span className="text-slate-500 font-mono text-base font-normal">({ticker})</span>
-              </h1>
-              <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성 시각: {generatedAt}</p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
-              <ShareDropdown
-                title={`AI 종목진단 - ${stockName} | ${result.recommendation}`}
-                description={`수익률 ${result.profitRate >= 0 ? '+' : ''}${result.profitRate.toFixed(2)}% | ${result.summary?.slice(0, 80) ?? ''}`}
-                hashtags="fpark,주식,AI종목진단"
-                reportType="diagnosis"
-                reportData={{ ...result, stockName, ticker, generatedAt }}
-              />
-              <button
-                onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30
-                  border border-indigo-500/40 text-indigo-300 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer"
-              >
-                <Printer className="w-3 h-3" /> PRINT REPORT
-              </button>
-            </div>
-          </div>
-
-          {/* ── 1행: AI 추천 의견 (65%) + PERFORMANCE SNAPSHOT (35%) ── */}
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-4">
-
-            {/* AI 추천 의견 */}
-            <div className={`rounded-2xl border overflow-hidden ${cfg.border}`} style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
-              {/* 상단 컬러 바 */}
-              <div className={`h-1 w-full ${
-                result.recommendation === '추가매수' ? 'bg-gradient-to-r from-emerald-500 to-teal-400' :
-                result.recommendation === '홀딩' ? 'bg-gradient-to-r from-blue-500 to-indigo-400' :
-                'bg-gradient-to-r from-orange-500 to-red-500'
-              }`} />
-              <div className="p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  {/* 아이콘 뱃지 */}
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black ${cfg.bg} border ${cfg.border}`}>
-                    <span className={cfg.color}>{cfg.icon}</span>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">AI 추천 의견</p>
-                    <p className={`text-xl font-black ${cfg.color}`}>{result.recommendation}</p>
-                  </div>
-                </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{result.summary}</p>
-              </div>
-            </div>
-
-            {/* PERFORMANCE SNAPSHOT */}
-            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl overflow-hidden">
-              <div className="px-5 pt-4 pb-2 border-b border-slate-700/50">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Performance Snapshot</p>
-              </div>
-              <div className="divide-y divide-slate-700/40">
-                <div className="flex items-center justify-between px-5 py-3.5">
-                  <span className="text-[12px] text-slate-400">현재가</span>
-                  <span className="text-[15px] font-bold text-white font-mono">{fmt(result.currentPrice)} <span className="text-[11px] text-slate-500 font-normal">KRW</span></span>
-                </div>
-                <div className="flex items-center justify-between px-5 py-3.5">
-                  <span className="text-[12px] text-slate-400">수익률</span>
-                  <span className={`text-[15px] font-bold font-mono flex items-center gap-1 ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                    {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                    {fmtRate(result.profitRate)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between px-5 py-3.5">
-                  <span className="text-[12px] text-slate-400">평가손익</span>
-                  <span className={`text-[14px] font-bold font-mono ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                    {result.profitAmount > 0 ? '+' : ''}{fmt(result.profitAmount)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between px-5 py-3.5">
-                  <span className="text-[12px] text-slate-400">매수평균가</span>
-                  <span className="text-[13px] text-slate-300 font-mono">{fmt(result.avgPrice)}</span>
-                </div>
-                <div className="flex items-center justify-between px-5 py-3.5">
-                  <span className="text-[12px] text-slate-400">보유수량</span>
-                  <span className="text-[13px] text-slate-300 font-mono">{fmt(result.quantity)}주</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ── 2행: Target Price / Stop Loss ── */}
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            {/* Target Price */}
-            <div className="rounded-2xl border border-emerald-500/25 overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, #1a1f2e 100%)' }}>
-              <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-emerald-500/15">
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
-                  </svg>
-                </div>
-                <p className="text-[10px] font-bold text-emerald-400/70 uppercase tracking-widest">Target Price (목표가)</p>
-              </div>
-              <div className="px-5 py-4">
-                <p className="text-2xl font-black text-emerald-300 font-mono mb-1">{fmt(result.targetPrice)} <span className="text-sm font-normal text-emerald-500/60">KRW</span></p>
-                <p className="text-[12px] text-emerald-400/60">
-                  현재가 대비 {targetUpRate >= 0 ? '+' : ''}{targetUpRate.toFixed(1)}%
-                </p>
-              </div>
-            </div>
-
-            {/* Stop Loss */}
-            <div className="rounded-2xl border border-red-500/25 overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.08) 0%, #1a1f2e 100%)' }}>
-              <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-red-500/15">
-                <div className="w-7 h-7 rounded-lg bg-red-500/15 flex items-center justify-center">
-                  <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                    <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <p className="text-[10px] font-bold text-red-400/70 uppercase tracking-widest">Stop Loss (손절가)</p>
-              </div>
-              <div className="px-5 py-4">
-                <p className="text-2xl font-black text-red-300 font-mono mb-1">{fmt(result.stopLoss)} <span className="text-sm font-normal text-red-500/60">KRW</span></p>
-                <p className="text-[12px] text-red-400/60">
-                  현재가 대비 {stopDownRate.toFixed(1)}%
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* ── 3행: 추천 이유 ── */}
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">추천 이유</p>
-            <div className="flex flex-col gap-2.5">
-              {reasonBullets.map((line, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <span className="mt-1 w-4 h-4 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center shrink-0">
-                    <svg className="w-2 h-2 text-indigo-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="2"/></svg>
-                  </span>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{line}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── 4행: 기술적 분석 ── */}
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">기술적 분석</p>
-            <div className="flex flex-col gap-3">
-              {technicalLines.map((line, i) => (
-                <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
-                  <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">{String(i + 1).padStart(2, '0')}</span>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{line}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── 5행: 기관/외국인 동향 + 리스크 + 기회 ── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-
-            {/* 기관/외국인 동향 — 도넛 차트 */}
-            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
-                  <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">기관/외국인 동향</p>
-              </div>
-
-              {/* 도넛 차트 */}
-              <div className="flex flex-col items-center py-2">
-                <DonutChart
-                  percent={result.flowPercentage ?? 50}
-                  type={result.flowType ?? 'NEUTRAL'}
-                />
-              </div>
-
-              {/* 요약 텍스트 */}
-              <p className="text-center text-[12px] text-slate-400 mt-3 leading-relaxed">
-                {result.foreignFlow?.split(/[.。]/)[0]?.trim() ?? ''}
-              </p>
-            </div>
-
-            {/* 리스크 요인 */}
-            <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">
-                  Risk Factors
-                </span>
-              </div>
-              <div className="flex flex-col gap-2">
-                {(result.riskFactors ?? []).map((line, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                    <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 기회 요인 */}
-            <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                  Opportunity Factors
-                </span>
-              </div>
-              <div className="flex flex-col gap-2">
-                {(result.opportunityFactors ?? []).map((line, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                    <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* ── 6행: 기관 / 외국인 상세 ── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">기관 동향</p>
-              <div className="flex flex-col gap-2">
-                {(result.institutionalFlow?.split(/\n|(?<=다\.) /).filter(Boolean) ?? []).map((line, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-violet-400/60 text-[10px] mt-1 shrink-0">▶</span>
-                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">외국인 동향</p>
-              <div className="flex flex-col gap-2">
-                {(result.foreignFlow?.split(/\n|(?<=다\.) /).filter(Boolean) ?? []).map((line, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="text-sky-400/60 text-[10px] mt-1 shrink-0">▶</span>
-                    <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* ── 7행: 단기/중기 전망 ── */}
-          {(result.shortTermOutlook || result.midTermOutlook) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              {result.shortTermOutlook && (
-                <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
-                      단기 전망 1M
-                    </span>
-                  </div>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
-                </div>
-              )}
-              {result.midTermOutlook && (
-                <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
-                      중기 전망 3M
-                    </span>
-                  </div>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── 8행: 뉴스 ── */}
-          {result.news?.length > 0 && (
-            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">뉴스 동향</p>
-              <div className="flex flex-col divide-y divide-slate-700/40">
-                {result.news.map((n, i) => {
-                  const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
-                  return (
-                    <a
-                      key={i}
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="py-3.5 first:pt-0 last:pb-0 group cursor-pointer block"
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <span className="mt-1 text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                        <div>
-                          <p className="text-[13px] font-medium text-white leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
-                            {n.title}
-                          </p>
-                          {n.description && (
-                            <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.description}</p>
-                          )}
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* 면책 */}
-          <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6 px-4">
-            본 분석은 AI가 공개 정보를 바탕으로 생성한 참고 자료입니다. 투자 판단의 책임은 본인에게 있습니다.
-          </p>
-
-          {/* 다시 진단받기 */}
-          <button onClick={handleReset}
-            className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl
-              bg-slate-800 hover:bg-slate-700 border border-slate-700
-              text-slate-300 text-[13px] transition-colors cursor-pointer">
-            <ChevronLeft className="w-4 h-4" /> 다시 종목진단 받기
-          </button>
-        </div>
-      </div>
+      <DiagnosisReport
+        result={result}
+        stockName={stockName}
+        ticker={ticker}
+        generatedAt={generatedAt}
+        onReset={handleReset}
+      />
     );
   }
 
@@ -613,6 +232,7 @@ export default function DiagnosisPage() {
         <div className="mb-8">
           <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">AI Portfolio Analysis</p>
           <h1 className="text-2xl font-bold text-white">종목 진단</h1>
+          <p className="text-[13px] text-slate-500 mt-1">국내 종목만 지원됩니다 · 해외 종목 진단은 준비 중입니다</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -668,6 +288,13 @@ export default function DiagnosisPage() {
                     </button>
                   ))}
                 </div>
+              )}
+
+              {/* 해외 종목만 검색된 경우 안내 문구 (종목진단은 국내 종목만 지원) */}
+              {showDropdown && overseasHint && (
+                <p className="mt-2 text-[12px] text-amber-400 font-medium">
+                  해외 종목은 종목 인사이트 카드에서 확인해주세요.
+                </p>
               )}
 
               {/* 최근 검색 태그 */}

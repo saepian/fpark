@@ -1,7 +1,8 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, TrendingDown, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, Sparkles, AlertCircle } from 'lucide-react';
+import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,11 +18,17 @@ interface DiagnosisData {
   quantity: number;
   profitRate: number;
   profitAmount: number;
-  recommendation: '홀딩' | '매도' | '분할매도' | '추가매수' | '손절';
   reasons: string[];
   technicalAnalysis: string[];
-  targetPrice: number;
-  stopLoss: number;
+  resistance: number; // 52주 고점 기준 저항선 관찰 (목표가 아님)
+  support: number;    // 52주 저가 기준 지지선 관찰 (손절가 아님)
+  benchmark?: {
+    indexName: 'KOSPI' | 'KOSDAQ';
+    indexChangeRate: number;
+    stockProfitRate: number;
+    fromDate: string;
+    toDate: string;
+  } | null;
   riskFactors: string[];
   opportunityFactors: string[];
   institutionalFlow: string;
@@ -43,7 +50,7 @@ interface HoldingResult {
   invested: number;
   profit: number;
   profitRate: number;
-  action: '매수' | '보유' | '분할매도' | '전량매도';
+  signal: '매수세 우위' | '중립·관망' | '차익실현 관찰' | '매도세 우위';
   reason: string;
   sector: string;
 }
@@ -69,19 +76,12 @@ interface PortfolioData {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-const REC_CONFIG: Record<string, { icon: string; color: string; bg: string; border: string }> = {
-  홀딩:    { icon: '◆', color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30' },
-  매도:    { icon: '▼', color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30' },
-  분할매도: { icon: '▽', color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30' },
-  추가매수: { icon: '▲', color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
-  손절:    { icon: '✕', color: 'text-red-400',     bg: 'bg-red-700/10',     border: 'border-red-700/30' },
-};
-
-const ACTION_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
-  '매수':    { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
-  '보유':    { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
-  '분할매도': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
-  '전량매도': { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
+// 매수/매도 지시가 아닌 관찰된 수급 패턴을 나타내는 중립적 라벨 (portfolio-diagnosis와 동일 체계)
+const SIGNAL_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
+  '매수세 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
+  '중립·관망':     { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
+  '차익실현 관찰': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
+  '매도세 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
 };
 
 const SECTOR_COLORS = [
@@ -140,10 +140,9 @@ function ShareCTA() {
 // ── Diagnosis View ─────────────────────────────────────────────────────────────
 
 function DiagnosisView({ d }: { d: DiagnosisData }) {
-  const cfg = REC_CONFIG[d.recommendation] ?? REC_CONFIG['홀딩'];
   const isProfit = d.profitRate >= 0;
-  const targetUpRate = ((d.targetPrice - d.currentPrice) / d.currentPrice * 100);
-  const stopDownRate = ((d.stopLoss - d.currentPrice) / d.currentPrice * 100);
+  const resistanceUpRate = d.resistance > 0 ? ((d.resistance - d.currentPrice) / d.currentPrice * 100) : 0;
+  const supportDownRate  = d.support    > 0 ? ((d.support    - d.currentPrice) / d.currentPrice * 100) : 0;
 
   return (
     <div className="min-h-screen bg-[#0d1117] pb-16">
@@ -161,22 +160,23 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성 시각: {d.generatedAt}</p>
         </div>
 
-        {/* 1행: AI 추천 의견 + Performance Snapshot */}
+        {/* 상단 면책 안내 */}
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 mb-5">
+          <AlertCircle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-[12px] text-amber-200/90 leading-relaxed">{INVESTMENT_DISCLAIMER}</p>
+        </div>
+
+        {/* 1행: 현재 상태 요약 + Performance Snapshot */}
         <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-4">
-          <div className={`rounded-2xl border overflow-hidden ${cfg.border}`} style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
-            <div className={`h-1 w-full ${
-              d.recommendation === '추가매수' ? 'bg-gradient-to-r from-emerald-500 to-teal-400' :
-              d.recommendation === '홀딩' ? 'bg-gradient-to-r from-blue-500 to-indigo-400' :
-              'bg-gradient-to-r from-orange-500 to-red-500'
-            }`} />
+          <div className="rounded-2xl border border-slate-700/50 overflow-hidden" style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
+            <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
             <div className="p-6">
               <div className="flex items-center gap-3 mb-4">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black ${cfg.bg} border ${cfg.border}`}>
-                  <span className={cfg.color}>{cfg.icon}</span>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black bg-indigo-500/10 border border-indigo-500/30">
+                  <Sparkles className="w-4 h-4 text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">AI 추천 의견</p>
-                  <p className={`text-xl font-black ${cfg.color}`}>{d.recommendation}</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">현재 상태 요약</p>
                 </div>
               </div>
               <p className="text-[13px] text-slate-300 leading-relaxed">{d.summary}</p>
@@ -193,12 +193,33 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                 <span className="text-[15px] font-bold text-white font-mono">{fmt(d.currentPrice)} <span className="text-[11px] text-slate-500 font-normal">KRW</span></span>
               </div>
               <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">수익률</span>
+                <span className="text-[12px] text-slate-400">종목 수익률</span>
                 <span className={`text-[15px] font-bold font-mono flex items-center gap-1 ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
                   {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
                   {fmtRate(d.profitRate)}
                 </span>
               </div>
+              {d.benchmark && (
+                <>
+                  <div className="flex items-center justify-between px-5 py-3.5">
+                    <span className="text-[12px] text-slate-400">같은 기간 {d.benchmark.indexName} 등락률</span>
+                    <span className={`text-[13px] font-bold font-mono ${d.benchmark.indexChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                      {fmtRate(d.benchmark.indexChangeRate)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-5 py-3.5">
+                    <span className="text-[12px] text-slate-400">시장 대비</span>
+                    {(() => {
+                      const diff = d.benchmark.stockProfitRate - d.benchmark.indexChangeRate;
+                      return (
+                        <span className={`text-[13px] font-bold font-mono ${diff >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                          {diff >= 0 ? '+' : ''}{diff.toFixed(2)}%p
+                        </span>
+                      );
+                    })()}
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between px-5 py-3.5">
                 <span className="text-[12px] text-slate-400">평가손익</span>
                 <span className={`text-[14px] font-bold font-mono ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
@@ -214,45 +235,46 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                 <span className="text-[13px] text-slate-300 font-mono">{fmt(d.quantity)}주</span>
               </div>
             </div>
+            {d.benchmark && (
+              <p className="px-5 py-2.5 text-[10px] text-slate-600 border-t border-slate-700/40">
+                비교 기간: {d.benchmark.fromDate} ~ {d.benchmark.toDate} (매수일 기준) · 판단이 아닌 수치 비교 정보입니다.
+              </p>
+            )}
           </div>
         </div>
 
-        {/* 2행: Target / Stop */}
+        {/* 2행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님) */}
         <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="rounded-2xl border border-emerald-500/25 overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, #1a1f2e 100%)' }}>
-            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-emerald-500/15">
-              <div className="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center">
-                <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
-                </svg>
+          <div className="rounded-2xl border border-slate-700/50 overflow-hidden bg-slate-800/40">
+            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-slate-700/40">
+              <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
+                <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-emerald-400/70 uppercase tracking-widest">Target Price (목표가)</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">저항선 관찰 (52주 고점 기준)</p>
             </div>
             <div className="px-5 py-4">
-              <p className="text-2xl font-black text-emerald-300 font-mono mb-1">{fmt(d.targetPrice)} <span className="text-sm font-normal text-emerald-500/60">KRW</span></p>
-              <p className="text-[12px] text-emerald-400/60">현재가 대비 {targetUpRate >= 0 ? '+' : ''}{targetUpRate.toFixed(1)}%</p>
+              <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(d.resistance)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
+              <p className="text-[12px] text-slate-500">현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%</p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-red-500/25 overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.08) 0%, #1a1f2e 100%)' }}>
-            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-red-500/15">
-              <div className="w-7 h-7 rounded-lg bg-red-500/15 flex items-center justify-center">
-                <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+          <div className="rounded-2xl border border-slate-700/50 overflow-hidden bg-slate-800/40">
+            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-slate-700/40">
+              <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
+                <TrendingDown className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-red-400/70 uppercase tracking-widest">Stop Loss (손절가)</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">지지선 관찰 (52주 저가 기준)</p>
             </div>
             <div className="px-5 py-4">
-              <p className="text-2xl font-black text-red-300 font-mono mb-1">{fmt(d.stopLoss)} <span className="text-sm font-normal text-red-500/60">KRW</span></p>
-              <p className="text-[12px] text-red-400/60">현재가 대비 {stopDownRate.toFixed(1)}%</p>
+              <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(d.support)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
+              <p className="text-[12px] text-slate-500">현재가 대비 {supportDownRate.toFixed(1)}%</p>
             </div>
           </div>
         </div>
 
-        {/* 3행: 추천 이유 */}
+        {/* 3행: 주요 관찰 데이터 */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">추천 이유</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">주요 관찰 데이터</p>
           <div className="flex flex-col gap-2.5">
             {(d.reasons ?? []).map((line, i) => (
               <div key={i} className="flex items-start gap-3">
@@ -394,7 +416,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
         )}
 
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-4 px-4">
-          본 분석은 AI가 공개 정보를 바탕으로 생성한 참고 자료입니다. 투자 판단의 책임은 본인에게 있습니다.
+          {INVESTMENT_DISCLAIMER}
         </p>
 
         <ShareCTA />
@@ -491,12 +513,12 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           </div>
         </div>
 
-        {/* 종목별 AI 액션 (절대 금액 제외) */}
+        {/* 종목별 관찰 지표 (절대 금액 제외) */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">종목별 AI 액션</p>
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">종목별 관찰 지표</p>
           <div className="flex flex-col divide-y divide-slate-700/40">
             {(d.holdings ?? []).map(h => {
-              const cfg = ACTION_CFG[h.action] ?? ACTION_CFG['보유'];
+              const cfg = SIGNAL_CFG[h.signal] ?? SIGNAL_CFG['중립·관망'];
               const hUp = h.profitRate >= 0;
               return (
                 <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
@@ -519,7 +541,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                     </div>
                     <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold ${cfg.color} ${cfg.bg} border ${cfg.border}`}>
-                        {cfg.icon} {h.action}
+                        {cfg.icon} {h.signal}
                       </span>
                     </div>
                   </div>
@@ -532,9 +554,9 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           </div>
         </div>
 
-        {/* 포트폴리오 개선 제안 (전체 펼침) */}
+        {/* 참고할 만한 관찰 포인트 (전체 펼침) */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">포트폴리오 개선 제안</p>
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">참고할 만한 관찰 포인트</p>
           <div className="flex flex-col gap-3">
             {(d.suggestions ?? []).map((s, i) => (
               <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
@@ -546,7 +568,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         </div>
 
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-4 px-4">
-          본 분석은 AI가 공개 정보를 바탕으로 생성한 참고 자료입니다. 투자 판단의 책임은 본인에게 있습니다.
+          {INVESTMENT_DISCLAIMER}
         </p>
 
         <ShareCTA />
@@ -569,7 +591,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
   if (row.type === 'diagnosis') {
     const d = row.data as DiagnosisData;
-    const title = `AI 종목진단 - ${d.stockName} | ${d.recommendation}`;
+    const title = `AI 종목진단 - ${d.stockName}`;
     const desc = `수익률 ${fmtRate(d.profitRate)} | ${d.summary?.slice(0, 80) ?? ''}`;
     return {
       title,
