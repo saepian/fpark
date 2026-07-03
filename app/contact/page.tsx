@@ -11,11 +11,11 @@ const CATEGORIES = [
   '기타',
 ];
 
-type Status = 'idle' | 'loading' | 'success' | 'error';
+type Status = 'idle' | 'loading' | 'success' | 'error' | 'rateLimited';
 
 export default function ContactPage() {
   const [form, setForm] = useState({
-    name: '', email: '', category: '', subject: '', message: '',
+    name: '', email: '', category: '', subject: '', message: '', website: '',
   });
   const [status, setStatus] = useState<Status>('idle');
 
@@ -27,13 +27,15 @@ export default function ContactPage() {
     e.preventDefault();
     setStatus('loading');
     try {
-      await fetch('/api/contact', {
+      const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
+      if (res.status === 429) { setStatus('rateLimited'); return; }
+      if (!res.ok) throw new Error('failed');
       setStatus('success');
-      setForm({ name: '', email: '', category: '', subject: '', message: '' });
+      setForm({ name: '', email: '', category: '', subject: '', message: '', website: '' });
     } catch {
       setStatus('error');
     }
@@ -58,9 +60,9 @@ export default function ContactPage() {
 
         {/* 문의 폼 */}
         <div className="p-px rounded-2xl" style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed, #0ea5e9)' }}>
-          <div className="rounded-[15px] p-6 md:p-8" style={{ backgroundColor: '#0d1117' }}>
+          <div className="rounded-[15px] p-6 md:p-8 h-full" style={{ backgroundColor: '#0d1117' }}>
             {status === 'success' ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center gap-4">
+              <div className="flex flex-col items-center justify-center h-full min-h-[360px] text-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
                   <CheckCircle2 className="w-8 h-8 text-emerald-400" />
                 </div>
@@ -77,6 +79,20 @@ export default function ContactPage() {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                {/* 허니팟 — 실사용자에겐 보이지 않고, 자동으로 전체 입력칸을 채우는 봇만 걸림 */}
+                <div className="absolute w-0 h-0 overflow-hidden" aria-hidden="true">
+                  <label htmlFor="website">Website</label>
+                  <input
+                    id="website"
+                    type="text"
+                    name="website"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={form.website}
+                    onChange={set('website')}
+                  />
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[11px] text-slate-400 mb-1.5 font-medium tracking-wide">이름 *</label>
@@ -143,6 +159,9 @@ export default function ContactPage() {
 
                 {status === 'error' && (
                   <p className="text-red-400 text-[12px]">전송 중 오류가 발생했습니다. 직접 이메일(saepian2@gmail.com)로 연락해주세요.</p>
+                )}
+                {status === 'rateLimited' && (
+                  <p className="text-amber-400 text-[12px]">문의를 너무 많이 보내셨습니다. 잠시 후 다시 시도해주세요.</p>
                 )}
 
                 <button
