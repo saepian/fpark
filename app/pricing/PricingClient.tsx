@@ -171,7 +171,7 @@ function CardContent({
         )}
         {!isFree && (
           <p className="text-[10px] text-slate-600 mt-1.5 leading-snug">
-            결제 시 부가세가 별도로 계산될 수 있습니다.
+            결제 시 부가세가 별도로 계산될 수 있습니다. (Taxes may apply and will be calculated at checkout.)
           </p>
         )}
       </div>
@@ -511,7 +511,7 @@ export default function PricingClient() {
           </div>
         </div>
         <p className="text-[10px] text-slate-600 mt-4 text-center leading-snug">
-          결제 시 부가세가 별도로 계산될 수 있습니다.
+          결제 시 부가세가 별도로 계산될 수 있습니다. (Taxes may apply and will be calculated at checkout.)
         </p>
       </section>
 

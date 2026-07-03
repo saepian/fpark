@@ -382,7 +382,7 @@ export default function AiPortfolioLandingPage() {
                   <span className="text-slate-500 text-[13px]"> / 월</span>
                 </p>
                 <p className="text-[10px] text-slate-600 mb-5 leading-snug">
-                  결제 시 부가세가 별도로 계산될 수 있습니다.
+                  결제 시 부가세가 별도로 계산될 수 있습니다. (Taxes may apply and will be calculated at checkout.)
                 </p>
                 <ul className="flex flex-col gap-2.5 mb-7">
                   {p.features.map((t) => (
