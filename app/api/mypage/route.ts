@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
@@ -62,9 +62,9 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // users 테이블 조회 — service role key로 RLS 우회
-  const { data: userRow, error: userRowError } = await adminClient
+  const { data: userRow } = await adminClient
     .from('users')
-    .select('plan, created_at')
+    .select('plan, created_at, email_alert_enabled')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -118,6 +118,7 @@ export async function GET() {
     avatarUrl: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
     plan,
     createdAt: userRow?.created_at ?? user.created_at,
+    emailAlertEnabled: userRow?.email_alert_enabled ?? true,
     usage: {
       diagnosisToday: diagnosisCount,
       portfolioMonth: portfolioCount,
@@ -125,4 +126,23 @@ export async function GET() {
     },
     payments,
   });
+}
+
+export async function PATCH(request: NextRequest) {
+  const supabase = makeSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json();
+  if (typeof body.email_alert_enabled !== 'boolean') {
+    return NextResponse.json({ error: '잘못된 요청' }, { status: 400 });
+  }
+
+  const { error } = await adminClient
+    .from('users')
+    .update({ email_alert_enabled: body.email_alert_enabled })
+    .eq('id', user.id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }

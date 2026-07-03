@@ -14,6 +14,7 @@ interface MyPageData {
   avatarUrl: string | null;
   plan: PlanType;
   createdAt: string;
+  emailAlertEnabled: boolean;
   usage: { diagnosisToday: number; portfolioMonth: number; nextResetDate: string };
   payments: { id: string; created_at: string; plan: string; amount: number; status: string }[];
 }
@@ -165,12 +166,16 @@ export default function MyPage() {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [emailAlertEnabled, setEmailAlertEnabled] = useState(true);
+  const [togglingEmail, setTogglingEmail] = useState(false);
 
   useEffect(() => {
     fetch('/api/mypage')
       .then(async r => {
         if (r.status === 401) { router.push('/auth/login'); return; }
-        setData(await r.json());
+        const json = await r.json();
+        setData(json);
+        setEmailAlertEnabled(json.emailAlertEnabled ?? true);
       })
       .catch(() => router.push('/auth/login'))
       .finally(() => setLoading(false));
@@ -181,6 +186,18 @@ export default function MyPage() {
     const supabase = createClient();
     await supabase.auth.signOut();
     window.location.href = '/';
+  };
+
+  const handleToggleEmail = async () => {
+    setTogglingEmail(true);
+    const next = !emailAlertEnabled;
+    setEmailAlertEnabled(next);
+    await fetch('/api/mypage', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email_alert_enabled: next }),
+    });
+    setTogglingEmail(false);
   };
 
   const handleWithdraw = async () => {
@@ -519,7 +536,39 @@ export default function MyPage() {
           )}
         </div>
 
-        {/* ── 5. 계정 관리 ─────────────────────────────────────────────────── */}
+        {/* ── 5. 알림 설정 (Pro 전용) ──────────────────────────────────────── */}
+        {data.plan === 'pro' && (
+          <div className="rounded-2xl border border-slate-800/70 p-6 md:p-7" style={{ backgroundColor: '#0d1117' }}>
+            <SectionLabel>알림 설정</SectionLabel>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[13.5px] font-semibold text-slate-200">일일 리포트 이메일 수신</p>
+                <p className="text-[11.5px] text-slate-500 mt-0.5">
+                  평일 장 마감 후 관심종목 등락 현황 + AI 분석을 이메일로 발송
+                </p>
+              </div>
+              <button
+                onClick={handleToggleEmail}
+                disabled={togglingEmail}
+                className="relative shrink-0 w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none cursor-pointer disabled:opacity-50"
+                style={{
+                  background: emailAlertEnabled
+                    ? 'linear-gradient(135deg, #4f46e5, #7c3aed)'
+                    : 'rgba(30,37,55,0.8)',
+                  border: emailAlertEnabled ? 'none' : '1px solid rgba(51,65,85,0.5)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                  style={{ left: emailAlertEnabled ? '26px' : '2px' }}
+                />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── 6. 계정 관리 ─────────────────────────────────────────────────── */}
         <div className="rounded-2xl border border-slate-800/70 p-6 md:p-7" style={{ backgroundColor: '#0d1117' }}>
           <SectionLabel>계정 관리</SectionLabel>
 
