@@ -3,13 +3,8 @@
 // 결제 상태 변경(취소·환불·실패)을 실시간으로 DB에 반영
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient }               from '@supabase/supabase-js';
+import { adminClient }                from '@/lib/supabase-admin';
 import { getPayment }                 from '@/lib/portone';
-
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 type WebhookPayload = {
   type:      string;  // 'Transaction.Paid' | 'Transaction.Cancelled' | 'Transaction.Failed' 등

@@ -6,17 +6,12 @@
 // cron/virtual-account-renewal 에서 별도로 "갱신 안내"만 처리한다.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient }               from '@supabase/supabase-js';
+import { adminClient }                from '@/lib/supabase-admin';
 import { payWithBillingKey }          from '@/lib/portone';
 import { PLAN_AMOUNTS }               from '@/lib/payment-constants';
 
 export const dynamic    = 'force-dynamic';
 export const maxDuration = 60;
-
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');

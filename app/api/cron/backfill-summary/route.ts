@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { adminClient as supabase } from '@/lib/supabase-admin';
 import { batchSummarize } from '@/lib/summarize';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const BATCH_SIZE = 5;
 

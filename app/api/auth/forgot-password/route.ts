@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { adminClient } from '@/lib/supabase-admin';
 
 type GoTrueIdentity = { provider: string; id: string };
 type GoTrueUser = {
@@ -8,12 +8,6 @@ type GoTrueUser = {
   identities?: GoTrueIdentity[];
   user_metadata?: Record<string, string>;
 };
-
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
 
 export async function POST(request: NextRequest) {
   let email: string;

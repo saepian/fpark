@@ -8,7 +8,6 @@ import { createClient } from '@/lib/supabase-browser';
 import type { StockNotification } from '@/lib/types';
 
 export default function NotificationBell() {
-  const supabase     = createClient();
   const router       = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -24,6 +23,7 @@ export default function NotificationBell() {
 
   // ── 인증 상태 ──────────────────────────────────────────────────
   useEffect(() => {
+    const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user);
       setAuthReady(true);

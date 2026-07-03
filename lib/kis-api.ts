@@ -1,10 +1,5 @@
 import type { StockPrice, StockInfo, ChartDataPoint, MarketIndexData, MoverStock, AlertStock } from './types';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { adminClient as supabaseAdmin } from './supabase-admin';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 

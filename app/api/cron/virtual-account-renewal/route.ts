@@ -4,19 +4,13 @@
 // 자동 출금이 아니므로 cron/billing(카드 빌링키 전용)과 분리된 별도 크론.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient }               from '@supabase/supabase-js';
+import { adminClient }                from '@/lib/supabase-admin';
 import { Resend }                     from 'resend';
 import { issueVirtualAccount, getPayment } from '@/lib/portone';
 import { PLAN_AMOUNTS }               from '@/lib/payment-constants';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
-
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
-const resend = new Resend(process.env.RESEND_API_KEY!);
 
 const RENEWAL_LEAD_DAYS = 3; // 갱신일 D-3에 안내
 const VA_DUE_DAYS       = 3; // 발급 시점 + 3일 입금 기한
@@ -30,6 +24,7 @@ function bankName(code: string) {
 }
 
 export async function GET(request: NextRequest) {
+  const resend    = new Resend(process.env.RESEND_API_KEY!);
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {

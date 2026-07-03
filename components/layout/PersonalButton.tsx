@@ -172,7 +172,8 @@ function WatchlistList({ onClose }: { onClose: () => void }) {
 // ── PersonalButton ─────────────────────────────────────────────────────────────
 
 export default function PersonalButton() {
-  const supabase = createClient();
+  const clientRef = useRef<ReturnType<typeof createClient> | null>(null);
+  const getClient = () => clientRef.current ??= createClient();
   const router   = useRouter();
   const [user, setUser]               = useState<User | null>(null);
   const [open, setOpen]               = useState(false);
@@ -183,8 +184,8 @@ export default function PersonalButton() {
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    getClient().auth.getUser().then(({ data }) => setUser(data.user));
+    const { data: listener } = getClient().auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
     return () => listener.subscription.unsubscribe();
@@ -207,7 +208,7 @@ export default function PersonalButton() {
   }, [isWatchlistOpen]);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await getClient().auth.signOut();
     window.location.href = '/';
   };
 

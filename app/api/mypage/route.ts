@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
+import { adminClient } from '@/lib/supabase-admin';
 import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
@@ -20,12 +20,6 @@ function makeSupabase() {
     },
   );
 }
-
-// RLS 우회를 위해 service role key 사용 (읽기 전용 조회)
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 // 날짜 d가 해당 월에 존재하지 않으면 말일로 클램핑 (e.g., 1월 31일 → 2월 28일)
 function monthDay(year: number, month: number, day: number): Date {

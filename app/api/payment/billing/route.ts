@@ -4,16 +4,11 @@
 // 테스트 모드: 실제 카드 승인 없음
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient }               from '@supabase/supabase-js';
+import { adminClient }                from '@/lib/supabase-admin';
 import { createServerClient }         from '@supabase/ssr';
 import { cookies }                    from 'next/headers';
 import { payWithBillingKey }          from '@/lib/portone';
 import { PLAN_AMOUNTS }               from '@/lib/payment-constants';
-
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 export async function POST(request: NextRequest) {
   try {

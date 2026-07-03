@@ -4,16 +4,11 @@
 // 입금 완료(구독 활성화)는 /api/payment/webhook 이 PortOne 웹훅을 받아 처리한다.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient }               from '@supabase/supabase-js';
+import { adminClient }                from '@/lib/supabase-admin';
 import { createServerClient }         from '@supabase/ssr';
 import { cookies }                    from 'next/headers';
 import { issueVirtualAccount, getPayment } from '@/lib/portone';
 import { PLAN_AMOUNTS }               from '@/lib/payment-constants';
-
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 // 실제 PortOne 테스트 채널로 확인된, 이 가맹점 계약에서 가상계좌 발급이 되는 은행만 노출.
 // KOOKMIN/KAKAO/TOSS는 이 채널에서 "가맹점 서비스 불가 은행"(PG 오류 504652)으로 거부됨 —

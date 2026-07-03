@@ -1,12 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { adminClient as admin } from '@/lib/supabase-admin';
 import { Resend } from 'resend';
-
-const admin  = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
-const resend = new Resend(process.env.RESEND_API_KEY!);
 
 const ADMIN_EMAIL = 'saepian2@gmail.com';
 const FROM        = 'Finance Park <noreply@fpark.com>';
@@ -105,6 +99,7 @@ function replyEmailHtml(name: string): string {
 }
 
 export async function POST(req: Request) {
+  const resend = new Resend(process.env.RESEND_API_KEY!);
   try {
     const body = await req.json();
     const { name, email, category, subject, message, website } = body as {

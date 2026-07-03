@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { adminClient } from '@/lib/supabase-admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
 import { fetchStockPrice } from '@/lib/kis-api';
@@ -9,12 +9,6 @@ import { fetchDBNews, fetchMarketNews, pickRelevantNews } from '@/lib/stock-anal
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const resend = new Resend(process.env.RESEND_API_KEY!);
 
 type StockResult = {
   ticker: string;
@@ -323,6 +317,8 @@ function getKstInfo(): { dateStr: string; notifDate: string; mm: number; dd: num
 }
 
 export async function GET(request: NextRequest) {
+  const anthropic  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const resend     = new Resend(process.env.RESEND_API_KEY!);
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {

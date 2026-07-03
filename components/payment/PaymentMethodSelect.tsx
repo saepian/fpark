@@ -20,8 +20,9 @@ import { useState } from 'react';
 import { Landmark, CreditCard, AlertTriangle } from 'lucide-react';
 import VirtualAccountForm from './VirtualAccountForm';
 import PortoneCheckout from './PortoneCheckout';
+import PaddleCheckout from './PaddleCheckout';
 
-const PADDLE_ENABLED = false; // 2B 슬롯 — MoR 확정 후 true
+const PADDLE_ENABLED = true;  // Paddle 도메인 승인 완료 — 해외 카드결제 활성화
 const CARD_ENABLED   = false; // 이니시스 카드결제 재노출 시 true
 
 interface Props {
@@ -37,7 +38,7 @@ const PLAN_NAMES: Record<'basic' | 'pro', string> = {
   pro:   'Finance Park Pro',
 };
 
-type Step = 'method' | 'va' | 'card';
+type Step = 'method' | 'va' | 'card' | 'paddle';
 
 export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, onSuccess }: Props) {
   const [step, setStep] = useState<Step>('method');
@@ -52,6 +53,20 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
         amount={amount}
         isAnnual={isAnnual}
         onClose={onClose}
+        onSuccess={onSuccess}
+      />
+    );
+  }
+
+  // Paddle 해외 카드결제
+  if (step === 'paddle') {
+    return (
+      <PaddleCheckout
+        plan={plan}
+        amount={amount}
+        isAnnual={isAnnual}
+        onClose={onClose}
+        onBack={() => setStep('method')}
         onSuccess={onSuccess}
       />
     );
@@ -96,10 +111,9 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
               </button>
 
               {PADDLE_ENABLED && (
-                // 2B 슬롯 — 향후 MoR 컴포넌트 연결 지점
                 <button
-                  onClick={() => setStep('va')} // TODO: 새 MoR 스텝으로 교체
-                  className="text-left rounded-2xl p-4 cursor-pointer transition-all hover:border-indigo-500/60"
+                  onClick={() => setStep('paddle')}
+                  className="text-left rounded-2xl p-4 cursor-pointer transition-all hover:border-emerald-500/60 active:scale-[0.99]"
                   style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
                 >
                   <div className="flex items-center gap-2.5 mb-1.5">
@@ -107,11 +121,12 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
                       <CreditCard className="w-4 h-4 text-emerald-400" />
                     </span>
                     <span className="text-[14.5px] font-semibold text-white">해외 카드결제</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.06] text-slate-500">Paddle</span>
                   </div>
                   <p className="text-[12.5px] leading-relaxed text-slate-400">국내외 카드로 결제 가능합니다.</p>
                   <div className="flex items-start gap-1.5 mt-2.5 p-2 rounded-lg" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
                     <AlertTriangle className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-[11px] text-amber-200">카드 명세서에는 해외 상호로 표시됩니다.</p>
+                    <p className="text-[11px] text-amber-200">카드 명세서에는 PADDLE.COM 등 해외 상호로 표시됩니다.</p>
                   </div>
                 </button>
               )}

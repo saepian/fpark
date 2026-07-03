@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Parser from 'rss-parser';
-import { createClient } from '@supabase/supabase-js';
+import { adminClient as supabase } from '@/lib/supabase-admin';
 import { isFinanceRelated } from '@/lib/gemini';
 import { batchSummarize, type BatchArticle } from '@/lib/summarize';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type MediaContent = { $?: { url?: string } } | Array<{ $?: { url?: string } }>;
 type CustomItem = {
