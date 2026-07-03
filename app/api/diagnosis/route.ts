@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { adminClient } from '@/lib/supabase-admin';
 import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart } from '@/lib/kis-api';
 import {
   collectStockAnalysisData,
@@ -89,8 +90,25 @@ export async function POST(request: NextRequest) {
       .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
     const isAdmin = user.email === process.env.ADMIN_EMAIL;
+    let usedCredit = false;
     if (!isAdmin && (count ?? 0) >= 1) {
-      return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
+      // 기본 한도 초과 시 1회권 크레딧 확인
+      const { data: userRow } = await adminClient
+        .from('users')
+        .select('stock_credits')
+        .eq('id', user.id)
+        .maybeSingle();
+      const credits = (userRow as { stock_credits?: number } | null)?.stock_credits ?? 0;
+      if (credits <= 0) {
+        return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
+      }
+      // 크레딧 선차감 (분석 성공 여부와 무관하게 사용 처리)
+      await adminClient
+        .from('users')
+        .update({ stock_credits: credits - 1 })
+        .eq('id', user.id)
+        .gt('stock_credits', 0);
+      usedCredit = true;
     }
 
     const body = await request.json().catch(() => ({}));
@@ -405,7 +423,7 @@ ${newsInstruction}
         buy_date:  buyDate || null,
         result:    finalResult,
       });
-      console.log('[DIAGNOSIS] 6. DB 저장 완료');
+      console.log(`[DIAGNOSIS] 6. DB 저장 완료${usedCredit ? ' (1회권 사용)' : ''}`);
     } catch (dbErr) {
       console.error('[DIAGNOSIS] DB 저장 실패 (결과는 반환):', dbErr);
     }

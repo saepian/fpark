@@ -6,6 +6,7 @@ import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import PageBackground from '@/components/layout/PageBackground';
 import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
+import PaddleOneTimeCheckout from '@/components/payment/PaddleOneTimeCheckout';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -307,9 +308,12 @@ export default function PricingClient() {
   const [userPlan,   setUserPlan]   = useState<PlanType | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  // 결제 모달 상태
+  // 구독 결제 모달 상태
   const [checkoutPlan,   setCheckoutPlan]   = useState<'basic' | 'pro' | null>(null);
   const [checkoutAmount, setCheckoutAmount] = useState(0);
+
+  // 1회권 결제 모달 상태
+  const [checkoutCredit, setCheckoutCredit] = useState<'stock' | 'portfolio' | null>(null);
 
   // 현재 로그인 유저 + plan 조회
   useEffect(() => {
@@ -331,9 +335,9 @@ export default function PricingClient() {
     });
   }, []); // eslint-disable-line
 
-  // 1회권 등 미구현 기능용 토스트
+  // 1회권 결제 성공 토스트
   const [toast, setToast] = useState(false);
-  const showToast = () => { setToast(true); setTimeout(() => setToast(false), 3000); };
+  const showCreditSuccessToast = () => { setToast(true); setTimeout(() => setToast(false), 3000); };
 
   const handleAction = (type: PlanType) => {
     if (!isLoggedIn) { router.push('/auth/login'); return; }
@@ -354,7 +358,7 @@ export default function PricingClient() {
     <div className="min-h-screen relative">
       <PageBackground />
 
-      {/* 결제 모달 */}
+      {/* 구독 결제 모달 */}
       {checkoutPlan && (
         <PaymentMethodSelect
           plan={checkoutPlan}
@@ -365,13 +369,26 @@ export default function PricingClient() {
         />
       )}
 
-      {/* 1회권 준비 중 토스트 */}
+      {/* 1회권 결제 모달 */}
+      {checkoutCredit && (
+        <PaddleOneTimeCheckout
+          creditType={checkoutCredit}
+          amount={checkoutCredit === 'stock' ? 1000 : 1900}
+          onClose={() => setCheckoutCredit(null)}
+          onSuccess={() => {
+            setCheckoutCredit(null);
+            showCreditSuccessToast();
+          }}
+        />
+      )}
+
+      {/* 1회권 결제 완료 토스트 */}
       {toast && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
           <div className="flex items-center gap-3 px-5 py-3.5 rounded-full shadow-2xl shadow-black/40 backdrop-blur-sm"
-            style={{ background: '#1e2130', border: '1px solid rgba(100,116,139,0.4)' }}>
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-            <span className="text-[13px] text-slate-200 font-medium whitespace-nowrap">1회권 결제 준비 중입니다</span>
+            style={{ background: '#1e2130', border: '1px solid rgba(16,185,129,0.4)' }}>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="text-[13px] text-slate-200 font-medium whitespace-nowrap">1회권이 충전되었습니다</span>
           </div>
         </div>
       )}
@@ -455,7 +472,7 @@ export default function PricingClient() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="group cursor-pointer" onClick={() => isLoggedIn ? showToast() : router.push('/auth/login')}>
+          <div className="group cursor-pointer" onClick={() => isLoggedIn ? setCheckoutCredit('stock') : router.push('/auth/login')}>
             <div
               className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(99,102,241,0.38)]"
               style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', boxShadow: '0 0 12px rgba(99,102,241,0.18)' }}
@@ -474,7 +491,7 @@ export default function PricingClient() {
             </div>
           </div>
 
-          <div className="group cursor-pointer" onClick={() => isLoggedIn ? showToast() : router.push('/auth/login')}>
+          <div className="group cursor-pointer" onClick={() => isLoggedIn ? setCheckoutCredit('portfolio') : router.push('/auth/login')}>
             <div
               className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(168,85,247,0.38)]"
               style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)', boxShadow: '0 0 12px rgba(139,92,246,0.18)' }}

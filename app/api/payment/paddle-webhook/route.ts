@@ -11,6 +11,11 @@ const PLAN_AMOUNTS = {
   pro:   { monthly: 19900, annual: 191040 },
 };
 
+const CREDIT_AMOUNTS: Record<string, number> = {
+  stock:     1000,
+  portfolio: 1900,
+};
+
 function verifySignature(secret: string, signature: string, rawBody: string): boolean {
   const ts = signature.match(/ts=(\d+)/)?.[1];
   const h1 = signature.match(/h1=([a-f0-9]+)/)?.[1];
@@ -27,16 +32,17 @@ function verifySignature(secret: string, signature: string, rawBody: string): bo
 }
 
 type PaddleCustomData = {
-  userId?:   string;
-  plan?:     string;
-  isAnnual?: string;
+  userId?:     string;
+  plan?:       string;
+  isAnnual?:   string;
+  creditType?: string;
 };
 
 type PaddleEvent = {
   event_type:  string;
   occurred_at: string;
   data: {
-    id:          string;        // subscription ID
+    id:          string;        // subscription ID or transaction ID
     status:      string;
     customer_id: string;
     items?: Array<{ price: { id: string } }>;
@@ -58,8 +64,15 @@ export async function POST(request: NextRequest) {
     );
 
     const PRICE_TO_PLAN: Record<string, 'basic' | 'pro'> = {
-      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_BASIC ?? '']: 'basic',
-      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_PRO   ?? '']: 'pro',
+      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_BASIC        ?? '']: 'basic',
+      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_BASIC_ANNUAL ?? '']: 'basic',
+      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_PRO          ?? '']: 'pro',
+      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_PRO_ANNUAL   ?? '']: 'pro',
+    };
+
+    const PRICE_TO_CREDIT: Record<string, 'stock' | 'portfolio'> = {
+      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_CREDIT_STOCK     ?? '']: 'stock',
+      [process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_CREDIT_PORTFOLIO ?? '']: 'portfolio',
     };
 
     const signature = request.headers.get('paddle-signature') ?? '';
@@ -124,6 +137,44 @@ export async function POST(request: NextRequest) {
       }).eq('id', userId);
 
       console.log(`[paddle-webhook] 구독 취소 — userId:${userId}`);
+    }
+
+    // 1회권 결제 완료 — users.stock_credits / portfolio_credits 증가
+    if (event_type === 'transaction.completed' && userId) {
+      const creditType = (data.custom_data?.creditType as 'stock' | 'portfolio' | undefined)
+                      ?? PRICE_TO_CREDIT[priceId];
+      if (creditType === 'stock' || creditType === 'portfolio') {
+        const col    = creditType === 'stock' ? 'stock_credits' : 'portfolio_credits';
+        const amount = CREDIT_AMOUNTS[creditType];
+
+        // 결제 기록 저장
+        await adminClient.from('payments').upsert(
+          {
+            user_id:        userId,
+            plan:           `credit_${creditType}`,
+            amount,
+            payment_id:     `paddle_${data.id}`,
+            status:         'paid',
+            payment_method: 'PADDLE',
+            is_annual:      false,
+          },
+          { onConflict: 'payment_id', ignoreDuplicates: true },
+        );
+
+        // 크레딧 증가 (RPC 없이 atomic increment: current + 1)
+        const { data: userRow } = await adminClient
+          .from('users')
+          .select(col)
+          .eq('id', userId)
+          .maybeSingle();
+        const current = (userRow as Record<string, number> | null)?.[col] ?? 0;
+        await adminClient
+          .from('users')
+          .update({ [col]: current + 1 })
+          .eq('id', userId);
+
+        console.log(`[paddle-webhook] 1회권 충전 — userId:${userId} type:${creditType} col:${col}`);
+      }
     }
 
     if (event_type === 'subscription.updated' && userId && planName) {

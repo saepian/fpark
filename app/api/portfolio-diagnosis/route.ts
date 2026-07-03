@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { adminClient } from '@/lib/supabase-admin';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -339,15 +340,47 @@ export async function POST(request: NextRequest) {
   const plan    = await checkPlan(supabase, user.id, user.email);
   const isPro   = plan === 'pro' || plan === 'admin';
   const isBasic = plan === 'basic';
-  if (!isPro && !isBasic) return NextResponse.json({ error: 'PRO_REQUIRED' }, { status: 403 });
+
+  // 플랜 없는 경우 1회권 크레딧 확인
+  let usedCredit = false;
+  if (!isPro && !isBasic) {
+    const { data: userRow } = await adminClient
+      .from('users')
+      .select('portfolio_credits')
+      .eq('id', user.id)
+      .maybeSingle();
+    const credits = (userRow as { portfolio_credits?: number } | null)?.portfolio_credits ?? 0;
+    if (credits <= 0) return NextResponse.json({ error: 'PRO_REQUIRED' }, { status: 403 });
+    await adminClient
+      .from('users')
+      .update({ portfolio_credits: credits - 1 })
+      .eq('id', user.id)
+      .gt('portfolio_credits', 0);
+    usedCredit = true;
+  }
 
   const count = await getMonthlyCount(supabase, user.id);
   const limit = plan === 'admin' ? 999 : isPro ? MONTHLY_LIMIT : BASIC_MONTHLY_LIMIT;
-  if (count >= limit) {
-    return NextResponse.json(
-      { error: `이번 달 사용 한도(${limit}회)를 초과했습니다.` },
-      { status: 429 },
-    );
+  if (!usedCredit && count >= limit) {
+    // 월 한도 초과 시에도 1회권 크레딧 확인
+    const { data: userRow } = await adminClient
+      .from('users')
+      .select('portfolio_credits')
+      .eq('id', user.id)
+      .maybeSingle();
+    const credits = (userRow as { portfolio_credits?: number } | null)?.portfolio_credits ?? 0;
+    if (credits <= 0) {
+      return NextResponse.json(
+        { error: `이번 달 사용 한도(${limit}회)를 초과했습니다.` },
+        { status: 429 },
+      );
+    }
+    await adminClient
+      .from('users')
+      .update({ portfolio_credits: credits - 1 })
+      .eq('id', user.id)
+      .gt('portfolio_credits', 0);
+    usedCredit = true;
   }
 
   // ── 2. 입력 검증 ──────────────────────────────────────────────────────────
@@ -528,7 +561,7 @@ export async function POST(request: NextRequest) {
           console.error('[PORTFOLIO-DIAGNOSIS] DB 저장 실패:', dbErr);
         }
 
-        console.log('[PORTFOLIO-DIAGNOSIS] 완료');
+        console.log(`[PORTFOLIO-DIAGNOSIS] 완료${usedCredit ? ' (1회권 사용)' : ''}`);
         send(controller, { type: 'result', data: finalResult });
       } catch (e) {
         console.error('[PORTFOLIO-DIAGNOSIS] 치명적 오류:', e);
