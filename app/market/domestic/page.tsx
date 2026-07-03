@@ -528,8 +528,8 @@ export default function DomesticMarketPage() {
         KIS API 기반 실시간 국내 증시 정보 · 급등/급락 종목은 ETF·ETN 제외 · 매매 참고용으로만 활용하세요
       </p>
 
-      {/* 지수 카드 4개 */}
-      <div className="flex gap-3 mb-6">
+      {/* 지수 카드 4개 — 모바일 2x2 그리드, md 이상은 기존 가로 배치 */}
+      <div className="grid grid-cols-2 gap-3 mb-6 md:flex">
         {INDEX_CARDS.map(({ label, key, isYield }) => (
           <IndexCardView
             key={key}

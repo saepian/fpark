@@ -657,9 +657,9 @@ export default function GlobalMarketPage() {
           ))}
         </div>
 
-        {/* 지수 카드 — 전체 너비 */}
+        {/* 지수 카드 — 전체 너비, 모바일 2x2 그리드 / md 이상 기존 가로 배치 */}
         {COUNTRY_TABS.map(tab => activeTab === tab.id && (
-          <div key={tab.id} className="flex gap-3 mb-7">
+          <div key={tab.id} className="grid grid-cols-2 gap-3 mb-7 md:flex">
             {TAB_INDEX_CARDS[tab.id].map(({ label, key, isFx }) => (
               <IndexCard
                 key={key}
