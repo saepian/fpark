@@ -29,6 +29,46 @@ export interface AnalysisResult {
   createdAt: string;
 }
 
+// AI가 본문 서술에서 현재가·52주 고저가를 자기 기억 속 "익숙한" 가격대로 임의 보정해 쓰는 현상 방지.
+// 구조화된 필드(current_price/resistance/support)는 서버가 직접 넣으므로 항상 정확하지만,
+// 자유 텍스트(summary/points)는 AI 재량이라 유명 대형주에서 실측값과 다른 숫자를 쓰는 경우가 확인됨
+// (예: SK하이닉스 — 실제 2,987,000원을 "298,700원"으로 서술).
+function correctPriceMentions(
+  result: Omit<AnalysisResult, 'isCached'>,
+  ticker: string,
+): Omit<AnalysisResult, 'isCached'> {
+  const checks: { re: RegExp; truth: number; label: string }[] = [
+    { re: /현재가\s*([\d,]+)\s*원/g, truth: result.current_price, label: '현재가' },
+    { re: /52주\s*고[가점]\s*([\d,]+)\s*원/g, truth: result.resistance, label: '52주 고가' },
+    { re: /52주\s*저[가점]\s*([\d,]+)\s*원/g, truth: result.support, label: '52주 저가' },
+  ];
+
+  const fixText = (text: string): string => {
+    let fixed = text;
+    for (const { re, truth, label } of checks) {
+      if (!(truth > 0)) continue;
+      fixed = fixed.replace(re, (match, numStr: string) => {
+        const extracted = parseInt(numStr.replace(/,/g, ''), 10);
+        if (!extracted || Math.abs(extracted - truth) / truth <= 0.05) return match;
+        console.warn(
+          `[ANALYSIS] ${ticker} ${label} 불일치 교정: "${extracted.toLocaleString()}원" → "${truth.toLocaleString()}원"`,
+        );
+        return match.replace(numStr, truth.toLocaleString());
+      });
+    }
+    return fixed;
+  };
+
+  return {
+    ...result,
+    summary: fixText(result.summary),
+    sections: result.sections.map((sec) => ({
+      ...sec,
+      points: sec.points.map(fixText),
+    })),
+  };
+}
+
 
 export async function GET(
   _req: NextRequest,
@@ -116,6 +156,8 @@ export async function GET(
   const prompt = `아래 종목 데이터를 관찰된 사실 위주로 정리하고 반드시 JSON만 출력하세요. JSON 외 텍스트는 절대 포함하지 마세요.
 
 ## 종목 데이터
+※ 현재가·52주 고저가는 서버가 직접 실측한 값입니다. 본인이 알고 있는 시세감이나 관례적인 가격대와 다르더라도
+임의로 보정하거나 축소·확대해서 쓰지 말고, 아래 숫자를 본문에서도 그대로 인용하세요.
 - 종목명: ${price.name} (${ticker})
 - 현재가: ${price.price.toLocaleString()}원 (등락률 ${price.changeRate > 0 ? '+' : ''}${price.changeRate}%)
 - 거래대금: ${price.tradingValue}
@@ -179,6 +221,7 @@ ${tradingValueBlock}
 - 데이터가 서로 다른 방향을 가리키면(예: 과거엔 반등했지만 오늘 거래대금은 낮음) 어느 신호에 더 비중을 두는지와 그 이유를 밝히세요
 - 위에 제공된 수치 외의 "관찰됨", "일반적으로 참고하는 지표" 같은 모호한 일반론 문장은 절대 생성하지 말 것
 - 제공되지 않은 데이터(섹터 비교, 동종업계 순위 등)에 대해서는 언급하지 말 것
+- 본문에서 현재가·52주 고가·52주 저가를 언급할 때는 위 "종목 데이터"에 제시된 숫자를 한 글자도 다르지 않게 그대로 쓰세요 — 익숙한 가격대와 다르다는 이유로 자릿수를 줄이거나 늘리지 말 것
 - signal은 전체 분석과 일관성 있게 선택
 - JSON 키 순서 및 구조 변경 금지`;
 
@@ -199,7 +242,7 @@ ${tradingValueBlock}
       'current_price' | 'resistance' | 'support' | 'disclaimer' | 'isCached' | 'createdAt'
     >;
 
-    const result: Omit<AnalysisResult, 'isCached'> = {
+    let result: Omit<AnalysisResult, 'isCached'> = {
       ...analysis,
       current_price: price.price,
       resistance: info.week52High, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
@@ -207,6 +250,9 @@ ${tradingValueBlock}
       disclaimer: INVESTMENT_DISCLAIMER,
       createdAt: new Date().toISOString(),
     };
+
+    // 4-1. 본문 서술 중 현재가/52주 고저가 불일치 교정 (캐시 저장 전에 적용)
+    result = correctPriceMentions(result, ticker);
 
     // 5. 캐시 저장
     supabase
