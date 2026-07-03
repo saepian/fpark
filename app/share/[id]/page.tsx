@@ -50,7 +50,7 @@ interface HoldingResult {
   invested: number;
   profit: number;
   profitRate: number;
-  signal: '매수세 우위' | '중립·관망' | '차익실현 관찰' | '매도세 우위';
+  signal: '순유입 우위' | '중립·관망' | '차익실현 관찰' | '순유출 우위';
   reason: string;
   sector: string;
 }
@@ -76,12 +76,12 @@ interface PortfolioData {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-// 매수/매도 지시가 아닌 관찰된 수급 패턴을 나타내는 중립적 라벨 (portfolio-diagnosis와 동일 체계)
+// 매매 지시가 아닌 관찰된 수급 패턴을 나타내는 중립적 라벨 (portfolio-diagnosis와 동일 체계)
 const SIGNAL_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
-  '매수세 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
+  '순유입 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
   '중립·관망':     { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
   '차익실현 관찰': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
-  '매도세 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
+  '순유출 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
 };
 
 const SECTOR_COLORS = [
@@ -97,7 +97,7 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
   const circ = 2 * Math.PI * r;
   const filled = circ * (percent / 100);
   const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
-  const label = type === 'BUY' ? 'BUY FLOW' : type === 'SELL' ? 'SELL FLOW' : 'NEUTRAL';
+  const label = type === 'BUY' ? '순유입' : type === 'SELL' ? '순유출' : '중립';
   return (
     <svg width="148" height="148" viewBox="0 0 148 148">
       <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
@@ -122,16 +122,16 @@ function ShareBanner({ message }: { message: string }) {
 function ShareCTA() {
   return (
     <div className="mt-8 bg-gradient-to-r from-indigo-600/15 to-violet-600/15 border border-indigo-500/30 rounded-2xl p-6 text-center">
-      <p className="text-[10px] font-bold tracking-[0.2em] text-indigo-400 uppercase mb-2">AI 종목진단 서비스</p>
-      <p className="text-white font-bold text-lg mb-1">나도 AI 종목진단 받기</p>
-      <p className="text-slate-400 text-[13px] mb-4">하루 1회 무료 · AI가 내 종목을 실시간으로 분석해드립니다</p>
+      <p className="text-[10px] font-bold tracking-[0.2em] text-indigo-400 uppercase mb-2">AI 기업 분석 서비스</p>
+      <p className="text-white font-bold text-lg mb-1">나도 AI 기업 분석 받기</p>
+      <p className="text-slate-400 text-[13px] mb-4">하루 1회 무료 · AI가 내 기업을 실시간으로 분석해드립니다</p>
       <Link
         href="/auth/login"
         className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-[14px] text-white transition-all hover:opacity-90"
         style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #0ea5e9 50%, #10b981 100%)' }}
       >
         <Sparkles className="w-4 h-4" />
-        fpark.com 가입하고 무료 진단받기 →
+        fpark.com 가입하고 무료 분석받기 →
       </Link>
     </div>
   );
@@ -152,7 +152,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
 
         {/* Header */}
         <div className="mb-6">
-          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 진단 리포트</p>
+          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 분석 리포트</p>
           <h1 className="text-[22px] font-bold text-white tracking-wide">
             {d.stockName.toUpperCase()}{' '}
             <span className="text-slate-500 font-mono text-base font-normal">({d.ticker})</span>
@@ -193,7 +193,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                 <span className="text-[15px] font-bold text-white font-mono">{fmt(d.currentPrice)} <span className="text-[11px] text-slate-500 font-normal">KRW</span></span>
               </div>
               <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">종목 수익률</span>
+                <span className="text-[12px] text-slate-400">기업 수익률</span>
                 <span className={`text-[15px] font-bold font-mono flex items-center gap-1 ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
                   {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
                   {fmtRate(d.profitRate)}
@@ -227,7 +227,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                 </span>
               </div>
               <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">매수평균가</span>
+                <span className="text-[12px] text-slate-400">매입평균가</span>
                 <span className="text-[13px] text-slate-300 font-mono">{fmt(d.avgPrice)}</span>
               </div>
               <div className="flex items-center justify-between px-5 py-3.5">
@@ -237,7 +237,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             </div>
             {d.benchmark && (
               <p className="px-5 py-2.5 text-[10px] text-slate-600 border-t border-slate-700/40">
-                비교 기간: {d.benchmark.fromDate} ~ {d.benchmark.toDate} (매수일 기준) · 판단이 아닌 수치 비교 정보입니다.
+                비교 기간: {d.benchmark.fromDate} ~ {d.benchmark.toDate} (매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
               </p>
             )}
           </div>
@@ -435,19 +435,19 @@ function PortfolioView({ d }: { d: PortfolioData }) {
     <div className="min-h-screen bg-[#0d1117] pb-16">
       <div className="max-w-5xl mx-auto px-4 pt-8">
 
-        <ShareBanner message="AI가 분석한 포트폴리오 진단 리포트입니다" />
+        <ShareBanner message="AI가 분석한 포트폴리오 분석 리포트입니다" />
 
         {/* Header */}
         <div className="mb-6">
-          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 포트폴리오 진단 리포트</p>
-          <h1 className="text-[22px] font-bold text-white">포트폴리오 진단 리포트</h1>
+          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 포트폴리오 분석 리포트</p>
+          <h1 className="text-[22px] font-bold text-white">포트폴리오 분석 리포트</h1>
           <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성: {d.generatedAt}</p>
         </div>
 
         {/* 수익률 요약 (절대 금액 제외) */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="border rounded-2xl p-4" style={{ background: '#1a1f2e', borderColor: '#334155' }}>
-            <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">종목 수</p>
+            <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">기업 수</p>
             <p className="text-xl font-bold font-mono text-white">{d.holdings?.length ?? 0}개</p>
           </div>
           <div className="border rounded-2xl p-4" style={{
@@ -515,7 +515,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
 
         {/* 종목별 관찰 지표 (절대 금액 제외) */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">종목별 관찰 지표</p>
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">기업별 관찰 지표</p>
           <div className="flex flex-col divide-y divide-slate-700/40">
             {(d.holdings ?? []).map(h => {
               const cfg = SIGNAL_CFG[h.signal] ?? SIGNAL_CFG['중립·관망'];
@@ -591,7 +591,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
   if (row.type === 'diagnosis') {
     const d = row.data as DiagnosisData;
-    const title = `AI 종목진단 - ${d.stockName}`;
+    const title = `AI 기업 분석 - ${d.stockName}`;
     const desc = `수익률 ${fmtRate(d.profitRate)} | ${d.summary?.slice(0, 80) ?? ''}`;
     return {
       title,
@@ -607,8 +607,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   }
 
   const d = row.data as PortfolioData;
-  const title = `AI 포트폴리오 진단 리포트 | FINANCE PARK`;
-  const desc = `총 수익률 ${fmtRate(d.totalProfitRate)} | ${d.holdings?.length ?? 0}개 종목 AI 분석`;
+  const title = `AI 포트폴리오 분석 리포트 | FINANCE PARK`;
+  const desc = `총 수익률 ${fmtRate(d.totalProfitRate)} | ${d.holdings?.length ?? 0}개 기업 AI 분석`;
   return {
     title,
     description: desc,
@@ -656,7 +656,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
           <p className="text-white font-semibold text-lg mb-2">만료된 리포트입니다</p>
           <p className="text-slate-500 text-[13px] mb-6">공유 링크는 생성 후 7일간만 유효합니다</p>
           <Link href="/diagnosis" className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors">
-            새 진단 받기
+            새 분석 받기
           </Link>
         </div>
       </div>

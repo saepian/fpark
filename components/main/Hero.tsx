@@ -308,7 +308,7 @@ export default function Hero() {
             <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500" />
           </span>
           <span className="text-xs font-semibold text-indigo-300 tracking-wide">
-            AI 기반 실시간 주식 분석 플랫폼
+            AI 기반 실시간 기업 데이터 분석 플랫폼
           </span>
         </div>
 
@@ -318,7 +318,7 @@ export default function Hero() {
           <br />
           <span className="relative inline-block">
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">
-              실시간 주식 인사이트
+              실시간 시장 데이터
             </span>
             <span
               className="absolute -bottom-1 left-0 right-0 h-px opacity-60"
@@ -328,9 +328,9 @@ export default function Hero() {
         </h1>
 
         <p className="text-slate-400 text-sm mb-10 max-w-lg mx-auto leading-relaxed">
-          최신 뉴스와 시장 데이터를 AI가 종합 분석합니다.
+          AI가 공개된 시장 데이터와 뉴스를 분석하여
           <br />
-          관심 종목을 검색하고 맞춤 인사이트를 받아보세요.
+          기업별 핵심 정보와 데이터 리포트를 제공합니다.
         </p>
 
         {/* 검색창 */}
@@ -373,7 +373,7 @@ export default function Hero() {
                     }
                   }
                 }}
-                placeholder="종목명 또는 코드 검색  (예: 삼성전자, 005930)"
+                placeholder="기업명 또는 코드 검색  (예: 삼성전자, 005930)"
                 className="relative w-full pl-12 pr-4 py-4 rounded-xl z-10
                   bg-slate-900/90 border border-slate-700/50
                   text-white placeholder:text-slate-500
@@ -397,7 +397,7 @@ export default function Hero() {
 
         {/* 인기 종목 */}
         <div className="flex flex-wrap items-center justify-center gap-2 mb-10">
-          <span className="text-xs text-slate-600">인기 종목</span>
+          <span className="text-xs text-slate-600">인기 기업</span>
           {POPULAR.map((s) => (
             <button
               key={s.ticker}
@@ -427,8 +427,8 @@ export default function Hero() {
                       🔍
                     </div>
                     <div className="text-left">
-                      <p className="text-[13px] font-bold text-white leading-tight">AI 종목진단</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">종목 하나를 깊이 분석해드립니다</p>
+                      <p className="text-[13px] font-bold text-white leading-tight">AI 기업 분석</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">기업 하나를 깊이 분석해드립니다</p>
                     </div>
                   </div>
                   <span
@@ -442,7 +442,7 @@ export default function Hero() {
                   className="flex items-center gap-1 text-[11px] font-semibold transition-all duration-200 group-hover:gap-1.5"
                   style={{ color: '#818cf8' }}
                 >
-                  진단 시작하기 <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
+                  분석 시작하기 <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
                 </div>
               </div>
             </div>
@@ -461,8 +461,8 @@ export default function Hero() {
                       📊
                     </div>
                     <div className="text-left">
-                      <p className="text-[13px] font-bold text-white leading-tight">AI 포트폴리오 진단</p>
-                      <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">보유 종목 전체를 한번에 분석</p>
+                      <p className="text-[13px] font-bold text-white leading-tight">AI 포트폴리오 분석</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">보유 기업 전체를 한번에 분석</p>
                     </div>
                   </div>
                   <span
@@ -476,7 +476,7 @@ export default function Hero() {
                   className="flex items-center gap-1 text-[11px] font-semibold transition-all duration-200 group-hover:gap-1.5"
                   style={{ color: '#c084fc' }}
                 >
-                  진단 시작하기 <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
+                  분석 시작하기 <span className="transition-transform duration-200 group-hover:translate-x-0.5">→</span>
                 </div>
               </div>
             </div>
@@ -516,7 +516,7 @@ export default function Hero() {
         {/* 통계 수치 */}
         <div className="flex items-center justify-center gap-8 mt-8">
           {[
-            { label: '분석 종목', value: '2,500+' },
+            { label: '분석 기업', value: '2,500+' },
             { label: '실시간 뉴스', value: '24/7' },
             { label: 'AI 분석', value: 'GPT-4급' },
           ].map((stat, i) => (

@@ -51,7 +51,7 @@ export default function AdSlot({ size = 'feed' }: AdSlotProps) {
           </div>
           <div>
             <h4 className="text-sm font-bold text-gray-900 dark:text-gray-100">
-              데이터 중심 투자 전략, FPARK PRO와 함께하세요
+              데이터 중심 분석, FPARK PRO와 함께하세요
             </h4>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               실시간 AI 예측, 무제한 재무 검색, 고급 지표 분석 제공

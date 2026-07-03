@@ -56,7 +56,7 @@ export default function LoginPage() {
               Finance Park
             </p>
             <h1 className="text-[24px] font-bold text-white mb-1.5">로그인</h1>
-            <p className="text-[13px] text-slate-400">투자 정보를 더 스마트하게 활용하세요</p>
+            <p className="text-[13px] text-slate-400">기업 데이터를 더 스마트하게 활용하세요</p>
           </div>
 
           {/* 폼 */}

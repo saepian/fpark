@@ -6,5 +6,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: 'https://fpark.com/news', lastModified: new Date(), priority: 0.8 },
     { url: 'https://fpark.com/privacy', lastModified: new Date(), priority: 0.3 },
     { url: 'https://fpark.com/terms', lastModified: new Date(), priority: 0.3 },
+    { url: 'https://fpark.com/refund', lastModified: new Date(), priority: 0.3 },
   ]
 }

@@ -16,7 +16,7 @@ function timeAgo(dateStr: string): string {
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  domestic: '국내주식', global: '해외주식', macro: '경제',
+  domestic: '국내시장', global: '해외시장', macro: '경제',
   real_estate: '부동산', stock: '종목', company: '기업', crypto: '가상화폐',
 };
 

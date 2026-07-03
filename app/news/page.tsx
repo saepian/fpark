@@ -8,13 +8,13 @@ import { NewsItem } from '@/lib/types';
 
 const PAGE_SIZE = 10;
 
-const CATEGORIES = ['전체', '국내주식', '해외주식', '경제', '부동산', '원자재'] as const;
+const CATEGORIES = ['전체', '국내시장', '해외시장', '경제', '부동산', '원자재'] as const;
 type Category = typeof CATEGORIES[number];
 
 const CATEGORY_CODE: Record<Category, string> = {
   '전체':   '',
-  '국내주식': 'domestic',
-  '해외주식': 'global',
+  '국내시장': 'domestic',
+  '해외시장': 'global',
   '경제':   'macro',
   '부동산':  'real_estate',
   '원자재':  'commodity',
@@ -264,8 +264,8 @@ function NewsPageContent() {
         {/* 우측: 사이드 패널 */}
         <div className="flex flex-col gap-4">
           <MarketSummary />
-          <SideStockList title="🔥 인기 종목" stocks={popular} onClickStock={goStock} />
-          <SideStockList title="📈 오늘 급등주" stocks={gainers} onClickStock={goStock} />
+          <SideStockList title="🔥 인기 기업" stocks={popular} onClickStock={goStock} />
+          <SideStockList title="📈 오늘 급등 기업" stocks={gainers} onClickStock={goStock} />
         </div>
 
       </div>

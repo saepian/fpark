@@ -71,7 +71,7 @@ function CountUp({
 // (app/diagnosis/page.tsx와 동일한 DiagnosisReport 컴포넌트를 공유하므로,
 //  리포트 UI가 바뀌면 이 예시 카드도 자동으로 최신 상태를 따라간다)
 const SAMPLE_DIAGNOSIS: DiagnosisResult = {
-  summary: '삼성전자는 현재 92일 보유 기간 동안 +316.43%의 수익률이 관찰되는 가운데, 금일 -7.31%의 급락이 나타났습니다. 최근 5영업일 동안 외국인이 총 8만4,433억원 규모의 순매도를 지속하고 있으며, 같은 기간 개인 투자자들이 대규모 순매수로 대응하는 패턴이 관찰됩니다. 이는 큰손 투자자들의 차익 실현 흐름과 개인 투자자들의 역매매가 교차하는 구간에서 자주 관찰되는 수급 구조라는 특징이 있습니다. 같은 기간 KOSPI는 +26.43% 상승에 그쳐, 이 종목이 시장 대비 약 +290%p 더 상승한 점이 관찰됩니다.',
+  summary: '삼성전자는 현재 92일 보유 기간 동안 +316.43%의 수익률이 관찰되는 가운데, 금일 -7.31%의 급락이 나타났습니다. 최근 5영업일 동안 외국인이 총 8만4,433억원 규모의 순유출을 지속하고 있으며, 같은 기간 개인이 대규모 순유입으로 대응하는 패턴이 관찰됩니다. 이는 대형 자금의 차익 실현 흐름과 개인 자금의 반대 방향 대응이 교차하는 구간에서 자주 관찰되는 수급 구조라는 특징이 있습니다. 같은 기간 KOSPI는 +26.43% 상승에 그쳐, 이 기업이 시장 대비 약 +290%p 더 상승한 점이 관찰됩니다.',
   currentPrice: 291500,
   avgPrice: 70000,
   quantity: 10,
@@ -85,11 +85,11 @@ const SAMPLE_DIAGNOSIS: DiagnosisResult = {
     },
   ],
   newsBasis: 'news',
-  institutionalFlow: '기관은 최근 5영업일 중 6월 25일(+12,226억원)과 6월 29일(+8,010억원), 6월 30일(+9,093억원)에 순매수를 기록했으나, 6월 26일(-12,094억원)과 7월 1일(-5,854억원)에는 순매도로 전환하는 등 방향성이 혼재된 흐름이 관찰됩니다. 5영업일 누적 기준으로는 약 +11,531억원의 소폭 순매수 기조가 관찰됩니다.',
-  foreignFlow: '외국인은 최근 5영업일 동안 단 하루도 순매수가 없는 연속 순매도 흐름이 관찰되며, 누적 순매도 규모는 약 -84,433억원에 달합니다. 특히 6월 29일 하루에만 -38,498억원의 집중 매도가 관찰된 점은 글로벌 매크로 환경 변화 또는 차익 실현 목적의 대규모 이탈로 투자자들이 해석하는 경우가 많은 패턴이라는 특징이 있습니다.',
+  institutionalFlow: '기관은 최근 5영업일 중 6월 25일(+12,226억원)과 6월 29일(+8,010억원), 6월 30일(+9,093억원)에 순유입을 기록했으나, 6월 26일(-12,094억원)과 7월 1일(-5,854억원)에는 순유출로 전환하는 등 방향성이 혼재된 흐름이 관찰됩니다. 5영업일 누적 기준으로는 약 +11,531억원의 소폭 순유입 기조가 관찰됩니다.',
+  foreignFlow: '외국인은 최근 5영업일 동안 단 하루도 순유입이 없는 연속 순유출 흐름이 관찰되며, 누적 순유출 규모는 약 -84,433억원에 달합니다. 특히 6월 29일 하루에만 -38,498억원의 집중 유출이 관찰된 점은 글로벌 매크로 환경 변화 또는 차익 실현 목적의 대규모 이탈로 시장 참여자들이 해석하는 경우가 많은 패턴이라는 특징이 있습니다.',
   reasons: [
     '금일 -7.31% 급락의 직접적인 뉴스 근거는 제공된 기사에서 확인되지 않으며, 6월 30일 기사에서는 오히려 삼성전자가 3%대 급반등을 기록했다는 사실이 관찰됩니다.',
-    '최근 5영업일 외국인 순매도 누적액이 약 8만4,433억원에 달하며, 특히 6월 29일 하루에만 -38,498억원의 대규모 이탈이 관찰됩니다.',
+    '최근 5영업일 외국인 순유출 누적액이 약 8만4,433억원에 달하며, 특히 6월 29일 하루에만 -38,498억원의 대규모 이탈이 관찰됩니다.',
     '현재 PER 44.4배, PBR 4.55배로, EPS 6,564원 대비 현재가 291,500원 수준의 밸류에이션이 형성되어 있다는 점이 관찰됩니다.',
   ],
   technicalAnalysis: [
@@ -106,18 +106,18 @@ const SAMPLE_DIAGNOSIS: DiagnosisResult = {
     toDate: '2026-07-02',
   },
   riskFactors: [
-    '외국인이 최근 5영업일 누적 -84,433억원의 대규모 순매도를 지속하고 있으며, 이 추세가 이어질 경우 추가적인 수급 압력이 관찰될 수 있습니다.',
+    '외국인이 최근 5영업일 누적 -84,433억원의 대규모 순유출을 지속하고 있으며, 이 추세가 이어질 경우 추가적인 수급 압력이 관찰될 수 있습니다.',
     'PER 44.4배, PBR 4.55배 수준은 반도체 업종 평균 대비 높은 밸류에이션 구간으로 관찰됩니다.',
     '금일 -7.31% 급락의 명확한 뉴스 근거가 확인되지 않아, 시장 불확실성 또는 외부 매크로 변수에 의한 변동성 확대 가능성이 관찰 포인트로 남아 있습니다.',
   ],
   opportunityFactors: [
     '6월 30일 뉴스 기준으로 삼성전자가 3%대 급반등을 기록하는 등 단기 반등 모멘텀이 관찰된 사례가 있습니다.',
     '보유 평균가 70,000원 대비 현재가 291,500원으로 +316.43%의 수익률이 누적되어 있으며, 같은 기간 KOSPI 상승률(+26.43%) 대비 약 +290%p의 초과 수익이 관찰됩니다.',
-    '52주 저가 59,800원 대비 현재 수준은 충분한 상승 폭이 누적된 구간으로, 개인 투자자들이 최근 5영업일 누적 대규모 순매수로 대응하고 있다는 점이 관찰됩니다.',
+    '52주 저가 59,800원 대비 현재 수준은 충분한 상승 폭이 누적된 구간으로, 개인이 최근 5영업일 누적 대규모 순유입으로 대응하고 있다는 점이 관찰됩니다.',
   ],
   flowType: 'SELL',
   flowPercentage: 89,
-  shortTermOutlook: '단기적으로는 52주 고점인 374,500원이 주요 저항선으로 관찰되며, 외국인 순매도 지속 여부와 개인 매수세의 규모가 단기 방향성을 가늠하는 관찰 포인트로 작용할 수 있습니다.',
+  shortTermOutlook: '단기적으로는 52주 고점인 374,500원이 주요 저항선으로 관찰되며, 외국인 순유출 지속 여부와 개인 유입세의 규모가 단기 방향성을 가늠하는 관찰 포인트로 작용할 수 있습니다.',
   midTermOutlook: '중기적으로는 반도체 업황 회복 속도와 외국인 수급 방향 전환 여부가 주요 변수로 관찰되며, 현재 PER 44.4배 수준의 밸류에이션이 실적 개선으로 정당화되는지 여부가 주가 방향성에 영향을 미치는 요인으로 언급됩니다.',
 };
 
@@ -127,7 +127,7 @@ const FEATURES = [
   {
     icon: TrendingUp, color: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/25',
     title: '실시간 수급 분석',
-    desc: '외국인·기관·개인의 순매수 흐름을 관찰해 수급 방향을 한눈에 정리해드립니다.',
+    desc: '외국인·기관·개인의 순유입·순유출 흐름을 관찰해 수급 방향을 한눈에 정리해드립니다.',
   },
   {
     icon: Newspaper, color: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-500/25',
@@ -137,7 +137,7 @@ const FEATURES = [
   {
     icon: BarChart3, color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/25',
     title: 'KOSPI/KOSDAQ 벤치마크 비교',
-    desc: '내 종목·포트폴리오 수익률과 같은 기간 시장 지수 등락률을 사실 그대로 비교합니다.',
+    desc: '내 기업·포트폴리오 수익률과 같은 기간 시장 지수 등락률을 사실 그대로 비교합니다.',
   },
   {
     icon: ShieldAlert, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/25',
@@ -151,14 +151,14 @@ const FEATURES = [
 const LANDING_PLANS = [
   {
     type: 'basic' as const, name: 'BASIC', price: PLAN_AMOUNTS.basic.monthly, originalPrice: null,
-    desc: '더 많은 분석이 필요한 투자자를 위한 플랜',
-    features: ['종목진단 매일 6회', '포트폴리오 진단 월 1회', 'AI 분석 리포트 저장', '뉴스/시장 데이터 무제한'],
+    desc: '더 많은 분석이 필요한 이용자를 위한 플랜',
+    features: ['기업 분석 매일 6회', '포트폴리오 분석 월 1회', 'AI 분석 리포트 저장', '뉴스/시장 데이터 무제한'],
     highlight: false,
   },
   {
     type: 'pro' as const, name: 'PRO', price: PLAN_AMOUNTS.pro.monthly, originalPrice: 29900,
-    desc: '전문적인 포트폴리오 관리가 필요한 투자자',
-    features: ['종목진단 매일 11회', '포트폴리오 진단 월 20회', '관심종목 주가·수급 알림', '우선순위 분석 처리'],
+    desc: '전문적인 포트폴리오 관리가 필요한 이용자',
+    features: ['기업 분석 매일 11회', '포트폴리오 분석 월 20회', '관심기업 주가·수급 알림', '우선순위 분석 처리'],
     highlight: true,
   },
 ];
@@ -179,7 +179,7 @@ export default function AiPortfolioLandingPage() {
             transition={{ duration: 0.6 }}
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-[11px] text-indigo-300 font-semibold tracking-wide mb-6 relative"
           >
-            <Sparkles className="w-3 h-3" /> AI 종목 분석 · 무료로 시작
+            <Sparkles className="w-3 h-3" /> AI 기업 분석 · 무료로 시작
           </motion.div>
 
           <motion.h1
@@ -201,7 +201,7 @@ export default function AiPortfolioLandingPage() {
             transition={{ duration: 0.6, delay: 0.16 }}
             className="text-slate-400 text-[15px] md:text-lg mb-10 relative"
           >
-            수급, 뉴스, 밸류에이션까지 — 종목당{' '}
+            수급, 뉴스, 밸류에이션까지 — 기업당{' '}
             <span className="text-white font-bold"><CountUp to={3} />초</span>면 확인
           </motion.p>
 
@@ -221,7 +221,7 @@ export default function AiPortfolioLandingPage() {
               }}
             >
               <Sparkles className="w-4 h-4" />
-              무료로 AI 진단 받기
+              무료로 AI 분석 받기
               <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
             </Link>
             <p className="mt-3 text-[12px] text-slate-500">신용카드 등록 없이 바로 시작</p>
@@ -315,7 +315,7 @@ export default function AiPortfolioLandingPage() {
             실제 서비스와 동일한 화면 구성입니다
           </h2>
           <p className="text-slate-400 text-[14px] md:text-[15px]">
-            아래는 실제 종목진단 리포트 컴포넌트에 예시 데이터(삼성전자)를 넣어 그대로 렌더링한 화면입니다
+            아래는 실제 기업 분석 리포트 컴포넌트에 예시 데이터(삼성전자)를 넣어 그대로 렌더링한 화면입니다
           </p>
         </Reveal>
         <Reveal delay={0.1} className="max-w-5xl mx-auto">
@@ -372,7 +372,7 @@ export default function AiPortfolioLandingPage() {
                   <span className="absolute top-5 right-5 text-[10px] font-bold px-2.5 py-1 rounded-full text-white"
                     style={{ background: 'linear-gradient(135deg, #7c3aed, #ec4899)' }}
                   >
-                    추천
+                    인기
                   </span>
                 )}
                 <p className={`text-[12px] font-bold uppercase tracking-widest mb-1 ${p.highlight ? 'text-violet-300' : 'text-slate-500'}`}>
@@ -417,7 +417,7 @@ export default function AiPortfolioLandingPage() {
           ))}
         </div>
         <p className="text-center text-[12px] text-slate-500 mt-6 leading-relaxed">
-          회원가입 자체는 무료이며, 가입 후 무료 플랜으로 종목진단을 매일 이용할 수 있습니다.<br className="hidden md:block" />
+          회원가입 자체는 무료이며, 가입 후 무료 플랜으로 기업 분석을 매일 이용할 수 있습니다.<br className="hidden md:block" />
           Basic·Pro는 별도 무료 체험 기간 없이 결제 즉시 이용이 시작되며 매월 자동 결제됩니다 ·{' '}
           <Link href="/pricing" className="text-indigo-400 hover:underline">전체 요금제 비교 보기</Link>
         </p>
@@ -434,7 +434,7 @@ export default function AiPortfolioLandingPage() {
             지금 무료로 시작하세요
           </h2>
           <p className="text-slate-400 text-[14px] md:text-[15px] mb-8">
-            가입 후 바로 첫 AI 종목 진단을 받아보실 수 있습니다
+            가입 후 바로 첫 AI 기업 분석을 받아보실 수 있습니다
           </p>
           <Link
             href="/auth/signup"

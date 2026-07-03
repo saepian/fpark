@@ -9,11 +9,11 @@ import { NewsItem, NewsListResponse } from '../../lib/types';
 
 const TABS = [
   { label: '전체',   code: 'all' },
-  { label: '국내주식', code: 'domestic' },
-  { label: '해외주식', code: 'global' },
+  { label: '국내시장', code: 'domestic' },
+  { label: '해외시장', code: 'global' },
   { label: '경제',   code: 'macro' },
   { label: '부동산', code: 'real_estate' },
-  { label: '종목',   code: 'stock' },
+  { label: '기업',   code: 'stock' },
 ] as const;
 
 type TabCode = typeof TABS[number]['code'];

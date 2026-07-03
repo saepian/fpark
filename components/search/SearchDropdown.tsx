@@ -110,7 +110,7 @@ export default function SearchDropdown({ results, onSelect, onClose, query }: Se
             {/* 구분선 */}
             {domestic.length > 0 && overseas.length > 0 && (
               <div className="px-4 py-1.5 bg-slate-900/50 border-y border-slate-800/60">
-                <span className="text-[10px] text-slate-500 uppercase tracking-wider">해외 종목</span>
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider">해외 기업</span>
               </div>
             )}
 

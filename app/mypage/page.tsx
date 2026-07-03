@@ -473,7 +473,7 @@ export default function MyPage() {
                   >
                     🔍
                   </div>
-                  <p className="text-[14px] font-semibold text-slate-200">종목진단</p>
+                  <p className="text-[14px] font-semibold text-slate-200">기업 분석</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[24px] font-bold text-white leading-none font-mono">
@@ -504,7 +504,7 @@ export default function MyPage() {
                   >
                     📊
                   </div>
-                  <p className="text-[14px] font-semibold text-slate-200">포트폴리오 진단</p>
+                  <p className="text-[14px] font-semibold text-slate-200">포트폴리오 분석</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[24px] font-bold text-white leading-none font-mono">
@@ -603,7 +603,7 @@ export default function MyPage() {
               <div>
                 <p className="text-[13.5px] font-semibold text-slate-200">일일 리포트 이메일 수신</p>
                 <p className="text-[11.5px] text-slate-500 mt-0.5">
-                  평일 장 마감 후 관심종목 등락 현황 + AI 분석을 이메일로 발송
+                  평일 장 마감 후 관심기업 등락 현황 + AI 분석을 이메일로 발송
                 </p>
               </div>
               <button
@@ -681,7 +681,7 @@ export default function MyPage() {
             <div className="text-center mb-6">
               <h3 className="text-[17px] font-bold text-white mb-2">정말 탈퇴하시겠어요?</h3>
               <p className="text-[12.5px] text-slate-400 leading-relaxed">
-                탈퇴 시 진단 내역, 관심종목 등<br />
+                탈퇴 시 분석 내역, 관심기업 등<br />
                 모든 데이터가 영구 삭제됩니다.
               </p>
             </div>

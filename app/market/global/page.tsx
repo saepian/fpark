@@ -346,7 +346,7 @@ function StockTable({
       <div className="grid grid-cols-[48px_1fr_120px_90px] gap-3 px-4 py-2.5
         text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800/60">
         <span className="text-center">#</span>
-        <span>종목</span>
+        <span>기업</span>
         <span className="text-right">현재가</span>
         <span className="text-right">등락률</span>
       </div>
@@ -636,7 +636,7 @@ export default function GlobalMarketPage() {
         {/* 타이틀 */}
         <h1 className="text-[18px] font-bold text-white mb-1 tracking-tight">해외증시</h1>
         <p className="text-sm text-slate-500 mt-1 mb-5 leading-relaxed">
-          Yahoo Finance 기반 해외 증시 정보 · 실시간 대비 약 15분 지연 · 환율 포함 주요 지수와 종목을 확인하세요
+          Yahoo Finance 기반 해외 증시 정보 · 실시간 대비 약 15분 지연 · 환율 포함 주요 지수와 기업을 확인하세요
         </p>
 
         {/* 국가 탭 */}
@@ -680,7 +680,7 @@ export default function GlobalMarketPage() {
           <div className="min-w-0">
             {COUNTRY_TABS.map(tab => activeTab === tab.id && (
               <div key={tab.id}>
-                <h2 className="text-[14px] font-bold text-white mb-3">주요 종목</h2>
+                <h2 className="text-[14px] font-bold text-white mb-3">주요 기업</h2>
                 <StockTable
                   stocks={stocksByTab[tab.id] ?? []}
                   loading={loadingByTab[tab.id]}

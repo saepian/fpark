@@ -57,7 +57,7 @@ export default function WatchlistButton({ ticker, name }: Props) {
     <>
       <button
         onClick={toggle}
-        aria-label={watching ? '관심종목 해제' : '관심종목 추가'}
+        aria-label={watching ? '관심기업 해제' : '관심기업 추가'}
         className={[
           'flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-medium transition-all cursor-pointer',
           watching
@@ -70,7 +70,7 @@ export default function WatchlistButton({ ticker, name }: Props) {
           fill={watching ? 'currentColor' : 'none'}
           strokeWidth={2}
         />
-        {watching ? '관심종목' : '추가'}
+        {watching ? '관심기업' : '추가'}
       </button>
 
       {toastMsg && (

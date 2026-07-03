@@ -17,14 +17,14 @@ export const INVESTMENT_DISCLAIMER =
   '본 리포트는 투자 판단에 참고할 수 있는 정보를 제공할 뿐, 투자자문이나 매매 권유가 아닙니다. ' +
   '투자 결정과 그 결과에 대한 책임은 투자자 본인에게 있습니다.';
 
-// 매수/매도 지시가 아닌, 관찰된 수급·가격 패턴을 나타내는 중립적 라벨.
-// 종목진단·포트폴리오 진단·해외 종목 카드 등 새로운 AI 분석 기능을 추가할 때 항상 이 값을 재사용할 것 —
+// 매매 지시가 아닌, 관찰된 수급·가격 패턴을 나타내는 중립적 라벨.
+// 종목분석·포트폴리오 분석·해외 기업 카드 등 새로운 AI 분석 기능을 추가할 때 항상 이 값을 재사용할 것 —
 // 각 파일에서 따로 정의하면 문구가 흩어져 컴플라이언스 순화가 누락되기 쉬움.
-export const SIGNAL_VALUES = ['매수세 우위', '중립·관망', '차익실현 관찰', '매도세 우위'] as const;
+export const SIGNAL_VALUES = ['순유입 우위', '중립·관망', '차익실현 관찰', '순유출 우위'] as const;
 export type Signal = typeof SIGNAL_VALUES[number];
 
 export function signalToSentiment(signal: string): 'bullish' | 'bearish' | 'neutral' {
-  if (signal === '매수세 우위') return 'bullish';
-  if (signal === '매도세 우위') return 'bearish';
+  if (signal === '순유입 우위') return 'bullish';
+  if (signal === '순유출 우위') return 'bearish';
   return 'neutral';
 }

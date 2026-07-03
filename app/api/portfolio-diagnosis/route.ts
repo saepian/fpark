@@ -179,9 +179,9 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
   const prompt =
     `다음 한국 주식의 관찰된 데이터를 분석하고 JSON만 출력하세요.\n\n` +
     buildStockPrompt(h) +
-    `\n\n{"ticker":"${h.ticker}","signal":"매수세 우위"|"중립·관망"|"차익실현 관찰"|"매도세 우위","reason":"2문장 이내, 관찰된 사실 설명","sector":"실제업종명"}\n\n` +
-    `signal은 매수/매도 지시가 아니라 현재 수급·가격 패턴에 대한 관찰 결과입니다 — ` +
-    `외국인·기관 매수세가 우위면 "매수세 우위", 매도세가 우위면 "매도세 우위", ` +
+    `\n\n{"ticker":"${h.ticker}","signal":"순유입 우위"|"중립·관망"|"차익실현 관찰"|"순유출 우위","reason":"2문장 이내, 관찰된 사실 설명","sector":"실제업종명"}\n\n` +
+    `signal은 매매 지시가 아니라 현재 수급·가격 패턴에 대한 관찰 결과입니다 — ` +
+    `외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도로 자금이 빠져나가는 흐름이 우위면 "순유출 우위", ` +
     `수익률이 높고 밸류에이션 부담이 겹쳐 차익실현 패턴이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요.`;
 
   const newsBasis: 'news' | 'estimated' = h.relevantNews.length > 0 ? 'news' : 'estimated';

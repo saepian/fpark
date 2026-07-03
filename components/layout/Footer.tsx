@@ -19,8 +19,19 @@ export default function Footer() {
             <Link href="/about"   className="hover:text-[#adc6ff] transition-colors hover:underline">소개</Link>
             <Link href="/terms"   className="hover:text-[#adc6ff] transition-colors hover:underline">이용약관</Link>
             <Link href="/privacy" className="hover:text-[#adc6ff] transition-colors hover:underline">개인정보처리방침</Link>
+            <Link href="/refund"  className="hover:text-[#adc6ff] transition-colors hover:underline">환불정책</Link>
             <Link href="/contact" className="hover:text-[#adc6ff] transition-colors hover:underline">문의하기</Link>
           </div>
+        </div>
+
+        {/* 투자 유의사항 */}
+        <div className="border-t border-[#2d313e] pt-6">
+          <p className="text-[11px] font-bold text-[#8c909f] uppercase tracking-wider mb-2">투자 유의사항</p>
+          <p className="text-[11.5px] text-[#6b7280] leading-relaxed max-w-3xl">
+            FPARK는 공개된 시장 데이터를 AI 기반으로 분석하여 정보를 제공하는 데이터 분석 플랫폼입니다.
+            제공되는 모든 정보는 정보 제공을 위한 것이며 투자 권유, 투자 자문 또는 금융 상품 추천에 해당하지 않습니다.
+            최종 의사결정과 그에 따른 책임은 이용자에게 있습니다.
+          </p>
         </div>
 
         {/* 하단: 사업자 정보 */}

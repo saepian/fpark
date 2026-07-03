@@ -46,7 +46,7 @@ export default function SectorPeers({ ticker }: { ticker: string }) {
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       <div className="px-4 pt-4 pb-2.5 border-b border-slate-800">
         <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-          동일업종 종목
+          동일업종 기업
         </h3>
       </div>
 

@@ -40,7 +40,7 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
   const circ = 2 * Math.PI * r;
   const filled = circ * (percent / 100);
   const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
-  const label = type === 'BUY' ? 'BUY FLOW' : type === 'SELL' ? 'SELL FLOW' : 'NEUTRAL';
+  const label = type === 'BUY' ? '순유입' : type === 'SELL' ? '순유출' : '중립';
 
   return (
     <svg width="148" height="148" viewBox="0 0 148 148">
@@ -103,7 +103,7 @@ export default function DiagnosisReport({
         {/* ── 헤더 ── */}
         <div className="flex justify-between mb-6 gap-4">
           <div>
-            <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 진단 리포트</p>
+            <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 분석 리포트</p>
             <h1 className="text-[22px] font-bold text-white tracking-wide">
               {stockName.toUpperCase()}{' '}
               <span className="text-slate-500 font-mono text-base font-normal">({ticker})</span>
@@ -113,9 +113,9 @@ export default function DiagnosisReport({
           {actions && (
             <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
               <ShareDropdown
-                title={`AI 종목진단 - ${stockName}`}
+                title={`AI 기업 분석 - ${stockName}`}
                 description={`수익률 ${result.profitRate >= 0 ? '+' : ''}${result.profitRate.toFixed(2)}% | ${result.summary?.slice(0, 80) ?? ''}`}
-                hashtags="fpark,주식,AI종목진단"
+                hashtags="fpark,기업분석,AI분석"
                 reportType="diagnosis"
                 reportData={{ ...result, stockName, ticker, generatedAt }}
               />
@@ -166,7 +166,7 @@ export default function DiagnosisReport({
                 <span className="text-[15px] font-bold text-white font-mono">{fmt(result.currentPrice)} <span className="text-[11px] text-slate-500 font-normal">KRW</span></span>
               </div>
               <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">종목 수익률</span>
+                <span className="text-[12px] text-slate-400">기업 수익률</span>
                 <span className={`text-[15px] font-bold font-mono flex items-center gap-1 ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
                   {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
                   {fmtRate(result.profitRate)}
@@ -200,7 +200,7 @@ export default function DiagnosisReport({
                 </span>
               </div>
               <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">매수평균가</span>
+                <span className="text-[12px] text-slate-400">매입평균가</span>
                 <span className="text-[13px] text-slate-300 font-mono">{fmt(result.avgPrice)}</span>
               </div>
               <div className="flex items-center justify-between px-5 py-3.5">
@@ -210,7 +210,7 @@ export default function DiagnosisReport({
             </div>
             {result.benchmark && (
               <p className="px-5 py-2.5 text-[10px] text-slate-600 border-t border-slate-700/40">
-                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (매수일 기준) · 판단이 아닌 수치 비교 정보입니다.
+                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
               </p>
             )}
           </div>
@@ -451,7 +451,7 @@ export default function DiagnosisReport({
             className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl
               bg-slate-800 hover:bg-slate-700 border border-slate-700
               text-slate-300 text-[13px] transition-colors cursor-pointer">
-            <ChevronLeft className="w-4 h-4" /> 다시 종목진단 받기
+            <ChevronLeft className="w-4 h-4" /> 다시 기업 분석 받기
           </button>
         )}
       </div>

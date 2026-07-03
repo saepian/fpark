@@ -88,7 +88,7 @@ export default function DiagnosisPage() {
   }, [searchQuery]);
 
   // 로딩 단계 자동 진행 (타이밍 기반 UX)
-  const LOADING_STEPS = ['종목 데이터 조회 중...', '뉴스 수집 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', 'AI 분석 중...'];
+  const LOADING_STEPS = ['기업 데이터 조회 중...', '뉴스 수집 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', 'AI 분석 중...'];
   useEffect(() => {
     if (!loading) { setLoadingStep(0); return; }
     const timers = [
@@ -118,8 +118,8 @@ export default function DiagnosisPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ticker) { setError('종목을 선택해주세요.'); return; }
-    if (!avgPrice || !quantity) { setError('매수 평균가와 보유 수량을 입력해주세요.'); return; }
+    if (!ticker) { setError('기업을 선택해주세요.'); return; }
+    if (!avgPrice || !quantity) { setError('매입 평균가와 보유 수량을 입력해주세요.'); return; }
 
     setError(''); setLoading(true);
     try {
@@ -134,7 +134,7 @@ export default function DiagnosisPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || '진단 실패'); return; }
+      if (!res.ok) { setError(data.error || '분석 실패'); return; }
       setResult(data);
       setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
       setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
@@ -178,7 +178,7 @@ export default function DiagnosisPage() {
           <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-emerald-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
         </div>
         <div className="text-center mb-2">
-          <p className="text-white font-semibold text-lg mb-1">AI가 종목을 분석하고 있습니다...</p>
+          <p className="text-white font-semibold text-lg mb-1">AI가 기업을 분석하고 있습니다...</p>
           <p className="text-slate-400 text-sm">예상 소요 시간: 15~25초</p>
         </div>
         <div className="flex flex-col gap-3 min-w-[230px]">
@@ -231,8 +231,8 @@ export default function DiagnosisPage() {
         {/* 페이지 제목 */}
         <div className="mb-8">
           <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">AI Portfolio Analysis</p>
-          <h1 className="text-2xl font-bold text-white">종목 진단</h1>
-          <p className="text-[13px] text-slate-500 mt-1">국내 종목만 지원됩니다 · 해외 종목 진단은 준비 중입니다</p>
+          <h1 className="text-2xl font-bold text-white">기업 분석</h1>
+          <p className="text-[13px] text-slate-500 mt-1">국내 기업만 지원됩니다 · 해외 기업 분석은 준비 중입니다</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
@@ -247,7 +247,7 @@ export default function DiagnosisPage() {
 
             {/* 종목 검색 */}
             <div ref={dropdownRef} className="relative">
-              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">종목</label>
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">기업</label>
               <div className="relative flex items-center">
                 <Search className="absolute left-3.5 w-4 h-4 text-slate-500 pointer-events-none" />
                 <input
@@ -260,7 +260,7 @@ export default function DiagnosisPage() {
                       selectStock(searchResults[0].ticker, searchResults[0].name);
                     }
                   }}
-                  placeholder="종목명 또는 코드 검색"
+                  placeholder="기업명 또는 코드 검색"
                   className="w-full bg-[#0d1117] border border-slate-700 rounded-xl pl-10 pr-4 py-3
                     text-[14px] text-white placeholder-slate-600
                     focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all"
@@ -293,7 +293,7 @@ export default function DiagnosisPage() {
               {/* 해외 종목만 검색된 경우 안내 문구 (종목진단은 국내 종목만 지원) */}
               {showDropdown && overseasHint && (
                 <p className="mt-2 text-[12px] text-amber-400 font-medium">
-                  해외 종목은 종목 인사이트 카드에서 확인해주세요.
+                  해외 기업은 기업 인사이트 카드에서 확인해주세요.
                 </p>
               )}
 
@@ -386,12 +386,12 @@ export default function DiagnosisPage() {
                   <span className="absolute inset-0 bg-white/0 hover:bg-white/5 transition-colors rounded-xl" />
                 )}
                 <Sparkles className="w-4 h-4" />
-                ✦ START AI DIAGNOSIS
+                ✦ START AI ANALYSIS
               </button>
 
               <p className="text-center text-[11px] text-slate-600 mt-2">
                 {isDisabled
-                  ? '오늘 무료 진단을 이미 사용했습니다. 내일 다시 이용해주세요.'
+                  ? '오늘 무료 분석을 이미 사용했습니다. 내일 다시 이용해주세요.'
                   : '하루 1회 무료 · 매일 자정 초기화'}
               </p>
             </div>

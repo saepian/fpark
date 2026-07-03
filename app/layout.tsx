@@ -5,13 +5,13 @@ import Footer from '../components/layout/Footer';
 import KakaoScript from '../components/KakaoScript';
 
 export const metadata: Metadata = {
-  title: 'FINANCE PARK - AI 기반 실시간 주식 분석',
-  description: 'AI가 분석하는 실시간 주식 인사이트. 최신 뉴스와 시장 데이터를 종합한 맞춤형 투자 정보를 제공합니다.',
-  keywords: '주식, 주식분석, AI투자, 코스피, 코스닥, 주식뉴스, 종목분석, 주가, 증시',
+  title: 'FINANCE PARK - AI 기반 기업 데이터 분석 플랫폼',
+  description: 'AI가 공개된 시장 데이터와 기업 정보를 분석하여 핵심 내용을 보기 쉽게 제공하는 데이터 분석 플랫폼입니다.',
+  keywords: '기업분석, 데이터분석, AI분석, 코스피, 코스닥, 시장뉴스, 기업리포트, 시장데이터, 증시',
   metadataBase: new URL('https://fpark.com'),
   openGraph: {
-    title: 'FINANCE PARK - AI 기반 실시간 주식 분석',
-    description: 'AI가 분석하는 실시간 주식 인사이트',
+    title: 'FINANCE PARK - AI 기반 기업 데이터 분석 플랫폼',
+    description: 'AI가 분석하는 실시간 시장 데이터',
     url: 'https://fpark.com',
     siteName: 'FINANCE PARK',
     locale: 'ko_KR',

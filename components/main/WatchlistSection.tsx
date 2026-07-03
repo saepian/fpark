@@ -197,7 +197,7 @@ export default function WatchlistSection() {
         <div className="text-center py-8">
           <p className="text-2xl mb-2">⭐</p>
           <p className="text-sm font-semibold text-white mb-1">MY WATCHLIST</p>
-          <p className="text-xs text-slate-400 mb-4">로그인하고 관심종목을 등록해보세요</p>
+          <p className="text-xs text-slate-400 mb-4">로그인하고 관심기업을 등록해보세요</p>
           <button
             onClick={() => router.push('/auth/login')}
             className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500
@@ -220,9 +220,9 @@ export default function WatchlistSection() {
       {/* 목록 없음 */}
       {loggedIn && !loading && n === 0 && (
         <div className="text-center py-8 text-slate-500 text-sm">
-          아직 관심종목이 없습니다.
+          아직 관심기업이 없습니다.
           <br />
-          <span className="text-xs">종목 상세 페이지에서 ⭐를 눌러 추가해보세요</span>
+          <span className="text-xs">기업 상세 페이지에서 ⭐를 눌러 추가해보세요</span>
         </div>
       )}
 

@@ -121,7 +121,7 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
             }
           }}
           className="bg-transparent border-none p-0 text-sm text-gray-900 dark:text-[#d4e4fa] focus:ring-0 w-full placeholder:text-gray-400 dark:placeholder:text-[#8c909f] focus:outline-none"
-          placeholder="종목명 또는 코드 검색"
+          placeholder="기업명 또는 코드 검색"
           type="text"
         />
         {query && (

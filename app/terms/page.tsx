@@ -7,13 +7,13 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">제1조 (목적)</h2>
           <p>본 약관은 FINANCE PARK(fpark.com, 이하 "서비스")가 제공하는
-          주식 정보 및 AI 분석 서비스의 이용 조건을 규정합니다.</p>
+          시장 데이터 및 AI 분석 서비스의 이용 조건을 규정합니다.</p>
         </section>
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">제2조 (서비스 내용)</h2>
           <ul className="list-disc list-inside space-y-1 text-slate-400">
-            <li>실시간 주식 시세 및 차트 정보 제공</li>
+            <li>실시간 시장 시세 및 차트 정보 제공</li>
             <li>AI 기반 종목 분석 리포트</li>
             <li>금융 뉴스 수집 및 AI 요약</li>
             <li>시장 지수 및 환율 정보</li>
@@ -24,7 +24,7 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold text-white mb-3">제3조 (투자 면책조항)</h2>
           <p className="text-amber-400/80 font-medium">
             본 서비스의 모든 정보는 투자 참고용이며 투자 권유가 아닙니다.
-            주식 투자는 원금 손실의 위험이 있으며, 투자 결정과 그 결과에 대한
+            투자는 원금 손실의 위험이 있으며, 투자 결정과 그 결과에 대한
             책임은 전적으로 이용자 본인에게 있습니다.
             FINANCE PARK는 제공된 정보의 정확성을 보장하지 않으며,
             이로 인한 손해에 대해 책임을 지지 않습니다.

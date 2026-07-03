@@ -8,9 +8,9 @@ import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 const ANALYSIS_STEPS = [
   '📊 시장 데이터 수집 중...',
   '📈 차트 패턴 분석 중...',
-  '💹 투자자 동향 파악 중...',
+  '💹 수급 동향 파악 중...',
   '⚡ 리스크 요인 검토 중...',
-  '🎯 목표가 산출 중...',
+  '🎯 핵심 지표 정리 중...',
   '📝 분석 리포트 작성 중...',
 ];
 
@@ -86,17 +86,17 @@ function AiLoadingScreen() {
           ))}
         </div>
 
-        <p className="text-[11px] text-slate-600">AI가 종목을 분석하고 있습니다</p>
+        <p className="text-[11px] text-slate-600">AI가 기업을 분석하고 있습니다</p>
       </div>
     </div>
   );
 }
 
 const SIGNAL_BADGE = {
-  '매수세 우위':   'bg-emerald-500 text-white',
+  '순유입 우위':   'bg-emerald-500 text-white',
   '중립·관망':     'bg-slate-500 text-white',
   '차익실현 관찰': 'bg-orange-500 text-white',
-  '매도세 우위':   'bg-red-500 text-white',
+  '순유출 우위':   'bg-red-500 text-white',
 } as const;
 
 function fmtPrice(v: number) {
@@ -153,7 +153,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
       <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="text-blue-400 w-5 h-5" />
-          <h3 className="text-lg font-bold text-gray-100">FPARK AI 종목 분석</h3>
+          <h3 className="text-lg font-bold text-gray-100">FPARK AI 기업 분석</h3>
         </div>
         <p className="text-sm text-gray-500">{error ?? 'AI 분석 데이터 없음'}</p>
       </div>

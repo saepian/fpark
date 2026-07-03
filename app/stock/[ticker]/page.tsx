@@ -58,8 +58,8 @@ export default async function StockDetailPage({ params }: PageProps) {
                     <span className="text-xs text-blue-400 font-medium">무료 도구</span>
                     <span className="text-[11px] bg-blue-950 text-blue-400 border border-blue-900 px-2 py-0.5 rounded-full">DevKitPack</span>
                   </div>
-                  <p className="text-sm font-semibold text-slate-100">주식 평균단가 계산기</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">분할매수 시 평균 매입단가를 빠르게 계산하세요</p>
+                  <p className="text-sm font-semibold text-slate-100">평균 매입단가 계산기</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">여러 번에 걸쳐 매입한 평균 단가를 빠르게 계산하세요</p>
                 </div>
               </div>
               <span className="arrow-slide text-blue-400 text-base flex-shrink-0">→</span>

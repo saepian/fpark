@@ -92,7 +92,7 @@ export default function AiInsightCard() {
               <span className="text-xs font-bold text-indigo-400 bg-indigo-400/10 border border-indigo-400/30 rounded-full px-2 py-0.5 tracking-wide">
                 FPARK AI
               </span>
-              <span className="text-xs text-slate-500 font-medium">오늘의 수급 상위 종목</span>
+              <span className="text-xs text-slate-500 font-medium">오늘의 수급 상위 기업</span>
             </div>
             <p className="text-[10px] text-slate-600">전일 대량 순매수 또는 5일 연속 순매수 기준으로 선정되었습니다</p>
           </div>
@@ -126,7 +126,7 @@ export default function AiInsightCard() {
       <div className="mx-4 mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2">
         <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
         <p className="text-[11px] text-amber-200/90 leading-relaxed">
-          본 콘텐츠는 수급 데이터 기반 스크리닝 결과이며 매수 추천이 아닙니다. {INVESTMENT_DISCLAIMER}
+          본 콘텐츠는 공개된 수급 데이터를 기반으로 한 분석 결과이며 기업 추천이 아닙니다. {INVESTMENT_DISCLAIMER}
         </p>
       </div>
 
@@ -211,7 +211,7 @@ export default function AiInsightCard() {
           onClick={() => router.push(`/stock/${pick.ticker}`)}
           className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors cursor-pointer"
         >
-          종목 상세 분석 보기 →
+          기업 리포트 보기 →
         </button>
 
         {/* 면책고지 */}

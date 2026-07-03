@@ -44,7 +44,7 @@ interface HoldingResult {
   invested:     number;
   profit:       number;
   profitRate:   number;
-  signal:       '매수세 우위' | '중립·관망' | '차익실현 관찰' | '매도세 우위';
+  signal:       '순유입 우위' | '중립·관망' | '차익실현 관찰' | '순유출 우위';
   reason:       string;
   sector:       string;
   newsBasis?:   'news' | 'estimated';
@@ -86,12 +86,12 @@ interface WatchItem { ticker: string; name: string; price: number; changeRate: n
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-// 매수/매도 지시가 아닌 관찰된 수급 패턴을 나타내는 라벨 스타일
+// 매매 지시가 아닌 관찰된 수급 패턴을 나타내는 라벨 스타일
 const SIGNAL_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
-  '매수세 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
+  '순유입 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
   '중립·관망':     { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
   '차익실현 관찰': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
-  '매도세 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
+  '순유출 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
 };
 
 const SECTOR_COLORS = [
@@ -279,7 +279,7 @@ export default function PortfolioDiagnosisPage() {
     if (remaining === 0) { setError('이번 달 사용 한도를 초과했습니다.'); return; }
 
     const valid = holdings.filter(h => h.ticker && h.avgPrice && h.quantity);
-    if (valid.length === 0) { setError('종목·매수가·수량을 하나 이상 입력해주세요.'); return; }
+    if (valid.length === 0) { setError('기업·매입가·수량을 하나 이상 입력해주세요.'); return; }
 
     setError('');
     setLoading(true);
@@ -404,13 +404,13 @@ export default function PortfolioDiagnosisPage() {
           </div>
           <div>
             <p className="text-[11px] font-bold tracking-widest text-indigo-400 uppercase mb-1">유료 플랜 전용 기능</p>
-            <h2 className="text-xl font-bold text-white">포트폴리오 전체 진단</h2>
+            <h2 className="text-xl font-bold text-white">포트폴리오 전체 분석</h2>
           </div>
           <div className="flex flex-col gap-2 text-left w-full">
             {[
-              '최대 10종목 동시 분석',
+              '최대 10개 기업 동시 분석',
               '섹터 편중도 자동 계산',
-              '종목별 AI 관찰 리포트',
+              '기업별 AI 관찰 리포트',
               '참고할 만한 관찰 포인트',
               '월 20회 사용 가능',
             ].map(f => (
@@ -459,16 +459,16 @@ export default function PortfolioDiagnosisPage() {
           <div className="flex items-start justify-between mb-6 gap-4">
             <div>
               <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">
-                AI 포트폴리오 진단 리포트
+                AI 포트폴리오 분석 리포트
               </p>
-              <h1 className="text-[22px] font-bold text-white">포트폴리오 진단 리포트</h1>
+              <h1 className="text-[22px] font-bold text-white">포트폴리오 분석 리포트</h1>
               <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성: {generatedAt}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
               <ShareDropdown
-                title="AI 포트폴리오 진단 리포트"
-                description={`총 수익률 ${result.totalProfitRate >= 0 ? '+' : ''}${result.totalProfitRate.toFixed(2)}% | ${result.holdings.length}개 종목 AI 분석`}
-                hashtags="fpark,주식,포트폴리오,AI진단"
+                title="AI 포트폴리오 분석 리포트"
+                description={`총 수익률 ${result.totalProfitRate >= 0 ? '+' : ''}${result.totalProfitRate.toFixed(2)}% | ${result.holdings.length}개 기업 AI 분석`}
+                hashtags="fpark,기업분석,포트폴리오,AI분석"
                 reportType="portfolio"
                 reportData={{ ...result, generatedAt }}
               />
@@ -510,7 +510,7 @@ export default function PortfolioDiagnosisPage() {
             <MetricCard
               label="수익률"
               value={fmtR(result.totalProfitRate)}
-              sub={`${result.holdings.length}개 종목`}
+              sub={`${result.holdings.length}개 기업`}
               up={isUp}
               highlight
             />
@@ -565,7 +565,7 @@ export default function PortfolioDiagnosisPage() {
                 </div>
               </div>
               <p className="text-[11px] text-slate-600 mt-3">
-                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (편입 종목 평균 매수일 기준) · 판단이 아닌 수치 비교 정보입니다.
+                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (편입 기업 평균 매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
               </p>
             </Card>
           )}
@@ -605,9 +605,9 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 4행: 종목별 관찰 지표 */}
-          <Card title="종목별 관찰 지표" className="mb-4">
-            {/* 수급 비율 세그먼트 바 (종목별 signal 라벨 집계, 백엔드 추가 호출 없음) */}
+          {/* 4행: 기업별 관찰 지표 */}
+          <Card title="기업별 관찰 지표" className="mb-4">
+            {/* 수급 비율 세그먼트 바 (기업별 signal 라벨 집계, 백엔드 추가 호출 없음) */}
             {(() => {
               const counts = (Object.keys(SIGNAL_CFG) as (keyof typeof SIGNAL_CFG)[]).map(key => ({
                 key,
@@ -629,7 +629,7 @@ export default function PortfolioDiagnosisPage() {
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
                     {counts.map(c => (
                       <span key={c.key} className={`text-[11px] font-medium ${SIGNAL_CFG[c.key].color}`}>
-                        {SIGNAL_CFG[c.key].icon} {c.key} {c.count}종목
+                        {SIGNAL_CFG[c.key].icon} {c.key} {c.count}개 기업
                       </span>
                     ))}
                   </div>
@@ -815,7 +815,7 @@ export default function PortfolioDiagnosisPage() {
               bg-slate-800 hover:bg-slate-700 border border-slate-700
               text-slate-300 text-[13px] transition-colors cursor-pointer"
           >
-            <ChevronLeft className="w-4 h-4" /> 다시 진단받기
+            <ChevronLeft className="w-4 h-4" /> 다시 분석받기
           </button>
         </div>
       </div>
@@ -839,9 +839,9 @@ export default function PortfolioDiagnosisPage() {
             <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">
               AI Portfolio Analysis · Pro
             </p>
-            <h1 className="text-2xl font-bold text-white">포트폴리오 전체 진단</h1>
-            <p className="text-[13px] text-slate-500 mt-1">여러 종목을 한번에 입력하고 AI가 전체 포트폴리오를 종합 진단합니다.</p>
-            <p className="text-[13px] text-slate-500 mt-1">국내 종목만 지원됩니다 · 해외 종목 진단은 준비 중입니다</p>
+            <h1 className="text-2xl font-bold text-white">포트폴리오 전체 분석</h1>
+            <p className="text-[13px] text-slate-500 mt-1">여러 기업을 한번에 입력하고 AI가 전체 포트폴리오를 종합 분석합니다.</p>
+            <p className="text-[13px] text-slate-500 mt-1">국내 기업만 지원됩니다 · 해외 기업 분석은 준비 중입니다</p>
           </div>
           {/* 잔여 횟수 */}
           <div className="flex items-center gap-2 bg-[#1a1f2e] border border-slate-700/50 rounded-xl px-4 py-2.5 shrink-0">
@@ -887,7 +887,7 @@ export default function PortfolioDiagnosisPage() {
                 <div className="absolute right-0 top-full mt-1 w-72
                   bg-[#1a1f2e] border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col">
                   {watchlist.length === 0 ? (
-                    <div className="px-4 py-3 text-[12px] text-slate-500">관심종목이 없습니다</div>
+                    <div className="px-4 py-3 text-[12px] text-slate-500">관심기업이 없습니다</div>
                   ) : (() => {
                     const filledCount   = holdings.filter(h => h.ticker).length;
                     const availableSlots = 10 - filledCount;
@@ -995,7 +995,7 @@ export default function PortfolioDiagnosisPage() {
                 text-slate-500 hover:text-slate-300 hover:border-slate-500
                 text-[13px] flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4" /> 종목 추가 (최대 10개)
+              <Plus className="w-4 h-4" /> 기업 추가 (최대 10개)
             </button>
           )}
         </div>
@@ -1029,7 +1029,7 @@ export default function PortfolioDiagnosisPage() {
         </button>
         <p className="text-center text-[11px] text-slate-600 mt-2">
           {(!isPro && !isBasic)
-            ? 'Basic 또는 Pro 플랜으로 업그레이드하면 포트폴리오 전체 진단을 이용할 수 있습니다.'
+            ? 'Basic 또는 Pro 플랜으로 업그레이드하면 포트폴리오 전체 분석을 이용할 수 있습니다.'
             : isPro
               ? `월 20회 · 이번 달 ${remaining ?? 0}회 남음`
               : `월 1회 · 이번 달 ${remaining ?? 0}회 남음`}
@@ -1091,7 +1091,7 @@ function HoldingRow({ h, idx, onSearch, onSelect, onBlurSearch, onChange, onRemo
                   onSelect(h._results[0].ticker, h._results[0].name);
                 }
               }}
-              placeholder="종목명 또는 코드"
+              placeholder="기업명 또는 코드"
               className="w-full bg-[#1a1f2e] border border-slate-700 rounded-lg pl-9 pr-3 py-2.5
                 text-[13px] text-white placeholder-slate-600
                 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all"
@@ -1123,7 +1123,7 @@ function HoldingRow({ h, idx, onSearch, onSelect, onBlurSearch, onChange, onRemo
         <input
           value={h.avgPrice}
           onChange={e => onChange({ avgPrice: e.target.value.replace(/[^0-9,]/g, '') })}
-          placeholder="매수가 (KRW)"
+          placeholder="매입가 (KRW)"
           className="w-full sm:w-32 bg-[#1a1f2e] border border-slate-700 rounded-lg px-3 py-2.5
             text-[13px] text-white placeholder-slate-600
             focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all"

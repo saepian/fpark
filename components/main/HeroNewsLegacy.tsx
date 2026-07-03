@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { NewsItem, TopNewsResponse } from '../../lib/types';
 
 const CATEGORY_STYLES: Record<string, { gradient: string; label: string; img: string }> = {
-  domestic:    { gradient: 'from-blue-950 via-blue-900 to-slate-900',     label: '국내주식', img: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=400&fit=crop' },
-  global:      { gradient: 'from-violet-950 via-violet-900 to-slate-900', label: '해외주식', img: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=400&fit=crop' },
+  domestic:    { gradient: 'from-blue-950 via-blue-900 to-slate-900',     label: '국내시장', img: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=400&fit=crop' },
+  global:      { gradient: 'from-violet-950 via-violet-900 to-slate-900', label: '해외시장', img: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=400&fit=crop' },
   macro:       { gradient: 'from-emerald-950 via-emerald-900 to-slate-900', label: '경제',   img: 'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=800&h=400&fit=crop' },
   real_estate: { gradient: 'from-orange-950 via-orange-900 to-slate-900', label: '부동산',  img: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=800&h=400&fit=crop' },
   stock:       { gradient: 'from-cyan-950 via-cyan-900 to-slate-900',     label: '종목',    img: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&h=400&fit=crop' },

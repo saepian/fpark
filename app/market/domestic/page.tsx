@@ -192,7 +192,7 @@ function PopularList({
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3 pb-2.5 border-b border-slate-800/70">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">인기종목</span>
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">인기 기업</span>
         <span className="text-[10px] text-slate-600 font-medium">TOP 5</span>
       </div>
       <div className="divide-y divide-slate-800/40">
@@ -525,7 +525,7 @@ export default function DomesticMarketPage() {
 
       <h1 className="text-[18px] font-bold text-white mb-1 tracking-tight">국내증시</h1>
       <p className="text-sm text-slate-500 mt-1 mb-5 leading-relaxed">
-        KIS API 기반 실시간 국내 증시 정보 · 급등/급락 종목은 ETF·ETN 제외 · 매매 참고용으로만 활용하세요
+        KIS API 기반 실시간 국내 증시 정보 · 급등/급락 기업은 ETF·ETN 제외 · 데이터 참고용으로만 활용하세요
       </p>
 
       {/* 지수 카드 4개 — 모바일 2x2 그리드, md 이상은 기존 가로 배치 */}
@@ -570,7 +570,7 @@ export default function DomesticMarketPage() {
               text-[12px] font-semibold text-slate-400 uppercase tracking-wider
               border-b border-slate-800/60">
               <span className="text-center">#</span>
-              <span>종목</span>
+              <span>기업</span>
               <span className="text-right">현재가</span>
               <span className="text-right">전일대비</span>
               <span className="text-right">등락률</span>

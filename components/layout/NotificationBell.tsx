@@ -16,7 +16,7 @@ export default function NotificationBell() {
   const [authReady, setAuthReady]       = useState(false);
   const [open, setOpen]                 = useState(false);
 
-  // Pro 관심종목 알림
+  // Pro 관심기업 알림
   const [isPro, setIsPro]               = useState(false);
   const [notifications, setNotifications] = useState<StockNotification[]>([]);
   const [unreadCount, setUnreadCount]   = useState(0);
@@ -34,7 +34,7 @@ export default function NotificationBell() {
     return () => listener.subscription.unsubscribe();
   }, []); // eslint-disable-line
 
-  // ── Pro 관심종목 알림 fetch ────────────────────────────────────
+  // ── Pro 관심기업 알림 fetch ────────────────────────────────────
   const fetchNotifications = () =>
     fetch('/api/notifications')
       .then((res) => (res.ok ? res.json() : null))
@@ -169,11 +169,11 @@ export default function NotificationBell() {
 
           <div className="max-h-[480px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded-full">
 
-            {/* ── Pro: 관심종목 알림 섹션 ── */}
+            {/* ── Pro: 관심기업 알림 섹션 ── */}
             {(isPro || notifLoading) && (
               <div>
                 <p className="px-4 pt-3 pb-1.5 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
-                  ⭐ 관심종목 알림
+                  ⭐ 관심기업 알림
                 </p>
                 {notifLoading ? (
                   <div className="px-4 pb-4 flex flex-col gap-2">
@@ -251,11 +251,11 @@ export default function NotificationBell() {
               </div>
             )}
 
-            {/* 비Pro 회원: 관심종목 알림 프로모 */}
+            {/* 비Pro 회원: 관심기업 알림 프로모 */}
             {authReady && user && !isPro && (
               <div className="mx-4 mb-3 mt-1 px-3 py-2.5 rounded-lg bg-indigo-950/40 border border-indigo-800/40">
                 <p className="text-[11px] text-indigo-300 font-medium">
-                  ⭐ Pro 구독자는 관심종목 주가·수급 알림도 받을 수 있어요
+                  ⭐ Pro 구독자는 관심기업 주가·수급 알림도 받을 수 있어요
                 </p>
                 <button
                   onClick={() => { router.push('/pricing'); setOpen(false); }}

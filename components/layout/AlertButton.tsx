@@ -122,7 +122,7 @@ export default function AlertButton() {
             {!loading && count === 0 && (
               <div className="px-4 py-10 text-center">
                 <p className="text-slate-400 text-sm">현재 52주 신고가/신저가</p>
-                <p className="text-slate-500 text-xs mt-1">종목이 없습니다</p>
+                <p className="text-slate-500 text-xs mt-1">기업이 없습니다</p>
               </div>
             )}
 

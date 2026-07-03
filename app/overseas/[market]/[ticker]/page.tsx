@@ -267,18 +267,18 @@ function AiLoadingCard() {
               style={{ animationDelay: `${i * 0.2}s` }} />
           ))}
         </div>
-        <p className="text-[11px] text-slate-600">AI가 종목을 분석하고 있습니다</p>
+        <p className="text-[11px] text-slate-600">AI가 기업을 분석하고 있습니다</p>
       </div>
     </div>
   );
 }
 
-// 매수/매도 지시가 아닌, 관찰된 수급·가격 패턴을 나타내는 중립적 라벨 (국내 종목진단과 동일 체계)
+// 매매 지시가 아닌, 관찰된 수급·가격 패턴을 나타내는 중립적 라벨 (국내 기업분석과 동일 체계)
 const SIGNAL_BADGE = {
-  '매수세 우위':   'bg-emerald-500 text-white',
+  '순유입 우위':   'bg-emerald-500 text-white',
   '중립·관망':     'bg-blue-500 text-white',
   '차익실현 관찰': 'bg-orange-500 text-white',
-  '매도세 우위':   'bg-red-500 text-white',
+  '순유출 우위':   'bg-red-500 text-white',
 } as const;
 
 function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) {
@@ -318,7 +318,7 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
       <div className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="text-blue-400 w-4 h-4" />
-          <span className="text-sm font-bold text-gray-100">FPARK AI 종목 분석</span>
+          <span className="text-sm font-bold text-gray-100">FPARK AI 기업 분석</span>
         </div>
         <p className="text-sm text-gray-500">{error ?? 'AI 분석 데이터 없음'}</p>
       </div>
@@ -677,7 +677,7 @@ function SectorCard({ ticker, market }: { ticker: string; market: string }) {
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-slate-800/70">
-        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">동일업종 종목</span>
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">동일업종 기업</span>
         {data.sector && (
           <span className="text-[10px] text-indigo-400 bg-indigo-400/10 px-2 py-0.5 rounded-full font-medium">
             {data.sector}
@@ -833,7 +833,7 @@ export default function OverseasStockPage({ params }: PageProps) {
             {wLoggedIn && (
               <button
                 onClick={toggleWatch}
-                aria-label={watching ? '관심종목 해제' : '관심종목 추가'}
+                aria-label={watching ? '관심기업 해제' : '관심기업 추가'}
                 className={[
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all cursor-pointer',
                   watching
@@ -842,7 +842,7 @@ export default function OverseasStockPage({ params }: PageProps) {
                 ].join(' ')}
               >
                 <Star className="w-4 h-4" fill={watching ? 'currentColor' : 'none'} strokeWidth={2} />
-                {watching ? '관심종목' : '추가'}
+                {watching ? '관심기업' : '추가'}
               </button>
             )}
           </div>
@@ -915,8 +915,8 @@ export default function OverseasStockPage({ params }: PageProps) {
                     <span className="text-xs text-blue-400 font-medium">무료 도구</span>
                     <span className="text-[11px] bg-blue-950 text-blue-400 border border-blue-900 px-2 py-0.5 rounded-full">DevKitPack</span>
                   </div>
-                  <p className="text-sm font-semibold text-slate-100">주식 평균단가 계산기</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">분할매수 시 평균 매입단가를 빠르게 계산하세요</p>
+                  <p className="text-sm font-semibold text-slate-100">평균 매입단가 계산기</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">여러 번에 걸쳐 매입한 평균 단가를 빠르게 계산하세요</p>
                 </div>
               </div>
               <span className="arrow-slide text-blue-400 text-base flex-shrink-0">→</span>

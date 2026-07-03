@@ -24,7 +24,7 @@ declare global {
 const OG_IMAGE = 'https://fpark.com/og-image.png';
 
 export default function ShareDropdown({
-  title, description, hashtags = 'fpark,주식', reportType, reportData,
+  title, description, hashtags = 'fpark,기업분석', reportType, reportData,
 }: ShareDropdownProps) {
   const [open,           setOpen]           = useState(false);
   const [copied,         setCopied]         = useState(false);

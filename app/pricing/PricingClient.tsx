@@ -25,49 +25,49 @@ interface Plan {
 const PLANS: Plan[] = [
   {
     type: 'free', name: 'FREE', monthly: 0, annual: 0, annualTotal: 0, annualSaving: 0,
-    description: '주식 분석을 처음 시작하는 분들을 위한 플랜',
+    description: '기업 데이터 분석을 처음 시작하는 분들을 위한 플랜',
     features: [
-      { text: '종목진단 매일 1회', included: true },
-      { text: '포트폴리오 진단', included: false },
+      { text: '기업 분석 매일 1회', included: true },
+      { text: '포트폴리오 분석', included: false },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
       { text: 'AI 분석 리포트 저장', included: false },
       { text: '우선순위 분석 처리', included: false },
-      { text: '관심종목 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
+      { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
       { text: '외국인/기관 수급 알림 (1,000억 이상 순매수·순매도)', included: false },
-      { text: '관심종목 일일 리포트 이메일 (AI 분석 포함)', included: false },
+      { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
     ],
     cta: '시작하기',
   },
   {
     type: 'basic', name: 'BASIC', monthly: 9900, annual: 7920, annualTotal: 95040, annualSaving: 23760,
-    description: '더 많은 분석이 필요한 투자자를 위한 플랜',
+    description: '더 많은 분석이 필요한 이용자를 위한 플랜',
     features: [
-      { text: '종목진단 매일 6회', included: true },
-      { text: '포트폴리오 진단 월 1회', included: true },
+      { text: '기업 분석 매일 6회', included: true },
+      { text: '포트폴리오 분석 월 1회', included: true },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
       { text: 'AI 분석 리포트 저장', included: true },
       { text: '우선순위 분석 처리', included: false },
-      { text: '관심종목 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
+      { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
       { text: '외국인/기관 수급 알림 (1,000억 이상 순매수·순매도)', included: false },
-      { text: '관심종목 일일 리포트 이메일 (AI 분석 포함)', included: false },
+      { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
     ],
     cta: '시작하기',
   },
   {
     type: 'pro', name: 'PRO', monthly: 19900, annual: 15920, annualTotal: 191040, annualSaving: 47760,
-    description: '전문적인 포트폴리오 관리가 필요한 투자자',
+    description: '전문적인 포트폴리오 관리가 필요한 이용자',
     features: [
-      { text: '종목진단 매일 11회', included: true },
-      { text: '포트폴리오 진단 월 20회', included: true },
+      { text: '기업 분석 매일 11회', included: true },
+      { text: '포트폴리오 분석 월 20회', included: true },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
       { text: 'AI 분석 리포트 저장', included: true },
       { text: '우선순위 분석 처리', included: true },
-      { text: '관심종목 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: true },
+      { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: true },
       { text: '외국인/기관 수급 알림 (1,000억 이상 순매수·순매도)', included: true },
-      { text: '관심종목 일일 리포트 이메일 (AI 분석 포함)', included: true },
+      { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: true },
     ],
     cta: '시작하기',
   },
@@ -88,7 +88,7 @@ const FAQ_ITEMS = [
   },
   {
     q: '무료 플랜과 유료 플랜의 차이는?',
-    a: '무료 플랜은 종목진단을 매일 1회 무료로 제공합니다. 유료 플랜에서는 더 많은 진단 횟수, 포트폴리오 진단, AI 리포트 저장, 우선순위 처리 등 고급 기능을 이용하실 수 있습니다.',
+    a: '무료 플랜은 기업 분석을 매일 1회 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, AI 리포트 저장, 우선순위 처리 등 고급 기능을 이용하실 수 있습니다.',
   },
 ];
 
@@ -415,12 +415,12 @@ export default function PricingClient() {
           </div>
 
           <h1 className="text-3xl md:text-[2.75rem] font-bold text-white mb-4 leading-tight">
-            당신의 투자를<br />
+            당신의 데이터 분석을<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">
               한 단계 업그레이드하세요
             </span>
           </h1>
-          <p className="text-slate-400 text-sm mb-10">AI가 분석하는 실시간 주식 인사이트</p>
+          <p className="text-slate-400 text-sm mb-10">AI가 분석하는 실시간 시장 데이터</p>
 
           {/* 월간/연간 토글 */}
           <div className="inline-flex items-center gap-1 rounded-full p-1"
@@ -484,7 +484,7 @@ export default function PricingClient() {
               <div className="rounded-[15px] px-5 py-4 flex items-center gap-4" style={{ backgroundColor: '#0a0d1f' }}>
                 <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: 'rgba(99,102,241,0.2)' }}>🔍</div>
                 <div className="flex-1 text-left min-w-0">
-                  <p className="text-[13px] font-bold text-white">종목진단 1회권</p>
+                  <p className="text-[13px] font-bold text-white">기업 분석 1회권</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">즉시 사용 가능</p>
                 </div>
                 <div className="text-right shrink-0">
@@ -503,7 +503,7 @@ export default function PricingClient() {
               <div className="rounded-[15px] px-5 py-4 flex items-center gap-4" style={{ backgroundColor: '#0a0d1f' }}>
                 <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: 'rgba(139,92,246,0.2)' }}>📊</div>
                 <div className="flex-1 text-left min-w-0">
-                  <p className="text-[13px] font-bold text-white">포트폴리오 진단 1회권</p>
+                  <p className="text-[13px] font-bold text-white">포트폴리오 분석 1회권</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">즉시 사용 가능</p>
                 </div>
                 <div className="text-right shrink-0">

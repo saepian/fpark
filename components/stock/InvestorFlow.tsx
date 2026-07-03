@@ -66,7 +66,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       <div className="px-4 pt-4 pb-3 border-b border-slate-800">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-            투자자별 매매 동향
+            주체별 수급 동향
           </h3>
           <span className="text-[10px] text-slate-500">{data.date} 기준</span>
         </div>
