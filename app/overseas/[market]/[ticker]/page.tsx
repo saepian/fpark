@@ -241,7 +241,7 @@ const ANALYSIS_STEPS = [
   '📈 차트 패턴 분석 중...',
   '💹 밸류에이션 검토 중...',
   '⚡ 리스크 요인 분석 중...',
-  '🎯 목표가 산출 중...',
+  '🎯 저항선·지지선 확인 중...',
   '📝 분석 리포트 작성 중...',
 ];
 
@@ -273,10 +273,12 @@ function AiLoadingCard() {
   );
 }
 
-const OPINION_BADGE = {
-  매수: 'bg-emerald-500 text-white',
-  관망: 'bg-slate-500 text-white',
-  매도: 'bg-red-500 text-white',
+// 매수/매도 지시가 아닌, 관찰된 수급·가격 패턴을 나타내는 중립적 라벨 (국내 종목진단과 동일 체계)
+const SIGNAL_BADGE = {
+  '매수세 우위':   'bg-emerald-500 text-white',
+  '중립·관망':     'bg-blue-500 text-white',
+  '차익실현 관찰': 'bg-orange-500 text-white',
+  '매도세 우위':   'bg-red-500 text-white',
 } as const;
 
 function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) {
@@ -323,8 +325,8 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
     );
   }
 
-  const opinion  = data.opinion ?? '관망';
-  const badgeCls = OPINION_BADGE[opinion] ?? OPINION_BADGE['관망'];
+  const signal   = data.signal ?? '중립·관망';
+  const badgeCls = SIGNAL_BADGE[signal] ?? SIGNAL_BADGE['중립·관망'];
   const sym      = CURRENCY_SYMBOLS[data.currency] ?? data.currency;
   const timeLabel = data.isCached
     ? '오늘 분석 (캐시)'
@@ -344,7 +346,7 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
             <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
           </div>
           <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${badgeCls}`}>
-            {opinion}
+            {signal}
           </span>
         </div>
         <p className="text-[15px] font-semibold text-white leading-snug">{data.summary}</p>
@@ -352,37 +354,37 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
       </div>
 
       <div className="px-6 py-4 space-y-5">
-        {/* 목표가 / 손절가 */}
-        {(data.target_price > 0 || data.stop_loss > 0) && (
+        {/* 저항선 관찰(52주 고점 기준) / 지지선 관찰(52주 저점 기준) — 목표가·손절가 아님, AI가 지어낸 수치 아니고 서버가 실제 52주 데이터로 계산 */}
+        {(data.resistance > 0 || data.support > 0) && (
           <div className="grid grid-cols-2 gap-3">
-            {data.target_price > 0 && (
+            {data.resistance > 0 && (
               <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingUp className="w-3 h-3 text-red-400" />
-                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">목표주가</span>
+                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">저항선 관찰 (52주 고점)</span>
                 </div>
                 <p className="text-[15px] font-bold font-mono text-red-300">
-                  {sym}{data.target_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {sym}{data.resistance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
                 {data.current_price > 0 && (
                   <p className="text-[11px] text-red-400/60 font-mono mt-0.5">
-                    {priceDiff(data.target_price)}
+                    현재가 대비 {priceDiff(data.resistance)}
                   </p>
                 )}
               </div>
             )}
-            {data.stop_loss > 0 && (
+            {data.support > 0 && (
               <div className="bg-blue-950/30 border border-blue-500/30 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingDown className="w-3 h-3 text-blue-400" />
-                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">손절가</span>
+                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">지지선 관찰 (52주 저점)</span>
                 </div>
                 <p className="text-[15px] font-bold font-mono text-blue-400">
-                  {sym}{data.stop_loss.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  {sym}{data.support.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
                 {data.current_price > 0 && (
                   <p className="text-[11px] text-blue-300/60 font-mono mt-0.5">
-                    {priceDiff(data.stop_loss)}
+                    현재가 대비 {priceDiff(data.support)}
                   </p>
                 )}
               </div>

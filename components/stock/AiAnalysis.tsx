@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Sparkles, AlertCircle, TrendingUp, TrendingDown } from 'lucide-react';
 import type { AnalysisResult } from '@/app/api/stock/[ticker]/analysis/route';
+import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 
 const ANALYSIS_STEPS = [
   '📊 시장 데이터 수집 중...',
@@ -91,10 +92,11 @@ function AiLoadingScreen() {
   );
 }
 
-const OPINION_BADGE = {
-  매수: 'bg-emerald-500 text-white',
-  관망: 'bg-slate-500 text-white',
-  매도: 'bg-red-500 text-white',
+const SIGNAL_BADGE = {
+  '매수세 우위':   'bg-emerald-500 text-white',
+  '중립·관망':     'bg-slate-500 text-white',
+  '차익실현 관찰': 'bg-orange-500 text-white',
+  '매도세 우위':   'bg-red-500 text-white',
 } as const;
 
 function fmtPrice(v: number) {
@@ -158,8 +160,8 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     );
   }
 
-  const opinion    = data.opinion ?? '관망';
-  const badgeCls   = OPINION_BADGE[opinion] ?? OPINION_BADGE['관망'];
+  const signal     = data.signal ?? '중립·관망';
+  const badgeCls   = SIGNAL_BADGE[signal] ?? SIGNAL_BADGE['중립·관망'];
   const timeLabel  = data.isCached
     ? '오늘 분석 (캐시)'
     : new Date(data.createdAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) + ' 기준';
@@ -186,7 +188,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           </div>
           <div className="flex items-center gap-2">
             <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${badgeCls}`}>
-              {opinion}
+              {signal}
             </span>
             <button
               onClick={showToast}
@@ -202,39 +204,45 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
         <p className="text-[11px] text-slate-500 mt-1.5">{timeLabel}</p>
       </div>
 
+      {/* 상단 면책 안내 */}
+      <div className="mx-6 mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+        <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+        <p className="text-[11px] text-amber-200/90 leading-relaxed">{INVESTMENT_DISCLAIMER}</p>
+      </div>
+
       <div className="px-6 py-4 space-y-5">
 
-        {/* 목표주가 / 손절가 */}
-        {(data.target_price || data.stop_loss) && (
+        {/* 저항선 관찰 / 지지선 관찰 (52주 고가·저가 그대로 표시, 목표가·손절가 아님) */}
+        {(data.resistance > 0 || data.support > 0) && (
           <div className="grid grid-cols-2 gap-3">
-            {data.target_price > 0 && (
-              <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-3">
+            {data.resistance > 0 && (
+              <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
-                  <TrendingUp className="w-3 h-3 text-red-400" />
-                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">목표주가</span>
+                  <TrendingUp className="w-3 h-3 text-slate-400" />
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">저항선 관찰 (52주 고점 기준)</span>
                 </div>
-                <p className="text-[16px] font-bold font-mono text-red-300">
-                  ₩{fmtPrice(data.target_price)}
+                <p className="text-[16px] font-bold font-mono text-slate-200">
+                  ₩{fmtPrice(data.resistance)}
                 </p>
                 {data.current_price > 0 && (
-                  <p className="text-[11px] text-red-400/60 font-mono mt-0.5">
-                    {priceDiff(data.current_price, data.target_price)}
+                  <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                    {priceDiff(data.current_price, data.resistance)}
                   </p>
                 )}
               </div>
             )}
-            {data.stop_loss > 0 && (
-              <div className="bg-blue-950/30 border border-blue-500 rounded-lg p-3">
+            {data.support > 0 && (
+              <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
-                  <TrendingDown className="w-3 h-3 text-blue-400" />
-                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">손절가</span>
+                  <TrendingDown className="w-3 h-3 text-slate-400" />
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">지지선 관찰 (52주 저가 기준)</span>
                 </div>
-                <p className="text-[16px] font-bold font-mono text-blue-400">
-                  ₩{fmtPrice(data.stop_loss)}
+                <p className="text-[16px] font-bold font-mono text-slate-200">
+                  ₩{fmtPrice(data.support)}
                 </p>
                 {data.current_price > 0 && (
-                  <p className="text-[11px] text-blue-300 font-mono mt-0.5">
-                    {priceDiff(data.current_price, data.stop_loss)}
+                  <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                    {priceDiff(data.current_price, data.support)}
                   </p>
                 )}
               </div>
