@@ -5,29 +5,45 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient }               from '@supabase/supabase-js';
+import { createServerClient }         from '@supabase/ssr';
+import { cookies }                    from 'next/headers';
 import { payWithBillingKey }          from '@/lib/portone';
+import { PLAN_AMOUNTS }               from '@/lib/payment-constants';
 
 const adminClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-const PLAN_AMOUNTS: Record<string, { monthly: number; annual: number; name: string }> = {
-  basic: { monthly: 4900,  annual: 47040,  name: 'Finance Park Basic' },
-  pro:   { monthly: 19900, annual: 191040, name: 'Finance Park Pro'   },
-};
-
 export async function POST(request: NextRequest) {
   try {
-    const { billingKey, plan, isAnnual, userId, userEmail } = await request.json() as {
+    // userId는 서버 세션에서만 취득 — body 의 userId 무시
+    const cookieStore = cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll: () => cookieStore.then((s) => s.getAll()),
+          setAll: (pairs) => cookieStore.then((s) => {
+            pairs.forEach(({ name, value, options }) => s.set(name, value, options));
+          }),
+        },
+      },
+    );
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: '인증 필요' }, { status: 401 });
+
+    const userId    = user.id;
+    const userEmail = user.email;
+
+    const { billingKey, plan, isAnnual } = await request.json() as {
       billingKey: string;
       plan:       'basic' | 'pro';
       isAnnual:   boolean;
-      userId:     string;
-      userEmail?: string;
     };
 
-    if (!billingKey || !plan || !userId) {
+    if (!billingKey || !plan) {
       return NextResponse.json({ error: '필수 파라미터 누락' }, { status: 400 });
     }
 

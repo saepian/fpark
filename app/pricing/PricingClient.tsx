@@ -33,11 +33,14 @@ const PLANS: Plan[] = [
       { text: '워치리스트', included: true },
       { text: 'AI 분석 리포트 저장', included: false },
       { text: '우선순위 분석 처리', included: false },
+      { text: '관심종목 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
+      { text: '외국인/기관 수급 알림 (1,000억 이상 순매수·순매도)', included: false },
+      { text: '관심종목 일일 리포트 이메일 (AI 분석 포함)', included: false },
     ],
     cta: '시작하기',
   },
   {
-    type: 'basic', name: 'BASIC', monthly: 4900, annual: 3920, annualTotal: 47040, annualSaving: 11760,
+    type: 'basic', name: 'BASIC', monthly: 9900, annual: 7920, annualTotal: 95040, annualSaving: 23760,
     description: '더 많은 분석이 필요한 투자자를 위한 플랜',
     features: [
       { text: '종목진단 매일 6회', included: true },
@@ -46,6 +49,9 @@ const PLANS: Plan[] = [
       { text: '워치리스트', included: true },
       { text: 'AI 분석 리포트 저장', included: true },
       { text: '우선순위 분석 처리', included: false },
+      { text: '관심종목 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
+      { text: '외국인/기관 수급 알림 (1,000억 이상 순매수·순매도)', included: false },
+      { text: '관심종목 일일 리포트 이메일 (AI 분석 포함)', included: false },
     ],
     cta: '시작하기',
   },
@@ -59,6 +65,9 @@ const PLANS: Plan[] = [
       { text: '워치리스트', included: true },
       { text: 'AI 분석 리포트 저장', included: true },
       { text: '우선순위 분석 처리', included: true },
+      { text: '관심종목 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: true },
+      { text: '외국인/기관 수급 알림 (1,000억 이상 순매수·순매도)', included: true },
+      { text: '관심종목 일일 리포트 이메일 (AI 분석 포함)', included: true },
     ],
     cta: '시작하기',
   },
@@ -130,6 +139,30 @@ function CardContent({
 
       {/* Price */}
       <div>
+        {/* Pro 얼리버드: 취소선 정가 + 배지 */}
+        {isPro && !annual && (
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[11px] text-slate-500 line-through">정가 29,900원</span>
+            <span
+              className="text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#0f1117' }}
+            >
+              🎉 얼리버드
+            </span>
+          </div>
+        )}
+        {isPro && annual && (
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[11px] text-slate-500 line-through">정가 358,800원</span>
+            <span
+              className="text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#0f1117' }}
+            >
+              🎉 얼리버드
+            </span>
+          </div>
+        )}
+
         <div className="flex items-end gap-1">
           {isFree ? (
             <span className="text-[2.5rem] font-bold text-white leading-none">무료</span>
@@ -157,6 +190,9 @@ function CardContent({
           </div>
         ) : (
           <p className="text-[11px] text-slate-600 mt-1">월별 청구</p>
+        )}
+        {isPro && (
+          <p className="text-[10px] text-amber-500/70 mt-1.5">정식 출시 후 가격 인상 예정</p>
         )}
       </div>
 

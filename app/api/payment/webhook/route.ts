@@ -22,6 +22,19 @@ type WebhookPayload = {
 
 export async function POST(request: NextRequest) {
   try {
+    // PortOne V2 웹훅 서명 검증
+    // PortOne 콘솔에서 설정한 API Secret 과 Authorization 헤더를 비교
+    const apiSecret = process.env.PORTONE_API_SECRET;
+    if (!apiSecret) {
+      console.error('[webhook] PORTONE_API_SECRET 미설정');
+      return NextResponse.json({ ok: false }, { status: 500 });
+    }
+    const authHeader = request.headers.get('authorization') ?? '';
+    if (authHeader !== `PortOne ${apiSecret}`) {
+      console.warn('[webhook] 서명 검증 실패 — 무단 요청 차단');
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+
     const body = await request.json() as WebhookPayload;
     console.log('[webhook] 수신:', body.type, body.data?.paymentId);
 

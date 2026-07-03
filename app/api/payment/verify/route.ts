@@ -14,7 +14,7 @@ const adminClient = createClient(
 
 // 플랜별 허용 금액 (원). 연간은 일시불 총액.
 const PLAN_AMOUNTS: Record<string, number[]> = {
-  basic: [4900, 47040],
+  basic: [9900, 95040],
   pro:   [19900, 191040],
 };
 
@@ -71,9 +71,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '결제 금액 검증 실패' }, { status: 400 });
     }
 
-    // 5. payments 테이블에 저장
-    const isAnnual = [47040, 191040].includes(amount);
-    await adminClient.from('payments').insert({
+    // 5. 중복 paymentId 방어 — 멱등 응답
+    const { data: dupCheck } = await adminClient
+      .from('payments')
+      .select('id')
+      .eq('payment_id', paymentId)
+      .maybeSingle();
+    if (dupCheck) {
+      console.warn('[payment/verify] 중복 paymentId 요청, 멱등 응답 반환:', paymentId);
+      return NextResponse.json({ ok: true, plan });
+    }
+
+    // 6. payments 테이블에 저장
+    const isAnnual = [95040, 191040].includes(amount);
+    const { error: insertError } = await adminClient.from('payments').insert({
       user_id:        user.id,
       plan,
       amount,
@@ -82,17 +93,27 @@ export async function POST(request: NextRequest) {
       payment_method: payment.method?.type ?? 'CARD',
       is_annual:      isAnnual,
     });
+    if (insertError) {
+      console.error('[payment/verify] payments insert 실패:', insertError);
+      return NextResponse.json({ error: '결제 기록 저장 실패' }, { status: 500 });
+    }
 
-    // 6. 사용자 플랜 업데이트
+    // 7. 사용자 플랜 업데이트 — 실패 시 payments 레코드 롤백(보상 트랜잭션)
     const nextBilledAt = new Date();
     nextBilledAt.setMonth(nextBilledAt.getMonth() + (isAnnual ? 12 : 1));
 
-    await adminClient.from('users').update({
+    const { error: updateError } = await adminClient.from('users').update({
       plan,
       subscription_status: 'active',
       subscription_plan:   plan,
       next_billed_at:      nextBilledAt.toISOString(),
     }).eq('id', user.id);
+
+    if (updateError) {
+      console.error('[payment/verify] users.update 실패, payments 롤백:', updateError);
+      await adminClient.from('payments').delete().eq('payment_id', paymentId);
+      return NextResponse.json({ error: '플랜 업데이트 실패' }, { status: 500 });
+    }
 
     console.log(`[payment/verify] 검증 완료 — userId:${user.id} plan:${plan} amount:${amount}`);
     return NextResponse.json({ ok: true, plan });
