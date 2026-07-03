@@ -3,6 +3,7 @@ import { generateAndSavePick, getDailyPickSupabase } from '@/lib/daily-pick';
 import { fetchStockPrice } from '@/lib/kis-api';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function GET() {
   const supabase = getDailyPickSupabase();

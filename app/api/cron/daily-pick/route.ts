@@ -5,14 +5,14 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const secret = searchParams.get('secret');
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
-  const isValid =
-    (cronSecret && secret === cronSecret) ||
-    (cronSecret && authHeader === `Bearer ${cronSecret}`);
-  if (!isValid) {
+  if (!cronSecret) {
+    console.error('[cron/daily-pick] CRON_SECRET env var is not set');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    console.warn('[cron/daily-pick] Unauthorized:', authHeader ? 'wrong token' : 'missing Authorization header');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
