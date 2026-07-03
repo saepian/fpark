@@ -12,7 +12,17 @@ const supabase = createClient(
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 const PRICE_THRESHOLDS = [5, 10, 20, 30];
-const FLOW_THRESHOLD_AUK = 50;
+const FLOW_THRESHOLD_AUK = 1000;
+
+function formatAmount(auk: number): string {
+  const abs = Math.abs(auk);
+  if (abs >= 10000) {
+    const jo  = Math.floor(abs / 10000);
+    const rem = abs % 10000;
+    return rem > 0 ? `${jo}조 ${rem}억` : `${jo}조`;
+  }
+  return `${abs}억`;
+}
 
 function isMarketOpen(): boolean {
   const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
@@ -36,25 +46,6 @@ function kstMidnightIso(todayStr: string): string {
   const m = todayStr.slice(4, 6);
   const d = todayStr.slice(6, 8);
   return `${y}-${m}-${d}T00:00:00+09:00`;
-}
-
-// 알림 타입별 조건 재검증
-function isConditionStillMet(
-  type: string,
-  threshold: number,
-  changeRate: number,
-  foreignNetBuyAuk: number,
-  institutionNetBuyAuk: number,
-): boolean {
-  switch (type) {
-    case 'price_up':         return changeRate >= threshold;
-    case 'price_down':       return changeRate <= -threshold;
-    case 'foreign_buy':      return foreignNetBuyAuk >= threshold;
-    case 'foreign_sell':     return foreignNetBuyAuk <= -threshold;
-    case 'institution_buy':  return institutionNetBuyAuk >= threshold;
-    case 'institution_sell': return institutionNetBuyAuk <= -threshold;
-    default: return true;
-  }
 }
 
 function kisHeaders(token: string): Record<string, string> {
@@ -121,69 +112,63 @@ async function fetchInChunks<T>(
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const secret     = searchParams.get('secret');
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
-  const isValid    =
-    (cronSecret && secret === cronSecret) ||
-    (cronSecret && authHeader === `Bearer ${cronSecret}`);
-  if (!isValid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!cronSecret) {
+    console.error('[cron/stock-alerts] CRON_SECRET env var is not set');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    console.warn('[cron/stock-alerts] Unauthorized:', authHeader ? 'wrong token' : 'missing Authorization header');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   if (!isMarketOpen()) {
     return NextResponse.json({ ok: true, skipped: 'market_closed' });
   }
 
-  const todayStr = getKstTodayStr();
-  const toInsert: Record<string, unknown>[] = [];
-  let skipped = 0;
+  const todayStr  = getKstTodayStr();
+  const notifDate = `${todayStr.slice(0, 4)}-${todayStr.slice(4, 6)}-${todayStr.slice(6, 8)}`;
+  const todayStart = kstMidnightIso(todayStr);
 
   // 1. Pro 구독자 목록
   const { data: proUsers, error: usersError } = await supabase
     .from('users')
     .select('id')
-    .eq('subscription_plan', 'pro');
+    .eq('plan', 'pro');
 
-  if (usersError || !proUsers?.length) {
+  if (usersError) {
+    console.error('[STOCK-ALERTS] users 쿼리 실패:', usersError.message);
+    return NextResponse.json({ ok: false, error: usersError.message });
+  }
+  if (!proUsers?.length) {
     console.log('[STOCK-ALERTS] Pro 구독자 없음');
-    return NextResponse.json({ ok: true, inserted: 0, skipped: 0 });
+    return NextResponse.json({ ok: true, inserted: 0 });
   }
 
   const userIds = proUsers.map((u: { id: string }) => u.id);
-  console.log(`[STOCK-ALERTS] Pro 구독자: ${userIds.length}명`);
+  console.log(`[STOCK-ALERTS] Pro 구독자: ${userIds.length}명 — ${userIds.join(', ')}`);
 
   // 2. 관심종목 조회 (국내 주식만)
-  const { data: watchlistItems } = await supabase
+  const { data: watchlistItems, error: watchErr } = await supabase
     .from('watchlist')
     .select('user_id, ticker, name')
     .in('user_id', userIds)
     .or('market.eq.kr,market.is.null');
 
+  if (watchErr) {
+    console.error('[STOCK-ALERTS] watchlist 쿼리 실패:', watchErr.message);
+    return NextResponse.json({ ok: false, error: watchErr.message });
+  }
   if (!watchlistItems?.length) {
     console.log('[STOCK-ALERTS] 관심종목 없음');
-    return NextResponse.json({ ok: true, inserted: 0, skipped: 0 });
+    return NextResponse.json({ ok: true, inserted: 0 });
   }
+  console.log(`[STOCK-ALERTS] 관심종목: ${watchlistItems.length}건 — ${watchlistItems.map((w: { ticker: string }) => w.ticker).join(', ')}`);
 
-  // 3. 오늘 알림 전체 조회 (읽음 여부 무관 — 중복 방지 + 재검증 대상)
-  const { data: todayNotifs } = await supabase
-    .from('notifications')
-    .select('id, user_id, stock_code, type, threshold, is_active, is_read')
-    .in('user_id', userIds)
-    .gte('created_at', kstMidnightIso(todayStr));
-
-  type TodayNotif = { id: string; user_id: string; stock_code: string; type: string; threshold: number; is_active: boolean; is_read: boolean };
-
-  // sentKeys: is_active=true인 알림 전체 (읽음 포함) — 읽은 알림도 재삽입 방지
-  const sentKeys = new Set<string>();
-  for (const n of (todayNotifs ?? []) as TodayNotif[]) {
-    if (n.is_active !== false) {
-      sentKeys.add(`${n.user_id}:${n.stock_code}:${n.type}:${n.threshold}`);
-    }
-  }
-
-  // 4. 유니크 ticker 배치 조회
+  // 3. 유니크 ticker 주가·수급 데이터 조회
   const uniqueTickers = [...new Set(watchlistItems.map((w: { ticker: string }) => w.ticker))];
-  console.log(`[STOCK-ALERTS] 조회 종목: ${uniqueTickers.length}개`);
+  console.log(`[STOCK-ALERTS] 조회 종목: ${uniqueTickers.length}개 — ${uniqueTickers.join(', ')}`);
 
   const token = await getAccessToken();
 
@@ -215,43 +200,28 @@ export async function GET(request: NextRequest) {
           ? flowRes.value
           : { foreignNetBuyAuk: 0, institutionNetBuyAuk: 0 };
 
+      console.log(`[STOCK-ALERTS] ${ticker}(${name}) 현재가=${price.toLocaleString()}원 등락률=${changeRate}% 외국인=${flow.foreignNetBuyAuk}억 기관=${flow.institutionNetBuyAuk}억`);
       stockDataMap.set(ticker, { name, price, changeRate, ...flow });
     },
     3,
     300,
   );
 
-  // 5-a. 기존 활성 미읽음 알림 재검증 → 조건 미충족 시 비활성화 (읽은 알림은 건드리지 않음)
-  const toDeactivate: string[] = [];
-  const unreadActive = (todayNotifs ?? [] as TodayNotif[]).filter(
-    (n) => (n as TodayNotif).is_active !== false && !(n as TodayNotif).is_read,
-  );
-  for (const n of unreadActive as TodayNotif[]) {
-    if (n.is_active === false) continue;
-    const data = stockDataMap.get(n.stock_code);
-    if (!data) continue; // 데이터 없으면 유지
+  console.log(`[STOCK-ALERTS] 주가 조회 완료: ${stockDataMap.size}/${uniqueTickers.length}개`);
 
-    const stillMet = isConditionStillMet(
-      n.type, n.threshold,
-      data.changeRate, data.foreignNetBuyAuk, data.institutionNetBuyAuk,
-    );
-    if (!stillMet) {
-      toDeactivate.push(n.id);
-      // sentKeys에서 제거해 조건 재충족 시 재트리거 가능하게
-      sentKeys.delete(`${n.user_id}:${n.stock_code}:${n.type}:${n.threshold}`);
-    }
-  }
+  // 4. 조건 충족 알림 수집
+  type AlertItem = {
+    user_id: string;
+    stock_code: string;
+    stock_name: string;
+    type: string;
+    threshold: number;
+    message: string;
+    current_value: number;
+  };
 
-  if (toDeactivate.length > 0) {
-    const { error: deactErr } = await supabase
-      .from('notifications')
-      .update({ is_active: false })
-      .in('id', toDeactivate);
-    if (deactErr) console.error('[STOCK-ALERTS] 비활성화 실패:', deactErr.message);
-    else console.log(`[STOCK-ALERTS] ${toDeactivate.length}개 알림 비활성화`);
-  }
+  const alertMap = new Map<string, AlertItem>();
 
-  // 5-b. 알림 조건 체크 및 toInsert 구성
   for (const item of watchlistItems) {
     const { user_id, ticker, name: watchName } = item as { user_id: string; ticker: string; name: string };
     const data = stockDataMap.get(ticker);
@@ -260,90 +230,112 @@ export async function GET(request: NextRequest) {
     const { price, changeRate, foreignNetBuyAuk, institutionNetBuyAuk } = data;
     const stockName = data.name || watchName;
 
-    const tryInsert = (
-      type: string,
-      threshold: number,
-      message: string,
-      currentValue: number,
-    ) => {
-      const key = `${user_id}:${ticker}:${type}:${threshold}`;
-      if (sentKeys.has(key)) { skipped++; return; }
-      sentKeys.add(key);
-      toInsert.push({
-        user_id,
-        stock_code: ticker,
-        stock_name: stockName,
-        type,
-        message,
-        threshold,
-        current_value: currentValue,
-        is_active: true,
+    const setAlert = (type: string, threshold: number, message: string, currentValue: number) => {
+      // threshold를 키에 포함 → 각 임계값은 별도 알림으로 취급 (5%·10%·20%·30% 각각 독립)
+      alertMap.set(`${user_id}:${ticker}:${type}:${threshold}`, {
+        user_id, stock_code: ticker, stock_name: stockName,
+        type, threshold, message, current_value: currentValue,
       });
     };
 
-    // 주가 변동
+    // 주가 변동 — 임계값 오름차순 순회, Map에 덮어쓰므로 가장 높은 임계값이 최종 저장됨
     for (const thr of PRICE_THRESHOLDS) {
       if (changeRate >= thr) {
-        tryInsert(
-          'price_up', thr,
-          `[${stockName}] +${thr}% 상승 | 현재가 ${price.toLocaleString()}원`,
-          price,
-        );
+        setAlert('price_up', thr, `[${stockName}] +${thr}% 상승 | 현재가 ${price.toLocaleString()}원`, price);
       }
       if (changeRate <= -thr) {
-        tryInsert(
-          'price_down', thr,
-          `[${stockName}] -${thr}% 하락 | 현재가 ${price.toLocaleString()}원`,
-          price,
-        );
+        setAlert('price_down', thr, `[${stockName}] -${thr}% 하락 | 현재가 ${price.toLocaleString()}원`, price);
       }
     }
 
     // 외국인 수급
     if (foreignNetBuyAuk >= FLOW_THRESHOLD_AUK) {
-      tryInsert(
-        'foreign_buy', FLOW_THRESHOLD_AUK,
-        `[${stockName}] 외국인 ${Math.abs(foreignNetBuyAuk)}억 순매수`,
-        foreignNetBuyAuk,
-      );
+      setAlert('foreign_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 ${formatAmount(foreignNetBuyAuk)} 순매수`, foreignNetBuyAuk);
     } else if (foreignNetBuyAuk <= -FLOW_THRESHOLD_AUK) {
-      tryInsert(
-        'foreign_sell', FLOW_THRESHOLD_AUK,
-        `[${stockName}] 외국인 ${Math.abs(foreignNetBuyAuk)}억 순매도`,
-        foreignNetBuyAuk,
-      );
+      setAlert('foreign_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 ${formatAmount(foreignNetBuyAuk)} 순매도`, foreignNetBuyAuk);
     }
 
     // 기관 수급
     if (institutionNetBuyAuk >= FLOW_THRESHOLD_AUK) {
-      tryInsert(
-        'institution_buy', FLOW_THRESHOLD_AUK,
-        `[${stockName}] 기관 ${Math.abs(institutionNetBuyAuk)}억 순매수`,
-        institutionNetBuyAuk,
-      );
+      setAlert('institution_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 ${formatAmount(institutionNetBuyAuk)} 순매수`, institutionNetBuyAuk);
     } else if (institutionNetBuyAuk <= -FLOW_THRESHOLD_AUK) {
-      tryInsert(
-        'institution_sell', FLOW_THRESHOLD_AUK,
-        `[${stockName}] 기관 ${Math.abs(institutionNetBuyAuk)}억 순매도`,
-        institutionNetBuyAuk,
-      );
+      setAlert('institution_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 ${formatAmount(institutionNetBuyAuk)} 순매도`, institutionNetBuyAuk);
     }
   }
 
-  // 6. 배치 insert
-  let inserted = 0;
+  // 5. 조건 미충족 알림 정리 → Upsert (읽은 알림도 같은 조건 재충족 시 갱신)
+  //    예전엔 "읽은 알림 보존" 때문에 unique index와 충돌해 배치 전체가 롤백되는 버그가 있었음.
+  //    이제는 upsert로 동일 알림(user+stock+type+threshold+날짜)은 갱신, 새 임계값 돌파는 새 row로 처리.
+  const alerts = [...alertMap.values()];
+  console.log(`[STOCK-ALERTS] 알림 대상: ${alerts.length}건 — ${alerts.map(a => `${a.stock_code}/${a.type}/${a.threshold}`).join(', ')}`);
+  let upserted = 0;
   let errors = 0;
 
-  if (toInsert.length > 0) {
-    const { error } = await supabase.from('notifications').insert(toInsert);
-    if (error) {
-      console.error('[STOCK-ALERTS] insert 실패:', error.message);
-      errors = toInsert.length;
+  if (alerts.length > 0) {
+    const affectedUserIds = [...new Set(alerts.map(a => a.user_id))];
+    const affectedStocks  = [...new Set(alerts.map(a => a.stock_code))];
+    const stillValidKeys  = new Set(alerts.map(a => `${a.user_id}:${a.stock_code}:${a.type}:${a.threshold}`));
+
+    // 5-1. 더 이상 조건을 충족하지 않는 (user, stock, type, threshold) 오늘자 알림 정리
+    //      (예: 10분 전엔 -10%였다가 지금은 -7%로 회복 → -10% 티어 알림은 제거, -5%는 유지/갱신)
+    const { data: existingRows, error: selErr } = await supabase
+      .from('notifications')
+      .select('id, user_id, stock_code, type, threshold')
+      .in('user_id', affectedUserIds)
+      .in('stock_code', affectedStocks)
+      .eq('notif_date', notifDate);
+
+    if (selErr) {
+      console.error('[STOCK-ALERTS] 기존 알림 조회 실패:', selErr.message);
+      errors++;
     } else {
-      inserted = toInsert.length;
-      console.log(`[STOCK-ALERTS] ${inserted}개 알림 저장`);
+      const staleIds = (existingRows ?? [])
+        .filter(row => !stillValidKeys.has(`${row.user_id}:${row.stock_code}:${row.type}:${row.threshold}`))
+        .map(row => row.id);
+
+      if (staleIds.length > 0) {
+        const { error: delErr } = await supabase.from('notifications').delete().in('id', staleIds);
+        if (delErr) {
+          console.error('[STOCK-ALERTS] 조건 미충족 알림 삭제 실패:', delErr.message);
+          errors++;
+        } else {
+          console.log(`[STOCK-ALERTS] 조건 미충족 알림 ${staleIds.length}건 정리`);
+        }
+      }
+    }
+
+    // 5-2. Upsert: 같은 알림(동일 threshold)이면 가격·등락률·발생시각만 갱신 (is_read는 건드리지 않음 —
+    //      이미 읽은 알림이 같은 조건으로 계속 유지될 때 매 사이클 다시 안읽음으로 리셋되는 것을 방지).
+    //      새 임계값을 처음 돌파한 경우는 유니크 인덱스(threshold 포함)상 충돌이 없어 INSERT되며,
+    //      is_read를 payload에 넣지 않으므로 컬럼 기본값(false)으로 자연히 안읽음 생성됨.
+    const { data: upsertData, error: upsertErr } = await supabase
+      .from('notifications')
+      .upsert(
+        alerts.map(alert => ({
+          user_id:       alert.user_id,
+          stock_code:    alert.stock_code,
+          stock_name:    alert.stock_name,
+          type:          alert.type,
+          message:       alert.message,
+          threshold:     alert.threshold,
+          current_value: alert.current_value,
+          is_active:     true,
+          notif_date:    notifDate,
+          created_at:    new Date().toISOString(),
+        })),
+        { onConflict: 'user_id,stock_code,type,threshold,notif_date', ignoreDuplicates: false },
+      )
+      .select('id');
+
+    if (upsertErr) {
+      console.error('[STOCK-ALERTS] upsert 실패:', upsertErr.message);
+      errors++;
+    } else {
+      upserted = upsertData?.length ?? alerts.length;
+      console.log(`[STOCK-ALERTS] ✓ upsert 완료: ${upserted}건`);
     }
   }
 
-  return NextResponse.json({ ok: true, inserted, skipped, errors, deactivated: toDeactivate.length });
+  console.log(`[STOCK-ALERTS] 완료 — upsert: ${upserted}, 오류: ${errors}, 대상: ${alerts.length}건`);
+  return NextResponse.json({ ok: true, upserted, errors, total: alerts.length });
 }
