@@ -139,29 +139,6 @@ function CardContent({
 
       {/* Price */}
       <div>
-        {/* Pro 얼리버드: 취소선 정가 + 배지 */}
-        {isPro && !annual && (
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[11px] text-slate-500 line-through">정가 29,900원</span>
-            <span
-              className="text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
-              style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#0f1117' }}
-            >
-              🎉 얼리버드
-            </span>
-          </div>
-        )}
-        {isPro && annual && (
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[11px] text-slate-500 line-through">정가 358,800원</span>
-            <span
-              className="text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
-              style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#0f1117' }}
-            >
-              🎉 얼리버드
-            </span>
-          </div>
-        )}
 
         <div className="flex items-end gap-1">
           {isFree ? (
@@ -191,8 +168,10 @@ function CardContent({
         ) : (
           <p className="text-[11px] text-slate-600 mt-1">월별 청구</p>
         )}
-        {isPro && (
-          <p className="text-[10px] text-amber-500/70 mt-1.5">정식 출시 후 가격 인상 예정</p>
+        {!isFree && (
+          <p className="text-[10px] text-slate-600 mt-1.5 leading-snug">
+            결제 시 부가세가 별도로 계산될 수 있습니다.
+          </p>
         )}
       </div>
 
@@ -514,6 +493,9 @@ export default function PricingClient() {
             </div>
           </div>
         </div>
+        <p className="text-[10px] text-slate-600 mt-4 text-center leading-snug">
+          결제 시 부가세가 별도로 계산될 수 있습니다.
+        </p>
       </section>
 
       {/* ── FAQ ── */}

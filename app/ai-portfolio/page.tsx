@@ -146,17 +146,15 @@ const FEATURES = [
   },
 ];
 
-// 정가/얼리버드 표시는 app/pricing/PricingClient.tsx의 실제 프로모션과 반드시 동일하게 유지
-// (해당 파일에 별도 상수가 없어 하드코딩 — 프로모션 변경 시 두 곳 함께 수정 필요)
 const LANDING_PLANS = [
   {
-    type: 'basic' as const, name: 'BASIC', price: PLAN_AMOUNTS.basic.monthly, originalPrice: null,
+    type: 'basic' as const, name: 'BASIC', price: PLAN_AMOUNTS.basic.monthly,
     desc: '더 많은 분석이 필요한 이용자를 위한 플랜',
     features: ['기업 분석 매일 6회', '포트폴리오 분석 월 1회', 'AI 분석 리포트 저장', '뉴스/시장 데이터 무제한'],
     highlight: false,
   },
   {
-    type: 'pro' as const, name: 'PRO', price: PLAN_AMOUNTS.pro.monthly, originalPrice: 29900,
+    type: 'pro' as const, name: 'PRO', price: PLAN_AMOUNTS.pro.monthly,
     desc: '전문적인 포트폴리오 관리가 필요한 이용자',
     features: ['기업 분석 매일 11회', '포트폴리오 분석 월 20회', '관심기업 주가·수급 알림', '우선순위 분석 처리'],
     highlight: true,
@@ -379,20 +377,12 @@ export default function AiPortfolioLandingPage() {
                   {p.name}
                 </p>
                 <p className="text-[13px] text-slate-500 mb-4">{p.desc}</p>
-                {p.originalPrice && (
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[11px] text-slate-500 line-through">정가 {p.originalPrice.toLocaleString()}원</span>
-                    <span
-                      className="text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap text-[#0f1117]"
-                      style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)' }}
-                    >
-                      🎉 얼리버드
-                    </span>
-                  </div>
-                )}
-                <p className="mb-6">
+                <p className="mb-1">
                   <span className="text-3xl font-black text-white">₩{p.price.toLocaleString()}</span>
                   <span className="text-slate-500 text-[13px]"> / 월</span>
+                </p>
+                <p className="text-[10px] text-slate-600 mb-5 leading-snug">
+                  결제 시 부가세가 별도로 계산될 수 있습니다.
                 </p>
                 <ul className="flex flex-col gap-2.5 mb-7">
                   {p.features.map((t) => (
