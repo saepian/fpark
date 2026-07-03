@@ -5,10 +5,12 @@ import { cookies } from 'next/headers';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
+  const next = searchParams.get('next') ?? '/';
 
   // netlify.app 도메인으로 온 경우 fpark.com으로 리다이렉트
   if (request.url.includes('netlify.app') && code) {
-    return NextResponse.redirect(`https://fpark.com/auth/callback?code=${code}`);
+    const fwdNext = next !== '/' ? `&next=${encodeURIComponent(next)}` : '';
+    return NextResponse.redirect(`https://fpark.com/auth/callback?code=${code}${fwdNext}`);
   }
 
   if (code) {
@@ -36,6 +38,10 @@ export async function GET(request: Request) {
     if (error) {
       return NextResponse.redirect(`https://fpark.com/?error=auth_failed`);
     }
+
+    // open redirect 방지: next는 반드시 내부 경로여야 함
+    const safeNext = next.startsWith('/') ? next : '/';
+    return NextResponse.redirect(`https://fpark.com${safeNext}`);
   }
 
   return NextResponse.redirect(`https://fpark.com/`);
