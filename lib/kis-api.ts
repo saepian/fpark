@@ -450,6 +450,7 @@ export async function fetchDailyChart(
         low: parseInt(item.stck_lwpr, 10),
         close: parseInt(item.stck_clpr, 10),
         volume: parseInt(item.acml_vol, 10),
+        tradingValue: Number(item.acml_tr_pbmn) || undefined,
       }));
   }
 

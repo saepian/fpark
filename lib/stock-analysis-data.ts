@@ -1,6 +1,7 @@
 import { load } from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken } from './kis-api';
+import type { ChartDataPoint } from './types';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
@@ -55,11 +56,13 @@ export interface StockAnalysisData {
   investorLatest:   InvestorFlow | null;
   investorTrend:    InvestorDay[];
   news:             { title: string; summary?: string; date?: string; url?: string }[];
+  sector?:          string;
 }
 
 async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
   currentPrice: number; stockName: string; per: number; pbr: number; eps: number;
   week52High: number; week52Low: number; week52Position: number; volume: number;
+  sector: string;
 } | null> {
   try {
     console.log('[ANALYSIS] fetchKisPrice 시작', ticker);
@@ -94,6 +97,7 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
         week52Low:      low,
         week52Position: pos,
         volume:         parseInt(o.acml_vol, 10) || 0,
+        sector:         (o.bstp_kor_isnm ?? '').trim(),
       };
     }
     console.log('[ANALYSIS] fetchKisPrice 모든 시장 실패');
@@ -101,7 +105,7 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
   return null;
 }
 
-async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[] }> {
+export async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[] }> {
   try {
     console.log('[ANALYSIS] fetchInvestorTrend 시작', ticker);
     const token    = await getAccessToken();
@@ -199,29 +203,45 @@ async function fetchNaverFinancials(ticker: string): Promise<{ operatingProfit?:
   }
 }
 
-async function fetchDBNews(name: string, ticker: string): Promise<{ title: string; summary?: string; date?: string; url?: string }[]> {
+export async function fetchDBNews(
+  name: string,
+  ticker: string,
+  sector?: string,
+): Promise<{ title: string; summary?: string; date?: string; url?: string }[]> {
   try {
-    console.log('[ANALYSIS] fetchDBNews 시작', { name, ticker });
+    console.log('[ANALYSIS] fetchDBNews 시작', { name, ticker, sector });
     const sb = getSb();
 
-    // 두 쿼리를 분리하여 JSONB 구문 오류 방지
-    const [byTitle, byTicker] = await Promise.allSettled([
+    // 종목명/종목코드/업종 키워드 쿼리를 분리하여 JSONB 구문 오류 방지
+    const queries = [
       sb.from('articles')
-        .select('title, summary, published_at, url')
+        .select('title, summary, published_at, original_url')
         .ilike('title', `%${name}%`)
         .order('published_at', { ascending: false })
         .limit(5),
       sb.from('articles')
-        .select('title, summary, published_at, url')
+        .select('title, summary, published_at, original_url')
         .contains('stocks', [{ code: ticker }])
         .order('published_at', { ascending: false })
         .limit(5),
-    ]);
+    ];
+    // 업종명(2글자 이상)으로도 관련 뉴스 후보를 넓힘 — 관련도 랭킹은 pickRelevantNews()에서 처리
+    if (sector && sector.trim().length >= 2) {
+      queries.push(
+        sb.from('articles')
+          .select('title, summary, published_at, original_url')
+          .ilike('title', `%${sector.trim()}%`)
+          .order('published_at', { ascending: false })
+          .limit(5),
+      );
+    }
+
+    const results = await Promise.allSettled(queries);
 
     const seen  = new Set<string>();
     const items: { title: string; summary?: string; date?: string; url?: string }[] = [];
 
-    const merge = (rows: { title: string; summary: string | null; published_at: string | null; url?: string | null }[]) => {
+    const merge = (rows: { title: string; summary: string | null; published_at: string | null; original_url?: string | null }[]) => {
       for (const a of rows) {
         if (seen.has(a.title)) continue;
         seen.add(a.title);
@@ -229,21 +249,70 @@ async function fetchDBNews(name: string, ticker: string): Promise<{ title: strin
           title:   a.title,
           summary: a.summary ?? undefined,
           date:    a.published_at ? new Date(a.published_at).toLocaleDateString('ko-KR') : undefined,
-          url:     a.url ?? undefined,
+          url:     a.original_url ?? undefined,
         });
       }
     };
 
-    if (byTitle.status === 'fulfilled' && byTitle.value.data) merge(byTitle.value.data);
-    if (byTicker.status === 'fulfilled' && byTicker.value.data) merge(byTicker.value.data);
-
-    if (byTitle.status  === 'rejected') console.error('[ANALYSIS] fetchDBNews byTitle 실패:', byTitle.reason);
-    if (byTicker.status === 'rejected') console.error('[ANALYSIS] fetchDBNews byTicker 실패:', byTicker.reason);
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value.data) merge(r.value.data);
+      else if (r.status === 'rejected') console.error(`[ANALYSIS] fetchDBNews 쿼리${i} 실패:`, r.reason);
+    });
 
     console.log('[ANALYSIS] fetchDBNews 완료, 건수:', items.length);
-    return items.slice(0, 5);
+    return items.slice(0, 10);
   } catch (e) {
     console.error('[ANALYSIS] fetchDBNews 예외:', e);
+    return [];
+  }
+}
+
+// 시장 전체(개별 종목이 아닌 코스피/코스닥/금리/환율 등 매크로) 뉴스 조회.
+// 영어권 기사(Wall Street, Nasdaq 등)도 국내 반도체 급락 등과 직결되는 경우가 있어 영문 키워드도 포함.
+const MARKET_KEYWORDS = [
+  '코스피', '코스닥', '금리', '환율', '연준', 'FOMC', '물가', '중동',
+  'Wall Street', 'Nasdaq', 'S&P', 'Dow', 'Fed',
+];
+
+export async function fetchMarketNews(
+  sinceIso: string,
+  limit = 5,
+): Promise<{ title: string; summary?: string; date?: string; url?: string }[]> {
+  try {
+    const sb = getSb();
+    const queries = MARKET_KEYWORDS.map((kw) =>
+      sb.from('articles')
+        .select('title, summary, published_at, original_url')
+        .ilike('title', `%${kw}%`)
+        .gte('published_at', sinceIso)
+        .order('published_at', { ascending: false })
+        .limit(3),
+    );
+    const results = await Promise.allSettled(queries);
+
+    const seen = new Set<string>();
+    const items: { title: string; summary?: string; publishedAt: string; url?: string }[] = [];
+    const merge = (rows: { title: string; summary: string | null; published_at: string | null; original_url?: string | null }[]) => {
+      for (const a of rows) {
+        if (seen.has(a.title) || !a.published_at) continue;
+        seen.add(a.title);
+        items.push({ title: a.title, summary: a.summary ?? undefined, publishedAt: a.published_at, url: a.original_url ?? undefined });
+      }
+    };
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value.data) merge(r.value.data);
+      else if (r.status === 'rejected') console.error(`[ANALYSIS] fetchMarketNews 쿼리${i} 실패:`, r.reason);
+    });
+
+    // 최신순 정렬 후 상위 N개만, 표시용 날짜로 변환
+    items.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+    console.log('[ANALYSIS] fetchMarketNews 완료, 건수:', items.length);
+    return items.slice(0, limit).map((a) => ({
+      title: a.title, summary: a.summary, url: a.url,
+      date: new Date(a.publishedAt).toLocaleDateString('ko-KR'),
+    }));
+  } catch (e) {
+    console.error('[ANALYSIS] fetchMarketNews 예외:', e);
     return [];
   }
 }
@@ -253,25 +322,35 @@ export async function collectStockAnalysisData(
   name: string,
 ): Promise<StockAnalysisData> {
   console.log('[ANALYSIS] collectStockAnalysisData 시작', { ticker, name });
-  const [priceRes, invRes, naverRes, newsRes] = await Promise.allSettled([
-    fetchKisPrice(ticker, name),
-    fetchInvestorTrend(ticker),
-    fetchNaverFinancials(ticker),
-    fetchDBNews(name, ticker),
+
+  // 가격(+업종) 조회 후 그 결과(sector)를 뉴스 검색 키워드로 활용 — 나머지는 독립적으로 병렬 진행
+  const pricePromise = fetchKisPrice(ticker, name);
+  const invPromise   = fetchInvestorTrend(ticker);
+  const navPromise   = fetchNaverFinancials(ticker);
+
+  const priceRes = await pricePromise.then(
+    (v) => ({ status: 'fulfilled' as const, value: v }),
+    (e) => ({ status: 'rejected' as const, reason: e }),
+  );
+  const price = priceRes.status === 'fulfilled' ? priceRes.value : null;
+
+  const [invRes, navRes, newsRes] = await Promise.allSettled([
+    invPromise,
+    navPromise,
+    fetchDBNews(name, ticker, price?.sector),
   ]);
 
   console.log('[ANALYSIS] collectStockAnalysisData 결과', {
-    price: priceRes.status, inv: invRes.status, naver: naverRes.status, news: newsRes.status,
+    price: priceRes.status, inv: invRes.status, naver: navRes.status, news: newsRes.status,
     priceErr: priceRes.status === 'rejected' ? String(priceRes.reason) : null,
     invErr:   invRes.status   === 'rejected' ? String(invRes.reason)   : null,
-    naverErr: naverRes.status === 'rejected' ? String(naverRes.reason) : null,
+    naverErr: navRes.status   === 'rejected' ? String(navRes.reason)   : null,
     newsErr:  newsRes.status  === 'rejected' ? String(newsRes.reason)  : null,
   });
 
-  const price = priceRes.status === 'fulfilled' ? priceRes.value : null;
-  const inv   = invRes.status   === 'fulfilled' ? invRes.value   : { latest: null, trend: [] };
-  const nav   = naverRes.status === 'fulfilled' ? naverRes.value : {};
-  const news  = newsRes.status  === 'fulfilled' ? newsRes.value  : [];
+  const inv  = invRes.status === 'fulfilled' ? invRes.value : { latest: null, trend: [] };
+  const nav  = navRes.status === 'fulfilled' ? navRes.value : {};
+  const news = newsRes.status === 'fulfilled' ? newsRes.value : [];
 
   return {
     currentPrice:    price?.currentPrice    ?? 0,
@@ -288,6 +367,7 @@ export async function collectStockAnalysisData(
     investorLatest:  inv.latest,
     investorTrend:   inv.trend,
     news,
+    sector:          price?.sector,
   };
 }
 
@@ -337,24 +417,174 @@ export function buildInvestorBlock(ad: StockAnalysisData): string {
   return lines.join('\n');
 }
 
-export function buildNewsBlock(dbNews: { title: string; summary?: string; date?: string }[], naverNews?: { title: string; description: string }[]): string {
-  const allNews: { title: string; desc?: string; date?: string }[] = [];
-
-  for (const n of dbNews) {
-    allNews.push({ title: n.title, desc: n.summary, date: n.date });
-  }
-  if (naverNews) {
-    for (const n of naverNews) {
-      if (!allNews.some(a => a.title === n.title)) {
-        allNews.push({ title: n.title, desc: n.description });
-      }
-    }
-  }
-
-  if (!allNews.length) return '관련 뉴스 없음';
-  return allNews.slice(0, 7).map((n, i) => {
+export function buildNewsBlock(news: { title: string; summary?: string; date?: string }[]): string {
+  if (!news.length) return '관련 뉴스 없음';
+  return news.slice(0, 3).map((n, i) => {
     const datePart = n.date ? `[${n.date}] ` : '';
-    const descPart = n.desc ? ` — ${n.desc}` : '';
+    const descPart = n.summary ? ` — ${n.summary}` : '';
     return `${i + 1}. ${datePart}${n.title}${descPart}`;
   }).join('\n');
+}
+
+// 종목명/업종 키워드 기반 간단 관련도 스코어링 — 정확도보다는 "관련 뉴스 있음/없음" 구분이 목적
+export function pickRelevantNews<T extends { title: string; summary?: string }>(
+  candidates: T[],
+  stockName: string,
+  sector?: string,
+  limit = 3,
+): T[] {
+  const nameLower   = stockName.trim().toLowerCase();
+  const sectorLower = (sector ?? '').trim().toLowerCase();
+
+  const seen = new Set<string>();
+  const scored = candidates
+    .filter((n) => {
+      if (seen.has(n.title)) return false;
+      seen.add(n.title);
+      return true;
+    })
+    .map((n) => {
+      const title   = n.title.toLowerCase();
+      const summary = (n.summary ?? '').toLowerCase();
+      let score = 0;
+      if (nameLower && title.includes(nameLower))                    score += 3;
+      if (nameLower && summary.includes(nameLower))                  score += 1;
+      if (sectorLower.length >= 2 && title.includes(sectorLower))     score += 2;
+      if (sectorLower.length >= 2 && summary.includes(sectorLower))   score += 1;
+      return { item: n, score };
+    });
+
+  return scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((s) => s.item);
+}
+
+// 일별 종가 배열 → 최대낙폭(MDD)·일별 변동성(표준편차) — 판단 없이 관측된 수치만 산출
+export function computeRiskMetrics(closes: number[]): { mdd: number; volatility: number } | null {
+  const valid = closes.filter((c) => c > 0);
+  if (valid.length < 2) return null;
+
+  let peak = valid[0];
+  let maxDrawdown = 0; // <= 0
+  const returns: number[] = [];
+
+  valid.forEach((c, i) => {
+    if (c > peak) peak = c;
+    const dd = (c - peak) / peak;
+    if (dd < maxDrawdown) maxDrawdown = dd;
+    if (i > 0 && valid[i - 1] > 0) returns.push((c - valid[i - 1]) / valid[i - 1]);
+  });
+
+  const mean     = returns.reduce((s, r) => s + r, 0) / (returns.length || 1);
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length || 1);
+  const volatility = Math.sqrt(variance) * 100;
+
+  return {
+    mdd:        parseFloat((maxDrawdown * 100).toFixed(2)), // 음수(%)
+    volatility: parseFloat(volatility.toFixed(2)),          // 일별 표준편차(%)
+  };
+}
+
+export interface SurgeHistoryResult {
+  hasMatches: boolean;
+  threshold: number;
+  matches: {
+    date: string;
+    changeRate: number;
+    afterReturns: { d3?: number; d5?: number; d10?: number };
+  }[];
+}
+
+// 일별 차트(최근 최대 100거래일, 오늘 포함 마지막 행) → 오늘과 비슷한 규모의 과거 급등/급락 이력과
+// 그 이후 N일 수익률 — 판단 없이 관측된 수치만 산출
+export function computeSurgeHistory(chart: ChartDataPoint[]): SurgeHistoryResult | null {
+  const closes = chart.map((d) => d.close).filter((c) => c > 0);
+  if (closes.length < 2) return null;
+
+  const dailyChangeRate: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    dailyChangeRate[i] = ((closes[i] - closes[i - 1]) / closes[i - 1]) * 100;
+  }
+
+  const todayIdx = closes.length - 1;
+  const todayChangeRate = dailyChangeRate[todayIdx];
+  if (todayChangeRate === undefined) return null;
+
+  const threshold = Math.min(Math.max(15, Math.abs(todayChangeRate) * 0.6), 25);
+
+  const matches: SurgeHistoryResult['matches'] = [];
+  for (let i = 1; i < todayIdx; i++) {
+    if (Math.abs(dailyChangeRate[i]) < threshold) continue;
+
+    const afterReturns: { d3?: number; d5?: number; d10?: number } = {};
+    for (const [key, n] of [['d3', 3], ['d5', 5], ['d10', 10]] as const) {
+      const target = i + n;
+      if (target < closes.length) {
+        afterReturns[key] = parseFloat((((closes[target] - closes[i]) / closes[i]) * 100).toFixed(2));
+      }
+    }
+
+    matches.push({
+      date: chart[i].date,
+      changeRate: parseFloat(dailyChangeRate[i].toFixed(2)),
+      afterReturns,
+    });
+  }
+
+  return {
+    hasMatches: matches.length > 0,
+    threshold: parseFloat(threshold.toFixed(2)),
+    matches,
+  };
+}
+
+export interface TradingValueMultipleResult {
+  valid: boolean;
+  todayValue: number;
+  avg20d: number;
+  multiple: number;
+}
+
+// 일별 차트(오늘 포함 마지막 행) → 오늘 거래대금이 최근 20거래일 평균 대비 몇 배인지 — 순수 계산
+export function computeTradingValueMultiple(chart: ChartDataPoint[]): TradingValueMultipleResult | null {
+  if (chart.length < 21) return { valid: false, todayValue: 0, avg20d: 0, multiple: 0 };
+
+  const todayValue = chart[chart.length - 1].tradingValue;
+  const prior20 = chart.slice(chart.length - 21, chart.length - 1)
+    .map((d) => d.tradingValue)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+
+  if (!todayValue || prior20.length < 20) return { valid: false, todayValue: 0, avg20d: 0, multiple: 0 };
+
+  const avg20d = prior20.reduce((s, v) => s + v, 0) / prior20.length;
+  if (avg20d <= 0) return { valid: false, todayValue: 0, avg20d: 0, multiple: 0 };
+
+  return {
+    valid: true,
+    todayValue,
+    avg20d: Math.round(avg20d),
+    multiple: parseFloat((todayValue / avg20d).toFixed(2)),
+  };
+}
+
+export function buildSurgeHistoryBlock(s: SurgeHistoryResult | null): string {
+  if (!s) return '데이터 없음';
+  if (!s.hasMatches) {
+    return `최근 약 5개월 내 오늘과 비슷한 규모(등락률 ${s.threshold}% 이상)의 급등/급락 이력 없음`;
+  }
+  return s.matches.map((m) => {
+    const parts: string[] = [];
+    if (m.afterReturns.d3 !== undefined)  parts.push(`3일 후 ${m.afterReturns.d3 >= 0 ? '+' : ''}${m.afterReturns.d3}%`);
+    if (m.afterReturns.d5 !== undefined)  parts.push(`5일 후 ${m.afterReturns.d5 >= 0 ? '+' : ''}${m.afterReturns.d5}%`);
+    if (m.afterReturns.d10 !== undefined) parts.push(`10일 후 ${m.afterReturns.d10 >= 0 ? '+' : ''}${m.afterReturns.d10}%`);
+    const afterText = parts.length ? parts.join(', ') : '이후 데이터 부족';
+    return `- ${m.date}: ${m.changeRate >= 0 ? '+' : ''}${m.changeRate}% 변동 → ${afterText}`;
+  }).join('\n');
+}
+
+export function buildTradingValueBlock(t: TradingValueMultipleResult | null): string {
+  if (!t || !t.valid) return '데이터 없음';
+  return `오늘 거래대금은 최근 20거래일 평균 대비 ${t.multiple}배`;
 }

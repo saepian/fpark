@@ -7,6 +7,7 @@ export interface StockPrice {
   volume: number;
   tradingValue: string;
   sector: string;
+  market: 'KOSPI' | 'KOSDAQ';
 }
 
 export interface StockInfo {
@@ -16,6 +17,8 @@ export interface StockInfo {
   marketCap: string;
   per: number;
   pbr: number;
+  isCached?: boolean;
+  cachedAt?: string;
 }
 
 export interface ChartDataPoint {
@@ -25,6 +28,7 @@ export interface ChartDataPoint {
   low: number;
   close: number;
   volume: number;
+  tradingValue?: number;
 }
 
 export interface MarketIndexData {
