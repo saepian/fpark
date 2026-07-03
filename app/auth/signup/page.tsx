@@ -25,7 +25,7 @@ export default function SignupPage() {
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState<'google' | 'kakao' | null>(null);
+  const [socialLoading, setSocialLoading] = useState<'google' | null>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState('');
   const [done, setDone] = useState(false);
@@ -84,7 +84,7 @@ export default function SignupPage() {
     }
   };
 
-  const signInSocial = async (provider: 'google' | 'kakao') => {
+  const signInSocial = async (provider: 'google') => {
     setSocialLoading(provider);
     await supabase.auth.signInWithOAuth({
       provider,
@@ -248,6 +248,21 @@ export default function SignupPage() {
 
           {/* 소셜 로그인 */}
           <div className="flex justify-center gap-4">
+            {/* 네이버 */}
+            <button
+              onClick={() => { window.location.href = '/api/auth/naver'; }}
+              disabled={socialLoading !== null}
+              className="w-12 h-12 rounded-full disabled:opacity-60
+                flex items-center justify-center transition-opacity cursor-pointer shadow-sm"
+              style={{ backgroundColor: '#03C75A' }}
+              aria-label="네이버로 시작하기"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                <path d="M16.273 12.845L7.376 0H0v24h7.727V11.155L16.624 24H24V0h-7.727z"/>
+              </svg>
+            </button>
+
+            {/* 구글 */}
             <button
               onClick={() => signInSocial('google')}
               disabled={socialLoading !== null}
@@ -263,23 +278,6 @@ export default function SignupPage() {
                   <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
                   <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
                   <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-                </svg>
-              )}
-            </button>
-
-            <button
-              onClick={() => alert('카카오 로그인은 준비 중입니다.')}
-              disabled={socialLoading !== null}
-              className="w-12 h-12 rounded-full disabled:opacity-60
-                flex items-center justify-center transition-opacity cursor-pointer shadow-sm"
-              style={{ backgroundColor: '#FEE500' }}
-              aria-label="카카오로 시작하기"
-            >
-              {socialLoading === 'kakao' ? (
-                <Spinner className="text-[#3C1E1E]" />
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="#3C1E1E">
-                  <path d="M12 3C6.477 3 2 6.477 2 10.8c0 2.7 1.698 5.076 4.27 6.542L5.19 21l4.773-2.57A11.63 11.63 0 0 0 12 18.6c5.523 0 10-3.477 10-7.8S17.523 3 12 3z"/>
                 </svg>
               )}
             </button>

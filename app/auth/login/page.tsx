@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState<'google' | 'kakao' | null>(null);
+  const [socialLoading, setSocialLoading] = useState<'google' | null>(null);
   const [error, setError] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -30,7 +30,7 @@ export default function LoginPage() {
     }
   };
 
-  const signInSocial = async (provider: 'google' | 'kakao') => {
+  const signInSocial = async (provider: 'google') => {
     setSocialLoading(provider);
     await supabase.auth.signInWithOAuth({
       provider,
@@ -179,26 +179,6 @@ export default function LoginPage() {
               )}
             </button>
 
-            {/* 카카오 */}
-            <button
-              onClick={() => alert('카카오 로그인은 준비 중입니다.')}
-              disabled={socialLoading !== null}
-              className="w-12 h-12 rounded-full disabled:opacity-60
-                flex items-center justify-center transition-opacity cursor-pointer shadow-sm"
-              style={{ backgroundColor: '#FEE500' }}
-              aria-label="카카오로 로그인"
-            >
-              {socialLoading === 'kakao' ? (
-                <svg className="w-4 h-4 animate-spin text-[#3C1E1E]" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="#3C1E1E">
-                  <path d="M12 3C6.477 3 2 6.477 2 10.8c0 2.7 1.698 5.076 4.27 6.542L5.19 21l4.773-2.57A11.63 11.63 0 0 0 12 18.6c5.523 0 10-3.477 10-7.8S17.523 3 12 3z"/>
-                </svg>
-              )}
-            </button>
           </div>
 
           {/* 회원가입 링크 */}
