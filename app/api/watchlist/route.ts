@@ -144,15 +144,17 @@ export async function PATCH(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  await Promise.all(
-    order.map((ticker, idx) =>
-      supabase
-        .from('watchlist')
-        .update({ sort_order: idx })
-        .eq('user_id', user.id)
-        .eq('ticker', ticker),
-    ),
-  );
+  // N개 개별 UPDATE → RPC 단일 호출로 개선 (update_watchlist_order 함수 필요)
+  const { error } = await supabase.rpc('update_watchlist_order', {
+    p_user_id: user.id,
+    p_tickers: order,
+    p_orders:  order.map((_, i) => i),
+  });
+
+  if (error) {
+    console.error('[watchlist PATCH] RPC 실패:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
 }
