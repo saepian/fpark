@@ -47,18 +47,19 @@ export async function POST(request: NextRequest) {
     const payment = await getPayment(paymentId);
 
     const statusMap: Record<string, string> = {
-      PAID:               'paid',
-      FAILED:             'failed',
-      CANCELLED:          'cancelled',
-      PARTIAL_CANCELLED:  'partial_cancelled',
-      PAY_PENDING:        'pending',
+      PAID:                    'paid',
+      FAILED:                  'failed',
+      CANCELLED:               'cancelled',
+      PARTIAL_CANCELLED:       'partial_cancelled',
+      PAY_PENDING:             'pending',
+      VIRTUAL_ACCOUNT_ISSUED:  'pending',
     };
     const dbStatus = statusMap[payment.status] ?? payment.status.toLowerCase();
 
     // payments 테이블 상태 업데이트
     const { data: existing } = await adminClient
       .from('payments')
-      .select('id, user_id, plan')
+      .select('id, user_id, plan, payment_method, is_annual, status')
       .eq('payment_id', paymentId)
       .maybeSingle();
 
@@ -71,6 +72,23 @@ export async function POST(request: NextRequest) {
       .from('payments')
       .update({ status: dbStatus })
       .eq('payment_id', paymentId);
+
+    // 계좌이체(가상계좌) 입금 완료 — 카드 빌링키와 달리 발급 시점엔 구독이
+    // 활성화되지 않으므로(자동 출금이 아님), 입금 확인 웹훅에서 최초 활성화 처리
+    if (payment.status === 'PAID' && existing.payment_method === 'VIRTUAL_ACCOUNT' && existing.status !== 'paid') {
+      const nextBilledAt = new Date();
+      nextBilledAt.setMonth(nextBilledAt.getMonth() + (existing.is_annual ? 12 : 1));
+
+      await adminClient.from('users').update({
+        plan:                 existing.plan,
+        subscription_plan:    existing.plan,
+        subscription_status:  'active',
+        payment_method:       'VIRTUAL_ACCOUNT',
+        next_billed_at:       nextBilledAt.toISOString(),
+      }).eq('id', existing.user_id);
+
+      console.log(`[webhook] 계좌이체 입금 확인, 구독 활성화 — userId:${existing.user_id} plan:${existing.plan}`);
+    }
 
     // 취소·실패 시 사용자 플랜 다운그레이드
     if (payment.status === 'CANCELLED' || payment.status === 'FAILED') {

@@ -11,10 +11,19 @@ function authHeader() {
 
 export interface PortOnePayment {
   id:           string;
-  status:       'PAID' | 'FAILED' | 'CANCELLED' | 'PARTIAL_CANCELLED' | 'PAY_PENDING';
+  status:       'PAID' | 'FAILED' | 'CANCELLED' | 'PARTIAL_CANCELLED' | 'PAY_PENDING' | 'VIRTUAL_ACCOUNT_ISSUED';
   orderName:    string;
   amount:       { total: number; currency: string };
-  method?:      { type: string };
+  method?: {
+    type: string;
+    // 가상계좌 결제 시 (PaymentMethodVirtualAccount)
+    accountNumber?: string;
+    bank?:          string;
+    remitteeName?:  string;
+    remitterName?:  string;
+    expiredAt?:     string;
+    issuedAt?:      string;
+  };
   billingKey?:  string;
   customer?:    { id?: string; email?: string };
   paidAt?:      string;
@@ -75,6 +84,56 @@ export async function payWithBillingKey(req: BillingKeyPaymentRequest): Promise<
   }
   const data = await res.json();
   return { paymentId: data.id ?? req.paymentId, status: data.status, paidAt: data.paidAt };
+}
+
+// ── 가상계좌(무통장입금) 발급 ──────────────────────────────────────────────────
+// POST /payments/{paymentId}/instant — "카드 비인증 결제 또는 가상계좌 발급을 API로 요청"
+// 응답(payment)에는 pgTxId/paidAt만 들어있고 계좌번호 등은 없음 — 발급 직후 getPayment()로 재조회 필요.
+
+export interface IssueVirtualAccountRequest {
+  paymentId:      string;
+  channelKey:     string;
+  orderName:      string;
+  amount:         number;
+  bank:           string;  // PortOne Bank enum (예: 'SHINHAN', 'HANA') — 계약상 지원 은행만
+  dueDate:        string;  // ISO 8601 — 입금 기한
+  customerId:     string;
+  customerName?:  string;
+  customerEmail?: string;
+  customerPhone:  string;  // 실 API 검증 결과 REQUIRED (문서상 optional 표기와 다름)
+}
+
+export async function issueVirtualAccount(req: IssueVirtualAccountRequest): Promise<void> {
+  const res = await fetch(
+    `${PORTONE_BASE}/payments/${encodeURIComponent(req.paymentId)}/instant`,
+    {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channelKey: req.channelKey,
+        orderName:  req.orderName,
+        amount:     { total: req.amount },
+        currency:   'KRW',
+        customer: {
+          id:          req.customerId,
+          name:        req.customerName ? { full: req.customerName } : undefined,
+          email:       req.customerEmail,
+          phoneNumber: req.customerPhone,
+        },
+        method: {
+          virtualAccount: {
+            bank:   req.bank,
+            expiry: { dueDate: req.dueDate },
+            option: { type: 'NORMAL' },
+          },
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`PortOne 가상계좌 발급 실패 (${res.status}): ${text}`);
+  }
 }
 
 // ── 빌링키 조회 ───────────────────────────────────────────────────────────────

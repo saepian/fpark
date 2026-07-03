@@ -17,7 +17,29 @@ interface MyPageData {
   emailAlertEnabled: boolean;
   usage: { diagnosisToday: number; portfolioMonth: number; nextResetDate: string };
   payments: { id: string; created_at: string; plan: string; amount: number; status: string }[];
+  subscription: {
+    status:        string;
+    paymentMethod: string | null;
+    nextBilledAt:  string | null;
+    pendingDeposit: {
+      bank: string; accountNumber: string; dueAt: string; amount: number;
+    } | null;
+  };
 }
+
+const SUBSCRIPTION_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
+  active:            { label: '정상',       color: '#34d399', bg: 'rgba(52,211,153,0.12)' },
+  awaiting_deposit:  { label: '입금 대기',  color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
+  paused:            { label: '일시 정지',  color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+  payment_failed:    { label: '결제 실패',  color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+  cancelled:         { label: '해지됨',     color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  inactive:          { label: '무료 플랜',  color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+};
+
+const BANK_NAMES: Record<string, string> = {
+  KOOKMIN: '국민은행', SHINHAN: '신한은행', WOORI: '우리은행', HANA: '하나은행',
+  NONGHYUP: '농협은행', IBK: 'IBK기업은행', KAKAO: '카카오뱅크', TOSS: '토스뱅크', K_BANK: '케이뱅크',
+};
 
 const PLAN_META = {
   free: {
@@ -359,24 +381,60 @@ export default function MyPage() {
             </div>
           </div>
 
-          {/* 다음 결제일 */}
-          {data.plan !== 'free' && (
-            <div
-              className="flex items-center justify-between px-4 py-3 rounded-xl mb-5"
-              style={{ background: 'rgba(30,37,55,0.6)', border: '1px solid rgba(51,65,85,0.4)' }}
-            >
-              <div className="flex items-center gap-2.5">
-                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8">
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" strokeLinecap="round" />
-                  <line x1="8" y1="2" x2="8" y2="6" strokeLinecap="round" />
-                  <line x1="3" y1="10" x2="21" y2="10" strokeLinecap="round" />
-                </svg>
-                <p className="text-[12.5px] text-slate-400">다음 결제일</p>
+          {/* 구독 상태 */}
+          {data.plan !== 'free' && (() => {
+            const statusMeta = SUBSCRIPTION_STATUS_META[data.subscription.status] ?? SUBSCRIPTION_STATUS_META.inactive;
+            const deposit = data.subscription.pendingDeposit;
+            return (
+              <div className="mb-5">
+                <div
+                  className="flex items-center justify-between px-4 py-3 rounded-xl"
+                  style={{ background: 'rgba(30,37,55,0.6)', border: '1px solid rgba(51,65,85,0.4)' }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                      <line x1="16" y1="2" x2="16" y2="6" strokeLinecap="round" />
+                      <line x1="8" y1="2" x2="8" y2="6" strokeLinecap="round" />
+                      <line x1="3" y1="10" x2="21" y2="10" strokeLinecap="round" />
+                    </svg>
+                    <p className="text-[12.5px] text-slate-400">구독 상태</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                      style={{ color: statusMeta.color, background: statusMeta.bg }}
+                    >
+                      {statusMeta.label}
+                    </span>
+                    <p className="text-[12.5px] font-medium text-slate-300">
+                      {data.subscription.nextBilledAt
+                        ? new Date(data.subscription.nextBilledAt).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric' })
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                {deposit && (
+                  <div
+                    className="mt-2 px-4 py-3 rounded-xl"
+                    style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)' }}
+                  >
+                    <p className="text-[11px] text-amber-300 mb-1.5">아래 계좌로 입금하시면 구독이 활성화됩니다</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-[13px] font-semibold text-white">
+                        {BANK_NAMES[deposit.bank] ?? deposit.bank} {deposit.accountNumber}
+                      </p>
+                      <p className="text-[13px] font-bold text-white">{deposit.amount.toLocaleString()}원</p>
+                    </div>
+                    <p className="text-[10.5px] text-amber-400/80 mt-1">
+                      {new Date(deposit.dueAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}까지
+                    </p>
+                  </div>
+                )}
               </div>
-              <p className="text-[12.5px] font-medium text-slate-300">—</p>
-            </div>
-          )}
+            );
+          })()}
 
           {/* CTA 버튼 */}
           <Link

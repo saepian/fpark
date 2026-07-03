@@ -2,6 +2,8 @@
 // vercel.json cron: "5 15 1 * *" (UTC 기준, KST 00:05 = UTC 15:05 전날)
 // CRON_SECRET 헤더로 무단 접근 차단 (fetch-news 등 기존 cron과 동일 패턴)
 // 테스트 모드: 실제 카드 승인 없음
+// 카드 빌링키 자동결제 전용. 계좌이체(가상계좌)는 자동 출금이 아니므로
+// cron/virtual-account-renewal 에서 별도로 "갱신 안내"만 처리한다.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient }               from '@supabase/supabase-js';

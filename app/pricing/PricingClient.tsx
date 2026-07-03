@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import PageBackground from '@/components/layout/PageBackground';
-import PortoneCheckout from '@/components/payment/PortoneCheckout';
+import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -377,7 +377,7 @@ export default function PricingClient() {
 
       {/* 결제 모달 */}
       {checkoutPlan && (
-        <PortoneCheckout
+        <PaymentMethodSelect
           plan={checkoutPlan}
           amount={checkoutAmount}
           isAnnual={annual}

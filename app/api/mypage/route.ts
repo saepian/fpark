@@ -64,7 +64,7 @@ export async function GET() {
   // users 테이블 조회 — service role key로 RLS 우회
   const { data: userRow } = await adminClient
     .from('users')
-    .select('plan, created_at, email_alert_enabled')
+    .select('plan, created_at, email_alert_enabled, subscription_status, payment_method, next_billed_at')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -76,7 +76,7 @@ export async function GET() {
     now,
   );
 
-  const [diagnosisCount, portfolioCount, payments] = await Promise.all([
+  const [diagnosisCount, portfolioCount, payments, pendingDeposit] = await Promise.all([
     (() => {
       const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().split('T')[0];
       return adminClient
@@ -110,6 +110,23 @@ export async function GET() {
         return [];
       }
     })(),
+
+    (async () => {
+      try {
+        const { data } = await adminClient
+          .from('payments')
+          .select('va_bank, va_account_number, va_due_at, amount')
+          .eq('user_id', user.id)
+          .eq('payment_method', 'VIRTUAL_ACCOUNT')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        return data;
+      } catch {
+        return null;
+      }
+    })(),
   ]);
 
   return NextResponse.json({
@@ -125,6 +142,17 @@ export async function GET() {
       nextResetDate:  nextCycleStart.toISOString(),
     },
     payments,
+    subscription: {
+      status:        userRow?.subscription_status ?? 'inactive',
+      paymentMethod: userRow?.payment_method ?? null,
+      nextBilledAt:  userRow?.next_billed_at ?? null,
+      pendingDeposit: pendingDeposit ? {
+        bank:          pendingDeposit.va_bank,
+        accountNumber: pendingDeposit.va_account_number,
+        dueAt:         pendingDeposit.va_due_at,
+        amount:        pendingDeposit.amount,
+      } : null,
+    },
   });
 }
 
