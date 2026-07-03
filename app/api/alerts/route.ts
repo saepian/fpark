@@ -10,64 +10,68 @@ export const dynamic = 'force-dynamic';
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 const CACHE_KEY = 'alerts_52w';
 
-// sortCode '1' = 52주 신고가, '2' = 52주 신저가
+// sortCode '1' = 52주 신고가(근접), '2' = 52주 신저가(근접)
+// KIS의 국내주식 신고_신저근접종목 상위 API[v1_국내주식-105] (tr_id FHPST01870000)
+// 예전에 쓰던 /ranking/high-price + FHPST01400000 조합은 KIS에 존재하지 않는 엔드포인트라 상시 404였음.
 async function fetchHighLow(sortCode: '1' | '2'): Promise<AlertStock[]> {
   return withKisTokenRetry(async () => {
     const token = await getAccessToken();
 
     const params = new URLSearchParams({
-      FID_COND_MRK_DIV_CODE: 'J',
-      FID_COND_SCR_DIV_CODE: '140',
-      FID_INPUT_ISCD: '0001',
-      FID_RANK_SORT_CLS_CODE: sortCode,
-      FID_INPUT_CNT_1: '20',
-      FID_PRC_CLS_CODE: '1',
-      FID_INPUT_PRICE_1: '0',
-      FID_INPUT_PRICE_2: '9999999',
-      FID_VOL_CNT: '0',
-      FID_INPUT_DATE_1: '',
+      FID_APLY_RANG_VOL: '0',
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_COND_SCR_DIV_CODE: '20187',
+      FID_DIV_CLS_CODE: '0',
+      FID_INPUT_CNT_1: '0', // 괴리율 최소
+      FID_INPUT_CNT_2: '0', // 괴리율 최대 — 0~0으로 "정확히 52주 신고/신저에 도달한" 종목만 조회
+      FID_PRC_CLS_CODE: sortCode === '1' ? '0' : '1', // 0:신고근접, 1:신저근접
+      FID_INPUT_ISCD: '0000', // 전체 시장(코스피+코스닥)
+      FID_TRGT_CLS_CODE: '0',
+      FID_TRGT_EXLS_CLS_CODE: '0',
+      FID_APLY_RANG_PRC_1: '0',
+      FID_APLY_RANG_PRC_2: '100000000',
     });
 
     const res = await fetch(
-      `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/high-price?${params}`,
+      `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/near-new-highlow?${params}`,
       {
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${token}`,
           appkey: process.env.KIS_APP_KEY!,
           appsecret: process.env.KIS_APP_SECRET!,
-          tr_id: 'FHPST01400000',
+          tr_id: 'FHPST01870000',
           custtype: 'P',
         },
         cache: 'no-store',
       }
     );
 
-    if (!res.ok) throw new Error(`high-price API HTTP [${res.status}]`);
+    if (!res.ok) throw new Error(`near-new-highlow API HTTP [${res.status}]`);
 
     let data: Record<string, unknown>;
     try {
       data = await res.json();
     } catch {
-      throw new Error(`high-price API 응답 파싱 실패 [${res.status}] — 빈 응답`);
+      throw new Error(`near-new-highlow API 응답 파싱 실패 [${res.status}] — 빈 응답`);
     }
 
     console.log(
       `[ALERTS] sortCode:${sortCode} rt_cd:${data.rt_cd} msg1:${data.msg1} count:${(data.output as unknown[])?.length ?? 0}`,
     );
 
-    assertKisTokenValid(data, 'FHPST01400000');
+    assertKisTokenValid(data, 'FHPST01870000');
     if (data.rt_cd !== '0') {
-      throw new Error(`high-price API [${res.status}] ${data.msg1 ?? ''}`);
+      throw new Error(`near-new-highlow API [${res.status}] ${data.msg1 ?? ''}`);
     }
 
     return ((data.output as any[]) ?? []).slice(0, 10).map((item: any) => ({
-      ticker: item.stck_shrn_iscd,
+      ticker: item.mksc_shrn_iscd,
       name: item.hts_kor_isnm,
       price: Number(item.stck_prpr),
       ...(sortCode === '1'
-        ? { high52w: Number(item.stck_dmax) }
-        : { low52w: Number(item.stck_dmin) }),
+        ? { high52w: Number(item.new_hgpr) }
+        : { low52w: Number(item.new_lwpr) }),
     }));
   });
 }

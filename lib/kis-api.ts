@@ -685,71 +685,78 @@ export async function fetchFluctuation(direction: 'up' | 'down', count = 5): Pro
 
 // 100개 주요 종목의 당일 52주 신고가/신저가 갱신 여부 확인 (배치 처리)
 export async function fetchCurated52wAlerts(): Promise<{ highAlerts: AlertStock[]; lowAlerts: AlertStock[] }> {
-  const token = await getAccessToken();
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
 
-  // 오늘 날짜 (KST) — YYYYMMDD 형식
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  const todayStr =
-    `${kst.getFullYear()}` +
-    `${String(kst.getMonth() + 1).padStart(2, '0')}` +
-    `${String(kst.getDate()).padStart(2, '0')}`;
+    // 오늘 날짜 (KST) — YYYYMMDD 형식
+    const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const todayStr =
+      `${kst.getFullYear()}` +
+      `${String(kst.getMonth() + 1).padStart(2, '0')}` +
+      `${String(kst.getDate()).padStart(2, '0')}`;
 
-  type StockData = {
-    ticker: string; name: string; price: number;
-    high52w: number; low52w: number; high52wDate: string; low52wDate: string;
-  };
+    type StockData = {
+      ticker: string; name: string; price: number;
+      high52w: number; low52w: number; high52wDate: string; low52wDate: string;
+    };
 
-  const fetchOne = async ([ticker, mkt]: [string, 'J' | 'Q' | 'X']): Promise<StockData | null> => {
-    const markets = mkt === 'X' ? ['J', 'Q'] : [mkt];
-    for (const mktCode of markets) {
-      const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
-      url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
-      url.searchParams.set('FID_INPUT_ISCD', ticker);
-      try {
-        const res = await fetch(url.toString(), {
-          headers: headers(token, 'FHKST01010100'),
-          cache: 'no-store',
-          signal: AbortSignal.timeout(4000),
-        });
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (data.rt_cd !== '0') continue;
-        const o = data.output;
-        return {
-          ticker,
-          name:        await resolveStockName(ticker, o),
-          price:       parseInt(o.stck_prpr, 10),
-          high52w:     parseInt(o.w52_hgpr, 10),
-          low52w:      parseInt(o.w52_lwpr, 10),
-          high52wDate: (o.w52_hgpr_date as string) ?? '',
-          low52wDate:  (o.w52_lwpr_date as string) ?? '',
-        };
-      } catch { continue; }
+    const fetchOne = async ([ticker, mkt]: [string, 'J' | 'Q' | 'X']): Promise<StockData | null> => {
+      const markets = mkt === 'X' ? ['J', 'Q'] : [mkt];
+      for (const mktCode of markets) {
+        const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
+        url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
+        url.searchParams.set('FID_INPUT_ISCD', ticker);
+        try {
+          const res = await fetch(url.toString(), {
+            headers: headers(token, 'FHKST01010100'),
+            cache: 'no-store',
+            signal: AbortSignal.timeout(4000),
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          assertKisTokenValid(data, 'FHKST01010100');
+          if (data.rt_cd !== '0') continue;
+          const o = data.output;
+          return {
+            ticker,
+            name:        await resolveStockName(ticker, o),
+            price:       parseInt(o.stck_prpr, 10),
+            high52w:     parseInt(o.w52_hgpr, 10),
+            low52w:      parseInt(o.w52_lwpr, 10),
+            high52wDate: (o.w52_hgpr_date as string) ?? '',
+            low52wDate:  (o.w52_lwpr_date as string) ?? '',
+          };
+        } catch (e) {
+          if (e instanceof KisTokenExpiredError) throw e;
+          continue;
+        }
+      }
+      return null;
+    };
+
+    // 20개씩 배치 처리하여 rate limit 회피
+    const BATCH = 20;
+    const allData: StockData[] = [];
+    for (let i = 0; i < CURATED_TICKERS_MKT.length; i += BATCH) {
+      const batch = CURATED_TICKERS_MKT.slice(i, i + BATCH);
+      const results = await Promise.allSettled(batch.map(fetchOne));
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) allData.push(r.value);
+        else if (r.status === 'rejected' && r.reason instanceof KisTokenExpiredError) throw r.reason;
+      }
     }
-    return null;
-  };
 
-  // 20개씩 배치 처리하여 rate limit 회피
-  const BATCH = 20;
-  const allData: StockData[] = [];
-  for (let i = 0; i < CURATED_TICKERS_MKT.length; i += BATCH) {
-    const batch = CURATED_TICKERS_MKT.slice(i, i + BATCH);
-    const results = await Promise.allSettled(batch.map(fetchOne));
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) allData.push(r.value);
-    }
-  }
+    const highAlerts: AlertStock[] = allData
+      .filter((s) => s.high52wDate === todayStr && s.price > 0)
+      .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, high52w: s.high52w }));
 
-  const highAlerts: AlertStock[] = allData
-    .filter((s) => s.high52wDate === todayStr && s.price > 0)
-    .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, high52w: s.high52w }));
+    const lowAlerts: AlertStock[] = allData
+      .filter((s) => s.low52wDate === todayStr && s.price > 0)
+      .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, low52w: s.low52w }));
 
-  const lowAlerts: AlertStock[] = allData
-    .filter((s) => s.low52wDate === todayStr && s.price > 0)
-    .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, low52w: s.low52w }));
-
-  console.log(`[52W] 조회 완료: ${allData.length}개 종목, 신고가 ${highAlerts.length}개, 신저가 ${lowAlerts.length}개`);
-  return { highAlerts, lowAlerts };
+    console.log(`[52W] 조회 완료: ${allData.length}개 종목, 신고가 ${highAlerts.length}개, 신저가 ${lowAlerts.length}개`);
+    return { highAlerts, lowAlerts };
+  });
 }
 
 // 관심종목 ticker 배열에 대해 당일 52주 신고가/신저가 갱신 여부 개별 확인
@@ -758,69 +765,76 @@ export async function fetchWatch52w(
 ): Promise<{ highAlerts: AlertStock[]; lowAlerts: AlertStock[] }> {
   if (!tickers.length) return { highAlerts: [], lowAlerts: [] };
 
-  const token = await getAccessToken();
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
 
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-  const todayStr =
-    `${kst.getFullYear()}` +
-    `${String(kst.getMonth() + 1).padStart(2, '0')}` +
-    `${String(kst.getDate()).padStart(2, '0')}`;
+    const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const todayStr =
+      `${kst.getFullYear()}` +
+      `${String(kst.getMonth() + 1).padStart(2, '0')}` +
+      `${String(kst.getDate()).padStart(2, '0')}`;
 
-  type StockData = {
-    ticker: string; name: string; price: number;
-    high52w: number; low52w: number; high52wDate: string; low52wDate: string;
-  };
+    type StockData = {
+      ticker: string; name: string; price: number;
+      high52w: number; low52w: number; high52wDate: string; low52wDate: string;
+    };
 
-  const fetchOne = async (ticker: string): Promise<StockData | null> => {
-    // KOSPI(J) 먼저 시도, 실패 시 KOSDAQ(Q)
-    for (const mktCode of ['J', 'Q']) {
-      try {
-        const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
-        url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
-        url.searchParams.set('FID_INPUT_ISCD', ticker);
-        const res = await fetch(url.toString(), {
-          headers: headers(token, 'FHKST01010100'),
-          cache: 'no-store',
-          signal: AbortSignal.timeout(4000),
-        });
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (data.rt_cd !== '0') continue;
-        const o = data.output;
-        return {
-          ticker,
-          name:        await resolveStockName(ticker, o),
-          price:       parseInt(o.stck_prpr, 10),
-          high52w:     parseInt(o.w52_hgpr, 10),
-          low52w:      parseInt(o.w52_lwpr, 10),
-          high52wDate: (o.w52_hgpr_date as string) ?? '',
-          low52wDate:  (o.w52_lwpr_date as string) ?? '',
-        };
-      } catch { continue; }
+    const fetchOne = async (ticker: string): Promise<StockData | null> => {
+      // KOSPI(J) 먼저 시도, 실패 시 KOSDAQ(Q)
+      for (const mktCode of ['J', 'Q']) {
+        try {
+          const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
+          url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
+          url.searchParams.set('FID_INPUT_ISCD', ticker);
+          const res = await fetch(url.toString(), {
+            headers: headers(token, 'FHKST01010100'),
+            cache: 'no-store',
+            signal: AbortSignal.timeout(4000),
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          assertKisTokenValid(data, 'FHKST01010100');
+          if (data.rt_cd !== '0') continue;
+          const o = data.output;
+          return {
+            ticker,
+            name:        await resolveStockName(ticker, o),
+            price:       parseInt(o.stck_prpr, 10),
+            high52w:     parseInt(o.w52_hgpr, 10),
+            low52w:      parseInt(o.w52_lwpr, 10),
+            high52wDate: (o.w52_hgpr_date as string) ?? '',
+            low52wDate:  (o.w52_lwpr_date as string) ?? '',
+          };
+        } catch (e) {
+          if (e instanceof KisTokenExpiredError) throw e;
+          continue;
+        }
+      }
+      return null;
+    };
+
+    // 3개씩 배치 처리 (rate limit 회피)
+    const allData: StockData[] = [];
+    for (let i = 0; i < tickers.length; i += 3) {
+      const batch = tickers.slice(i, i + 3);
+      const results = await Promise.allSettled(batch.map(fetchOne));
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) allData.push(r.value);
+        else if (r.status === 'rejected' && r.reason instanceof KisTokenExpiredError) throw r.reason;
+      }
+      if (i + 3 < tickers.length) await new Promise((r) => setTimeout(r, 300));
     }
-    return null;
-  };
 
-  // 3개씩 배치 처리 (rate limit 회피)
-  const allData: StockData[] = [];
-  for (let i = 0; i < tickers.length; i += 3) {
-    const batch = tickers.slice(i, i + 3);
-    const results = await Promise.allSettled(batch.map(fetchOne));
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) allData.push(r.value);
-    }
-    if (i + 3 < tickers.length) await new Promise((r) => setTimeout(r, 300));
-  }
+    const highAlerts: AlertStock[] = allData
+      .filter((s) => s.high52wDate === todayStr && s.price > 0)
+      .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, high52w: s.high52w }));
+    const lowAlerts: AlertStock[] = allData
+      .filter((s) => s.low52wDate === todayStr && s.price > 0)
+      .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, low52w: s.low52w }));
 
-  const highAlerts: AlertStock[] = allData
-    .filter((s) => s.high52wDate === todayStr && s.price > 0)
-    .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, high52w: s.high52w }));
-  const lowAlerts: AlertStock[] = allData
-    .filter((s) => s.low52wDate === todayStr && s.price > 0)
-    .map((s) => ({ ticker: s.ticker, name: s.name, price: s.price, low52w: s.low52w }));
-
-  console.log(
-    `[52W-WATCH] 관심종목 조회: ${allData.length}/${tickers.length}개, 신고가: ${highAlerts.length}개, 신저가: ${lowAlerts.length}개`,
-  );
-  return { highAlerts, lowAlerts };
+    console.log(
+      `[52W-WATCH] 관심종목 조회: ${allData.length}/${tickers.length}개, 신고가: ${highAlerts.length}개, 신저가: ${lowAlerts.length}개`,
+    );
+    return { highAlerts, lowAlerts };
+  });
 }
