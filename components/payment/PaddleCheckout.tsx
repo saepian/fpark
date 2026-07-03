@@ -58,9 +58,15 @@ export default function PaddleCheckout({ plan, amount, isAnnual, onClose, onBack
       }
       if (!paddleRef.current) throw new Error('Paddle 초기화 실패');
 
+      const PRICE_IDS = {
+        basic:        process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_BASIC!,
+        basicAnnual:  process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_BASIC_ANNUAL!,
+        pro:          process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_PRO!,
+        proAnnual:    process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_PRO_ANNUAL!,
+      };
       const priceId = plan === 'basic'
-        ? process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_BASIC!
-        : process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_PRO!;
+        ? (isAnnual ? PRICE_IDS.basicAnnual : PRICE_IDS.basic)
+        : (isAnnual ? PRICE_IDS.proAnnual   : PRICE_IDS.pro);
 
       await paddleRef.current.Checkout.open({
         items:      [{ priceId, quantity: 1 }],
