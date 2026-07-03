@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# 배포 경로 단일화 안전장치 — 2026-07-03 배포 경합 사고 재발 방지용.
+# 설치: ln -sf ../../scripts/git-hooks/pre-push .git/hooks/pre-push (최초 1회, DEPLOYMENT.md 참고)
+
+set -e
+
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" != "main" ]; then
+  echo "ℹ️  현재 브랜치는 '$branch'입니다 (main 아님) — GitHub 자동배포 대상이 아닙니다."
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo ""
+  echo "⚠️  커밋되지 않은 변경사항이 있습니다:"
+  git status --porcelain
+  echo ""
+  echo "   main에 push하면 GitHub 자동배포가 '지금 커밋된 상태'로만 빌드합니다."
+  echo "   위 미커밋 변경은 이번 배포에 반영되지 않습니다."
+
+  if [ -t 1 ]; then
+    read -r -p "그래도 push 하시겠습니까? [y/N] " reply < /dev/tty
+    case "$reply" in
+      [yY]*) ;;
+      *) echo "push 중단됨."; exit 1 ;;
+    esac
+  else
+    echo "   (비대화형 환경이라 경고만 표시하고 push를 계속 진행합니다.)"
+  fi
+fi
+
+exit 0
