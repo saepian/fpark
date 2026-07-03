@@ -73,8 +73,8 @@ export default function AiInsightCard() {
     : null;
 
   const flowLead = [
-    pick.foreign_net_buy_auk != null && `전일 외국인 순매수 ${fmtAuk(pick.foreign_net_buy_auk)}`,
-    pick.institution_net_buy_auk != null && `전일 기관 순매수 ${fmtAuk(pick.institution_net_buy_auk)}`,
+    pick.foreign_net_buy_auk != null && `전일 외국인 자금 유입 ${fmtAuk(pick.foreign_net_buy_auk)}`,
+    pick.institution_net_buy_auk != null && `전일 기관 자금 유입 ${fmtAuk(pick.institution_net_buy_auk)}`,
   ].filter(Boolean).join(' · ');
 
   const flowStreak = [
@@ -94,7 +94,7 @@ export default function AiInsightCard() {
               </span>
               <span className="text-xs text-slate-500 font-medium">오늘의 수급 상위 기업</span>
             </div>
-            <p className="text-[10px] text-slate-600">전일 대량 순매수 또는 5일 연속 순매수 기준으로 선정되었습니다</p>
+            <p className="text-[10px] text-slate-600">전일 대량 자금 유입 또는 5일 연속 자금 유입 기준으로 선정되었습니다</p>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-bold border rounded-full px-2 py-0.5 text-indigo-300 bg-indigo-400/10 border-indigo-400/30">
@@ -135,7 +135,7 @@ export default function AiInsightCard() {
         {(flowLead || flowStreak) && (
           <div className="border-l-2 border-indigo-500 pl-3">
             <p className="text-sm font-semibold text-white leading-relaxed">{flowLead}</p>
-            {flowStreak && <p className="text-xs text-indigo-300 mt-0.5">{flowStreak} 순매수 관찰됨</p>}
+            {flowStreak && <p className="text-xs text-indigo-300 mt-0.5">{flowStreak} 자금 유입 관찰됨</p>}
           </div>
         )}
 

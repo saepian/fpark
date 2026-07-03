@@ -75,8 +75,8 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       {/* 섹션 1: 외국인/기관/개인 */}
       <div className="px-4 py-3 border-b border-slate-800">
         <div className="flex justify-between text-[10px] text-slate-600 mb-3">
-          <span>← 순매도</span>
-          <span>순매수 →</span>
+          <span>← 자금 유출</span>
+          <span>자금 유입 →</span>
         </div>
         <div className="space-y-3">
           {investors.map((inv) => {
@@ -127,9 +127,9 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
           </p>
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: '매수',  value: data.program.buy,  color: 'text-red-400' },
-              { label: '매도',  value: data.program.sell, color: 'text-blue-400' },
-              { label: '순매수', value: data.program.net,
+              { label: '유입',  value: data.program.buy,  color: 'text-red-400' },
+              { label: '유출',  value: data.program.sell, color: 'text-blue-400' },
+              { label: '순유입', value: data.program.net,
                 color: data.program.net >= 0 ? 'text-red-400' : 'text-blue-400' },
             ].map(item => (
               <div key={item.label} className="text-center bg-slate-800/50 rounded-lg p-2">

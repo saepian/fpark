@@ -76,14 +76,6 @@ interface PortfolioData {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-// 매매 지시가 아닌 관찰된 수급 패턴을 나타내는 중립적 라벨 (portfolio-diagnosis와 동일 체계)
-const SIGNAL_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
-  '순유입 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
-  '중립·관망':     { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
-  '차익실현 관찰': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
-  '순유출 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
-};
-
 const SECTOR_COLORS = [
   'bg-indigo-500', 'bg-violet-500', 'bg-sky-500', 'bg-emerald-500',
   'bg-amber-500',  'bg-pink-500',   'bg-teal-500', 'bg-orange-500',
@@ -250,7 +242,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
               <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
                 <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">저항선 관찰 (52주 고점 기준)</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최고가</p>
             </div>
             <div className="px-5 py-4">
               <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(d.resistance)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
@@ -263,7 +255,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
               <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
                 <TrendingDown className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">지지선 관찰 (52주 저가 기준)</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최저가</p>
             </div>
             <div className="px-5 py-4">
               <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(d.support)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
@@ -518,7 +510,6 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">기업별 관찰 지표</p>
           <div className="flex flex-col divide-y divide-slate-700/40">
             {(d.holdings ?? []).map(h => {
-              const cfg = SIGNAL_CFG[h.signal] ?? SIGNAL_CFG['중립·관망'];
               const hUp = h.profitRate >= 0;
               return (
                 <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
@@ -538,11 +529,6 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                           {fmtRate(h.profitRate)}
                         </p>
                       </div>
-                    </div>
-                    <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold ${cfg.color} ${cfg.bg} border ${cfg.border}`}>
-                        {cfg.icon} {h.signal}
-                      </span>
                     </div>
                   </div>
                   {h.reason && (

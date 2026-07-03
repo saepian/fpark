@@ -11,7 +11,7 @@ import {
 } from '@/lib/stock-analysis-data';
 import type { StockAnalysisData } from '@/lib/stock-analysis-data';
 import { fetchDailyChart, fetchIndexRangeChange } from '@/lib/kis-api';
-import { COMPLIANCE_PRINCIPLE, type Signal } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, clampSignal, type Signal } from '@/lib/ai-compliance';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -195,7 +195,7 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
     const parsed = parseAiJson<Omit<StockAiResult, 'newsBasis'>>(text, { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '' });
-    return { ...parsed, newsBasis };
+    return { ...parsed, signal: clampSignal(parsed.signal), newsBasis };
   } catch (e) {
     console.error(`[PORTFOLIO-DIAGNOSIS] 종목 분석 실패 ${h.ticker}:`, e);
     return { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '', newsBasis };
@@ -256,7 +256,7 @@ async function analyzePortfolioSummary(
     `- sectors weight 합계=100\n` +
     `- riskFactors/opportunityFactors는 개별 종목이 아니라 포트폴리오 전체 구조(손실 비중·섹터 편중·벤치마크 대비·변동성)를 보는 관점으로 작성하세요\n` +
     `- shortTermOutlook/midTermOutlook도 개별 종목이 아니라 포트폴리오 전체 관점으로 작성하고, 목표가·손절가·매수매도 지시는 금지하세요\n` +
-    `- suggestions는 "이렇게 하세요" 식 지시가 아니라, 관찰된 데이터 특징과 투자자들이 일반적으로 참고하는 지표를 안내하는 정보 형태로 작성\n` +
+    `- suggestions는 "이렇게 하세요" 식 지시나 "투자자들이 참고한다"는 식의 권유성 결론이 아니라, 관찰된 데이터 특징을 사실 그대로 서술하는 정보 형태로 작성\n` +
     `- 뉴스가 있는 종목은 그 이슈를 근거로 언급하고, 뉴스가 없는 종목은 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요\n` +
     `- 벤치마크 수치는 판단 없이 사실 비교로만 1회 언급(예: "~보다 높습니다/낮습니다" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)\n` +
     `- summary·suggestions·riskFactors·opportunityFactors·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;

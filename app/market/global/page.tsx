@@ -204,7 +204,7 @@ function GlobalMoversSidebar({ stocks, loading }: { stocks: OverseasStock[]; loa
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            급등 TOP 5
+            상승률 상위 5
           </button>
           <button
             onClick={() => setTab('losers')}
@@ -214,7 +214,7 @@ function GlobalMoversSidebar({ stocks, loading }: { stocks: OverseasStock[]; loa
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            급락 TOP 5
+            하락률 상위 5
           </button>
         </div>
       </div>

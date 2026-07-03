@@ -92,13 +92,6 @@ function AiLoadingScreen() {
   );
 }
 
-const SIGNAL_BADGE = {
-  '순유입 우위':   'bg-emerald-500 text-white',
-  '중립·관망':     'bg-slate-500 text-white',
-  '차익실현 관찰': 'bg-orange-500 text-white',
-  '순유출 우위':   'bg-red-500 text-white',
-} as const;
-
 function fmtPrice(v: number) {
   return v.toLocaleString('ko-KR');
 }
@@ -160,8 +153,6 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     );
   }
 
-  const signal     = data.signal ?? '중립·관망';
-  const badgeCls   = SIGNAL_BADGE[signal] ?? SIGNAL_BADGE['중립·관망'];
   const timeLabel  = `리포트 생성 시각: ${new Date(data.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`;
 
   return (
@@ -185,14 +176,16 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${badgeCls}`}>
-              {signal}
-            </span>
+            {data.tradingValueMultiple !== null && (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-slate-700 text-slate-200">
+                거래대금 20일 평균 대비 {data.tradingValueMultiple}배
+              </span>
+            )}
             <button
               onClick={showToast}
               className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[10px] font-bold rounded uppercase tracking-widest hover:border-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
             >
-              AI INSIGHT
+              AI 데이터 요약
             </button>
           </div>
         </div>
@@ -210,14 +203,14 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
       <div className="px-6 py-4 space-y-5">
 
-        {/* 저항선 관찰 / 지지선 관찰 (52주 고가·저가 그대로 표시, 목표가·손절가 아님) */}
+        {/* 52주 최고가·최저가 (그대로 표시, 목표가·손절가 아님) */}
         {(data.resistance > 0 || data.support > 0) && (
           <div className="grid grid-cols-2 gap-3">
             {data.resistance > 0 && (
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingUp className="w-3 h-3 text-slate-400" />
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">저항선 관찰 (52주 고점 기준)</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">52주 최고가</span>
                 </div>
                 <p className="text-[16px] font-bold font-mono text-slate-200">
                   ₩{fmtPrice(data.resistance)}
@@ -233,7 +226,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingDown className="w-3 h-3 text-slate-400" />
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">지지선 관찰 (52주 저가 기준)</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">52주 최저가</span>
                 </div>
                 <p className="text-[16px] font-bold font-mono text-slate-200">
                   ₩{fmtPrice(data.support)}

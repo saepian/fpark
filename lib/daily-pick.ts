@@ -84,11 +84,11 @@ function classifyPickReason(c: FlowCandidate): string | null {
   const streak5Foreign     = c.foreignConsecutiveDays >= 5;
   const streak5Institution = c.institutionConsecutiveDays >= 5;
 
-  if ((bigForeign || streak5Foreign) && (bigInstitution || streak5Institution)) return '외국인·기관 동반 순매수';
-  if (streak5Foreign) return '외국인 5일 연속 순매수';
-  if (streak5Institution) return '기관 5일 연속 순매수';
-  if (bigForeign) return '외국인 대량 순매수';
-  if (bigInstitution) return '기관 대량 순매수';
+  if ((bigForeign || streak5Foreign) && (bigInstitution || streak5Institution)) return '외국인·기관 동반 자금 유입';
+  if (streak5Foreign) return '외국인 5일 연속 자금 유입';
+  if (streak5Institution) return '기관 5일 연속 자금 유입';
+  if (bigForeign) return '외국인 대량 자금 유입';
+  if (bigInstitution) return '기관 대량 자금 유입';
   return null;
 }
 
@@ -161,10 +161,10 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
     return null;
   }
 
-  // 우선순위: 동반 순매수 > 순매수 규모(외국인+기관 합산)
+  // 우선순위: 동반 자금 유입 > 순매수 규모(외국인+기관 합산)
   classified.sort((a, b) => {
-    const aBonus = a.reason === '외국인·기관 동반 순매수' ? 100000 : 0;
-    const bBonus = b.reason === '외국인·기관 동반 순매수' ? 100000 : 0;
+    const aBonus = a.reason === '외국인·기관 동반 자금 유입' ? 100000 : 0;
+    const bBonus = b.reason === '외국인·기관 동반 자금 유입' ? 100000 : 0;
     const aScore = aBonus + a.foreignNetBuyAuk + a.institutionNetBuyAuk;
     const bScore = bBonus + b.foreignNetBuyAuk + b.institutionNetBuyAuk;
     return bScore - aScore;
@@ -221,6 +221,7 @@ ${newsText}
 - summary·analysis는 수급 수치가 핵심 근거이며, 뉴스·실적은 참고 정보로만 보조적으로 다루세요
 - "재도약 기대", "매력도를 높이는 핵심 요인", "권고", "정당화" 같은 결론형·권유형 표현을 쓰지 말고 "~관찰됩니다", "~라는 특징이 있습니다", "~라는 해석도 있습니다" 형태로 작성하세요
 - 목표가·저항선·진입전략 관련 내용은 만들지 마세요 (52주 고점 대비 위치는 별도로 표시됩니다)
+- keywords에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말고 업종·테마·이슈 위주로만 작성하세요
 - JSON 키 순서 및 구조 변경 금지`;
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });

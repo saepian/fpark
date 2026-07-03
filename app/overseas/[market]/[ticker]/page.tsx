@@ -241,7 +241,7 @@ const ANALYSIS_STEPS = [
   '📈 차트 패턴 분석 중...',
   '💹 밸류에이션 검토 중...',
   '⚡ 리스크 요인 분석 중...',
-  '🎯 저항선·지지선 확인 중...',
+  '🎯 52주 가격 위치 확인 중...',
   '📝 분석 리포트 작성 중...',
 ];
 
@@ -272,14 +272,6 @@ function AiLoadingCard() {
     </div>
   );
 }
-
-// 매매 지시가 아닌, 관찰된 수급·가격 패턴을 나타내는 중립적 라벨 (국내 기업분석과 동일 체계)
-const SIGNAL_BADGE = {
-  '순유입 우위':   'bg-emerald-500 text-white',
-  '중립·관망':     'bg-blue-500 text-white',
-  '차익실현 관찰': 'bg-orange-500 text-white',
-  '순유출 우위':   'bg-red-500 text-white',
-} as const;
 
 function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) {
   const [data, setData] = useState<OverseasAnalysisResult | null>(null);
@@ -325,8 +317,6 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
     );
   }
 
-  const signal   = data.signal ?? '중립·관망';
-  const badgeCls = SIGNAL_BADGE[signal] ?? SIGNAL_BADGE['중립·관망'];
   const sym      = CURRENCY_SYMBOLS[data.currency] ?? data.currency;
   const timeLabel = data.isCached
     ? '오늘 분석 (캐시)'
@@ -345,9 +335,6 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
             <Sparkles className="text-blue-400 w-4 h-4" />
             <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
           </div>
-          <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${badgeCls}`}>
-            {signal}
-          </span>
         </div>
         <p className="text-[15px] font-semibold text-white leading-snug">{data.summary}</p>
         <p className="text-[11px] text-slate-500 mt-1.5">{timeLabel}</p>
@@ -361,7 +348,7 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
               <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingUp className="w-3 h-3 text-red-400" />
-                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">저항선 관찰 (52주 고점)</span>
+                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">52주 최고가</span>
                 </div>
                 <p className="text-[15px] font-bold font-mono text-red-300">
                   {sym}{data.resistance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -377,7 +364,7 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
               <div className="bg-blue-950/30 border border-blue-500/30 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingDown className="w-3 h-3 text-blue-400" />
-                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">지지선 관찰 (52주 저점)</span>
+                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">52주 최저가</span>
                 </div>
                 <p className="text-[15px] font-bold font-mono text-blue-400">
                   {sym}{data.support.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

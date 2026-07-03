@@ -8,7 +8,7 @@ import {
   buildSurgeHistoryBlock,
   buildTradingValueBlock,
 } from '@/lib/stock-analysis-data';
-import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, type Signal } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 
 export const dynamic = 'force-dynamic';
 // 캐시 없이 매 요청마다 KIS + Claude를 호출 — 관측된 응답 시간이 16~21초로
@@ -20,13 +20,14 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 export type { Signal };
 
 export interface AnalysisResult {
-  signal: Signal;
+  signal: Signal; // 내부 로그/집계용 — 화면에는 방향성 배지로 노출하지 않음(Paddle 심사 대응)
   summary: string;
   sections: { title: string; points: string[] }[];
   tags: string[];
   current_price: number;
   resistance: number; // 52주 고가 — 서버에서 직접 계산 (AI가 지어내지 않음)
   support: number;     // 52주 저가 — 서버에서 직접 계산
+  tradingValueMultiple: number | null; // 오늘 거래대금 / 최근 20거래일 평균 — 순수 데이터 지표
   disclaimer: string;
   createdAt: string;
 }
@@ -151,20 +152,20 @@ ${tradingValueBlock}
 ## 출력 형식 (JSON만)
 {
   "signal": "순유입 우위" | "중립·관망" | "차익실현 관찰" | "순유출 우위",
-  "summary": "관찰된 특징을 담은 한줄 (예: '외국인 수급 유입에 52주 저항선 부근 위치까지 겹쳐 부담으로 풀이됨') — 종목명 제외, 35자 이내, 지시형 표현 금지",
+  "summary": "관찰된 특징을 담은 한줄 (예: '외국인 자금 유입에 52주 고점 근접 위치까지 겹쳐 부담으로 풀이됨') — 종목명 제외, 35자 이내, 지시형 표현 금지",
   "sections": [
     {
       "title": "📊 현재 시황",
       "points": [
-        "주가 흐름과 맥락을 담은 문장 (예: '거래대금 X억원과 함께 기관·외인이 동반 매수에 나선 것으로 보임') — 50자 이내",
-        "52주 위치와 기술적 의미 (예: '52주 고점 X원 대비 Y% 하단에 위치, 해당 구간은 과거 저항으로 작용해온 지점') — 50자 이내",
+        "주가 흐름과 맥락을 담은 문장 (예: '거래대금 X억원과 함께 기관·외인의 동반 자금 유입이 나타난 것으로 보임') — 50자 이내",
+        "52주 위치의 사실 서술 (예: '52주 고점 X원 대비 Y% 낮은 수준에 위치, 과거 이 구간에서 상승 흐름이 둔화된 이력이 있음') — 50자 이내",
         "뉴스·이슈 반영 한줄 또는 생략 가능"
       ]
     },
     {
       "title": "🎯 관찰 포인트",
       "points": [
-        "과거 급등/급락 이력 + 오늘 거래대금 배수를 함께 놓고, 이 둘이 같은 흐름의 연장인지 서로 모순되는 신호인지 판단해서 그 이유와 함께 제시 (예: 'X월 X일 +22% 급등 후 5일간 -8% 반납된 이력이 있는데, 오늘은 거래대금이 평균의 0.3배로 낮아 이번엔 그때와 달리 매수 주체 유입이 약하다는 해석이 가능함') — 70자 이내, 이력 없으면 오늘 거래대금 배수만으로 판단",
+        "과거 급등/급락 이력 + 오늘 거래대금 배수를 함께 놓고, 이 둘이 같은 흐름의 연장인지 서로 모순되는 신호인지 판단해서 그 이유와 함께 제시 (예: 'X월 X일 +22% 급등 후 5일간 -8% 반납된 이력이 있는데, 오늘은 거래대금이 평균의 0.3배로 낮아 이번엔 그때와 달리 자금 유입이 약하다는 해석이 가능함') — 70자 이내, 이력 없으면 오늘 거래대금 배수만으로 판단",
         "위 판단과 뉴스·밸류에이션 중 하나를 더 연결해 종합 (예: 관련 뉴스 부재가 그 판단에 어떤 의미를 더하는지) — 65자 이내, 연결할 추가 데이터 없으면 생략"
       ]
     },
@@ -178,8 +179,8 @@ ${tradingValueBlock}
     {
       "title": "📈 참고 지표",
       "points": [
-        "저항선 관찰 + 현재가와의 관계에 대한 판단 (예: '52주 고점 X원이 과거 저항선으로 작용해왔고, 현재가가 근접해 있어 재차 저항을 받을 가능성이 있다는 해석도 있음') — 65자 이내",
-        "지지선 관찰 + 현재가와의 관계에 대한 판단 (예: '52주 저점 X원이 과거 지지선으로 작용해왔고, 현재가와 거리가 있어 단기 지지 시험 가능성은 낮다는 해석도 있음') — 65자 이내"
+        "52주 고가와 현재가의 위치 관계를 사실로 서술 (예: '52주 고점 X원은 현재가 대비 Y% 높은 수준으로, 과거 이 부근에서 상승세가 둔화된 이력이 있음') — 65자 이내, 저항선·매물대 같은 기술적 분석 용어 금지",
+        "52주 저가와 현재가의 위치 관계를 사실로 서술 (예: '52주 저점 X원은 현재가 대비 Y% 낮은 수준으로, 최근 가격 흐름은 이 구간과 거리를 두고 있음') — 65자 이내, 지지선·지지 시험 같은 기술적 분석 용어 금지"
       ]
     }
   ],
@@ -189,7 +190,7 @@ ${tradingValueBlock}
 규칙:
 - ${COMPLIANCE_PRINCIPLE}
 - signal은 매매 지시가 아니라 수급·가격 패턴에 대한 관찰 결과입니다 — 외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도로 자금이 빠져나가는 흐름이 우위면 "순유출 우위", 단기 급등 후 차익실현 흐름이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요
-- "참고 지표" 섹션은 목표가·손절가·진입전략 같은 지시형 문구를 쓰지 말고, 52주 고/저점이 과거 저항·지지로 작용해온 사실과 그 의미에 대한 판단으로 구성하세요
+- "참고 지표" 섹션은 목표가·손절가·진입전략·저항선·지지선·매물대 같은 기술적 분석/지시형 문구를 쓰지 말고, 52주 고/저점 대비 현재가의 위치 관계를 사실로 서술하고 그 의미에 대한 판단으로 구성하세요
 - "정당화", "권고", "~하는 것이 좋습니다" 같은 결론형·권유형 단어를 쓰지 말고 관찰·해석형 문장을 사용하세요
 - "~관찰됨", "~특징이 있음", "~것으로 나타남" 같은 동일한 종결 표현을 이 리포트 안에서 2회 이상 쓰지 말고, 문장마다 종결을 다양하게 바꾸세요 ("~로 보임", "~때문임", "~로 풀이됨", "~라는 점이 눈에 띔", 서술형 종결 등)
 - 각 point는 실제 데이터(주가·PER·52주가·거래대금·과거 급등 이력 등)를 근거로 짧게 인용한 뒤, 반드시 그 다음 절에서 "그래서 무엇을 의미하는지" 판단을 이어가세요 — 근거만 있고 판단이 없는 문장은 출력하지 마세요
@@ -199,6 +200,7 @@ ${tradingValueBlock}
 - 제공되지 않은 데이터(섹터 비교, 동종업계 순위 등)에 대해서는 언급하지 말 것
 - 본문에서 현재가·52주 고가·52주 저가를 언급할 때는 위 "종목 데이터"에 제시된 숫자를 한 글자도 다르지 않게 그대로 쓰세요 — 익숙한 가격대와 다르다는 이유로 자릿수를 줄이거나 늘리지 말 것
 - signal은 전체 분석과 일관성 있게 선택
+- tags에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말 것
 - JSON 키 순서 및 구조 변경 금지`;
 
   try {
@@ -215,14 +217,16 @@ ${tradingValueBlock}
 
     const analysis = JSON.parse(jsonMatch[0]) as Omit<
       AnalysisResult,
-      'current_price' | 'resistance' | 'support' | 'disclaimer' | 'createdAt'
+      'current_price' | 'resistance' | 'support' | 'tradingValueMultiple' | 'disclaimer' | 'createdAt'
     >;
 
     let result: AnalysisResult = {
       ...analysis,
+      signal: clampSignal(analysis.signal), // AI가 지시된 4개 값을 벗어날 경우 대비
       current_price: price.price,
       resistance: info.week52High, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
       support: info.week52Low,     // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
+      tradingValueMultiple: tradingValueMultiple?.valid ? tradingValueMultiple.multiple : null,
       disclaimer: INVESTMENT_DISCLAIMER,
       createdAt: new Date().toISOString(),
     };

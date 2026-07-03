@@ -86,14 +86,6 @@ interface WatchItem { ticker: string; name: string; price: number; changeRate: n
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-// 매매 지시가 아닌 관찰된 수급 패턴을 나타내는 라벨 스타일
-const SIGNAL_CFG: Record<string, { color: string; bg: string; border: string; icon: string }> = {
-  '순유입 우위':   { color: 'text-emerald-300', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: '▲' },
-  '중립·관망':     { color: 'text-blue-300',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: '◆' },
-  '차익실현 관찰': { color: 'text-orange-300',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  icon: '▽' },
-  '순유출 우위':   { color: 'text-red-300',     bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: '▼' },
-};
-
 const SECTOR_COLORS = [
   'bg-indigo-500', 'bg-violet-500', 'bg-sky-500', 'bg-emerald-500',
   'bg-amber-500',  'bg-pink-500',   'bg-teal-500', 'bg-orange-500',
@@ -607,38 +599,8 @@ export default function PortfolioDiagnosisPage() {
 
           {/* 4행: 기업별 관찰 지표 */}
           <Card title="기업별 관찰 지표" className="mb-4">
-            {/* 수급 비율 세그먼트 바 (기업별 signal 라벨 집계, 백엔드 추가 호출 없음) */}
-            {(() => {
-              const counts = (Object.keys(SIGNAL_CFG) as (keyof typeof SIGNAL_CFG)[]).map(key => ({
-                key,
-                count: result.holdings.filter(h => h.signal === key).length,
-              })).filter(c => c.count > 0);
-              const total = result.holdings.length;
-              if (total === 0) return null;
-              return (
-                <div className="mb-4">
-                  <div className="flex h-2 rounded-full overflow-hidden border border-slate-700/40">
-                    {counts.map(c => (
-                      <div
-                        key={c.key}
-                        className={SIGNAL_CFG[c.key].bg.replace('/10', '')}
-                        style={{ width: `${(c.count / total) * 100}%` }}
-                      />
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                    {counts.map(c => (
-                      <span key={c.key} className={`text-[11px] font-medium ${SIGNAL_CFG[c.key].color}`}>
-                        {SIGNAL_CFG[c.key].icon} {c.key} {c.count}개 기업
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
             <div className="flex flex-col divide-y divide-slate-700/40">
               {result.holdings.map(h => {
-                const cfg = SIGNAL_CFG[h.signal] ?? SIGNAL_CFG['중립·관망'];
                 const hUp = h.profitRate >= 0;
                 return (
                   <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
@@ -665,21 +627,21 @@ export default function PortfolioDiagnosisPage() {
                           <p className="text-[13px] font-mono text-slate-300">{fmt(h.value)}</p>
                         </div>
                       </div>
-                      {/* 관찰 라벨 */}
-                      <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold ${cfg.color} ${cfg.bg} border ${cfg.border}`}>
-                          {cfg.icon} {h.signal}
-                        </span>
-                      </div>
+                      {/* 관찰 지표 (변동성 — 방향성 판단 아닌 순수 수치) */}
+                      {h.volatility != null && (
+                        <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold text-slate-300 bg-slate-700/60 border border-slate-600/50">
+                            변동성 {h.volatility.toFixed(2)}%
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {h.reason && (
                       <p className="mt-2 text-[12px] text-slate-500 leading-relaxed pl-0 md:pl-44">{h.reason}</p>
                     )}
-                    {(h.mdd != null || h.volatility != null) && (
+                    {h.mdd != null && (
                       <p className="mt-1 text-[11px] text-slate-600 pl-0 md:pl-44">
-                        {h.mdd != null && `최근 3개월 최대 ${h.mdd.toFixed(1)}% 하락 이력`}
-                        {h.mdd != null && h.volatility != null && ' · '}
-                        {h.volatility != null && `일별 변동성(표준편차) ${h.volatility.toFixed(2)}%`}
+                        최근 3개월 최대 {h.mdd.toFixed(1)}% 하락 이력
                       </p>
                     )}
                   </div>

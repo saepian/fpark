@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
 import YahooFinanceClass from 'yahoo-finance2';
-import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, type Signal } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 
 export const dynamic = 'force-dynamic';
 
@@ -132,13 +132,13 @@ export async function GET(
 ## 출력 형식 (JSON만)
 {
   "signal": "순유입 우위" | "중립·관망" | "차익실현 관찰" | "순유출 우위",
-  "summary": "관찰된 특징을 담은 한줄 (예: '데이터센터 수요 증가와 52주 저항선 부근 위치가 관찰됨') — 종목명 제외, 35자 이내, 지시형 표현 금지",
+  "summary": "관찰된 특징을 담은 한줄 (예: '데이터센터 수요 증가와 52주 고점 근접 위치가 관찰됨') — 종목명 제외, 35자 이내, 지시형 표현 금지",
   "sections": [
     {
       "title": "📊 현재 시황",
       "points": [
         "주가 흐름과 맥락을 담은 문장 — 50자 이내",
-        "52주 위치와 기술적 의미 — 50자 이내"
+        "52주 위치의 사실 서술 (저항선·지지선 같은 기술적 분석 용어 금지, '몇 % 높은/낮은 수준' 형태로만) — 50자 이내"
       ]
     },
     {
@@ -159,9 +159,9 @@ export async function GET(
     {
       "title": "📈 참고 지표",
       "points": [
-        "저항선 관찰 (예: '52주 고점 X 부근이 과거 저항선으로 작용해왔다는 특징이 있음') — 60자 이내",
-        "지지선 관찰 (예: '52주 저점 X 부근이 과거 지지선으로 작용해왔다는 특징이 있음') — 60자 이내",
-        "투자자 참고 지표 안내 — 50자 이내"
+        "52주 고가와 현재가의 위치 관계를 사실로 서술 (예: '52주 고점 X는 현재가 대비 Y% 높은 수준으로, 과거 이 부근에서 상승세가 둔화된 이력이 있음') — 60자 이내, 저항선·매물대 같은 기술적 분석 용어 금지",
+        "52주 저가와 현재가의 위치 관계를 사실로 서술 (예: '52주 저점 X는 현재가 대비 Y% 낮은 수준으로, 최근 가격 흐름은 이 구간과 거리를 두고 있음') — 60자 이내, 지지선·지지 시험 같은 기술적 분석 용어 금지",
+        "52주 고/저가 대비 현재 위치 요약 — 50자 이내"
       ]
     }
   ],
@@ -171,10 +171,11 @@ export async function GET(
 규칙:
 - ${COMPLIANCE_PRINCIPLE}
 - signal은 매매 지시가 아니라 수급·가격 패턴에 대한 관찰 결과입니다 — 상승 모멘텀이 강하면 "순유입 우위", 하락 압력이 강하면 "순유출 우위", 단기 급등 후 차익실현 흐름이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요
-- "참고 지표" 섹션은 목표가·손절가·진입전략·분할매수 같은 지시형 문구를 쓰지 말고, 52주 고/저점이 과거 저항·지지로 작용해온 사실 서술과 투자자들이 일반적으로 참고하는 지표 안내로만 구성하세요
+- "참고 지표" 섹션은 목표가·손절가·진입전략·분할매수·저항선·지지선·매물대 같은 기술적 분석/지시형 문구를 쓰지 말고, 52주 고/저점 대비 현재가의 위치 관계를 사실로 서술하세요
 - "정당화", "충분", "권고", "~하는 것이 좋습니다" 같은 결론형·권유형 단어를 쓰지 말고 "~라는 해석도 있습니다", "~라는 특징이 관찰됩니다" 형태를 사용하세요
 - 각 point는 실제 데이터(주가·PER·52주가·매출·마진 등)를 인용해 구체적으로 작성하고, 제공되지 않은 수치를 지어내지 마세요
 - signal은 전체 분석과 일관성 있게 선택
+- tags에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말 것
 - JSON 키 순서 및 구조 변경 금지`;
 
   try {
@@ -196,6 +197,7 @@ export async function GET(
 
     const result: Omit<OverseasAnalysisResult, 'isCached'> = {
       ...analysis,
+      signal: clampSignal(analysis.signal), // AI가 지시된 4개 값을 벗어날 경우 대비
       current_price: price,
       resistance: hi52, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
       support: lo52,    // AI가 산출하지 않고 실제 52주 저가를 그대로 사용

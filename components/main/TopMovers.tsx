@@ -151,7 +151,7 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
                 : 'border-transparent text-gray-400 hover:text-gray-200'
             }`}
           >
-            급등 TOP 5
+            상승률 상위 5
           </button>
           <button
             onClick={() => setTab('losers')}
@@ -161,7 +161,7 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
                 : 'border-transparent text-gray-400 hover:text-gray-200'
             }`}
           >
-            급락 TOP 5
+            하락률 상위 5
           </button>
         </div>
       </div>

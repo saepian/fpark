@@ -224,7 +224,7 @@ export default function DiagnosisReport({
               <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
                 <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">저항선 관찰 (52주 고점 기준)</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최고가</p>
             </div>
             <div className="px-5 py-4">
               <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.resistance)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
@@ -240,7 +240,7 @@ export default function DiagnosisReport({
               <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
                 <TrendingDown className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">지지선 관찰 (52주 저가 기준)</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최저가</p>
             </div>
             <div className="px-5 py-4">
               <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.support)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
