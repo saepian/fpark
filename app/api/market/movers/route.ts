@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAccessToken, fetchCuratedMovers } from '@/lib/kis-api';
+import { getAccessToken, fetchCuratedMovers, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 import { isKoreanMarketOpen, getLastTradingDate } from '@/lib/market-utils';
 import type { MoversResponse, MoverStock } from '@/lib/types';
@@ -11,60 +11,63 @@ const CACHE_KEY = 'market_movers';
 
 // market: J=코스피, Q=코스닥 / date: YYYYMMDD (장 외 시간에 최근 거래일 지정)
 async function fetchMovers(sortCode: '0' | '1', market: 'J' | 'Q', date = ''): Promise<MoverStock[]> {
-  const token = await getAccessToken();
-  const iscdMap = { J: '0001', Q: '1001' };
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+    const iscdMap = { J: '0001', Q: '1001' };
 
-  const params = new URLSearchParams({
-    FID_COND_MRKT_DIV_CODE: market,
-    FID_COND_SCR_DIV_CODE: '170',
-    FID_INPUT_ISCD: iscdMap[market],
-    FID_RANK_SORT_CLS_CODE: sortCode,
-    FID_INPUT_CNT_1: '0',
-    FID_PRC_CLS_CODE: '0',
-    FID_INPUT_PRICE_1: '',
-    FID_INPUT_PRICE_2: '',
-    FID_VOL_CNT: '',
-    FID_TRGT_CLS_CODE: '111111111',
-    FID_TRGT_EXLS_CLS_CODE: '000000',
-    FID_DIV_CLS_CODE: '0',
-    FID_INPUT_DATE_1: date,
-    FID_RSFL_RATE1: '',
-    FID_RSFL_RATE2: '',
-    FID_RST_CLB_CODE: '',
-  });
+    const params = new URLSearchParams({
+      FID_COND_MRKT_DIV_CODE: 'J', // 이 API는 시장구분값이 항상 'J' 고정 — 코스피/코스닥 구분은 FID_INPUT_ISCD로 함 ('Q'를 넣으면 KIS가 오류 반환)
+      FID_COND_SCR_DIV_CODE: '170',
+      FID_INPUT_ISCD: iscdMap[market],
+      FID_RANK_SORT_CLS_CODE: sortCode,
+      FID_INPUT_CNT_1: '0',
+      FID_PRC_CLS_CODE: '0',
+      FID_INPUT_PRICE_1: '',
+      FID_INPUT_PRICE_2: '',
+      FID_VOL_CNT: '',
+      FID_TRGT_CLS_CODE: '111111111',
+      FID_TRGT_EXLS_CLS_CODE: '000000',
+      FID_DIV_CLS_CODE: '0',
+      FID_INPUT_DATE_1: date,
+      FID_RSFL_RATE1: '',
+      FID_RSFL_RATE2: '',
+      FID_RST_CLB_CODE: '',
+    });
 
-  const res = await fetch(
-    `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
-    {
-      headers: {
-        'content-type': 'application/json',
-        'authorization': `Bearer ${token}`,
-        'appkey': process.env.KIS_APP_KEY!,
-        'appsecret': process.env.KIS_APP_SECRET!,
-        'tr_id': 'FHPST01700000',
-        'custtype': 'P',
-      },
-      cache: 'no-store',
+    const res = await fetch(
+      `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
+      {
+        headers: {
+          'content-type': 'application/json',
+          'authorization': `Bearer ${token}`,
+          'appkey': process.env.KIS_APP_KEY!,
+          'appsecret': process.env.KIS_APP_SECRET!,
+          'tr_id': 'FHPST01700000',
+          'custtype': 'P',
+        },
+        cache: 'no-store',
+      }
+    );
+
+    const data = await res.json();
+    console.log(`[MOVERS] ${market} sortCode:${sortCode} rt_cd:${data.rt_cd} count:${(data.output ?? []).length}`);
+
+    assertKisTokenValid(data, 'FHPST01700000');
+    if (!res.ok || data.rt_cd !== '0') {
+      throw new Error(`fluctuation API 오류 [${res.status}] ${market}: ${data.msg1 ?? ''}`);
     }
-  );
 
-  const data = await res.json();
-  console.log(`[MOVERS] ${market} sortCode:${sortCode} rt_cd:${data.rt_cd} count:${(data.output ?? []).length}`);
-
-  if (!res.ok || data.rt_cd !== '0') {
-    throw new Error(`fluctuation API 오류 [${res.status}] ${market}: ${data.msg1 ?? ''}`);
-  }
-
-  const items: any[] = data.output ?? [];
-  const mapped = items.map((item) => ({
-    name:       item.hts_kor_isnm,
-    ticker:     item.stck_shrn_iscd,
-    price:      Number(item.stck_prpr),
-    changeRate: Number(item.prdy_ctrt),
-  }));
-  // 디버그: 전체 응답 ticker 목록 출력 (앱클론 174900 포함 여부 확인용)
-  console.log(`[MOVERS] ${market} 전체 응답:`, mapped.map(s => `${s.ticker}(${s.changeRate}%)`).join(', '));
-  return mapped;
+    const items: any[] = data.output ?? [];
+    const mapped = items.map((item) => ({
+      name:       item.hts_kor_isnm,
+      ticker:     item.stck_shrn_iscd,
+      price:      Number(item.stck_prpr),
+      changeRate: Number(item.prdy_ctrt),
+    }));
+    // 디버그: 전체 응답 ticker 목록 출력 (앱클론 174900 포함 여부 확인용)
+    console.log(`[MOVERS] ${market} 전체 응답:`, mapped.map(s => `${s.ticker}(${s.changeRate}%)`).join(', '));
+    return mapped;
+  });
 }
 
 async function fetchNaverMovers(type: 'rise' | 'fall', count = 10): Promise<MoverStock[]> {

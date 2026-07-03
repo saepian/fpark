@@ -1,5 +1,6 @@
-import { getAccessToken } from '@/lib/kis-api';
+import { getAccessToken, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
+import { isKoreanMarketOpen, getLastTradingDate } from '@/lib/market-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,26 +42,32 @@ function mapRow(item: any, i: number): StockRow {
   };
 }
 
-async function fetchFluctuation(token: string, blngClsCode: string) {
-  const params = new URLSearchParams({
-    FID_COND_MRKT_DIV_CODE: 'J',
-    FID_COND_SCR_DIV_CODE: '20171',
-    FID_INPUT_ISCD: '0001',
-    FID_DIV_CLS_CODE: '0',
-    FID_BLNG_CLS_CODE: blngClsCode,
-    FID_TRGT_CLS_CODE: '111111111',
-    FID_TRGT_EXLS_CLS_CODE: '000000',
-    FID_INPUT_PRICE_1: '0',
-    FID_INPUT_PRICE_2: '9999999',
-    FID_VOL_CNT: '0',
-    FID_INPUT_DATE_1: '',
+async function fetchFluctuation(blngClsCode: string) {
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+    const params = new URLSearchParams({
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_COND_SCR_DIV_CODE: '20171',
+      FID_INPUT_ISCD: '0001',
+      FID_DIV_CLS_CODE: '0',
+      FID_BLNG_CLS_CODE: blngClsCode,
+      FID_TRGT_CLS_CODE: '111111111',
+      FID_TRGT_EXLS_CLS_CODE: '000000',
+      FID_INPUT_PRICE_1: '0',
+      FID_INPUT_PRICE_2: '9999999',
+      FID_VOL_CNT: '0',
+      FID_INPUT_DATE_1: '',
+    });
+    const res = await fetch(
+      `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
+      { headers: kisHeaders(token, 'FHPST01710000'), cache: 'no-store' },
+    );
+    if (!res.ok) throw new Error(`FHPST01710000 HTTP ${res.status}`);
+    const data = await res.json();
+    assertKisTokenValid(data, 'FHPST01710000');
+    if (data.rt_cd !== '0') throw new Error(`FHPST01710000 ${data.msg1 ?? ''}`);
+    return data;
   });
-  const res = await fetch(
-    `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
-    { headers: kisHeaders(token, 'FHPST01710000'), cache: 'no-store' },
-  );
-  if (!res.ok) throw new Error(`FHPST01710000 HTTP ${res.status}`);
-  return res.json();
 }
 
 // 네이버 급등/급락 스크래핑 (장 마감 폴백)
@@ -150,9 +157,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const tab = searchParams.get('tab') || '거래대금순';
 
-  let token: string;
   try {
-    token = await getAccessToken();
+    await getAccessToken();
   } catch {
     return Response.json({ error: '인증 실패' }, { status: 500 });
   }
@@ -160,7 +166,7 @@ export async function GET(request: Request) {
   try {
     // ── 거래대금순 ────────────────────────────────────────────────
     if (tab === '거래대금순') {
-      const data = await fetchFluctuation(token, '0');
+      const data = await fetchFluctuation('0');
       const rows: any[] = data.output ?? [];
       rows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
       return Response.json(rows.slice(0, 50).map(mapRow));
@@ -168,7 +174,7 @@ export async function GET(request: Request) {
 
     // ── 거래량순 ──────────────────────────────────────────────────
     if (tab === '거래량순') {
-      const data = await fetchFluctuation(token, '1');
+      const data = await fetchFluctuation('1');
       const rows: any[] = data.output ?? [];
       rows.sort((a, b) => Number(b.acml_vol) - Number(a.acml_vol));
       return Response.json(rows.slice(0, 50).map(mapRow));
@@ -177,34 +183,42 @@ export async function GET(request: Request) {
     // ── 급등 / 급락 ──────────────────────────────────────────────
     if (tab === '급등' || tab === '급락') {
       const cacheKey = `ranking_${tab}`;
+      const marketOpen = isKoreanMarketOpen();
+      // 장 외 시간에는 최근 거래일 데이터를 조회 (장 시작 전 "전날꺼" 표시 요구사항)
+      const inputDate = marketOpen ? '' : getLastTradingDate().yyyymmdd;
 
-      // 1순위: KIS 실시간
+      // 1순위: KIS 실시간 (장 외에는 최근 거래일 지정)
       try {
-        const params = new URLSearchParams({
-          FID_COND_MRKT_DIV_CODE: 'J',
-          FID_COND_SCR_DIV_CODE: '170',
-          FID_INPUT_ISCD: '0001',
-          FID_RANK_SORT_CLS_CODE: tab === '급등' ? '0' : '1',
-          FID_INPUT_CNT_1: '0',
-          FID_PRC_CLS_CODE: '0',
-          FID_INPUT_PRICE_1: '',
-          FID_INPUT_PRICE_2: '',
-          FID_VOL_CNT: '',
-          FID_TRGT_CLS_CODE: '111111111',
-          FID_TRGT_EXLS_CLS_CODE: '000000',
-          FID_DIV_CLS_CODE: '0',
-          FID_INPUT_DATE_1: '',
-          FID_RSFL_RATE1: '',
-          FID_RSFL_RATE2: '',
-          FID_RST_CLB_CODE: '',
+        const data = await withKisTokenRetry(async () => {
+          const token = await getAccessToken();
+          const params = new URLSearchParams({
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_COND_SCR_DIV_CODE: '170',
+            FID_INPUT_ISCD: '0001',
+            FID_RANK_SORT_CLS_CODE: tab === '급등' ? '0' : '1',
+            FID_INPUT_CNT_1: '0',
+            FID_PRC_CLS_CODE: '0',
+            FID_INPUT_PRICE_1: '',
+            FID_INPUT_PRICE_2: '',
+            FID_VOL_CNT: '',
+            FID_TRGT_CLS_CODE: '111111111',
+            FID_TRGT_EXLS_CLS_CODE: '000000',
+            FID_DIV_CLS_CODE: '0',
+            FID_INPUT_DATE_1: inputDate,
+            FID_RSFL_RATE1: '',
+            FID_RSFL_RATE2: '',
+            FID_RST_CLB_CODE: '',
+          });
+          const res = await fetch(
+            `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
+            { headers: kisHeaders(token, 'FHPST01700000'), cache: 'no-store' },
+          );
+          if (!res.ok) throw new Error(`FHPST01700000 HTTP ${res.status}`);
+          const json = await res.json();
+          assertKisTokenValid(json, 'FHPST01700000');
+          if (json.rt_cd !== '0') throw new Error(`FHPST01700000 ${json.msg1}`);
+          return json;
         });
-        const res = await fetch(
-          `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
-          { headers: kisHeaders(token, 'FHPST01700000'), cache: 'no-store' },
-        );
-        if (!res.ok) throw new Error(`FHPST01700000 HTTP ${res.status}`);
-        const data = await res.json();
-        if (data.rt_cd !== '0') throw new Error(`FHPST01700000 ${data.msg1}`);
 
         const rows: any[] = data.output ?? [];
         if (rows.length > 0) {
