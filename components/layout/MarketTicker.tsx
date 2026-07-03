@@ -102,8 +102,17 @@ export default function MarketTicker() {
           <TickerChip key={i} item={item} />
         ))}
       </div>
+      {/* 좌우 페이드 마스크 — 스크롤 중 글자가 중간에 뚝 잘려 보이지 않고 배경으로 서서히 사라지도록 */}
+      <div
+        className="absolute inset-y-0 left-0 w-6 pointer-events-none"
+        style={{ background: 'linear-gradient(to right, #080f1e, transparent)' }}
+      />
+      <div
+        className="absolute inset-y-0 right-0 w-6 pointer-events-none"
+        style={{ background: 'linear-gradient(to left, #080f1e, transparent)' }}
+      />
       {items.some((it) => it.isMock) && (
-        <p className="absolute right-3 text-[9px] text-gray-700 pointer-events-none select-none">
+        <p className="absolute right-3 text-[9px] text-gray-700 pointer-events-none select-none z-10">
           *mock
         </p>
       )}

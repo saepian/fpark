@@ -271,7 +271,7 @@ export default function Hero() {
   const isKosdaqUp = (market?.KOSDAQ.changeRate ?? 0) >= 0;
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full overflow-hidden">
       {/* 배경 그라디언트 — 헤더(#0f1117)에서 자연스럽게 이어짐 */}
       <div
         className="absolute inset-0"

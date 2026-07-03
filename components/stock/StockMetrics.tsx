@@ -28,18 +28,19 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
 
       if (infoRes.ok) {
         setInfo(infoJson);
-      } else if (infoJson.error) {
-        // info 실패 시 1초 후 재시도 1회
-        await new Promise((r) => setTimeout(r, 1000));
-        const retryRes = await fetch(`/api/stock/${ticker}/info`);
-        if (retryRes.ok) {
-          setInfo(await retryRes.json());
-        } else {
-          throw new Error(`info ${infoRes.status}`);
-        }
+        return;
+      }
+
+      // API가 재시도·캐시 폴백까지 실패한 경우에만 여기 도달 — 마지막으로 한 번 더 시도
+      await new Promise((r) => setTimeout(r, 1000));
+      const retryRes = await fetch(`/api/stock/${ticker}/info`);
+      if (retryRes.ok) {
+        setInfo(await retryRes.json());
+      } else {
+        throw new Error('일시적으로 정보를 불러오지 못했습니다.');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '데이터 조회 실패');
+      setError(e instanceof Error ? e.message : '일시적으로 정보를 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
@@ -68,7 +69,7 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
   if (error || !info) {
     return (
       <div className="p-4 border border-red-500/30 rounded-lg">
-        <p className="text-red-500 text-sm">{error ?? '데이터 없음'}</p>
+        <p className="text-red-500 text-sm">{error ?? '일시적으로 정보를 불러오지 못했습니다.'}</p>
         <button
           onClick={fetchData}
           className="mt-2 flex items-center gap-1 text-xs text-blue-500 hover:text-blue-400"
@@ -84,7 +85,17 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
   const pct = rangeDelta > 0 ? Math.min(Math.max((currentDelta / rangeDelta) * 100, 0), 100) : 50;
 
   return (
-    <div id="stock-metrics-row" className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div id="stock-metrics-row-wrap">
+      {info.isCached && (
+        <div className="flex items-center gap-1.5 mb-2 text-[11px] text-amber-500">
+          <RefreshCw className="w-3 h-3 animate-spin" />
+          <span>
+            최신 정보 업데이트 중
+            {info.cachedAt && ` · ${new Date(info.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 기준`}
+          </span>
+        </div>
+      )}
+      <div id="stock-metrics-row" className="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div className="bg-[#122131] dark:bg-[#122131] border border-gray-200 dark:border-[#2d313e] p-4 flex flex-col justify-between min-h-[96px]">
         <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
           52W Range
@@ -131,6 +142,7 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
         <p className="font-mono text-lg lg:text-xl font-extrabold text-gray-900 dark:text-[#d4e4fa] leading-none mb-1">
           {info.pbr > 0 ? info.pbr.toFixed(2) : 'N/A'}
         </p>
+      </div>
       </div>
     </div>
   );
