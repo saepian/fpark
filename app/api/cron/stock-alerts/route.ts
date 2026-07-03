@@ -250,16 +250,16 @@ export async function GET(request: NextRequest) {
 
     // 외국인 수급
     if (foreignNetBuyAuk >= FLOW_THRESHOLD_AUK) {
-      setAlert('foreign_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 ${formatAmount(foreignNetBuyAuk)} 순매수`, foreignNetBuyAuk);
+      setAlert('foreign_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 자금 ${formatAmount(foreignNetBuyAuk)} 유입`, foreignNetBuyAuk);
     } else if (foreignNetBuyAuk <= -FLOW_THRESHOLD_AUK) {
-      setAlert('foreign_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 ${formatAmount(foreignNetBuyAuk)} 순매도`, foreignNetBuyAuk);
+      setAlert('foreign_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 자금 ${formatAmount(foreignNetBuyAuk)} 유출`, foreignNetBuyAuk);
     }
 
     // 기관 수급
     if (institutionNetBuyAuk >= FLOW_THRESHOLD_AUK) {
-      setAlert('institution_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 ${formatAmount(institutionNetBuyAuk)} 순매수`, institutionNetBuyAuk);
+      setAlert('institution_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 자금 ${formatAmount(institutionNetBuyAuk)} 유입`, institutionNetBuyAuk);
     } else if (institutionNetBuyAuk <= -FLOW_THRESHOLD_AUK) {
-      setAlert('institution_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 ${formatAmount(institutionNetBuyAuk)} 순매도`, institutionNetBuyAuk);
+      setAlert('institution_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 자금 ${formatAmount(institutionNetBuyAuk)} 유출`, institutionNetBuyAuk);
     }
   }
 

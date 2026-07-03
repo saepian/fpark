@@ -409,7 +409,7 @@ export function buildInvestorBlock(ad: StockAnalysisData): string {
 
   if (investorLatest) {
     const { foreign, institution, individual } = investorLatest;
-    const sign = (v: number) => v >= 0 ? '순매수' : '순매도';
+    const sign = (v: number) => v >= 0 ? '자금 유입' : '자금 유출';
     lines.push('');
     lines.push(`최근 수급: 외국인 ${foreign.amount >= 0 ? '+' : ''}${foreign.amount}억원 ${sign(foreign.amount)}, 기관 ${institution.amount >= 0 ? '+' : ''}${institution.amount}억원 ${sign(institution.amount)}, 개인 ${individual.amount >= 0 ? '+' : ''}${individual.amount}억원 ${sign(individual.amount)}`);
   }

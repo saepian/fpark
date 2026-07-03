@@ -193,14 +193,14 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
     : '관련 뉴스 없음';
 
   // 3. Claude로 수급 데이터 관찰 서술 생성 (뉴스는 참고 정보로만 보조 배치)
-  const prompt = `아래는 정량적 수급 기준(외국인·기관 순매수)으로 스크리닝된 종목입니다. 이 데이터를 관찰된 사실 위주로 정리하고 JSON만 출력하세요.
+  const prompt = `아래는 정량적 수급 기준(외국인·기관 자금 유입)으로 스크리닝된 종목입니다. 이 데이터를 관찰된 사실 위주로 정리하고 JSON만 출력하세요.
 
 ## 종목 정보
 - 종목명: ${selected.name} (${selected.ticker})
 - 현재가: ${currentPrice.toLocaleString()}원 (오늘 등락률 ${changeRate}%)
 - 선정 사유: ${selected.reason}
-- 전일 외국인 순매수: ${selected.foreignNetBuyAuk}억원 / 최근 5거래일 누적: ${selected.foreignCumulative5dAuk}억원 (연속 ${selected.foreignConsecutiveDays}일 순매수)
-- 전일 기관 순매수: ${selected.institutionNetBuyAuk}억원 / 최근 5거래일 누적: ${selected.institutionCumulative5dAuk}억원 (연속 ${selected.institutionConsecutiveDays}일 순매수)
+- 전일 외국인 자금 유입: ${selected.foreignNetBuyAuk}억원 / 최근 5거래일 누적: ${selected.foreignCumulative5dAuk}억원 (연속 ${selected.foreignConsecutiveDays}일 유입)
+- 전일 기관 자금 유입: ${selected.institutionNetBuyAuk}억원 / 최근 5거래일 누적: ${selected.institutionCumulative5dAuk}억원 (연속 ${selected.institutionConsecutiveDays}일 유입)
 - 52주 최고가: ${detail?.week52High?.toLocaleString() ?? '-'}원 / 최저가: ${detail?.week52Low?.toLocaleString() ?? '-'}원
 - 시가총액: ${detail?.marketCap ?? '-'} | PER: ${detail?.per ?? '-'}배 | PBR: ${detail?.pbr ?? '-'}배
 
@@ -209,7 +209,7 @@ ${newsText}
 
 ## 출력 형식 (JSON만)
 {
-  "summary": "수급 데이터 관찰 한줄 요약, 구체적 수치 포함 (예: '외국인 5거래일 연속 순매수, 누적 320억원 유입이 관찰됨') — 50자 이내, 지시형 표현 금지",
+  "summary": "수급 데이터 관찰 한줄 요약, 구체적 수치 포함 (예: '외국인 5거래일 연속 자금 유입, 누적 320억원 유입이 관찰됨') — 50자 이내, 지시형 표현 금지",
   "analysis": "수급 데이터를 중심으로 한 관찰 서술 (3-4문장). 뉴스는 참고 정보로만 보조적으로 언급",
   "reference_info": ["뉴스·실적 등 참고 정보 1-3개 (보조적 위치, 없으면 빈 배열)"],
   "risks": ["리스크 요인 1-2개"],
@@ -221,7 +221,7 @@ ${newsText}
 - summary·analysis는 수급 수치가 핵심 근거이며, 뉴스·실적은 참고 정보로만 보조적으로 다루세요
 - "재도약 기대", "매력도를 높이는 핵심 요인", "권고", "정당화" 같은 결론형·권유형 표현을 쓰지 말고 "~관찰됩니다", "~라는 특징이 있습니다", "~라는 해석도 있습니다" 형태로 작성하세요
 - 목표가·저항선·진입전략 관련 내용은 만들지 마세요 (52주 고점 대비 위치는 별도로 표시됩니다)
-- keywords에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말고 업종·테마·이슈 위주로만 작성하세요
+- summary·analysis·keywords 전부에서 "매수"/"매도"/"순매수"/"순매도" 단어를 쓰지 말고 "자금 유입"/"자금 유출"로 표현하세요 (예: "순매수 572억원" → "자금 유입 572억원", "순유출 상태" → "자금 유출 상태")
 - JSON 키 순서 및 구조 변경 금지`;
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });

@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
 ## 종목 기본정보
 - 종목명: ${stockName} (${ticker})
 - 현재가: ${currentPrice.toLocaleString()}원
-- 매수 평균가: ${Number(avgPrice).toLocaleString()}원
+- 매입 평균가: ${Number(avgPrice).toLocaleString()}원
 - 보유 수량: ${quantity}주
 - 수익률: ${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(2)}%
 - 평가손익: ${profitAmount >= 0 ? '+' : ''}${Math.round(profitAmount).toLocaleString()}원${holdDays !== null ? `\n- 보유 기간: ${holdDays}일` : ''}${isBigMove ? `\n- ⚠️ 금일 등락률: ${changeRate >= 0 ? '+' : ''}${changeRate.toFixed(2)}% (급${changeRate >= 0 ? '등' : '락'} — 원인 관찰 필요)` : ''}${benchmarkLine}

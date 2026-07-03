@@ -143,7 +143,7 @@ function buildStockPrompt(h: EnrichedHolding): string {
   const ad  = h.analysisData;
   const pr  = h.profitRate >= 0 ? '+' : '';
   const lines: string[] = [
-    `종목: ${h.name}(${h.ticker}) | 매수가:${h.avgPrice.toLocaleString()} | 현재가:${h.currentPrice.toLocaleString()} | 수익률:${pr}${h.profitRate.toFixed(1)}%`,
+    `종목: ${h.name}(${h.ticker}) | 매입가:${h.avgPrice.toLocaleString()} | 현재가:${h.currentPrice.toLocaleString()} | 수익률:${pr}${h.profitRate.toFixed(1)}%`,
   ];
   if (ad) {
     const tech: string[] = [];
