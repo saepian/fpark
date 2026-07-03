@@ -1,13 +1,17 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const secret = searchParams.get('secret');
-
-  if (secret !== process.env.CRON_SECRET) {
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get('authorization');
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.error('[cron/news-cleanup] CRON_SECRET env var is not set');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    console.warn('[cron/news-cleanup] Unauthorized:', authHeader ? 'wrong token' : 'missing Authorization header');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
