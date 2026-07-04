@@ -340,7 +340,6 @@ export default function PricingClient() {
   const showCreditSuccessToast = () => { setToast(true); setTimeout(() => setToast(false), 3000); };
 
   const handleAction = (type: PlanType) => {
-    if (!isLoggedIn) { router.push('/auth/login'); return; }
     if (type === 'free') { router.push('/'); return; }
 
     const planData = PLANS.find(p => p.type === type)!;
@@ -472,7 +471,7 @@ export default function PricingClient() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="group cursor-pointer" onClick={() => isLoggedIn ? setCheckoutCredit('stock') : router.push('/auth/login')}>
+          <div className="group cursor-pointer" onClick={() => setCheckoutCredit('stock')}>
             <div
               className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(99,102,241,0.38)]"
               style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', boxShadow: '0 0 12px rgba(99,102,241,0.18)' }}
@@ -491,7 +490,7 @@ export default function PricingClient() {
             </div>
           </div>
 
-          <div className="group cursor-pointer" onClick={() => isLoggedIn ? setCheckoutCredit('portfolio') : router.push('/auth/login')}>
+          <div className="group cursor-pointer" onClick={() => setCheckoutCredit('portfolio')}>
             <div
               className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(168,85,247,0.38)]"
               style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)', boxShadow: '0 0 12px rgba(139,92,246,0.18)' }}

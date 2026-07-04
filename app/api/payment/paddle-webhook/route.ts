@@ -45,10 +45,69 @@ type PaddleEvent = {
     id:          string;        // subscription ID or transaction ID
     status:      string;
     customer_id: string;
+    customer?:   { email?: string };
     items?: Array<{ price: { id: string } }>;
     custom_data?: PaddleCustomData;
   };
 };
+
+// Paddle 웹훅 payload에 customer 엔티티가 포함되어 있지 않으면
+// Paddle REST API로 customer_id → email을 직접 조회한다.
+async function fetchPaddleCustomerEmail(customerId: string): Promise<string | null> {
+  const apiKey = process.env.PADDLE_API_KEY;
+  if (!apiKey || !customerId) return null;
+  try {
+    const res = await fetch(`https://api.paddle.com/customers/${customerId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data?.email ?? null;
+  } catch (e) {
+    console.error('[paddle-webhook] Paddle customer 조회 실패:', e);
+    return null;
+  }
+}
+
+// email 기준으로 기존 Supabase 유저를 찾고, 없으면 신규 생성 후 비밀번호 설정 메일 발송.
+// naver/callback, forgot-password 라우트와 동일한 패턴 재사용.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolveOrCreateUser(
+  adminClient: any,
+  email: string,
+): Promise<{ userId: string; isNewUser: boolean } | null> {
+  const { data: listData, error: listError } = await adminClient.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (listError) {
+    console.error('[paddle-webhook] listUsers 실패:', listError);
+    return null;
+  }
+
+  const existing = (listData?.users ?? []).find(
+    (u) => u.email?.toLowerCase() === email.toLowerCase(),
+  );
+  if (existing) return { userId: existing.id, isNewUser: false };
+
+  const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+  if (createError || !created.user) {
+    console.error('[paddle-webhook] createUser 실패:', createError);
+    return null;
+  }
+
+  const { error: resetError } = await adminClient.auth.resetPasswordForEmail(email, {
+    redirectTo: 'https://fpark.com/auth/callback?next=/auth/reset-password',
+  });
+  if (resetError) {
+    console.error('[paddle-webhook] resetPasswordForEmail 실패:', resetError);
+  }
+
+  return { userId: created.user.id, isNewUser: true };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,11 +146,28 @@ export async function POST(request: NextRequest) {
     const { event_type, data } = event;
     console.log('[paddle-webhook] 수신:', event_type, data.id);
 
-    const userId   = data.custom_data?.userId;
     const priceId  = data.items?.[0]?.price?.id ?? '';
     const planName = (data.custom_data?.plan as 'basic' | 'pro' | undefined)
                   ?? PRICE_TO_PLAN[priceId];
     const isAnnual = data.custom_data?.isAnnual === 'true';
+
+    // 이메일 기준으로 유저를 확정한다 — 게스트 체크아웃(비로그인)은 custom_data.userId가
+    // 없으므로, Paddle customer_id → email을 조회해 기존/신규 유저를 매핑한다.
+    const email = data.customer?.email
+      ?? (data.customer_id ? await fetchPaddleCustomerEmail(data.customer_id) : null);
+
+    let userId: string | undefined = data.custom_data?.userId;
+    let isNewUser = false;
+    if (email) {
+      const resolved = await resolveOrCreateUser(adminClient, email);
+      if (resolved) {
+        userId = resolved.userId;
+        isNewUser = resolved.isNewUser;
+      }
+    }
+    if (!userId) {
+      console.warn('[paddle-webhook] 유저 매핑 실패 — email/customData.userId 모두 없음:', data.id);
+    }
 
     if (event_type === 'subscription.created' && userId && planName) {
       const amounts      = PLAN_AMOUNTS[planName];
@@ -99,7 +175,7 @@ export async function POST(request: NextRequest) {
       const nextBilledAt = new Date();
       nextBilledAt.setMonth(nextBilledAt.getMonth() + (isAnnual ? 12 : 1));
 
-      await adminClient.from('payments').upsert(
+      const { data: insertedPayment } = await adminClient.from('payments').upsert(
         {
           user_id:        userId,
           plan:           planName,
@@ -110,17 +186,21 @@ export async function POST(request: NextRequest) {
           is_annual:      isAnnual,
         },
         { onConflict: 'payment_id', ignoreDuplicates: true },
-      );
+      ).select();
 
-      await adminClient.from('users').update({
-        plan:                planName,
-        subscription_plan:   planName,
-        subscription_status: 'active',
-        payment_method:      'PADDLE',
-        next_billed_at:      nextBilledAt.toISOString(),
-      }).eq('id', userId);
+      if (insertedPayment && insertedPayment.length > 0) {
+        await adminClient.from('users').update({
+          plan:                planName,
+          subscription_plan:   planName,
+          subscription_status: 'active',
+          payment_method:      'PADDLE',
+          next_billed_at:      nextBilledAt.toISOString(),
+        }).eq('id', userId);
 
-      console.log(`[paddle-webhook] 구독 생성 — userId:${userId} plan:${planName} annual:${isAnnual}`);
+        console.log(`[paddle-webhook] 구독 생성 — userId:${userId} plan:${planName} annual:${isAnnual} newUser:${isNewUser}`);
+      } else {
+        console.log(`[paddle-webhook] 중복 이벤트 무시 — payment_id:paddle_${data.id}`);
+      }
     }
 
     if (event_type === 'subscription.cancelled' && userId) {
@@ -148,7 +228,7 @@ export async function POST(request: NextRequest) {
         const amount = CREDIT_AMOUNTS[creditType];
 
         // 결제 기록 저장
-        await adminClient.from('payments').upsert(
+        const { data: insertedPayment } = await adminClient.from('payments').upsert(
           {
             user_id:        userId,
             plan:           `credit_${creditType}`,
@@ -159,21 +239,25 @@ export async function POST(request: NextRequest) {
             is_annual:      false,
           },
           { onConflict: 'payment_id', ignoreDuplicates: true },
-        );
+        ).select();
 
-        // 크레딧 증가 (RPC 없이 atomic increment: current + 1)
-        const { data: userRow } = await adminClient
-          .from('users')
-          .select(col)
-          .eq('id', userId)
-          .maybeSingle();
-        const current = (userRow as Record<string, number> | null)?.[col] ?? 0;
-        await adminClient
-          .from('users')
-          .update({ [col]: current + 1 })
-          .eq('id', userId);
+        if (insertedPayment && insertedPayment.length > 0) {
+          // 크레딧 증가 (RPC 없이 atomic increment: current + 1)
+          const { data: userRow } = await adminClient
+            .from('users')
+            .select(col)
+            .eq('id', userId)
+            .maybeSingle();
+          const current = (userRow as Record<string, number> | null)?.[col] ?? 0;
+          await adminClient
+            .from('users')
+            .update({ [col]: current + 1 })
+            .eq('id', userId);
 
-        console.log(`[paddle-webhook] 1회권 충전 — userId:${userId} type:${creditType} col:${col}`);
+          console.log(`[paddle-webhook] 1회권 충전 — userId:${userId} type:${creditType} col:${col}`);
+        } else {
+          console.log(`[paddle-webhook] 중복 이벤트 무시 — payment_id:paddle_${data.id}`);
+        }
       }
     }
 

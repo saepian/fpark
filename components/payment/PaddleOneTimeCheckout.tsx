@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { initializePaddle, type Paddle } from '@paddle/paddle-js';
-import { X, CreditCard, Loader2, CheckCircle, AlertCircle, AlertTriangle } from 'lucide-react';
+import { X, CreditCard, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 
 interface Props {
@@ -17,9 +18,10 @@ const CREDIT_LABELS: Record<'stock' | 'portfolio', string> = {
   portfolio: '포트폴리오 분석 1회권',
 };
 
-type Step = 'idle' | 'loading' | 'success' | 'error';
+type Step = 'idle' | 'loading' | 'error';
 
 export default function PaddleOneTimeCheckout({ creditType, amount, onClose, onSuccess }: Props) {
+  const router = useRouter();
   const [step,   setStep]   = useState<Step>('idle');
   const [errMsg, setErrMsg] = useState('');
   const [userId, setUserId] = useState('');
@@ -45,8 +47,8 @@ export default function PaddleOneTimeCheckout({ creditType, amount, onClose, onS
           environment: 'production',
           eventCallback(event) {
             if (event.name === 'checkout.completed') {
-              setStep('success');
-              setTimeout(() => onSuccess(), 2000);
+              onSuccess();
+              router.push(`/payment-success?type=credit&creditType=${creditType}&wasLoggedIn=${Boolean(userId)}`);
             }
             if (event.name === 'checkout.closed') {
               setStep('idle');
@@ -63,7 +65,7 @@ export default function PaddleOneTimeCheckout({ creditType, amount, onClose, onS
       await paddleRef.current.Checkout.open({
         items:      [{ priceId, quantity: 1 }],
         customer:   email ? { email } : undefined,
-        customData: { userId, creditType },
+        customData: { ...(userId ? { userId } : {}), creditType },
       });
 
       setStep('idle');
@@ -131,17 +133,6 @@ export default function PaddleOneTimeCheckout({ creditType, amount, onClose, onS
           <div className="flex flex-col items-center gap-4 py-6">
             <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
             <p className="text-[14px] text-slate-300">결제창 불러오는 중...</p>
-          </div>
-        )}
-
-        {step === 'success' && (
-          <div className="flex flex-col items-center gap-4 py-6">
-            <CheckCircle className="w-12 h-12 text-emerald-400" />
-            <p className="text-[16px] font-semibold text-white">결제 완료!</p>
-            <p className="text-[13px] text-slate-400 text-center">
-              {label}이 충전되었습니다.<br />
-              <span className="text-[12px] text-slate-500">잠시 후 바로 사용하실 수 있습니다.</span>
-            </p>
           </div>
         )}
 

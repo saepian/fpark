@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { initializePaddle, type Paddle } from '@paddle/paddle-js';
-import { X, CreditCard, Loader2, CheckCircle, AlertCircle, AlertTriangle } from 'lucide-react';
+import { X, CreditCard, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 
 interface Props {
@@ -19,9 +20,10 @@ const PLAN_NAMES: Record<'basic' | 'pro', string> = {
   pro:   'Finance Park Pro',
 };
 
-type Step = 'idle' | 'loading' | 'success' | 'error';
+type Step = 'idle' | 'loading' | 'error';
 
 export default function PaddleCheckout({ plan, amount, isAnnual, onClose, onBack, onSuccess }: Props) {
+  const router = useRouter();
   const [step,   setStep]   = useState<Step>('idle');
   const [errMsg, setErrMsg] = useState('');
   const [userId, setUserId] = useState('');
@@ -47,8 +49,8 @@ export default function PaddleCheckout({ plan, amount, isAnnual, onClose, onBack
           environment: 'production',
           eventCallback(event) {
             if (event.name === 'checkout.completed') {
-              setStep('success');
-              setTimeout(() => onSuccess(plan), 2000);
+              onSuccess(plan);
+              router.push(`/payment-success?type=subscription&plan=${plan}&wasLoggedIn=${Boolean(userId)}`);
             }
             if (event.name === 'checkout.closed') {
               setStep('idle');
@@ -71,7 +73,7 @@ export default function PaddleCheckout({ plan, amount, isAnnual, onClose, onBack
       await paddleRef.current.Checkout.open({
         items:      [{ priceId, quantity: 1 }],
         customer:   email ? { email } : undefined,
-        customData: { userId, plan, isAnnual: String(isAnnual) },
+        customData: { ...(userId ? { userId } : {}), plan, isAnnual: String(isAnnual) },
       });
 
       // Paddle 오버레이가 열림 — checkout.completed 또는 checkout.closed 이벤트로 상태 처리
@@ -140,17 +142,6 @@ export default function PaddleCheckout({ plan, amount, isAnnual, onClose, onBack
           <div className="flex flex-col items-center gap-4 py-6">
             <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
             <p className="text-[14px] text-slate-300">결제창 불러오는 중...</p>
-          </div>
-        )}
-
-        {step === 'success' && (
-          <div className="flex flex-col items-center gap-4 py-6">
-            <CheckCircle className="w-12 h-12 text-emerald-400" />
-            <p className="text-[16px] font-semibold text-white">결제 완료!</p>
-            <p className="text-[13px] text-slate-400 text-center">
-              {PLAN_NAMES[plan]} 플랜이 활성화됩니다.<br />
-              <span className="text-[12px] text-slate-500">잠시 후 자동으로 반영됩니다.</span>
-            </p>
           </div>
         )}
 
