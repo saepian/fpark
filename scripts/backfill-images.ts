@@ -5,6 +5,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import type { Database } from '../lib/database.types';
 
 // .env.local 로드 (tsx는 dotenv 자동 로드 안 함)
 const envPath = resolve(process.cwd(), '.env.local');
@@ -13,7 +14,7 @@ readFileSync(envPath, 'utf-8').split('\n').forEach((line) => {
   if (key?.trim() && vals.length) process.env[key.trim()] = vals.join('=').trim();
 });
 
-const supabase = createClient(
+const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );

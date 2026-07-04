@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { getAccessToken, fetchWatch52w, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 import type { AlertResponse, AlertStock } from '@/lib/types';
+import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,7 +95,7 @@ async function loadCache(): Promise<AlertResponse | null> {
 async function getWatchlistTickers(): Promise<string[]> {
   try {
     const cookieStore = cookies();
-    const authClient = createServerClient(
+    const authClient = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {

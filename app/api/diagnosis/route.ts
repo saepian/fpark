@@ -12,6 +12,7 @@ import {
   pickRelevantNews,
 } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
+import type { Database } from '@/lib/database.types';
 
 export const dynamic    = 'force-dynamic';
 export const maxDuration = 60;
@@ -20,7 +21,7 @@ const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 function makeSupabase() {
   const cookieStore = cookies();
-  return createServerClient(
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

@@ -13,6 +13,7 @@ import {
 import type { StockAnalysisData } from '@/lib/stock-analysis-data';
 import { fetchDailyChart, fetchIndexRangeChange } from '@/lib/kis-api';
 import { COMPLIANCE_PRINCIPLE, clampSignal, type Signal } from '@/lib/ai-compliance';
+import type { Database } from '@/lib/database.types';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
@@ -26,7 +27,7 @@ const MAX_HOLDINGS        = 10;
 
 function makeSupabase() {
   const cookieStore = cookies();
-  return createServerClient(
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

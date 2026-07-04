@@ -9,12 +9,13 @@ import { createServerClient }         from '@supabase/ssr';
 import { cookies }                    from 'next/headers';
 import { payWithBillingKey }          from '@/lib/portone';
 import { PLAN_AMOUNTS }               from '@/lib/payment-constants';
+import type { Database }              from '@/lib/database.types';
 
 export async function POST(request: NextRequest) {
   try {
     // userId는 서버 세션에서만 취득 — body 의 userId 무시
     const cookieStore = cookies();
-    const supabase = createServerClient(
+    const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {

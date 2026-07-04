@@ -9,6 +9,7 @@ import { createServerClient }         from '@supabase/ssr';
 import { cookies }                    from 'next/headers';
 import { issueVirtualAccount, getPayment } from '@/lib/portone';
 import { PLAN_AMOUNTS }               from '@/lib/payment-constants';
+import type { Database }              from '@/lib/database.types';
 
 // 실제 PortOne 테스트 채널로 확인된, 이 가맹점 계약에서 가상계좌 발급이 되는 은행만 노출.
 // KOOKMIN/KAKAO/TOSS는 이 채널에서 "가맹점 서비스 불가 은행"(PG 오류 504652)으로 거부됨 —
@@ -22,7 +23,7 @@ const VA_DUE_DAYS = 3; // 입금 기한 — 발급 시점 + 3일
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = cookies();
-    const supabase = createServerClient(
+    const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {

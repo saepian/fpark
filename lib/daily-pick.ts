@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, fetchStockPrice, STOCK_NAMES, CURATED_TICKERS_MKT } from '@/lib/kis-api';
 import { fetchInvestorTrend } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
+import type { Database } from '@/lib/database.types';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
@@ -10,7 +11,7 @@ const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 const LARGE_NET_BUY_THRESHOLD_AUK = 100;
 
 export function getDailyPickSupabase() {
-  return createClient(
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );

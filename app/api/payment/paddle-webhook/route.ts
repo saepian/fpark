@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient }               from '@supabase/supabase-js';
 import crypto                         from 'crypto';
+import type { Database }              from '@/lib/database.types';
 
 const PLAN_AMOUNTS = {
   basic: { monthly: 9900,  annual: 95040  },
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false }, { status: 500 });
     }
 
-    const adminClient = createClient(
+    const adminClient = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );

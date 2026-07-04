@@ -6,6 +6,7 @@ import { createServerClient }        from '@supabase/ssr';
 import { adminClient }                from '@/lib/supabase-admin';
 import { cookies }                   from 'next/headers';
 import { getPayment }                from '@/lib/portone';
+import type { Database }             from '@/lib/database.types';
 
 // 플랜별 허용 금액 (원). 연간은 일시불 총액.
 const PLAN_AMOUNTS: Record<string, number[]> = {
@@ -15,7 +16,7 @@ const PLAN_AMOUNTS: Record<string, number[]> = {
 
 function makeSupabase() {
   const cookieStore = cookies();
-  return createServerClient(
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

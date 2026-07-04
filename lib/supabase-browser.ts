@@ -1,7 +1,8 @@
 'use client';
 import { createBrowserClient } from '@supabase/ssr';
+import type { Database } from './database.types';
 
-type Client = ReturnType<typeof createBrowserClient>;
+type Client = ReturnType<typeof createBrowserClient<Database>>;
 
 // NEXT_PUBLIC_SUPABASE_URL이 빌드 시 없으면 createBrowserClient가 즉시 throw한다.
 // 컴포넌트 본체에서 const supabase = createClient()로 선언해도
@@ -22,5 +23,5 @@ export const createClient = (): Client => {
     });
   }
 
-  return createBrowserClient(url, key, { auth: { flowType: 'implicit' } });
+  return createBrowserClient<Database>(url, key, { auth: { flowType: 'implicit' } });
 };

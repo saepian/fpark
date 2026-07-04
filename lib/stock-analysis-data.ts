@@ -2,12 +2,13 @@ import { load } from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken } from './kis-api';
 import type { ChartDataPoint } from './types';
+import type { Database } from './database.types';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
-let _sb: ReturnType<typeof createClient> | null = null;
+let _sb: ReturnType<typeof createClient<Database>> | null = null;
 function getSb() {
-  if (!_sb) _sb = createClient(
+  if (!_sb) _sb = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
