@@ -305,6 +305,9 @@ export type Database = {
           plan: string
           status: string
           user_id: string
+          va_account_number: string | null
+          va_bank: string | null
+          va_due_at: string | null
         }
         Insert: {
           amount: number
@@ -317,6 +320,9 @@ export type Database = {
           plan: string
           status?: string
           user_id: string
+          va_account_number?: string | null
+          va_bank?: string | null
+          va_due_at?: string | null
         }
         Update: {
           amount?: number
@@ -329,6 +335,9 @@ export type Database = {
           plan?: string
           status?: string
           user_id?: string
+          va_account_number?: string | null
+          va_bank?: string | null
+          va_due_at?: string | null
         }
         Relationships: []
       }
@@ -448,6 +457,8 @@ export type Database = {
           email_alert_enabled: boolean
           id: string
           next_billed_at: string | null
+          payment_method: string | null
+          phone: string | null
           plan: string
           subscription_plan: string | null
           subscription_status: string | null
@@ -459,6 +470,8 @@ export type Database = {
           email_alert_enabled?: boolean
           id: string
           next_billed_at?: string | null
+          payment_method?: string | null
+          phone?: string | null
           plan?: string
           subscription_plan?: string | null
           subscription_status?: string | null
@@ -470,6 +483,8 @@ export type Database = {
           email_alert_enabled?: boolean
           id?: string
           next_billed_at?: string | null
+          payment_method?: string | null
+          phone?: string | null
           plan?: string
           subscription_plan?: string | null
           subscription_status?: string | null
