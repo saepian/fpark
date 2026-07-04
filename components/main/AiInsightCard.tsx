@@ -40,7 +40,7 @@ export default function AiInsightCard() {
 
   useEffect(() => {
     fetch('/api/daily-pick')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then(setPick)
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -63,6 +63,7 @@ export default function AiInsightCard() {
   const isUp = (pick.currentChangeRate ?? 0) >= 0;
   const priceColor = isUp ? 'text-red-400' : 'text-blue-400';
 
+  const isToday = pick.date === new Date().toISOString().split('T')[0];
   const dateLabel = new Date(pick.date).toLocaleDateString('ko-KR', {
     month: 'long', day: 'numeric', weekday: 'short',
   });
@@ -92,7 +93,7 @@ export default function AiInsightCard() {
               <span className="text-xs font-bold text-indigo-400 bg-indigo-400/10 border border-indigo-400/30 rounded-full px-2 py-0.5 tracking-wide">
                 FPARK AI
               </span>
-              <span className="text-xs text-slate-500 font-medium">오늘의 수급 상위 기업</span>
+              <span className="text-xs text-slate-500 font-medium">{isToday ? '오늘의 수급 상위 기업' : '최근 수급 상위 기업'}</span>
             </div>
             <p className="text-[10px] text-slate-600">전일 대량 자금 유입 또는 5일 연속 자금 유입 기준으로 선정되었습니다</p>
           </div>
@@ -100,7 +101,9 @@ export default function AiInsightCard() {
             <span className="text-xs font-bold border rounded-full px-2 py-0.5 text-indigo-300 bg-indigo-400/10 border-indigo-400/30">
               {pick.pick_reason}
             </span>
-            <span className="text-xs text-slate-600 hidden sm:inline">{dateLabel}</span>
+            <span className={`text-xs ${isToday ? 'hidden sm:inline text-slate-600' : 'inline text-amber-500 font-semibold'}`}>
+              {dateLabel}{!isToday && ' 기준'}
+            </span>
           </div>
         </div>
 

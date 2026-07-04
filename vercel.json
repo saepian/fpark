@@ -5,7 +5,7 @@
       "maxDuration": 60
     },
     "app/api/cron/daily-pick/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "app/api/cron/billing/route.ts": {
       "maxDuration": 60
