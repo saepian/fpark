@@ -24,6 +24,8 @@ type NewsItem = { title: string; summary?: string; date?: string; url?: string }
 // 관심종목 등락률 기준 "유의미한 하락"으로 보고 뉴스 근거를 조회할 문턱값
 const DECLINE_THRESHOLD = -3;
 
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
 async function fetchPricesInChunks(tickers: string[]): Promise<Map<string, StockResult>> {
   const result = new Map<string, StockResult>();
   for (let i = 0; i < tickers.length; i += 3) {
@@ -317,7 +319,6 @@ function getKstInfo(): { dateStr: string; notifDate: string; mm: number; dd: num
 }
 
 export async function GET(request: NextRequest) {
-  const anthropic  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
   const resend     = new Resend(process.env.RESEND_API_KEY!);
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
