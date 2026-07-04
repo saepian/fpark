@@ -6,7 +6,6 @@ import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import PageBackground from '@/components/layout/PageBackground';
 import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
-import PaddleOneTimeCheckout from '@/components/payment/PaddleOneTimeCheckout';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -312,9 +311,6 @@ export default function PricingClient() {
   const [checkoutPlan,   setCheckoutPlan]   = useState<'basic' | 'pro' | null>(null);
   const [checkoutAmount, setCheckoutAmount] = useState(0);
 
-  // 1회권 결제 모달 상태
-  const [checkoutCredit, setCheckoutCredit] = useState<'stock' | 'portfolio' | null>(null);
-
   // 현재 로그인 유저 + plan 조회
   useEffect(() => {
     const supabase = createClient();
@@ -335,12 +331,10 @@ export default function PricingClient() {
     });
   }, []); // eslint-disable-line
 
-  // 1회권 결제 성공 토스트
-  const [toast, setToast] = useState(false);
-  const showCreditSuccessToast = () => { setToast(true); setTimeout(() => setToast(false), 3000); };
-
   const handleAction = (type: PlanType) => {
     if (type === 'free') { router.push('/'); return; }
+
+    if (!isLoggedIn) { router.push('/auth/login'); return; }
 
     const planData = PLANS.find(p => p.type === type)!;
     const amount   = annual ? planData.annualTotal : planData.monthly;
@@ -366,30 +360,6 @@ export default function PricingClient() {
           onClose={() => setCheckoutPlan(null)}
           onSuccess={handlePaymentSuccess}
         />
-      )}
-
-      {/* 1회권 결제 모달 */}
-      {checkoutCredit && (
-        <PaddleOneTimeCheckout
-          creditType={checkoutCredit}
-          amount={checkoutCredit === 'stock' ? 1000 : 1900}
-          onClose={() => setCheckoutCredit(null)}
-          onSuccess={() => {
-            setCheckoutCredit(null);
-            showCreditSuccessToast();
-          }}
-        />
-      )}
-
-      {/* 1회권 결제 완료 토스트 */}
-      {toast && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
-          <div className="flex items-center gap-3 px-5 py-3.5 rounded-full shadow-2xl shadow-black/40 backdrop-blur-sm"
-            style={{ background: '#1e2130', border: '1px solid rgba(16,185,129,0.4)' }}>
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span className="text-[13px] text-slate-200 font-medium whitespace-nowrap">1회권이 충전되었습니다</span>
-          </div>
-        </div>
       )}
 
       {/* ── 헤더 섹션 ── */}
@@ -471,39 +441,39 @@ export default function PricingClient() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="group cursor-pointer" onClick={() => setCheckoutCredit('stock')}>
+          <div className="opacity-60 cursor-not-allowed">
             <div
-              className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(99,102,241,0.38)]"
-              style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', boxShadow: '0 0 12px rgba(99,102,241,0.18)' }}
+              className="rounded-2xl p-px"
+              style={{ background: 'rgba(51,65,85,0.5)' }}
             >
               <div className="rounded-[15px] px-5 py-4 flex items-center gap-4" style={{ backgroundColor: '#0a0d1f' }}>
                 <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: 'rgba(99,102,241,0.2)' }}>🔍</div>
                 <div className="flex-1 text-left min-w-0">
                   <p className="text-[13px] font-bold text-white">기업 분석 1회권</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">즉시 사용 가능</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">결제 수단 준비 중</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-[17px] font-bold text-white">1,000<span className="text-[12px] font-medium text-slate-400">원</span></p>
-                  <p className="text-[10px] font-semibold" style={{ color: '#818cf8' }}>1회</p>
+                  <p className="text-[17px] font-bold text-slate-400">1,000<span className="text-[12px] font-medium text-slate-500">원</span></p>
+                  <p className="text-[10px] font-semibold text-slate-600">1회</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="group cursor-pointer" onClick={() => setCheckoutCredit('portfolio')}>
+          <div className="opacity-60 cursor-not-allowed">
             <div
-              className="p-px rounded-2xl transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_0_24px_rgba(168,85,247,0.38)]"
-              style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #db2777 100%)', boxShadow: '0 0 12px rgba(139,92,246,0.18)' }}
+              className="rounded-2xl p-px"
+              style={{ background: 'rgba(51,65,85,0.5)' }}
             >
               <div className="rounded-[15px] px-5 py-4 flex items-center gap-4" style={{ backgroundColor: '#0a0d1f' }}>
                 <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: 'rgba(139,92,246,0.2)' }}>📊</div>
                 <div className="flex-1 text-left min-w-0">
                   <p className="text-[13px] font-bold text-white">포트폴리오 분석 1회권</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">즉시 사용 가능</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">결제 수단 준비 중</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-[17px] font-bold text-white">1,900<span className="text-[12px] font-medium text-slate-400">원</span></p>
-                  <p className="text-[10px] font-semibold" style={{ color: '#c084fc' }}>1회</p>
+                  <p className="text-[17px] font-bold text-slate-400">1,900<span className="text-[12px] font-medium text-slate-500">원</span></p>
+                  <p className="text-[10px] font-semibold text-slate-600">1회</p>
                 </div>
               </div>
             </div>

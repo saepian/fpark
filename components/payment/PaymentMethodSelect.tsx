@@ -5,25 +5,21 @@
 // 현재 노출 옵션: 계좌이체(가상계좌) 단일 옵션.
 // 자동 출금이 아니라, 발급된 계좌로 사용자가 매달 직접 입금하는 방식.
 //
-// 상태 (2026-07-03 기준):
+// 상태 (2026-07-04 기준):
 // - CMS 자동이체: 사용자 심리적 거부감(자동 출금에 대한 불편함)을 고려해 미채택.
 //   관련 스캐폴딩 코드는 삭제함 — 계좌이체(가상계좌)로 대체.
-// - 해외 카드결제(Paddle): "financial services" 업종 미지원으로 가맹 신청 보류.
-//   PADDLE_ENABLED를 true로 바꾸고 아래 2B 슬롯에 새 MoR 컴포넌트를 연결하면
-//   즉시 두 번째 옵션으로 재노출 가능하도록 구조만 유지.
+// - 해외 카드결제(Paddle): 연동 완전 제거함.
 // - 기존 이니시스 카드결제(PortoneCheckout)는 삭제하지 않고 보존만 함
 //   (특정 카드사가 향후 승인할 가능성 대비). CARD_ENABLED로 재노출 가능.
 //
 // 자세한 배경은 DEPLOYMENT.md "결제수단" 섹션 참고.
 
 import { useState } from 'react';
-import { Landmark, CreditCard, AlertTriangle } from 'lucide-react';
+import { Landmark, CreditCard } from 'lucide-react';
 import VirtualAccountForm from './VirtualAccountForm';
 import PortoneCheckout from './PortoneCheckout';
-import PaddleCheckout from './PaddleCheckout';
 
-const PADDLE_ENABLED = true;  // Paddle 도메인 승인 완료 — 해외 카드결제 활성화
-const CARD_ENABLED   = false; // 이니시스 카드결제 재노출 시 true
+const CARD_ENABLED = false; // 이니시스 카드결제 재노출 시 true
 
 interface Props {
   plan:      'basic' | 'pro';
@@ -38,7 +34,7 @@ const PLAN_NAMES: Record<'basic' | 'pro', string> = {
   pro:   'Finance Park Pro',
 };
 
-type Step = 'method' | 'va' | 'card' | 'paddle';
+type Step = 'method' | 'va' | 'card';
 
 export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, onSuccess }: Props) {
   const [step, setStep] = useState<Step>('method');
@@ -53,20 +49,6 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
         amount={amount}
         isAnnual={isAnnual}
         onClose={onClose}
-        onSuccess={onSuccess}
-      />
-    );
-  }
-
-  // Paddle 해외 카드결제
-  if (step === 'paddle') {
-    return (
-      <PaddleCheckout
-        plan={plan}
-        amount={amount}
-        isAnnual={isAnnual}
-        onClose={onClose}
-        onBack={() => setStep('method')}
         onSuccess={onSuccess}
       />
     );
@@ -109,27 +91,6 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
                   언제든 본인이 확인 후 결제하는 방식입니다.
                 </p>
               </button>
-
-              {PADDLE_ENABLED && (
-                <button
-                  onClick={() => setStep('paddle')}
-                  className="text-left rounded-2xl p-4 cursor-pointer transition-all hover:border-emerald-500/60 active:scale-[0.99]"
-                  style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
-                >
-                  <div className="flex items-center gap-2.5 mb-1.5">
-                    <span className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(52,211,153,0.12)' }}>
-                      <CreditCard className="w-4 h-4 text-emerald-400" />
-                    </span>
-                    <span className="text-[14.5px] font-semibold text-white">해외 카드결제</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.06] text-slate-500">Paddle</span>
-                  </div>
-                  <p className="text-[12.5px] leading-relaxed text-slate-400">국내외 카드로 결제 가능합니다.</p>
-                  <div className="flex items-start gap-1.5 mt-2.5 p-2 rounded-lg" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
-                    <AlertTriangle className="w-3 h-3 text-amber-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-[11px] text-amber-200">카드 명세서에는 PADDLE.COM 등 해외 상호로 표시됩니다.</p>
-                  </div>
-                </button>
-              )}
 
               {CARD_ENABLED && (
                 <button
