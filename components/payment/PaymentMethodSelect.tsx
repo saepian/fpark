@@ -2,10 +2,9 @@
 
 // 결제수단 선택 화면
 //
-// 현재 노출 옵션: 계좌이체(가상계좌) 단일 옵션.
-// 자동 출금이 아니라, 발급된 계좌로 사용자가 매달 직접 입금하는 방식.
-//
-// 상태 (2026-07-04 기준):
+// 상태 (2026-07-05 기준):
+// - 계좌이체(가상계좌): PG(PortOne 채널) 측 가상계좌 승인이 아직 확정되지 않아
+//   "준비 중"으로 비활성화. 승인 확인되면 VA_ENABLED를 true로.
 // - CMS 자동이체: 사용자 심리적 거부감(자동 출금에 대한 불편함)을 고려해 미채택.
 //   관련 스캐폴딩 코드는 삭제함 — 계좌이체(가상계좌)로 대체.
 // - 해외 카드결제(Paddle): 연동 완전 제거함.
@@ -19,6 +18,7 @@ import { Landmark, CreditCard } from 'lucide-react';
 import VirtualAccountForm from './VirtualAccountForm';
 import PortoneCheckout from './PortoneCheckout';
 
+const VA_ENABLED   = false; // 가상계좌 PG 승인 확인되면 true
 const CARD_ENABLED = false; // 이니시스 카드결제 재노출 시 true
 
 interface Props {
@@ -75,8 +75,13 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
 
             <div className="flex flex-col gap-3">
               <button
-                onClick={() => setStep('va')}
-                className="text-left rounded-2xl p-4 cursor-pointer transition-all hover:border-indigo-500/60 active:scale-[0.99]"
+                onClick={() => VA_ENABLED && setStep('va')}
+                disabled={!VA_ENABLED}
+                className={`text-left rounded-2xl p-4 transition-all ${
+                  VA_ENABLED
+                    ? 'cursor-pointer hover:border-indigo-500/60 active:scale-[0.99]'
+                    : 'cursor-not-allowed opacity-60'
+                }`}
                 style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
               >
                 <div className="flex items-center gap-2.5 mb-1.5">
@@ -84,11 +89,14 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
                     <Landmark className="w-4 h-4 text-indigo-400" />
                   </span>
                   <span className="text-[14.5px] font-semibold text-white">계좌이체</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.06] text-slate-500">국내</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.06] text-slate-500">
+                    {VA_ENABLED ? '국내' : '준비 중'}
+                  </span>
                 </div>
                 <p className="text-[12.5px] leading-relaxed text-slate-400">
-                  매달 안내드리는 계좌로 직접 입금하시면 됩니다. 자동 출금이 아니라
-                  언제든 본인이 확인 후 결제하는 방식입니다.
+                  {VA_ENABLED
+                    ? '매달 안내드리는 계좌로 직접 입금하시면 됩니다. 자동 출금이 아니라 언제든 본인이 확인 후 결제하는 방식입니다.'
+                    : '결제 수단을 준비 중입니다. 곧 이용하실 수 있습니다.'}
                 </p>
               </button>
 
@@ -109,13 +117,15 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
               )}
             </div>
 
-            <p className="mt-5 text-[10px] text-slate-600 text-center leading-relaxed">
-              매달 입금 안내를 보내드립니다. 언제든지 해지 가능합니다.
-            </p>
+            {VA_ENABLED && (
+              <p className="mt-5 text-[10px] text-slate-600 text-center leading-relaxed">
+                매달 입금 안내를 보내드립니다. 언제든지 해지 가능합니다.
+              </p>
+            )}
           </>
         )}
 
-        {step === 'va' && (
+        {step === 'va' && VA_ENABLED && (
           <VirtualAccountForm
             plan={plan}
             amount={amount}

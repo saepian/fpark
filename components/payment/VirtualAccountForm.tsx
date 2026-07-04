@@ -58,7 +58,7 @@ export default function VirtualAccountForm({ plan, amount, isAnnual, onClose, on
 
   async function submit() {
     if (!bank) {
-      setErrMsg('입금받으실 은행을 선택해주세요.');
+      setErrMsg('가상계좌 발급 은행을 선택해주세요.');
       return;
     }
     if (!buyerName.trim()) {
@@ -129,7 +129,7 @@ export default function VirtualAccountForm({ plan, amount, isAnnual, onClose, on
 
           <div className="flex flex-col gap-3 mb-4">
             <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">입금받으실 은행</label>
+              <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">가상계좌 발급 은행</label>
               <select
                 value={bank}
                 onChange={(e) => setBank(e.target.value)}
