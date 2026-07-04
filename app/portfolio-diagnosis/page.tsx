@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import {
   Sparkles, Plus, Trash2, Search, ChevronLeft,
-  Printer, TrendingUp, TrendingDown, BookMarked, Lock,
+  Printer, TrendingUp, TrendingDown, BookMarked, Lock, RefreshCw,
 } from 'lucide-react';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import ShareDropdown from '@/components/ShareDropdown';
@@ -51,6 +51,8 @@ interface HoldingResult {
   news?:        { title: string; summary?: string; url?: string }[];
   mdd?:         number | null;
   volatility?:  number | null;
+  isCached?:    boolean; // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
+  cachedAt?:    string;
 }
 
 interface NewsDigestItem {
@@ -615,6 +617,11 @@ export default function PortfolioDiagnosisPage() {
                         <div>
                           <p className="text-[10px] text-slate-600 mb-0.5">현재가</p>
                           <p className="text-[13px] font-mono text-slate-300">{fmt(h.currentPrice)}</p>
+                          {h.isCached && (
+                            <p className="flex items-center gap-1 text-[10px] text-amber-500 mt-0.5">
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin" /> 최근 거래일 종가
+                            </p>
+                          )}
                         </div>
                         <div>
                           <p className="text-[10px] text-slate-600 mb-0.5">수익률</p>

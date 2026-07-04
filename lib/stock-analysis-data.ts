@@ -57,13 +57,44 @@ export interface StockAnalysisData {
   investorTrend:    InvestorDay[];
   news:             { title: string; summary?: string; date?: string; url?: string }[];
   sector?:          string;
+  isCached?:        boolean;
+  cachedAt?:        string;
 }
 
-async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
+type KisPriceResult = {
   currentPrice: number; stockName: string; per: number; pbr: number; eps: number;
   week52High: number; week52Low: number; week52Position: number; volume: number;
-  sector: string;
-} | null> {
+  sector: string; isCached?: boolean; cachedAt?: string;
+};
+
+// 휴장일 등으로 실시간 시세 조회가 실패했을 때 대체할 "마지막 성공 응답" 캐시.
+// app/api/stock/[ticker]/info/route.ts의 market_cache 패턴과 동일 (키만 분리해 충돌 방지).
+const priceCacheKey = (ticker: string) => `stock_analysis_price_${ticker}`;
+
+async function loadPriceCache(ticker: string): Promise<{ data: KisPriceResult; updatedAt: string } | null> {
+  try {
+    const { data: cache } = await getSb()
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', priceCacheKey(ticker))
+      .single();
+    if (!cache?.data) return null;
+    return { data: cache.data as KisPriceResult, updatedAt: cache.updated_at as string };
+  } catch {
+    return null;
+  }
+}
+
+function savePriceCache(ticker: string, data: KisPriceResult) {
+  getSb()
+    .from('market_cache')
+    .upsert({ key: priceCacheKey(ticker), data, updated_at: new Date().toISOString() })
+    .then(({ error }) => {
+      if (error) console.warn(`[ANALYSIS] ${ticker} 시세 캐시 저장 실패:`, error.message);
+    });
+}
+
+async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisPriceResult | null> {
   try {
     console.log('[ANALYSIS] fetchKisPrice 시작', ticker);
     const token = await getAccessToken();
@@ -87,7 +118,7 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
         ? Math.min(100, Math.max(0, Math.round((cur - low) / (high - low) * 100)))
         : 50;
       console.log(`[ANALYSIS] fetchKisPrice 성공 ${mkt}`, { cur, per: o.per, pbr: o.pbr });
-      return {
+      const result: KisPriceResult = {
         currentPrice:   cur,
         stockName:      (o.hts_kor_isnm || o.prdt_abrv_name || fallbackName).trim() || fallbackName,
         per:            parseFloat(o.per)  || 0,
@@ -99,9 +130,21 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<{
         volume:         parseInt(o.acml_vol, 10) || 0,
         sector:         (o.bstp_kor_isnm ?? '').trim(),
       };
+      savePriceCache(ticker, result);
+      return result;
     }
-    console.log('[ANALYSIS] fetchKisPrice 모든 시장 실패');
-  } catch (e) { console.error('[ANALYSIS] fetchKisPrice 예외:', e); }
+    console.log('[ANALYSIS] fetchKisPrice 모든 시장 실패 — 캐시 폴백 시도');
+  } catch (e) {
+    console.error('[ANALYSIS] fetchKisPrice 예외:', e, '— 캐시 폴백 시도');
+  }
+
+  // 휴장일 등으로 실시간 조회 실패 — 마지막 성공 응답(마지막 거래일 종가·52주 고저가)으로 대체
+  const cached = await loadPriceCache(ticker);
+  if (cached) {
+    console.log(`[ANALYSIS] fetchKisPrice 캐시 폴백 성공 — ${ticker} (${cached.updatedAt} 기준)`);
+    return { ...cached.data, isCached: true, cachedAt: cached.updatedAt };
+  }
+  console.log('[ANALYSIS] fetchKisPrice 캐시도 없음 —', ticker);
   return null;
 }
 
@@ -368,6 +411,8 @@ export async function collectStockAnalysisData(
     investorTrend:   inv.trend,
     news,
     sector:          price?.sector,
+    isCached:        price?.isCached,
+    cachedAt:        price?.cachedAt,
   };
 }
 

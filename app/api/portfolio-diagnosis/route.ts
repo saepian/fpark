@@ -530,6 +530,8 @@ export async function POST(request: NextRequest) {
             news:         h.relevantNews,
             mdd:          h.mdd,
             volatility:   h.volatility,
+            isCached:     h.analysisData?.isCached,
+            cachedAt:     h.analysisData?.cachedAt,
           };
         });
 

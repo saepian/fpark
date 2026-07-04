@@ -324,6 +324,8 @@ ${newsInstruction}
       resistance:         Math.round(resistance),
       support:            Math.round(support),
       benchmark,
+      isCached:           analysisData?.isCached,
+      cachedAt:           analysisData?.cachedAt,
       institutionalFlow:  '응답 형식 오류로 분석 불가',
       foreignFlow:        '응답 형식 오류로 분석 불가',
       technicalAnalysis:  ['응답 형식 오류로 분석 불가'],
@@ -400,6 +402,8 @@ ${newsInstruction}
       resistance:    Math.round(resistance), // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
       support:       Math.round(support),    // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
       benchmark,     // 서버 계산 — KOSPI/KOSDAQ 등락률 비교 (매수일 있을 때만)
+      isCached:      analysisData?.isCached, // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
+      cachedAt:      analysisData?.cachedAt,
       // Claude 응답 필드 (정규화)
       summary:            typeof result.summary           === 'string' ? result.summary           : '',
       reasons:            toArr(result.reasons),

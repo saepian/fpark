@@ -1,6 +1,6 @@
 'use client';
 
-import { Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown, AlertCircle, RefreshCw } from 'lucide-react';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
@@ -33,6 +33,8 @@ export interface DiagnosisResult {
   flowPercentage?: number;
   shortTermOutlook?: string;
   midTermOutlook?: string;
+  isCached?: boolean; // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
+  cachedAt?: string;
 }
 
 function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
@@ -160,6 +162,15 @@ export default function DiagnosisReport({
             <div className="px-5 pt-4 pb-2 border-b border-slate-700/50">
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Performance Snapshot</p>
             </div>
+            {result.isCached && (
+              <div className="flex items-center gap-1.5 px-5 pt-3 text-[11px] text-amber-500">
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                <span>
+                  최근 거래일 종가 기준
+                  {result.cachedAt && ` · ${new Date(result.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}
+                </span>
+              </div>
+            )}
             <div className="divide-y divide-slate-700/40">
               <div className="flex items-center justify-between px-5 py-3.5">
                 <span className="text-[12px] text-slate-400">현재가</span>
@@ -227,10 +238,16 @@ export default function DiagnosisReport({
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최고가</p>
             </div>
             <div className="px-5 py-4">
-              <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.resistance)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
-              <p className="text-[12px] text-slate-500">
-                현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%
-              </p>
+              {result.resistance > 0 ? (
+                <>
+                  <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.resistance)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
+                  <p className="text-[12px] text-slate-500">
+                    현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%
+                  </p>
+                </>
+              ) : (
+                <p className="text-[13px] text-slate-500">휴장일 - 데이터 갱신 예정</p>
+              )}
             </div>
           </div>
 
@@ -243,10 +260,16 @@ export default function DiagnosisReport({
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최저가</p>
             </div>
             <div className="px-5 py-4">
-              <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.support)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
-              <p className="text-[12px] text-slate-500">
-                현재가 대비 {supportDownRate.toFixed(1)}%
-              </p>
+              {result.support > 0 ? (
+                <>
+                  <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.support)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
+                  <p className="text-[12px] text-slate-500">
+                    현재가 대비 {supportDownRate.toFixed(1)}%
+                  </p>
+                </>
+              ) : (
+                <p className="text-[13px] text-slate-500">휴장일 - 데이터 갱신 예정</p>
+              )}
             </div>
           </div>
         </div>
