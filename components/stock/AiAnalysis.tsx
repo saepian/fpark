@@ -121,7 +121,9 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     const load = async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const res = await fetch(`/api/stock/${ticker}/analysis`);
+          // 서버 maxDuration(60s)보다 살짝 여유를 둬서, 정상 응답은 끝까지 기다리되
+          // 서버가 죽어 응답이 영영 안 오는 경우엔 무한 대기하지 않도록 함
+          const res = await fetch(`/api/stock/${ticker}/analysis`, { signal: AbortSignal.timeout(65000) });
           if (!res.ok) throw new Error(`${res.status}`);
           const json = await res.json() as AnalysisResult;
           if (!cancelled) setData(json);

@@ -8,6 +8,9 @@ export interface StockPrice {
   tradingValue: string;
   sector: string;
   market: 'KOSPI' | 'KOSDAQ';
+  isCached?: boolean;  // 휴장일 등 KIS 조회 실패 시 마지막 거래일 기준 값
+  cachedAt?: string;
+  isPartial?: boolean; // Yahoo 폴백 등으로 거래량/거래대금을 확인할 수 없는 경우
 }
 
 export interface StockInfo {

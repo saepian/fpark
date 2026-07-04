@@ -110,8 +110,14 @@ export default function StockChart({ ticker }: StockChartProps) {
         const res = await fetch(`/api/stock/${ticker}/chart?period=${period}`, {
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error(`${res.status}`);
-        const json: ChartDataPoint[] = await res.json();
+        const body = await res.json().catch(() => null) as ChartDataPoint[] | { error?: string } | null;
+        if (!res.ok) {
+          const message = (body && !Array.isArray(body) && typeof body.error === 'string')
+            ? body.error
+            : `차트 조회 실패 (${res.status})`;
+          throw new Error(message);
+        }
+        const json = (body ?? []) as ChartDataPoint[];
 
         if (!candleRef.current || !volumeRef.current) return;
 

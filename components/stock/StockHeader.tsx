@@ -19,9 +19,14 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
     setError(null);
     try {
       const res = await fetch(`/api/stock/${ticker}/price`);
-      if (!res.ok) throw new Error(`${res.status}`);
-      const json: StockPrice = await res.json();
-      setData(json);
+      const body = await res.json().catch(() => null) as StockPrice | { error?: string } | null;
+      if (!res.ok) {
+        const message = (body && typeof (body as { error?: string }).error === 'string')
+          ? (body as { error?: string }).error!
+          : `데이터 조회 실패 (${res.status})`;
+        throw new Error(message);
+      }
+      setData(body as StockPrice);
     } catch (e) {
       setError(e instanceof Error ? e.message : '데이터 조회 실패');
     } finally {
@@ -69,6 +74,15 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
 
   return (
     <section id="stock-header-container" className="mb-6">
+      {data.isCached && (
+        <div className="flex items-center gap-1.5 mb-2 text-[11px] text-amber-500">
+          <RefreshCw className="w-3 h-3 animate-spin" />
+          <span>
+            최근 거래일 종가 기준
+            {data.cachedAt && ` · ${new Date(data.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}
+          </span>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -106,7 +120,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
               VOLUME
             </p>
             <p className="font-mono text-lg font-bold text-gray-900 dark:text-[#d4e4fa]">
-              {data.volume.toLocaleString()}
+              {data.isPartial ? '-' : data.volume.toLocaleString()}
             </p>
           </div>
           <div>
@@ -114,7 +128,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
               TRANSACTION VALUE
             </p>
             <p className="font-mono text-lg font-bold text-gray-900 dark:text-[#d4e4fa]">
-              {data.tradingValue} <span className="text-xs font-normal text-gray-400">KRW</span>
+              {data.isPartial ? '-' : data.tradingValue} <span className="text-xs font-normal text-gray-400">KRW</span>
             </p>
           </div>
         </div>

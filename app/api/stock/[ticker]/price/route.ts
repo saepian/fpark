@@ -1,7 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchStockPrice } from '../../../../../lib/kis-api';
+import { supabase } from '../../../../../lib/supabase';
+import type { StockPrice } from '../../../../../lib/types';
 
 export const dynamic = 'force-dynamic';
+
+// app/api/stock/[ticker]/info/route.ts와 동일한 market_cache 패턴 재사용
+const cacheKey = (ticker: string) => `stock_price_${ticker}`;
+
+async function loadCache(ticker: string): Promise<{ data: StockPrice; updatedAt: string } | null> {
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', cacheKey(ticker))
+      .single();
+    if (!cache?.data) return null;
+    return { data: cache.data as StockPrice, updatedAt: cache.updated_at };
+  } catch {
+    return null;
+  }
+}
+
+function saveCache(ticker: string, data: StockPrice) {
+  supabase
+    .from('market_cache')
+    .upsert({ key: cacheKey(ticker), data, updated_at: new Date().toISOString() })
+    .then(({ error }) => {
+      if (error) console.warn(`[PRICE] ${ticker} 캐시 저장 실패:`, error.message);
+    });
+}
 
 async function fetchYahooPrice(ticker: string): Promise<{
   ticker: string; name: string; price: number;
@@ -40,17 +68,25 @@ export async function GET(
   // 1순위: KIS API
   try {
     const data = await fetchStockPrice(ticker);
+    saveCache(ticker, data);
     return NextResponse.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';
-    console.warn(`[PRICE] KIS 실패 ${ticker}: ${message}, Yahoo 폴백 시도`);
+    console.warn(`[PRICE] KIS 실패 ${ticker}: ${message}, 캐시 폴백 시도`);
   }
 
-  // 2순위: Yahoo Finance (.KS → .KQ 순)
+  // 2순위: 캐시된 마지막 거래일 데이터 — 휴장일에도 실제 거래량·거래대금·업종을 보여줄 수 있음
+  const cached = await loadCache(ticker);
+  if (cached) {
+    console.error(`[PRICE] ${ticker} KIS 실패, 캐시로 대체 반환 (${cached.updatedAt} 기준)`);
+    return NextResponse.json({ ...cached.data, isCached: true, cachedAt: cached.updatedAt });
+  }
+
+  // 3순위: Yahoo Finance (.KS → .KQ 순) — 가격만 확인 가능, 거래량/거래대금은 알 수 없음
   try {
     const yahoo = await fetchYahooPrice(ticker);
     if (yahoo) {
-      return NextResponse.json({ ...yahoo, volume: 0, tradingValue: '-', sector: '' });
+      return NextResponse.json({ ...yahoo, volume: 0, tradingValue: '-', sector: '', isPartial: true });
     }
   } catch (e) {
     console.error(`[PRICE] Yahoo 폴백 실패 ${ticker}:`, e);
