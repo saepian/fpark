@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase-browser';
+import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import type { User } from '@supabase/supabase-js';
 
 // ── Watchlist 사이드 패널 내부 리스트 ─────────────────────────────────────────
@@ -217,7 +218,7 @@ export default function PersonalButton() {
   if (!user) {
     return (
       <button
-        onClick={() => router.push('/auth/login')}
+        onClick={() => router.push(loginUrlWithRedirect(window.location.pathname + window.location.search))}
         className="text-[12px] font-medium text-slate-300 hover:text-white
           px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500
           transition-colors cursor-pointer"

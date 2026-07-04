@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { createClient } from '../../lib/supabase-browser';
+import { loginUrlWithRedirect } from '../../lib/auth-redirect';
 
 const VISIBLE = 5;
 const CARD_W  = 192; // w-48 = 12rem = 192px
@@ -199,7 +200,7 @@ export default function WatchlistSection() {
           <p className="text-sm font-semibold text-white mb-1">MY WATCHLIST</p>
           <p className="text-xs text-slate-400 mb-4">로그인하고 관심기업을 등록해보세요</p>
           <button
-            onClick={() => router.push('/auth/login')}
+            onClick={() => router.push(loginUrlWithRedirect(window.location.pathname + window.location.search))}
             className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500
               text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer"
           >

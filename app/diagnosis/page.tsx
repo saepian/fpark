@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { Search, Sparkles } from 'lucide-react';
 
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
@@ -59,7 +60,7 @@ export default function DiagnosisPage() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) { router.replace('/auth/login'); return; }
+      if (!data.user) { router.replace(loginUrlWithRedirect(window.location.pathname + window.location.search)); return; }
       setAuthChecked(true);
       fetch('/api/diagnosis').then(r => r.json()).then(d => setRemaining(d.remaining ?? 0));
     });

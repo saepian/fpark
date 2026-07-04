@@ -10,6 +10,7 @@ import {
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
+import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -171,7 +172,7 @@ export default function PortfolioDiagnosisPage() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) { router.replace('/auth/login'); return; }
+      if (!data.user) { router.replace(loginUrlWithRedirect(window.location.pathname + window.location.search)); return; }
       setAuthChecked(true);
       fetch('/api/portfolio-diagnosis')
         .then(r => r.json())

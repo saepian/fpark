@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
+import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import PageBackground from '@/components/layout/PageBackground';
 
 type PlanType = 'free' | 'basic' | 'pro';
@@ -194,12 +195,12 @@ export default function MyPage() {
   useEffect(() => {
     fetch('/api/mypage')
       .then(async r => {
-        if (r.status === 401) { router.push('/auth/login'); return; }
+        if (r.status === 401) { router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)); return; }
         const json = await r.json();
         setData(json);
         setEmailAlertEnabled(json.emailAlertEnabled ?? true);
       })
-      .catch(() => router.push('/auth/login'))
+      .catch(() => router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)))
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line
 

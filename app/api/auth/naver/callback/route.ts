@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from '@/lib/database.types';
+import { sanitizeRedirect } from '@/lib/auth-redirect';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
+  const redirectTo = sanitizeRedirect(searchParams.get('state'));
 
   if (!code) {
     return NextResponse.redirect('https://fpark.com/?error=auth_failed');
@@ -97,6 +99,6 @@ export async function GET(request: Request) {
   const hashed_token = linkData.properties.hashed_token;
 
   return NextResponse.redirect(
-    `https://fpark.com/auth/confirm?token_hash=${hashed_token}&type=magiclink&next=/`
+    `https://fpark.com/auth/confirm?token_hash=${hashed_token}&type=magiclink&next=${encodeURIComponent(redirectTo)}`
   );
 }

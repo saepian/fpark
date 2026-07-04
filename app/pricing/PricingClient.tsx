@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
+import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import PageBackground from '@/components/layout/PageBackground';
 import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
 
@@ -334,7 +335,7 @@ export default function PricingClient() {
   const handleAction = (type: PlanType) => {
     if (type === 'free') { router.push('/'); return; }
 
-    if (!isLoggedIn) { router.push('/auth/login'); return; }
+    if (!isLoggedIn) { router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)); return; }
 
     const planData = PLANS.find(p => p.type === type)!;
     const amount   = annual ? planData.annualTotal : planData.monthly;

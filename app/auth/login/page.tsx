@@ -1,14 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
+import { sanitizeRedirect } from '@/lib/auth-redirect';
 import AuthBackground from '@/components/auth/AuthBackground';
 
-export default function LoginPage() {
+function LoginForm() {
   const supabase = createClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = sanitizeRedirect(searchParams.get('redirect'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -25,7 +28,7 @@ export default function LoginPage() {
       setError('이메일 또는 비밀번호가 올바르지 않습니다.');
       setLoading(false);
     } else {
-      router.push('/');
+      router.push(redirectTo);
       router.refresh();
     }
   };
@@ -35,7 +38,7 @@ export default function LoginPage() {
     await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: 'https://fpark.com/auth/callback',
+        redirectTo: `https://fpark.com/auth/callback?next=${encodeURIComponent(redirectTo)}`,
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
@@ -145,7 +148,7 @@ export default function LoginPage() {
           <div className="flex justify-center gap-4">
             {/* 네이버 */}
             <button
-              onClick={() => { window.location.href = '/api/auth/naver'; }}
+              onClick={() => { window.location.href = `/api/auth/naver?redirect=${encodeURIComponent(redirectTo)}`; }}
               disabled={socialLoading !== null}
               className="w-12 h-12 rounded-full disabled:opacity-60
                 flex items-center justify-center transition-opacity cursor-pointer shadow-sm"
@@ -191,5 +194,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <LoginForm />
+    </Suspense>
   );
 }

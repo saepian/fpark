@@ -2,12 +2,13 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { Database } from '@/lib/database.types';
+import { sanitizeRedirect } from '@/lib/auth-redirect';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const token_hash = searchParams.get('token_hash');
   const type = searchParams.get('type') as any;
-  const next = searchParams.get('next') || '/';
+  const next = sanitizeRedirect(searchParams.get('next'));
 
   if (token_hash && type) {
     const cookieStore = await cookies();
