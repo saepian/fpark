@@ -9,8 +9,11 @@ import {
 } from 'lucide-react';
 import { PLAN_AMOUNTS } from '@/lib/payment-constants';
 
-// 기업분석(app/diagnosis) 페이지와 동일한 배경 — 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
-const PageBackground = dynamic(() => import('@/components/layout/PageBackground'), { ssr: false });
+// 랜딩페이지 전용 화려한 배경(오로라 블롭 + 파티클 + 슈팅스타) — 대시보드와는 분리해서
+// 마케팅 임팩트를 더 크게. 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
+const LandingBackground = dynamic(() => import('@/components/layout/LandingBackground'), { ssr: false });
+// 마우스를 따라다니는 AI 오브 — 카드 등 콘텐츠보다 위(z-40)에 그려서 뒤로 숨지 않게 별도 레이어로 분리
+const AiCompanion = dynamic(() => import('@/components/layout/AiCompanion'), { ssr: false });
 
 // ── 디자인 토큰 (이 페이지 전용) ───────────────────────────────────────────
 // bg-main #0B0D12 · bg-card #151922 · text #E8EAED · text-sub #8B92A8
@@ -179,7 +182,8 @@ export default function AiPortfolioLandingPage() {
   return (
     <div className="overflow-x-hidden text-[#E8EAED]">
       {/* 기업분석 페이지와 동일하게, 페이지 전체에 배경 하나만 고정 마운트 — 섹션별 배경 없음 */}
-      <PageBackground />
+      <LandingBackground />
+      <AiCompanion />
 
       {/* ══ 1. 히어로 ══ */}
       <section className="relative">
