@@ -9,8 +9,8 @@ import {
 } from 'lucide-react';
 import { PLAN_AMOUNTS } from '@/lib/payment-constants';
 
-// 파티클 배경은 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
-const PageBackground = dynamic(() => import('@/components/layout/PageBackground'), { ssr: false });
+// 메인 대시보드 히어로(components/main/Hero.tsx)와 동일한 배경 — 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
+const HeroCanvasBackground = dynamic(() => import('@/components/main/HeroCanvasBackground'), { ssr: false });
 
 // ── 디자인 토큰 (이 페이지 전용) ───────────────────────────────────────────
 // bg-main #0B0D12 · bg-card #151922 · text #E8EAED · text-sub #8B92A8
@@ -181,7 +181,7 @@ export default function AiPortfolioLandingPage() {
 
       {/* ══ 1. 히어로 ══ */}
       <section className="relative">
-        <PageBackground />
+        <HeroCanvasBackground />
         <div className="max-w-4xl mx-auto px-4 pt-20 pb-20 md:pt-28 md:pb-28 text-center relative">
           <motion.div
             initial={{ opacity: 0, y: 14 }}
