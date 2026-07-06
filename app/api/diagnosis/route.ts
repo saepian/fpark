@@ -41,8 +41,8 @@ async function fetchNaverNews(stockName: string) {
       `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(stockName)}&display=5`,
       {
         headers: {
-          'X-Naver-Client-Id':     process.env.NAVER_CLIENT_ID ?? '',
-          'X-Naver-Client-Secret': process.env.NAVER_CLIENT_SECRET ?? '',
+          'X-Naver-Client-Id':     process.env.NAVER_NEWS_CLIENT_ID ?? '',
+          'X-Naver-Client-Secret': process.env.NAVER_NEWS_CLIENT_SECRET ?? '',
         },
         signal: AbortSignal.timeout(4000),
       }
