@@ -9,8 +9,8 @@ import {
 } from 'lucide-react';
 import { PLAN_AMOUNTS } from '@/lib/payment-constants';
 
-// 메인 대시보드 히어로(components/main/Hero.tsx)와 동일한 배경 — 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
-const HeroCanvasBackground = dynamic(() => import('@/components/main/HeroCanvasBackground'), { ssr: false });
+// 기업분석(app/diagnosis) 페이지와 동일한 배경 — 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
+const PageBackground = dynamic(() => import('@/components/layout/PageBackground'), { ssr: false });
 
 // ── 디자인 토큰 (이 페이지 전용) ───────────────────────────────────────────
 // bg-main #0B0D12 · bg-card #151922 · text #E8EAED · text-sub #8B92A8
@@ -177,11 +177,12 @@ function PrimaryCta({ children, className = '' }: { children: React.ReactNode; c
 
 export default function AiPortfolioLandingPage() {
   return (
-    <div className="overflow-x-hidden bg-[#0B0D12] text-[#E8EAED]">
+    <div className="overflow-x-hidden text-[#E8EAED]">
+      {/* 기업분석 페이지와 동일하게, 페이지 전체에 배경 하나만 고정 마운트 — 섹션별 배경 없음 */}
+      <PageBackground />
 
       {/* ══ 1. 히어로 ══ */}
       <section className="relative">
-        <HeroCanvasBackground />
         <div className="max-w-4xl mx-auto px-4 pt-20 pb-20 md:pt-28 md:pb-28 text-center relative">
           <motion.div
             initial={{ opacity: 0, y: 14 }}
@@ -372,10 +373,6 @@ export default function AiPortfolioLandingPage() {
 
       {/* ══ 6. 마무리 CTA ══ */}
       <section className="relative py-20 md:py-28 overflow-hidden">
-        <div
-          className="absolute inset-0 -z-10"
-          style={{ background: 'radial-gradient(ellipse at 50% 50%, rgba(62,207,142,0.10) 0%, transparent 65%)' }}
-        />
         <Reveal className="max-w-2xl mx-auto px-4 text-center">
           <h2 className="text-2xl md:text-4xl font-black mb-4 break-keep">지금 무료로 시작하세요</h2>
           <p className="text-[#8B92A8] text-[14px] md:text-[15px] mb-8">
