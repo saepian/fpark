@@ -9,6 +9,7 @@ import MarketTicker from './MarketTicker';
 import NotificationBell from './NotificationBell';
 import PersonalButton from './PersonalButton';
 import Logo from './Logo';
+import { useSession } from '@/lib/useSession';
 
 interface HeaderProps {
   onSelectStock?: (ticker: string) => void;
@@ -28,6 +29,7 @@ const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: 
 export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
   const pathname = usePathname();
   const router   = useRouter();
+  const user     = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogoClick = () => {
@@ -202,8 +204,8 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
         </div>
       )}
 
-      {/* 마켓 티커 */}
-      <MarketTicker />
+      {/* 마켓 티커 — 로그인 세션이 있을 때만 (비로그인 방문자는 랜딩페이지) */}
+      {user && <MarketTicker />}
     </header>
   );
 }
