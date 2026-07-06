@@ -2,6 +2,11 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
+const SUMMARIZE_SYSTEM_INSTRUCTIONS = `아래 금융 뉴스 기사들을 각각 한국어로 2문장씩 요약해줘.
+반드시 JSON 배열 형식으로만 응답해. 다른 텍스트나 마크다운은 절대 포함하지 마.
+
+형식: ["요약1", "요약2", "요약3"]`;
+
 export type BatchArticle = { title: string; content: string };
 
 export async function batchSummarize(articles: BatchArticle[]): Promise<string[]> {
@@ -14,12 +19,7 @@ export async function batchSummarize(articles: BatchArticle[]): Promise<string[]
     })
     .join('\n\n');
 
-  const prompt = `아래 ${articles.length}개의 금융 뉴스 기사를 각각 한국어로 2문장씩 요약해줘.
-반드시 JSON 배열 형식으로만 응답해. 다른 텍스트나 마크다운은 절대 포함하지 마.
-
-형식: ["요약1", "요약2", "요약3"]
-
-기사 목록:
+  const prompt = `기사 목록:
 ${articleList}`;
 
   try {
@@ -27,6 +27,7 @@ ${articleList}`;
       client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 3000,
+        system: [{ type: 'text', text: SUMMARIZE_SYSTEM_INSTRUCTIONS, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: prompt }],
       }),
       new Promise<never>((_, reject) =>

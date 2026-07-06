@@ -474,7 +474,12 @@ export function buildNewsBlock(news: { title: string; summary?: string; date?: s
   }).join('\n');
 }
 
-// 종목명/업종 키워드 기반 간단 관련도 스코어링 — 정확도보다는 "관련 뉴스 있음/없음" 구분이 목적
+// 종목명/업종 키워드 기반 관련도 스코어링 — 정확도보다는 "관련 뉴스 있음/없음" 구분이 목적.
+// 제목에 종목명·업종명이 명시적으로 등장하는 경우를 우선 채택하고, description(스니펫)에만
+// 이름이 스쳐 지나가는 경우(예: "코스피 마감 시황" 기사 본문에 종목명이 나열된 경우)는
+// 그 자체만으로는 채택 기준(MIN_SCORE)을 넘지 못하도록 보조 가중치로만 반영한다.
+const RELEVANCE_MIN_SCORE = 2;
+
 export function pickRelevantNews<T extends { title: string; summary?: string }>(
   candidates: T[],
   stockName: string,
@@ -495,15 +500,18 @@ export function pickRelevantNews<T extends { title: string; summary?: string }>(
       const title   = n.title.toLowerCase();
       const summary = (n.summary ?? '').toLowerCase();
       let score = 0;
-      if (nameLower && title.includes(nameLower))                    score += 3;
-      if (nameLower && summary.includes(nameLower))                  score += 1;
+      // 제목에 종목명이 명시적으로 포함 — 가장 신뢰도 높은 신호, 단독으로 채택 기준을 넘김
+      if (nameLower && title.includes(nameLower))                    score += 5;
+      // 제목에 업종명이 포함 — 종목 직접 언급은 아니지만 여전히 제목 차원의 명시적 매치
       if (sectorLower.length >= 2 && title.includes(sectorLower))     score += 2;
-      if (sectorLower.length >= 2 && summary.includes(sectorLower))   score += 1;
+      // 스니펫에만 이름/업종이 등장 — 오탐이 잦으므로 보조 가중치로만 반영 (단독 채택 불가)
+      if (nameLower && summary.includes(nameLower))                  score += 1;
+      if (sectorLower.length >= 2 && summary.includes(sectorLower))   score += 0.5;
       return { item: n, score };
     });
 
   return scored
-    .filter((s) => s.score > 0)
+    .filter((s) => s.score >= RELEVANCE_MIN_SCORE)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((s) => s.item);

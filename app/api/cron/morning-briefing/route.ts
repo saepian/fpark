@@ -4,6 +4,7 @@ import { Resend } from 'resend';
 import { adminClient } from '@/lib/supabase-admin';
 import { makeUnsubToken } from '@/lib/unsubscribe-token';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
+import { fetchNaverNews, type NaverNewsItem } from '@/lib/naver-news';
 
 // 장 시작 전(07:00 KST) 관심종목 "뉴스" 브리핑 — 저녁 daily-alert-email(수급/가격 중심)과
 // 겹치지 않도록 전일 장 마감 이후 새로 나온 뉴스만 AI로 분석해서 보낸다.
@@ -12,7 +13,19 @@ export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-type FreshNews = { title: string; description: string; url: string; pubDate: string };
+// 종목마다 반복 호출되는 고정 지침 — 프롬프트 캐싱 대상 (system 블록, cache_control 적용)
+const MORNING_BRIEFING_INSTRUCTIONS = `아래 JSON 형식으로만 응답하세요:
+{
+  "summary": "무슨 일이 있었는지 사실 기반 요약 (2~3문장)",
+  "context": "시장/투자자들이 이 뉴스에 주목할 만한 이유에 대한 객관적 맥락 설명 (2~3문장)"
+}
+
+규칙:
+- 매수/매도 의견, 목표가, 방향성 전망(상승/하락 예상 등)을 절대 포함하지 마세요.
+- 위에 제공된 뉴스에 없는 내용을 지어내지 마세요.
+- 마크다운 문법(#, **, * 등) 사용 금지, 일반 텍스트로만 작성하세요.`;
+
+type FreshNews = NaverNewsItem;
 type TickerBriefing = { ticker: string; name: string; news: FreshNews[]; summary: string; context: string };
 
 // 전일 장 마감(15:30 KST) 시각을 실제 UTC epoch로 계산 — 월요일이면 전 거래일이 금요일이므로 3일 전.
@@ -38,40 +51,16 @@ function getKstDateInfo(): { dateStr: string; mm: number; dd: number } {
   return { dateStr: `${kst.getFullYear()}년 ${mm}월 ${dd}일`, mm, dd };
 }
 
-// 종목진단(app/api/diagnosis/route.ts)의 fetchNaverNews와 같은 Naver 뉴스 검색 API를 쓰되,
-// "종가 이후 새 뉴스"만 골라야 하므로 pubDate를 함께 파싱해 sinceUtc 이후 건만 남긴다.
+// 공통 fetchNaverNews(lib/naver-news.ts)를 쓰되, "종가 이후 새 뉴스"만 골라야 하므로
+// pubDate 기준 sinceUtc 이후 건만 남긴다. diagnosis/stock 분석/daily-pick과 같은 API 래퍼 재사용.
 async function fetchFreshNaverNews(stockName: string, sinceUtc: Date): Promise<{ items: FreshNews[]; apiError: boolean }> {
-  try {
-    const res = await fetch(
-      `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(stockName)}&display=10&sort=date`,
-      {
-        headers: {
-          'X-Naver-Client-Id':     process.env.NAVER_NEWS_CLIENT_ID ?? '',
-          'X-Naver-Client-Secret': process.env.NAVER_NEWS_CLIENT_SECRET ?? '',
-        },
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error(`[MORNING-BRIEFING] Naver News API 응답 실패 (${stockName}): HTTP ${res.status} — ${body.slice(0, 200)}`);
-      return { items: [], apiError: true };
-    }
-    const data = await res.json();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const items: FreshNews[] = (data.items ?? [])
-      .map((item: any) => ({
-        title:       String(item.title ?? '').replace(/<[^>]*>/g, ''),
-        description: String(item.description ?? '').replace(/<[^>]*>/g, ''),
-        url:         String(item.originallink || item.link || ''),
-        pubDate:     String(item.pubDate ?? ''),
-      }))
-      .filter((n: FreshNews) => n.pubDate && new Date(n.pubDate).getTime() >= sinceUtc.getTime());
-    return { items, apiError: false };
-  } catch (e) {
-    console.error('[MORNING-BRIEFING] Naver News 조회 실패:', stockName, e instanceof Error ? e.message : e);
+  const { items, apiError } = await fetchNaverNews(stockName, { display: 10, sort: 'date', timeoutMs: 5000 });
+  if (apiError) {
+    console.error(`[MORNING-BRIEFING] Naver News API 조회 실패 (${stockName})`);
     return { items: [], apiError: true };
   }
+  const filtered = items.filter((n) => n.pubDate && new Date(n.pubDate).getTime() >= sinceUtc.getTime());
+  return { items: filtered, apiError: false };
 }
 
 async function analyzeTickerNews(name: string, ticker: string, news: FreshNews[]): Promise<{ summary: string; context: string }> {
@@ -84,23 +73,17 @@ async function analyzeTickerNews(name: string, ticker: string, news: FreshNews[]
 
 ${newsBlock}
 
-아래 JSON 형식으로만 응답하세요:
-{
-  "summary": "무슨 일이 있었는지 사실 기반 요약 (2~3문장)",
-  "context": "시장/투자자들이 이 뉴스에 주목할 만한 이유에 대한 객관적 맥락 설명 (2~3문장)"
-}
-
-규칙:
-- 매수/매도 의견, 목표가, 방향성 전망(상승/하락 예상 등)을 절대 포함하지 마세요.
-- 위에 제공된 뉴스에 없는 내용을 지어내지 마세요.
-- 마크다운 문법(#, **, * 등) 사용 금지, 일반 텍스트로만 작성하세요.`;
+위 뉴스를 바탕으로 시스템 프롬프트에 제시된 JSON 형식과 규칙에 따라 응답하세요.`;
 
   try {
     const message = await Promise.race([
       anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 800,
-        system: COMPLIANCE_PRINCIPLE,
+        system: [
+          { type: 'text', text: COMPLIANCE_PRINCIPLE },
+          { type: 'text', text: MORNING_BRIEFING_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+        ],
         messages: [{ role: 'user', content: prompt }],
       }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),

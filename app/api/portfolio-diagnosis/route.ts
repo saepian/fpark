@@ -23,6 +23,30 @@ const MONTHLY_LIMIT       = 20;
 const BASIC_MONTHLY_LIMIT = 1;
 const MAX_HOLDINGS        = 10;
 
+// 종목별 개별 분석(Stage 1) 고정 지침 — 종목마다 반복 호출되므로 프롬프트 캐싱 대상.
+// 실제 ticker 값은 종목마다 다르므로 예시 스키마에서는 플레이스홀더만 사용한다.
+const STOCK_SIGNAL_SYSTEM = `${COMPLIANCE_PRINCIPLE} 한국주식 데이터 정리자로서, 수급·밸류에이션·뉴스 데이터를 근거로 간결하게 관찰 사실을 정리합니다. 뉴스가 있으면 그 내용을 근거로 설명하고, 없으면 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요. JSON만 출력. reason 작성 시 종목명 사용, 숫자 종목코드 출력 금지.`;
+
+const STOCK_SIGNAL_INSTRUCTIONS = `다음 한국 주식의 관찰된 데이터를 분석하고 JSON만 출력하세요.
+
+{"ticker":"<종목코드>","signal":"순유입 우위"|"중립·관망"|"차익실현 관찰"|"순유출 우위","reason":"2문장 이내, 관찰된 사실 설명","sector":"실제업종명"}
+
+signal은 매매 지시가 아니라 현재 수급·가격 패턴에 대한 관찰 결과입니다 — 외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도로 자금이 빠져나가는 흐름이 우위면 "순유출 우위", 수익률이 높고 밸류에이션 부담이 겹쳐 차익실현 패턴이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요. 뉴스 기사 제목에 "목표가"라는 단어가 있어도 reason에서는 그 단어를 그대로 쓰지 말고 "영업이익 추정치 상향" 같은 실적 전망치 표현으로만 언급하세요. 아래에 주어지는 실제 종목 데이터를 분석 대상으로 삼아, 응답의 "ticker" 필드에는 위 플레이스홀더 대신 그 종목의 실제 코드를 채워 넣으세요.`;
+
+// 포트폴리오 종합 분석(Stage 2) 고정 지침 — 요청마다 1회만 호출되지만 다른 요청 간에도 재사용 가능.
+const PORTFOLIO_SUMMARY_SYSTEM = `${COMPLIANCE_PRINCIPLE} 한국주식 포트폴리오 데이터를 섹터·수급·뉴스 관점에서 있는 그대로 정리하는 정보 제공자입니다. 숫자(PER·수급 등) 근거와 실제 뉴스 이슈를 함께 담아 설명하되, 무엇을 하라고 지시하지 마세요. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.`;
+
+const PORTFOLIO_SUMMARY_INSTRUCTIONS = `{"summary":"4-5문장 종합 설명(전체 수익률·구조적 특징·수급 현황, 뉴스가 있는 종목은 그 이슈를 구체적으로 언급, 벤치마크 수치가 있으면 사실로만 1회 언급)","sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],"riskFactors":["포트폴리오 전체 관점의 리스크 요인1(수치 포함, 손실 종목 비중·섹터 과집중·벤치마크 대비 부진·개별 종목 변동성 등 근거)","요인2","요인3"],"opportunityFactors":["포트폴리오 전체 관점에서 관찰된 긍정 요인1을 사실로만 서술(수치 포함, '추가 상승 여력을 기대', '~라는 신호로 해석될 수 있다' 같이 향후 주가를 암시하는 결론 금지)","요인2(동일 기준)","요인3(동일 기준)"],"shortTermOutlook":"포트폴리오 관점 단기 관찰 변수 — 현재 진행 중인 섹터 업황·수급 흐름 중 앞으로 바뀔 수 있는 지점을 사실 나열형으로 서술, '수익률이 갈릴 수 있다'/'상승·하락 여력' 같이 가격을 예측하는 표현 절대 금지, 2문장","midTermOutlook":"포트폴리오 관점 중기 관찰 변수 — 섹터 업황·리밸런싱 관련 사실을 나열하되 특정 수익률이나 방향을 예측하지 않음, 가격 방향 예측 절대 금지, 2문장","suggestions":["참고할 만한 관찰 포인트1","포인트2","포인트3","포인트4"]}
+
+규칙:
+- sectors weight 합계=100
+- riskFactors/opportunityFactors는 개별 종목이 아니라 포트폴리오 전체 구조(손실 비중·섹터 편중·벤치마크 대비·변동성)를 보는 관점으로 작성하세요
+- shortTermOutlook/midTermOutlook도 개별 종목이 아니라 포트폴리오 전체 관점으로 작성하고, 목표가·손절가·매수매도 지시·저항선·지지선·가격 방향 예측은 금지하세요 — 관찰된 사실만 서술하고 그 사실이 앞으로 수익률에 어떤 영향을 줄지 예측하지 마세요
+- suggestions는 "이렇게 하세요" 식 지시나 "투자자들이 참고한다"는 식의 권유성 결론이 아니라, 관찰된 데이터 특징을 사실 그대로 서술하는 정보 형태로 작성
+- 뉴스가 있는 종목은 그 이슈를 근거로 언급하고, 뉴스가 없는 종목은 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요
+- 벤치마크 수치는 판단 없이 사실 비교로만 1회 언급(예: "~보다 높습니다/낮습니다" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)
+- summary·suggestions·riskFactors·opportunityFactors·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
+
 // ── Supabase ────────────────────────────────────────────────────────────────
 
 function makeSupabase() {
@@ -178,14 +202,7 @@ function buildStockPrompt(h: EnrichedHolding): string {
 // ── Stage 1: 종목 개별 분석 ─────────────────────────────────────────────────
 
 async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
-  const prompt =
-    `다음 한국 주식의 관찰된 데이터를 분석하고 JSON만 출력하세요.\n\n` +
-    buildStockPrompt(h) +
-    `\n\n{"ticker":"${h.ticker}","signal":"순유입 우위"|"중립·관망"|"차익실현 관찰"|"순유출 우위","reason":"2문장 이내, 관찰된 사실 설명","sector":"실제업종명"}\n\n` +
-    `signal은 매매 지시가 아니라 현재 수급·가격 패턴에 대한 관찰 결과입니다 — ` +
-    `외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도로 자금이 빠져나가는 흐름이 우위면 "순유출 우위", ` +
-    `수익률이 높고 밸류에이션 부담이 겹쳐 차익실현 패턴이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요. ` +
-    `뉴스 기사 제목에 "목표가"라는 단어가 있어도 reason에서는 그 단어를 그대로 쓰지 말고 "영업이익 추정치 상향" 같은 실적 전망치 표현으로만 언급하세요.`;
+  const prompt = buildStockPrompt(h);
 
   const newsBasis: 'news' | 'estimated' = h.relevantNews.length > 0 ? 'news' : 'estimated';
 
@@ -193,7 +210,10 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
     const msg = await claude.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 2000,
-      system: `${COMPLIANCE_PRINCIPLE} 한국주식 데이터 정리자로서, 수급·밸류에이션·뉴스 데이터를 근거로 간결하게 관찰 사실을 정리합니다. 뉴스가 있으면 그 내용을 근거로 설명하고, 없으면 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요. JSON만 출력. reason 작성 시 종목명 사용, 숫자 종목코드 출력 금지.`,
+      system: [
+        { type: 'text', text: STOCK_SIGNAL_SYSTEM },
+        { type: 'text', text: STOCK_SIGNAL_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+      ],
       messages: [{ role: 'user', content: prompt }],
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
@@ -248,27 +268,16 @@ async function analyzePortfolioSummary(
     `[종목코드→종목명 매핑] ${mappingTable}\n\n` +
     `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개${benchmarkLine}\n` +
     `${lines}\n${riskFactsLine}\n\n` +
-    `{"summary":"4-5문장 종합 설명(전체 수익률·구조적 특징·수급 현황, 뉴스가 있는 종목은 그 이슈를 구체적으로 언급, 벤치마크 수치가 있으면 사실로만 1회 언급)",` +
-    `"sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],` +
-    `"riskFactors":["포트폴리오 전체 관점의 리스크 요인1(수치 포함, 손실 종목 비중·섹터 과집중·벤치마크 대비 부진·개별 종목 변동성 등 근거)","요인2","요인3"],` +
-    `"opportunityFactors":["포트폴리오 전체 관점에서 관찰된 긍정 요인1을 사실로만 서술(수치 포함, '추가 상승 여력을 기대', '~라는 신호로 해석될 수 있다' 같이 향후 주가를 암시하는 결론 금지)","요인2(동일 기준)","요인3(동일 기준)"],` +
-    `"shortTermOutlook":"포트폴리오 관점 단기 관찰 변수 — 현재 진행 중인 섹터 업황·수급 흐름 중 앞으로 바뀔 수 있는 지점을 사실 나열형으로 서술, '수익률이 갈릴 수 있다'/'상승·하락 여력' 같이 가격을 예측하는 표현 절대 금지, 2문장",` +
-    `"midTermOutlook":"포트폴리오 관점 중기 관찰 변수 — 섹터 업황·리밸런싱 관련 사실을 나열하되 특정 수익률이나 방향을 예측하지 않음, 가격 방향 예측 절대 금지, 2문장",` +
-    `"suggestions":["참고할 만한 관찰 포인트1","포인트2","포인트3","포인트4"]}\n\n` +
-    `규칙:\n` +
-    `- sectors weight 합계=100\n` +
-    `- riskFactors/opportunityFactors는 개별 종목이 아니라 포트폴리오 전체 구조(손실 비중·섹터 편중·벤치마크 대비·변동성)를 보는 관점으로 작성하세요\n` +
-    `- shortTermOutlook/midTermOutlook도 개별 종목이 아니라 포트폴리오 전체 관점으로 작성하고, 목표가·손절가·매수매도 지시·저항선·지지선·가격 방향 예측은 금지하세요 — 관찰된 사실만 서술하고 그 사실이 앞으로 수익률에 어떤 영향을 줄지 예측하지 마세요\n` +
-    `- suggestions는 "이렇게 하세요" 식 지시나 "투자자들이 참고한다"는 식의 권유성 결론이 아니라, 관찰된 데이터 특징을 사실 그대로 서술하는 정보 형태로 작성\n` +
-    `- 뉴스가 있는 종목은 그 이슈를 근거로 언급하고, 뉴스가 없는 종목은 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요\n` +
-    `- 벤치마크 수치는 판단 없이 사실 비교로만 1회 언급(예: "~보다 높습니다/낮습니다" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)\n` +
-    `- summary·suggestions·riskFactors·opportunityFactors·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
+    `위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
   try {
     const msg = await claude.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 4096,
-      system: `${COMPLIANCE_PRINCIPLE} 한국주식 포트폴리오 데이터를 섹터·수급·뉴스 관점에서 있는 그대로 정리하는 정보 제공자입니다. 숫자(PER·수급 등) 근거와 실제 뉴스 이슈를 함께 담아 설명하되, 무엇을 하라고 지시하지 마세요. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.`,
+      system: [
+        { type: 'text', text: PORTFOLIO_SUMMARY_SYSTEM },
+        { type: 'text', text: PORTFOLIO_SUMMARY_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+      ],
       messages: [{ role: 'user', content: prompt }],
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';

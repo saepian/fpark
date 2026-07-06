@@ -12,12 +12,40 @@ import {
   pickRelevantNews,
 } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
+import { fetchNaverNews } from '@/lib/naver-news';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic    = 'force-dynamic';
 export const maxDuration = 60;
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
+// 매 요청마다 동일한 고정 지침 — 프롬프트 캐싱 대상 (system 블록, cache_control 적용)
+// 종목별로 바뀌는 데이터(가격/수급/뉴스)는 여기 포함하지 않고 messages 쪽에 둔다.
+const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아래 구조 그대로 출력)
+{
+  "summary": "【450자 이내, 아래 구조로 작성 — 이 섹션만 읽어도 종목의 핵심 그림이 그려지도록 다른 섹션(수급·리스크·기회 요인)의 데이터를 적극 재활용해 풍부하게 작성】[1] 첫 문장: 현재 상태를 관찰형으로 — 예) '지금 삼성전자는 수익이 충분히 난 상태이며 외국인 자금 유출이 나타나고 있습니다.' [2] 밸류에이션 한 줄 코멘트: PER/PBR이 업종 평균 대비 어느 수준인지 관찰형으로 — 예) 'PER 44배 수준은 반도체 업종 평균 대비 높은 밸류에이션 구간으로 풀이됩니다.' [3] 이유 2~3가지를 일반인이 이해할 수 있는 쉬운 말로 — 예) '외국인 자금이 5일 연속 대규모로 빠져나가고 있는데, 이건 보통 큰손들이 차익 실현에 나설 때 흔히 보이는 패턴입니다.' [4] (외국인·기관과 개인의 자금 방향이 실제로 반대일 때만) 그 대립 구도를 사실로만 명시 — 예) '외국인·기관 자금은 빠져나가는 반면 개인 자금은 반대로 유입되는 구도를 보입니다.' 방향이 같으면 이 문장은 생략. 이 문장 뒤에 '향후 어느 쪽이 우위를 점하는지가 가격 방향을 좌우한다' 같이 미래 가격을 예측하는 문구를 절대 덧붙이지 마세요. [5] (뉴스 논조와 실제 주가 흐름이 실제로 반대일 때만) 그 괴리를 강조 — 예) '~라는 긍정적 뉴스에도 불구하고 실제로는 하락한 점은 뉴스 외 다른 요인이 작용했을 가능성을 시사합니다.' 괴리가 없으면 이 문장은 생략. [6] 데이터 사실로 마무리 — 예) '현재 52주 고점·저점 대비 위치와 수급 방향은 이와 같이 관찰됩니다.' 결론을 유도하거나 '투자자들이 참고한다'는 식의 권유성 마무리 금지. 금지: 매수/매도/홀딩 같은 지시나 권유, '~하세요'/'~하는 게 좋습니다'/'권고'/'~전략이 현실적입니다' 같은 1인칭 조언 문장, 목표가·손절가 언급, 저항선·지지선·매물대 같은 기술적 분석 용어, '가격 방향', '우위를 점하는지' 같은 미래 가격 예측 표현, ①②③ 번호 나열, 데이터 단순 나열, [4][5]에 해당 패턴이 없는데 억지로 만들어 넣기. 스타일: 편하게 설명하는 관찰형 어조를 쓰되, 위 예시들처럼 문장마다 종결 표현을 다양하게 바꾸고 같은 어미를 반복하지 마세요",
+  "reasons": ["관찰된 근거 1 (수치 포함)", "관찰된 근거 2", "관찰된 근거 3"],
+  "technicalAnalysis": ["가격 위치 관찰 1 (52주 고/저점 대비 위치 — 저항선·지지선 용어 없이 '몇 % 높은/낮은 수준'으로 서술)", "가격 위치 관찰 2 (거래량 수준)"],
+  "riskFactors": ["리스크 요인 1 (수치 포함)", "리스크 요인 2", "리스크 요인 3"],
+  "opportunityFactors": ["관찰된 긍정 요인 1을 사실로만 서술 — 예) 'KB증권이 영업이익 추정치를 상향했고, 청주 투자 계획이 발표됐습니다' (수치 포함, '추가 상승 여력을 기대', '~라는 신호로 해석될 수 있다' 같이 향후 주가를 암시하는 결론 금지)", "요인 2 (동일 기준)", "요인 3 (동일 기준)"],
+  "institutionalFlow": "기관 수급 동향 상세 관찰 (5일 추이·누적 규모·업종 의미, 2-3문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
+  "foreignFlow": "외국인 수급 동향 상세 관찰 (5일 추이·글로벌 매크로 관점, 2-3문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
+  "flowPercentage": 50,
+  "shortTermOutlook": "단기 관찰 변수 — 현재 진행 중인 수급/이벤트 요인 중 앞으로 방향이 바뀔 수 있는 지점을 사실 나열형으로 서술 (예: '외국인 자금은 5일째 유출 중이며, 기관은 오늘 하루 대규모로 유입했습니다. 이 두 흐름이 계속될지는 아직 확인되지 않았습니다.') — '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지, 2문장",
+  "midTermOutlook": "중기 관찰 변수 — 업황·실적 관련 사실을 나열하되 특정 가격 수준이나 방향을 예측하지 않음 (예: '메모리 공급 부족 전망과 대규모 투자 계획이 발표된 상태이며, 실제 실적 개선 여부는 다음 분기 실적에서 확인될 예정입니다.') — 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지, 2문장"
+}
+
+위 JSON 스키마를 반드시 준수하세요. 각 필드는 반드시 포함되어야 합니다.
+규칙:
+- ${COMPLIANCE_PRINCIPLE}
+- reasons, technicalAnalysis, riskFactors, opportunityFactors는 반드시 문자열 배열 (JSON array)
+- flowPercentage는 반드시 숫자 타입, 0~100 사이 정수 (외국인·기관 합산 순매수 강도 관찰치)
+- "목표가", "손절가", "매수 추천", "매도 추천", "권고", "정당화", "저항선", "지지선", "매물대", "지지 시험", "가격 방향", "우위를 점하는지", "상승 여력을 기대", "신호로 해석" 단어·표현을 사용하지 마세요
+- opportunityFactors·shortTermOutlook·midTermOutlook은 관찰된 사실만 서술하고, 그 사실이 앞으로 주가에 어떤 영향을 줄지 예측하거나 암시하지 마세요
+- 52주 고점/저점을 언급할 때는 위에 제공된 수치를 그대로 활용하세요 (임의의 가격을 새로 만들지 마세요)
+- 순수 JSON만 출력하고 다른 텍스트는 절대 포함하지 마세요.
+- 마크다운 코드블록(\`\`\`json), 설명 텍스트, preamble 없이 { 로 시작하는 JSON만 출력하세요.`;
 
 function makeSupabase() {
   const cookieStore = cookies();
@@ -33,31 +61,6 @@ function makeSupabase() {
       },
     },
   );
-}
-
-async function fetchNaverNews(stockName: string) {
-  try {
-    const res = await fetch(
-      `https://openapi.naver.com/v1/search/news.json?query=${encodeURIComponent(stockName)}&display=5`,
-      {
-        headers: {
-          'X-Naver-Client-Id':     process.env.NAVER_NEWS_CLIENT_ID ?? '',
-          'X-Naver-Client-Secret': process.env.NAVER_NEWS_CLIENT_SECRET ?? '',
-        },
-        signal: AbortSignal.timeout(4000),
-      }
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (data.items ?? []).map((item: any) => ({
-      title:       String(item.title ?? '').replace(/<[^>]*>/g, ''),
-      description: String(item.description ?? '').replace(/<[^>]*>/g, ''),
-      url:         String(item.originallink || item.link || ''),
-    }));
-  } catch {
-    return [];
-  }
 }
 
 export async function GET() {
@@ -145,7 +148,7 @@ export async function POST(request: NextRequest) {
     // ── 2단계: 결과 추출 ──────────────────────────────────────────────────────
     const priceData    = priceResult.status    === 'fulfilled' ? priceResult.value    : null;
     const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
-    const naverNewsRaw = naverNewsResult.status === 'fulfilled' ? naverNewsResult.value : [];
+    const naverNewsRaw = naverNewsResult.status === 'fulfilled' ? naverNewsResult.value.items : [];
     const chartData    = chartResult.status    === 'fulfilled' ? chartResult.value    : [];
 
     const currentPrice = (priceData?.price && priceData.price > 0)
@@ -176,10 +179,10 @@ export async function POST(request: NextRequest) {
     // DB 뉴스 + Naver 뉴스를 한 풀로 모은 뒤, 종목명·업종 키워드로 관련도 상위 2~3개만 선별
     const newsCandidates = [
       ...(analysisData?.news ?? []).map(n => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
-      ...(Array.isArray(naverNewsRaw) ? naverNewsRaw : []).map((n: { title?: string; description?: string; url?: string }) => ({
-        title:   String(n.title ?? ''),
-        summary: String(n.description ?? ''),
-        url:     String(n.url ?? ''),
+      ...naverNewsRaw.map((n) => ({
+        title:   n.title,
+        summary: n.description,
+        url:     n.url,
       })),
     ];
     const relevantNews = pickRelevantNews(newsCandidates, stockName, analysisData?.sector, 3);
@@ -271,38 +274,19 @@ ${newsInstruction}
 4. 보유 기간·수익률과 함께 관찰된 특징 정리 (매매 전략을 지시하지 말 것)
 5. 수급 동향에서 외국인·기관과 개인의 매매 방향이 서로 반대인지 확인 (반대인 경우에만 그 대립 구도를 summary에 명시)
 6. 뉴스 섹션의 논조(긍정/부정)와 실제 주가 흐름(금일 등락률·수익률)이 서로 반대 방향인지 확인 (괴리가 있는 경우에만 summary에서 그 점을 강조)
+${benchmark ? `\n벤치마크 수치는 summary에서 판단 없이 사실 비교로만 1회 언급하세요 (예: "같은 기간 ${benchmark.indexName}는 ${benchmark.indexChangeRate}%로, 이 종목이 시장 대비 ${(benchmark.stockProfitRate - benchmark.indexChangeRate) >= 0 ? '+' : ''}${(benchmark.stockProfitRate - benchmark.indexChangeRate).toFixed(2)}%p ${benchmark.stockProfitRate >= benchmark.indexChangeRate ? '더 상승' : '더 하락'}한 셈임" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)` : ''}
 
-## 출력 JSON 스키마 (반드시 아래 구조 그대로 출력)
-{
-  "summary": "【450자 이내, 아래 구조로 작성 — 이 섹션만 읽어도 종목의 핵심 그림이 그려지도록 다른 섹션(수급·리스크·기회 요인)의 데이터를 적극 재활용해 풍부하게 작성】[1] 첫 문장: 현재 상태를 관찰형으로 — 예) '지금 삼성전자는 수익이 충분히 난 상태이며 외국인 자금 유출이 나타나고 있습니다.' [2] 밸류에이션 한 줄 코멘트: PER/PBR이 업종 평균 대비 어느 수준인지 관찰형으로 — 예) 'PER 44배 수준은 반도체 업종 평균 대비 높은 밸류에이션 구간으로 풀이됩니다.' [3] 이유 2~3가지를 일반인이 이해할 수 있는 쉬운 말로 — 예) '외국인 자금이 5일 연속 대규모로 빠져나가고 있는데, 이건 보통 큰손들이 차익 실현에 나설 때 흔히 보이는 패턴입니다.' [4] (외국인·기관과 개인의 자금 방향이 실제로 반대일 때만) 그 대립 구도를 사실로만 명시 — 예) '외국인·기관 자금은 빠져나가는 반면 개인 자금은 반대로 유입되는 구도를 보입니다.' 방향이 같으면 이 문장은 생략. 이 문장 뒤에 '향후 어느 쪽이 우위를 점하는지가 가격 방향을 좌우한다' 같이 미래 가격을 예측하는 문구를 절대 덧붙이지 마세요. [5] (뉴스 논조와 실제 주가 흐름이 실제로 반대일 때만) 그 괴리를 강조 — 예) '~라는 긍정적 뉴스에도 불구하고 실제로는 하락한 점은 뉴스 외 다른 요인이 작용했을 가능성을 시사합니다.' 괴리가 없으면 이 문장은 생략. [6] 데이터 사실로 마무리 — 예) '현재 52주 고점·저점 대비 위치와 수급 방향은 이와 같이 관찰됩니다.' 결론을 유도하거나 '투자자들이 참고한다'는 식의 권유성 마무리 금지. 금지: 매수/매도/홀딩 같은 지시나 권유, '~하세요'/'~하는 게 좋습니다'/'권고'/'~전략이 현실적입니다' 같은 1인칭 조언 문장, 목표가·손절가 언급, 저항선·지지선·매물대 같은 기술적 분석 용어, '가격 방향', '우위를 점하는지' 같은 미래 가격 예측 표현, ①②③ 번호 나열, 데이터 단순 나열, [4][5]에 해당 패턴이 없는데 억지로 만들어 넣기. 스타일: 편하게 설명하는 관찰형 어조를 쓰되, 위 예시들처럼 문장마다 종결 표현을 다양하게 바꾸고 같은 어미를 반복하지 마세요",
-  "reasons": ["관찰된 근거 1 (수치 포함)", "관찰된 근거 2", "관찰된 근거 3"],
-  "technicalAnalysis": ["가격 위치 관찰 1 (52주 고/저점 대비 위치 — 저항선·지지선 용어 없이 '몇 % 높은/낮은 수준'으로 서술)", "가격 위치 관찰 2 (거래량 수준)"],
-  "riskFactors": ["리스크 요인 1 (수치 포함)", "리스크 요인 2", "리스크 요인 3"],
-  "opportunityFactors": ["관찰된 긍정 요인 1을 사실로만 서술 — 예) 'KB증권이 영업이익 추정치를 상향했고, 청주 투자 계획이 발표됐습니다' (수치 포함, '추가 상승 여력을 기대', '~라는 신호로 해석될 수 있다' 같이 향후 주가를 암시하는 결론 금지)", "요인 2 (동일 기준)", "요인 3 (동일 기준)"],
-  "institutionalFlow": "기관 수급 동향 상세 관찰 (5일 추이·누적 규모·업종 의미, 2-3문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
-  "foreignFlow": "외국인 수급 동향 상세 관찰 (5일 추이·글로벌 매크로 관점, 2-3문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
-  "flowPercentage": 50,
-  "shortTermOutlook": "단기 관찰 변수 — 현재 진행 중인 수급/이벤트 요인 중 앞으로 방향이 바뀔 수 있는 지점을 사실 나열형으로 서술 (예: '외국인 자금은 5일째 유출 중이며, 기관은 오늘 하루 대규모로 유입했습니다. 이 두 흐름이 계속될지는 아직 확인되지 않았습니다.') — '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지, 2문장",
-  "midTermOutlook": "중기 관찰 변수 — 업황·실적 관련 사실을 나열하되 특정 가격 수준이나 방향을 예측하지 않음 (예: '메모리 공급 부족 전망과 대규모 투자 계획이 발표된 상태이며, 실제 실적 개선 여부는 다음 분기 실적에서 확인될 예정입니다.') — 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지, 2문장"
-}
-
-위 JSON 스키마를 반드시 준수하세요. 각 필드는 반드시 포함되어야 합니다.
-규칙:
-- ${COMPLIANCE_PRINCIPLE}
-- reasons, technicalAnalysis, riskFactors, opportunityFactors는 반드시 문자열 배열 (JSON array)
-- flowPercentage는 반드시 숫자 타입, 0~100 사이 정수 (외국인·기관 합산 순매수 강도 관찰치)
-- "목표가", "손절가", "매수 추천", "매도 추천", "권고", "정당화", "저항선", "지지선", "매물대", "지지 시험", "가격 방향", "우위를 점하는지", "상승 여력을 기대", "신호로 해석" 단어·표현을 사용하지 마세요
-- opportunityFactors·shortTermOutlook·midTermOutlook은 관찰된 사실만 서술하고, 그 사실이 앞으로 주가에 어떤 영향을 줄지 예측하거나 암시하지 마세요
-- 52주 고점/저점을 언급할 때는 위에 제공된 수치를 그대로 활용하세요 (임의의 가격을 새로 만들지 마세요)${benchmark ? `\n- 벤치마크 수치는 summary에서 판단 없이 사실 비교로만 1회 언급하세요 (예: "같은 기간 ${benchmark.indexName}는 ${benchmark.indexChangeRate}%로, 이 종목이 시장 대비 ${(benchmark.stockProfitRate - benchmark.indexChangeRate) >= 0 ? '+' : ''}${(benchmark.stockProfitRate - benchmark.indexChangeRate).toFixed(2)}%p ${benchmark.stockProfitRate >= benchmark.indexChangeRate ? '더 상승' : '더 하락'}한 셈임" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)` : ''}
-- 순수 JSON만 출력하고 다른 텍스트는 절대 포함하지 마세요.
-- 마크다운 코드블록(\`\`\`json), 설명 텍스트, preamble 없이 { 로 시작하는 JSON만 출력하세요.`;
+위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
     console.log('[DIAGNOSIS] 4. Claude 분석 시작');
 
     const message = await claude.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 3500,
-      system: COMPLIANCE_PRINCIPLE,
+      system: [
+        { type: 'text', text: COMPLIANCE_PRINCIPLE },
+        { type: 'text', text: DIAGNOSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+      ],
       messages: [{ role: 'user', content: prompt }],
     });
 
