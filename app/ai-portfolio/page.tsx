@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { motion, useInView, useReducedMotion } from 'motion/react';
 import {
@@ -8,7 +9,9 @@ import {
   Database, Cpu, Send, ArrowRight, Check,
 } from 'lucide-react';
 import { PLAN_AMOUNTS } from '@/lib/payment-constants';
-import HeroMarketBackground from '@/components/ai-portfolio/HeroMarketBackground';
+
+// 파티클 배경은 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
+const PageBackground = dynamic(() => import('@/components/layout/PageBackground'), { ssr: false });
 
 // ── 디자인 토큰 (이 페이지 전용) ───────────────────────────────────────────
 // bg-main #0B0D12 · bg-card #151922 · text #E8EAED · text-sub #8B92A8
@@ -197,7 +200,7 @@ export default function AiPortfolioLandingPage() {
 
       {/* ══ 1. 히어로 ══ */}
       <section className="relative">
-        <HeroMarketBackground />
+        <PageBackground />
         <div className="max-w-4xl mx-auto px-4 pt-20 pb-20 md:pt-28 md:pb-28 text-center relative">
           <motion.div
             initial={{ opacity: 0, y: 14 }}
@@ -214,7 +217,7 @@ export default function AiPortfolioLandingPage() {
             transition={{ duration: 0.6, delay: 0.08 }}
             className="text-3xl md:text-5xl font-black leading-tight mb-5 break-keep"
           >
-            사고팔라고 말하지 않습니다.<br className="hidden md:block" />
+            매수도 매도도 말하지 않습니다.<br className="hidden md:block" />
             <span className="text-[#3ECF8E]">수급과 데이터</span>로 흐름만 보여드립니다.
           </motion.h1>
 

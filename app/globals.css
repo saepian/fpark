@@ -192,33 +192,6 @@ button, [role="button"], a {
   transform: translateY(-1px);
 }
 
-/* ── 랜딩페이지(/ai-portfolio) 히어로 배경 — 라인차트/캔들 패턴 ──────────── */
-@keyframes lp-line-flow {
-  from { stroke-dashoffset: 0; }
-  to   { stroke-dashoffset: -240; }
-}
-
-@keyframes lp-candle-breathe {
-  0%, 100% { transform: scaleY(0.9); }
-  50%      { transform: scaleY(1.06); }
-}
-
-.lp-chart-line {
-  animation: lp-line-flow 14s linear infinite;
-}
-
-.lp-candle {
-  transform-origin: bottom center;
-  animation: lp-candle-breathe 5s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lp-chart-line,
-  .lp-candle {
-    animation: none !important;
-  }
-}
-
 /* ── 인쇄 스타일 ─────────────────────────────────────────────────── */
 @media print {
   * {
