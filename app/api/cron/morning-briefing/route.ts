@@ -190,7 +190,7 @@ function buildMorningEmailHtml(params: {
     <!-- 푸터 -->
     <div style="text-align:center;margin-top:32px;padding-top:20px;border-top:1px solid #1e2537">
       <p style="color:#334155;font-size:11px;margin:0 0 8px">Finance Park · Pro 구독자 전용 아침 브리핑</p>
-      <a href="https://fpark.com/api/email/unsubscribe?token=${makeUnsubToken(userId)}" style="color:#475569;font-size:11px;text-decoration:underline">
+      <a href="https://fpark.com/api/email/unsubscribe?token=${makeUnsubToken(userId)}&type=morning" style="color:#475569;font-size:11px;text-decoration:underline">
         이메일 수신 거부
       </a>
     </div>
@@ -217,12 +217,12 @@ export async function GET(request: NextRequest) {
   const { dateStr, mm, dd } = getKstDateInfo();
   console.log(`[MORNING-BRIEFING] 시작 — 기준 시각(전일 마감) ${sinceUtc.toISOString()} 이후 뉴스만 대상`);
 
-  // 1. Pro 구독자 + 이메일 수신 동의자 (기존 daily-alert-email과 동일 대상 기준)
+  // 1. Pro 구독자 + 아침 브리핑 수신 동의자 (저녁 리포트의 email_alert_enabled와는 별개 토글)
   const { data: proUsers, error: usersError } = await adminClient
     .from('users')
     .select('id')
     .eq('plan', 'pro')
-    .eq('email_alert_enabled', true);
+    .eq('morning_briefing_enabled', true);
 
   if (usersError) {
     console.error('[MORNING-BRIEFING] users 쿼리 실패:', usersError.message);

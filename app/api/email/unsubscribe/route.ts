@@ -5,7 +5,10 @@ import { verifyUnsubToken } from '@/lib/unsubscribe-token';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const token = new URL(request.url).searchParams.get('token');
+  const url   = new URL(request.url);
+  const token = url.searchParams.get('token');
+  // 링크에 type이 없으면(기존에 발송된 저녁 리포트 링크) evening으로 취급 — 기존 동작 그대로 유지
+  const type: 'morning' | 'evening' = url.searchParams.get('type') === 'morning' ? 'morning' : 'evening';
 
   if (!token) {
     return new NextResponse(errorHtml('잘못된 링크입니다.'), {
@@ -23,9 +26,11 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const updatePayload: { morning_briefing_enabled: boolean } | { email_alert_enabled: boolean } =
+    type === 'morning' ? { morning_briefing_enabled: false } : { email_alert_enabled: false };
   const { error } = await adminClient
     .from('users')
-    .update({ email_alert_enabled: false })
+    .update(updatePayload)
     .eq('id', userId);
 
   if (error) {
@@ -36,17 +41,18 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  return new NextResponse(successHtml(), {
+  return new NextResponse(successHtml(type), {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 }
 
-function successHtml(): string {
+function successHtml(type: 'morning' | 'evening'): string {
+  const label = type === 'morning' ? '장 시작 전 뉴스 브리핑' : '장 마감 후 분석 리포트';
   return page(
     '✅',
     '이메일 수신이 해제되었습니다',
-    'Finance Park 일일 리포트가 더 이상 발송되지 않습니다.',
+    `Finance Park ${label}가 더 이상 발송되지 않습니다.`,
     '<a href="https://fpark.com/mypage" style="color:#818cf8;font-size:13px;text-decoration:underline">마이페이지에서 재설정하기 →</a>',
   );
 }

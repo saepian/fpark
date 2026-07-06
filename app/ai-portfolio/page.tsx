@@ -4,7 +4,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { motion, useReducedMotion } from 'motion/react';
 import {
-  Search, PieChart, Trophy, BellRing, Mail,
+  Search, PieChart, Trophy, BellRing, Mail, Sunrise,
   Database, Cpu, Send, ArrowRight, Check,
 } from 'lucide-react';
 import { PLAN_AMOUNTS } from '@/lib/payment-constants';
@@ -94,11 +94,20 @@ const FEATURES = [
     ),
   },
   {
-    icon: Mail, title: '데일리 리포트',
-    desc: '매일 아침, 전일 시장과 관심 기업 요약을 이메일로 보내드립니다.',
+    icon: Sunrise, title: '장 시작 전 브리핑',
+    desc: '새로운 뉴스가 있는 관심기업을 AI가 분석해 장 시작 전 이메일로 보내드립니다.',
     mini: (
       <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-700/60 bg-[#1E232D] px-2.5 py-1.5 text-[11px] text-[#8B92A8] tabular-nums">
-        오전 7:00 · 오늘의 요약 도착
+        오전 7:00 · 관심기업 뉴스 분석
+      </div>
+    ),
+  },
+  {
+    icon: Mail, title: '장 마감 후 리포트',
+    desc: '매일 장 마감 후, 관심기업 등락 현황과 AI 분석을 이메일로 보내드립니다.',
+    mini: (
+      <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-700/60 bg-[#1E232D] px-2.5 py-1.5 text-[11px] text-[#8B92A8] tabular-nums">
+        오후 3:45 · 등락 현황·AI 분석
       </div>
     ),
   },
@@ -226,7 +235,7 @@ export default function AiPortfolioLandingPage() {
       <section className="max-w-5xl mx-auto px-4 py-16 md:py-24">
         <Reveal className="text-center mb-12">
           <h2 className="text-2xl md:text-[32px] font-bold break-keep">FPARK가 정리해드리는 것들</h2>
-          <p className="text-[#8B92A8] text-[14px] md:text-[15px] mt-3">다섯 가지 기능으로 데이터를 확인하세요</p>
+          <p className="text-[#8B92A8] text-[14px] md:text-[15px] mt-3">여섯 가지 기능으로 데이터를 확인하세요</p>
         </Reveal>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">

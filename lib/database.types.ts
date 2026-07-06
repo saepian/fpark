@@ -456,6 +456,7 @@ export type Database = {
           email: string | null
           email_alert_enabled: boolean
           id: string
+          morning_briefing_enabled: boolean
           next_billed_at: string | null
           payment_method: string | null
           phone: string | null
@@ -469,6 +470,7 @@ export type Database = {
           email?: string | null
           email_alert_enabled?: boolean
           id: string
+          morning_briefing_enabled?: boolean
           next_billed_at?: string | null
           payment_method?: string | null
           phone?: string | null
@@ -482,6 +484,7 @@ export type Database = {
           email?: string | null
           email_alert_enabled?: boolean
           id?: string
+          morning_briefing_enabled?: boolean
           next_billed_at?: string | null
           payment_method?: string | null
           phone?: string | null

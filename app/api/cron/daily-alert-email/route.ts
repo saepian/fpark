@@ -295,7 +295,7 @@ function buildEmailHtml(params: {
     <!-- 푸터 -->
     <div style="text-align:center;margin-top:32px;padding-top:20px;border-top:1px solid #1e2537">
       <p style="color:#334155;font-size:11px;margin:0 0 8px">Finance Park · Pro 구독자 전용 일일 리포트</p>
-      <a href="https://fpark.com/api/email/unsubscribe?token=${makeUnsubToken(userId)}" style="color:#475569;font-size:11px;text-decoration:underline">
+      <a href="https://fpark.com/api/email/unsubscribe?token=${makeUnsubToken(userId)}&type=evening" style="color:#475569;font-size:11px;text-decoration:underline">
         이메일 수신 거부
       </a>
     </div>

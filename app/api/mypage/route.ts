@@ -59,7 +59,7 @@ export async function GET() {
   // users 테이블 조회 — service role key로 RLS 우회
   const { data: userRow } = await adminClient
     .from('users')
-    .select('plan, created_at, email_alert_enabled, subscription_status, payment_method, next_billed_at')
+    .select('plan, created_at, email_alert_enabled, morning_briefing_enabled, subscription_status, payment_method, next_billed_at')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -131,6 +131,7 @@ export async function GET() {
     plan,
     createdAt: userRow?.created_at ?? user.created_at,
     emailAlertEnabled: userRow?.email_alert_enabled ?? true,
+    morningBriefingEnabled: userRow?.morning_briefing_enabled ?? true,
     usage: {
       diagnosisToday: diagnosisCount,
       portfolioMonth: portfolioCount,
@@ -157,13 +158,17 @@ export async function PATCH(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  if (typeof body.email_alert_enabled !== 'boolean') {
+  const update: { email_alert_enabled?: boolean; morning_briefing_enabled?: boolean } = {};
+  if (typeof body.email_alert_enabled === 'boolean') update.email_alert_enabled = body.email_alert_enabled;
+  if (typeof body.morning_briefing_enabled === 'boolean') update.morning_briefing_enabled = body.morning_briefing_enabled;
+
+  if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: '잘못된 요청' }, { status: 400 });
   }
 
   const { error } = await adminClient
     .from('users')
-    .update({ email_alert_enabled: body.email_alert_enabled })
+    .update(update)
     .eq('id', user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
