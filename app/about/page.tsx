@@ -22,14 +22,14 @@ const FEATURES = [
   {
     icon: <Newspaper className="w-5 h-5 text-sky-400" />,
     iconBg: 'bg-sky-500/10 border-sky-500/25',
-    title: '실시간 뉴스',
-    desc: '국내외 주요 경제·시장 뉴스를 실시간으로 수집하고 기업별 관련 뉴스를 자동으로 연결합니다.',
+    title: '뉴스 분석',
+    desc: '국내외 주요 경제·시장 뉴스를 매일 수집하고 기업별 관련 뉴스를 자동으로 연결합니다.',
   },
   {
     icon: <TrendingUp className="w-5 h-5 text-emerald-400" />,
     iconBg: 'bg-emerald-500/10 border-emerald-500/25',
     title: '시장 데이터',
-    desc: 'KOSPI·KOSDAQ·해외증시 실시간 데이터와 급등·급락 기업을 실시간으로 모니터링합니다.',
+    desc: 'KOSPI·KOSDAQ·해외증시 최신 시장 데이터와 급등·급락 기업 현황을 매일 업데이트하여 제공합니다.',
   },
 ];
 
@@ -81,7 +81,7 @@ export default function AboutPage() {
         <div className="p-8 md:p-10">
           <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest mb-4">About Us</p>
           <p className="text-[15px] text-slate-300 leading-[1.9]">
-            Finance Park는 최신 AI 기술을 활용해 실시간 시장 데이터와 뉴스를 종합 분석하는
+            Finance Park는 최신 AI 기술을 활용해 공개된 시장 데이터와 뉴스를 종합 분석하는
             <span className="text-white font-semibold"> AI 기반 데이터 분석 플랫폼</span>입니다.
             복잡한 시장 데이터를 누구나 이해하기 쉬운 리포트로 변환해,
             이용자가 공개된 정보를 바탕으로 스스로 판단할 수 있도록 돕습니다.
@@ -131,10 +131,11 @@ export default function AboutPage() {
             { label: '서비스명', value: 'Finance Park (fpark.com)' },
             { label: '운영사', value: '디지웹 디자인' },
             { label: '대표', value: '김대우' },
+            { label: '통신판매업신고번호', value: '제2026-서울강동-1073호' },
             { label: '이메일', value: 'saepian2@gmail.com', href: 'mailto:saepian2@gmail.com' },
           ].map(row => (
             <div key={row.label} className="flex items-baseline gap-3">
-              <span className="text-slate-500 w-24 shrink-0">{row.label}</span>
+              <span className="text-slate-500 w-32 shrink-0 whitespace-nowrap">{row.label}</span>
               {row.href ? (
                 <a href={row.href} className="text-indigo-300 hover:underline">{row.value}</a>
               ) : (

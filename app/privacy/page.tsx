@@ -30,8 +30,9 @@ export default function PrivacyPage() {
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">4. 쿠키 사용</h2>
-          <p>본 서비스는 Google Analytics 및 Google AdSense를 통해
-          쿠키를 사용할 수 있습니다. 브라우저 설정에서 쿠키를 거부할 수 있으나,
+          <p>본 서비스는 로그인 세션 유지 등 서비스 제공을 위해 쿠키를 사용합니다.
+          향후 Google Analytics 등 서비스 분석 도구를 도입할 경우 본 방침을 업데이트하여
+          공지하겠습니다. 브라우저 설정에서 쿠키를 거부할 수 있으나, 이 경우 로그인 등
           일부 서비스 이용이 제한될 수 있습니다.</p>
         </section>
 
@@ -43,25 +44,10 @@ export default function PrivacyPage() {
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">6. 개인정보 처리업무 위탁</h2>
-          <p className="mb-3">FINANCE PARK는 원활한 서비스 제공을 위해 아래와 같이 개인정보 처리업무를 외부에 위탁하고 있습니다.</p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px] text-slate-400 border-collapse">
-              <thead>
-                <tr className="border-b border-slate-700">
-                  <th className="text-left py-2 pr-6 text-slate-300 font-semibold whitespace-nowrap">위탁받는 자</th>
-                  <th className="text-left py-2 pr-6 text-slate-300 font-semibold">위탁업무 내용</th>
-                  <th className="text-left py-2 text-slate-300 font-semibold whitespace-nowrap">보유 및 이용기간</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b border-slate-800">
-                  <td className="py-2.5 pr-6 whitespace-nowrap">포트원 주식회사</td>
-                  <td className="py-2.5 pr-6">전자결제 대행 서비스 (PG 연동)</td>
-                  <td className="py-2.5">회원 탈퇴 시 또는 위탁계약 종료 시까지<br />(관련 법령에 따른 보관기간 준수)</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          {/* TODO: PG/MoR 확정 시 이 섹션 업데이트 필요 — 결제대행사가 정해지면
+              위탁받는 자/위탁업무 내용/보유 및 이용기간을 표로 다시 명시할 것 */}
+          <p>현재 위탁 중인 개인정보 처리업무가 없습니다. 향후 결제대행사 등이 확정되면
+          본 방침을 업데이트하여 공지하겠습니다.</p>
         </section>
 
         <section>
@@ -78,7 +64,7 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-white mb-3">8. 문의</h2>
           <p>개인정보 관련 문의: <a href="mailto:saepian2@gmail.com"
             className="text-indigo-400 hover:underline">saepian2@gmail.com</a></p>
-          <p className="mt-1 text-slate-500">최종 수정일: 2026년 6월 24일</p>
+          <p className="mt-1 text-slate-500">최종 수정일: 2026년 7월 6일</p>
         </section>
       </div>
     </div>

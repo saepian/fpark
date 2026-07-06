@@ -13,7 +13,7 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">제2조 (서비스 내용)</h2>
           <ul className="list-disc list-inside space-y-1 text-slate-400">
-            <li>실시간 시장 시세 및 차트 정보 제공</li>
+            <li>매일 갱신되는 시장 시세 및 차트 정보 제공</li>
             <li>AI 기반 종목 분석 리포트</li>
             <li>금융 뉴스 수집 및 AI 요약</li>
             <li>시장 지수 및 환율 정보</li>
@@ -46,6 +46,8 @@ export default function TermsPage() {
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">제6조 (유료 서비스 및 환불 정책)</h2>
+          {/* TODO: 결제대행사(PG/MoR) 확정 시 결제 방식 조항 재검토 필요 —
+              해외 MoR 사용 시 '빌링키' 개념이 아닌 구독 관리 방식으로 변경될 수 있음 */}
           <div className="space-y-3 text-slate-400">
             <p><span className="text-slate-300 font-medium">결제 방식:</span> 구독 플랜(Basic / Pro)은 최초 결제 시 빌링키를 발급하여 매월 자동 결제됩니다.</p>
             <p><span className="text-slate-300 font-medium">해지:</span> 마이페이지에서 언제든지 구독을 해지할 수 있으며, 해지 즉시 다음 달 자동 결제가 중단됩니다. 해지 후 현재 결제 기간이 끝날 때까지 서비스를 계속 이용할 수 있습니다.</p>
@@ -64,7 +66,7 @@ export default function TermsPage() {
           <h2 className="text-lg font-semibold text-white mb-3">제7조 (문의)</h2>
           <p>서비스 관련 문의: <a href="mailto:saepian2@gmail.com"
             className="text-indigo-400 hover:underline">saepian2@gmail.com</a></p>
-          <p className="mt-1 text-slate-500">시행일: 2026년 6월 24일</p>
+          <p className="mt-1 text-slate-500">시행일: 2026년 7월 6일</p>
         </section>
       </div>
     </div>

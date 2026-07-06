@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 const REFUND_EMAIL = 'saepian2@gmail.com';
-const LAST_UPDATED = '2026년 7월 3일';
+const LAST_UPDATED = '2026년 7월 6일';
 
 const webPageJsonLd = {
   '@context': 'https://schema.org',
@@ -23,7 +23,7 @@ const webPageJsonLd = {
   alternateName: 'Refund Policy',
   description: 'FPARK 서비스의 환불 기준 및 환불 절차를 안내합니다.',
   url: 'https://fpark.com/refund',
-  dateModified: '2026-07-03',
+  dateModified: '2026-07-06',
   inLanguage: 'ko-KR',
   isPartOf: {
     '@type': 'WebSite',
@@ -68,7 +68,7 @@ export default function RefundPage() {
           <h2 className="text-lg font-semibold text-white mb-3">2. 구독 상품 환불</h2>
           <p>아래 조건을 모두 충족하는 경우 전액 환불이 가능합니다.</p>
           <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
-            <li>결제 후 3일 이내</li>
+            <li>결제일로부터 7일 이내</li>
             <li>서비스를 사용하지 않은 경우</li>
           </ul>
           <p className="mt-3">서비스를 이미 사용한 경우에는 사용 기간에 해당하는 금액을 제외한 나머지 금액을 환불합니다.</p>
@@ -79,7 +79,7 @@ export default function RefundPage() {
           <p>기업 분석 및 포트폴리오 분석과 같은 1회 이용권은 아래 조건을 모두 충족하는 경우 전액 환불이 가능합니다.</p>
           <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
             <li>미사용 상태</li>
-            <li>구매 후 3일 이내</li>
+            <li>구매일로부터 7일 이내</li>
           </ul>
           <p className="mt-3">이미 사용한 이용권은 환불되지 않습니다.</p>
         </section>
