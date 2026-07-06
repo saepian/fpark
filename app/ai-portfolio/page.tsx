@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { useEffect, useRef, useState } from 'react';
-import { motion, useInView, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import {
   Search, PieChart, Trophy, BellRing, Mail,
   Database, Cpu, Send, ArrowRight, Check,
@@ -37,33 +36,6 @@ function Reveal({
       {children}
     </motion.div>
   );
-}
-
-function CountUp({
-  to, duration = 1.1, suffix = '', decimals = 0, className = '',
-}: {
-  to: number; duration?: number; suffix?: string; decimals?: number; className?: string;
-}) {
-  const reduceMotion = useReducedMotion();
-  const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref, { once: true, margin: '-60px' });
-  const [val, setVal] = useState(reduceMotion ? to : 0);
-
-  useEffect(() => {
-    if (!inView || reduceMotion) return;
-    const start = performance.now();
-    let raf: number;
-    const tick = (now: number) => {
-      const p = Math.min((now - start) / (duration * 1000), 1);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setVal(to * eased);
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [inView, to, duration, reduceMotion]);
-
-  return <span ref={ref} className={`tabular-nums ${className}`}>{val.toFixed(decimals)}{suffix}</span>;
 }
 
 // ── 데이터 ──────────────────────────────────────────────────────────────────
@@ -217,8 +189,8 @@ export default function AiPortfolioLandingPage() {
             transition={{ duration: 0.6, delay: 0.08 }}
             className="text-3xl md:text-5xl font-black leading-tight mb-5 break-keep"
           >
-            매수도 매도도 말하지 않습니다.<br className="hidden md:block" />
-            <span className="text-[#3ECF8E]">수급과 데이터</span>로 흐름만 보여드립니다.
+            AI가 정리하는<br />
+            <span className="bg-gradient-to-r from-[#3ECF8E] to-[#7EE8BB] bg-clip-text text-transparent">기업 핵심 정보</span>
           </motion.h1>
 
           <motion.p
@@ -227,8 +199,7 @@ export default function AiPortfolioLandingPage() {
             transition={{ duration: 0.6, delay: 0.16 }}
             className="text-[#8B92A8] text-[15px] md:text-lg mb-3"
           >
-            외국인·기관 수급, 뉴스, 밸류에이션까지 — 기업당{' '}
-            <span className="text-[#E8EAED] font-bold"><CountUp to={3} />초</span>면 확인
+            외국인·기관 자금 흐름, 뉴스, 밸류에이션까지 — 흩어진 정보를 AI가 한 번에 정리해드립니다.
           </motion.p>
 
           <motion.p
