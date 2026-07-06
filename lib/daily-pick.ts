@@ -94,36 +94,64 @@ function classifyPickReason(c: FlowCandidate): string | null {
 }
 
 // 후보 유니버스(대형·중형주 약 90종목)를 순회하며 외국인·기관 수급 데이터 조회
-async function scanFlowCandidates(): Promise<FlowCandidate[]> {
+// apiErrorCount: KIS 호출 자체가 실패한 종목 수 — "조건 미충족"과 구분하기 위해 별도 집계
+async function scanFlowCandidates(): Promise<{ candidates: FlowCandidate[]; apiErrorCount: number; totalCount: number }> {
   const tickers = CURATED_TICKERS_MKT.map(([t]) => t);
-  const results: FlowCandidate[] = [];
+  const candidates: FlowCandidate[] = [];
+  let apiErrorCount = 0;
 
   for (let i = 0; i < tickers.length; i += 5) {
     const chunk = tickers.slice(i, i + 5);
     const settled = await Promise.allSettled(
-      chunk.map(async (ticker): Promise<FlowCandidate | null> => {
-        const { latest, trend } = await fetchInvestorTrend(ticker);
-        if (!latest || trend.length === 0) return null;
+      chunk.map(async (ticker): Promise<{ candidate: FlowCandidate | null; apiError: boolean }> => {
+        const { latest, trend, apiError } = await fetchInvestorTrend(ticker);
+        if (apiError) return { candidate: null, apiError: true };
+        if (!latest || trend.length === 0) return { candidate: null, apiError: false };
 
         return {
-          ticker,
-          name: STOCK_NAMES[ticker] ?? ticker,
-          foreignNetBuyAuk:     latest.foreign.amount,
-          institutionNetBuyAuk: latest.institution.amount,
-          foreignCumulative5dAuk:     trend.reduce((s, d) => s + d.foreign, 0),
-          institutionCumulative5dAuk: trend.reduce((s, d) => s + d.institution, 0),
-          foreignConsecutiveDays:     countConsecutivePositive(trend.map((d) => d.foreign)),
-          institutionConsecutiveDays: countConsecutivePositive(trend.map((d) => d.institution)),
+          candidate: {
+            ticker,
+            name: STOCK_NAMES[ticker] ?? ticker,
+            foreignNetBuyAuk:     latest.foreign.amount,
+            institutionNetBuyAuk: latest.institution.amount,
+            foreignCumulative5dAuk:     trend.reduce((s, d) => s + d.foreign, 0),
+            institutionCumulative5dAuk: trend.reduce((s, d) => s + d.institution, 0),
+            foreignConsecutiveDays:     countConsecutivePositive(trend.map((d) => d.foreign)),
+            institutionConsecutiveDays: countConsecutivePositive(trend.map((d) => d.institution)),
+          },
+          apiError: false,
         };
       }),
     );
     for (const r of settled) {
-      if (r.status === 'fulfilled' && r.value) results.push(r.value);
+      if (r.status === 'fulfilled') {
+        if (r.value.apiError) apiErrorCount++;
+        else if (r.value.candidate) candidates.push(r.value.candidate);
+      } else {
+        apiErrorCount++;
+      }
     }
     if (i + 5 < tickers.length) await new Promise((r) => setTimeout(r, 200));
   }
 
-  return results;
+  return { candidates, apiErrorCount, totalCount: tickers.length };
+}
+
+async function notifyKisFailure(apiErrorCount: number, totalCount: number, apiErrorRate: number) {
+  if (!process.env.RESEND_API_KEY) return;
+  try {
+    const { Resend } = await import('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    await resend.emails.send({
+      from: 'Finance Park <noreply@fpark.com>',
+      to: ['saepian2@gmail.com'],
+      subject: `[fpark] daily-pick KIS API 장애 알림 (실패율 ${Math.round(apiErrorRate * 100)}%)`,
+      html: `<p>daily-pick 크론 스크리닝 중 KIS API 호출이 ${apiErrorCount}/${totalCount}건 실패했습니다 (실패율 ${Math.round(apiErrorRate * 100)}%).</p>
+             <p>오늘 수급 상위 기업이 선정되지 않았습니다. KIS Open API 서버 상태를 확인해 주세요.</p>`,
+    });
+  } catch (e) {
+    console.error('[DAILY-PICK] KIS 장애 알림 메일 발송 실패:', e);
+  }
 }
 
 export async function generateAndSavePick(): Promise<{ ticker: string; name: string } | null> {
@@ -144,8 +172,12 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
 
   // 1. 외국인·기관 수급 기준 스크리닝
   console.log('[DAILY-PICK] 수급 스크리닝 시작');
-  const candidates = await scanFlowCandidates();
-  console.log(`[DAILY-PICK] 스크리닝 완료 — ${candidates.length}/${CURATED_TICKERS_MKT.length}개 종목 조회`);
+  const { candidates, apiErrorCount, totalCount } = await scanFlowCandidates();
+  const apiErrorRate = totalCount > 0 ? apiErrorCount / totalCount : 0;
+  console.log(
+    `[DAILY-PICK] 스크리닝 완료 — ${candidates.length}/${totalCount}개 종목 조회 ` +
+    `(KIS 실패 ${apiErrorCount}건 / 실패율 ${Math.round(apiErrorRate * 100)}%)`,
+  );
 
   const classified = candidates
     .map((c) => ({ ...c, reason: classifyPickReason(c) }))
@@ -158,7 +190,15 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
 
   // 조건을 충족하는 종목이 없으면 선정하지 않음 (가짜 사유로 억지 선정하지 않음)
   if (classified.length === 0) {
-    console.log('[DAILY-PICK] 오늘 수급 조건 충족 종목 없음 — 선정 생략');
+    const KIS_FAILURE_THRESHOLD = 0.8;
+    if (apiErrorRate >= KIS_FAILURE_THRESHOLD) {
+      console.error(
+        `[DAILY-PICK] KIS API 장애로 스크리닝 실패 (실패율 ${Math.round(apiErrorRate * 100)}%, ${apiErrorCount}/${totalCount}건) — 선정 생략`,
+      );
+      await notifyKisFailure(apiErrorCount, totalCount, apiErrorRate);
+    } else {
+      console.log('[DAILY-PICK] 오늘 수급 조건 충족 종목 없음 — 선정 생략');
+    }
     return null;
   }
 

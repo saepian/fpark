@@ -149,7 +149,8 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisP
   return null;
 }
 
-export async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[] }> {
+// apiError: true = KIS 호출 자체가 실패(네트워크/타임아웃/HTTP 오류) — "조건 미충족"과 구분해야 함
+export async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[]; apiError: boolean }> {
   try {
     console.log('[ANALYSIS] fetchInvestorTrend 시작', ticker);
     const token    = await getAccessToken();
@@ -162,7 +163,7 @@ export async function fetchInvestorTrend(ticker: string): Promise<{ latest: Inve
     );
     if (!res.ok) {
       console.log('[ANALYSIS] fetchInvestorTrend HTTP', res.status);
-      return { latest: null, trend: [] };
+      return { latest: null, trend: [], apiError: true };
     }
 
     const data   = await res.json();
@@ -170,7 +171,7 @@ export async function fetchInvestorTrend(ticker: string): Promise<{ latest: Inve
     const valid  = output.filter(d => d.stck_bsop_date && d.frgn_ntby_tr_pbmn !== '');
     if (!valid.length) {
       console.log('[ANALYSIS] fetchInvestorTrend 유효 데이터 없음, rt_cd=', data?.rt_cd);
-      return { latest: null, trend: [] };
+      return { latest: null, trend: [], apiError: false };
     }
 
     const today = valid.find(d => d.stck_bsop_date === todayStr) ?? valid[0];
@@ -187,10 +188,11 @@ export async function fetchInvestorTrend(ticker: string): Promise<{ latest: Inve
         institution: toAuk(d.orgn_ntby_tr_pbmn),
         individual:  toAuk(d.prsn_ntby_tr_pbmn),
       })),
+      apiError: false,
     };
   } catch (e) {
     console.error('[ANALYSIS] fetchInvestorTrend 예외:', e);
-    return { latest: null, trend: [] };
+    return { latest: null, trend: [], apiError: true };
   }
 }
 
