@@ -2,14 +2,13 @@
 
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import { sanitizeRedirect } from '@/lib/auth-redirect';
 import AuthBackground from '@/components/auth/AuthBackground';
 
 function LoginForm() {
   const supabase = createClient();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = sanitizeRedirect(searchParams.get('redirect'));
   const [email, setEmail] = useState('');
@@ -28,8 +27,11 @@ function LoginForm() {
       setError('이메일 또는 비밀번호가 올바르지 않습니다.');
       setLoading(false);
     } else {
-      router.push(redirectTo);
-      router.refresh();
+      // router.push + router.refresh는 클라이언트 Router Cache에 남아있던
+      // 로그인 전 "/" 응답(미들웨어가 비로그인으로 rewrite한 버전)을 재사용해
+      // 로그인 직후에도 화면이 안 바뀐 것처럼 보일 수 있다 — 세션 쿠키가 확실히
+      // 반영된 상태로 서버에 새로 요청하도록 하드 네비게이션으로 이동한다.
+      window.location.href = redirectTo;
     }
   };
 
