@@ -40,6 +40,10 @@ export default function Footer() {
                 <dt className="text-[#4b5563]">사업자등록번호</dt>
                 <dd>730-08-00465</dd>
               </div>
+              <div className="flex gap-1.5">
+                <dt className="text-[#4b5563]">통신판매업신고번호</dt>
+                <dd>제2026-서울강동-1073호</dd>
+              </div>
             </div>
             <div className="flex flex-wrap gap-x-6">
               <div className="flex gap-1.5">
