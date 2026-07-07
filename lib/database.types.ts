@@ -461,7 +461,10 @@ export type Database = {
           payment_method: string | null
           phone: string | null
           plan: string
+          portfolio_credits: number
+          stock_credits: number
           subscription_plan: string | null
+          subscription_start_date: string | null
           subscription_status: string | null
         }
         Insert: {
@@ -475,7 +478,10 @@ export type Database = {
           payment_method?: string | null
           phone?: string | null
           plan?: string
+          portfolio_credits?: number
+          stock_credits?: number
           subscription_plan?: string | null
+          subscription_start_date?: string | null
           subscription_status?: string | null
         }
         Update: {
@@ -489,7 +495,10 @@ export type Database = {
           payment_method?: string | null
           phone?: string | null
           plan?: string
+          portfolio_credits?: number
+          stock_credits?: number
           subscription_plan?: string | null
+          subscription_start_date?: string | null
           subscription_status?: string | null
         }
         Relationships: []
@@ -529,6 +538,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_credit: {
+        Args: { p_amount: number; p_credit_type: string; p_user_id: string }
+        Returns: number
+      }
+      deduct_credit: {
+        Args: { p_credit_type: string; p_user_id: string }
+        Returns: number
+      }
       update_watchlist_order: {
         Args: { p_orders: number[]; p_tickers: string[]; p_user_id: string }
         Returns: undefined

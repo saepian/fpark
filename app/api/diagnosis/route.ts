@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { adminClient } from '@/lib/supabase-admin';
+import { deductCredit } from '@/lib/credits';
 import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart } from '@/lib/kis-api';
 import {
   collectStockAnalysisData,
@@ -96,22 +96,15 @@ export async function POST(request: NextRequest) {
     const isAdmin = user.email === process.env.ADMIN_EMAIL;
     let usedCredit = false;
     if (!isAdmin && (count ?? 0) >= 1) {
-      // 기본 한도 초과 시 1회권 크레딧 확인
-      const { data: userRow } = await adminClient
-        .from('users')
-        .select('stock_credits')
-        .eq('id', user.id)
-        .maybeSingle();
-      const credits = (userRow as { stock_credits?: number } | null)?.stock_credits ?? 0;
-      if (credits <= 0) {
+      // 기본 한도 초과 시 1회권 크레딧 원자적 차감(레이스 컨디션 방지) —
+      // 분석 성공 여부와 무관하게 사용 처리
+      const result = await deductCredit(user.id, 'stock');
+      if (result.success === false) {
+        if (result.reason === 'error') {
+          return NextResponse.json({ error: '크레딧 확인 중 오류가 발생했습니다.' }, { status: 500 });
+        }
         return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
       }
-      // 크레딧 선차감 (분석 성공 여부와 무관하게 사용 처리)
-      await adminClient
-        .from('users')
-        .update({ stock_credits: credits - 1 })
-        .eq('id', user.id)
-        .gt('stock_credits', 0);
       usedCredit = true;
     }
 

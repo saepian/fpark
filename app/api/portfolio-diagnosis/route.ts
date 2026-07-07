@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { adminClient } from '@/lib/supabase-admin';
+import { deductCredit } from '@/lib/credits';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -351,45 +351,33 @@ export async function POST(request: NextRequest) {
   const isPro   = plan === 'pro' || plan === 'admin';
   const isBasic = plan === 'basic';
 
-  // 플랜 없는 경우 1회권 크레딧 확인
+  // 플랜 없는 경우 1회권 크레딧 원자적 차감(레이스 컨디션 방지)
   let usedCredit = false;
   if (!isPro && !isBasic) {
-    const { data: userRow } = await adminClient
-      .from('users')
-      .select('portfolio_credits')
-      .eq('id', user.id)
-      .maybeSingle();
-    const credits = (userRow as { portfolio_credits?: number } | null)?.portfolio_credits ?? 0;
-    if (credits <= 0) return NextResponse.json({ error: 'PRO_REQUIRED' }, { status: 403 });
-    await adminClient
-      .from('users')
-      .update({ portfolio_credits: credits - 1 })
-      .eq('id', user.id)
-      .gt('portfolio_credits', 0);
+    const result = await deductCredit(user.id, 'portfolio');
+    if (result.success === false) {
+      if (result.reason === 'error') {
+        return NextResponse.json({ error: '크레딧 확인 중 오류가 발생했습니다.' }, { status: 500 });
+      }
+      return NextResponse.json({ error: 'PRO_REQUIRED' }, { status: 403 });
+    }
     usedCredit = true;
   }
 
   const count = await getMonthlyCount(supabase, user.id);
   const limit = plan === 'admin' ? 999 : isPro ? MONTHLY_LIMIT : BASIC_MONTHLY_LIMIT;
   if (!usedCredit && count >= limit) {
-    // 월 한도 초과 시에도 1회권 크레딧 확인
-    const { data: userRow } = await adminClient
-      .from('users')
-      .select('portfolio_credits')
-      .eq('id', user.id)
-      .maybeSingle();
-    const credits = (userRow as { portfolio_credits?: number } | null)?.portfolio_credits ?? 0;
-    if (credits <= 0) {
+    // 월 한도 초과 시에도 1회권 크레딧 원자적 차감
+    const result = await deductCredit(user.id, 'portfolio');
+    if (result.success === false) {
+      if (result.reason === 'error') {
+        return NextResponse.json({ error: '크레딧 확인 중 오류가 발생했습니다.' }, { status: 500 });
+      }
       return NextResponse.json(
         { error: `이번 달 사용 한도(${limit}회)를 초과했습니다.` },
         { status: 429 },
       );
     }
-    await adminClient
-      .from('users')
-      .update({ portfolio_credits: credits - 1 })
-      .eq('id', user.id)
-      .gt('portfolio_credits', 0);
     usedCredit = true;
   }
 

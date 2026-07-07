@@ -74,23 +74,33 @@ export async function POST(request: NextRequest) {
       const nextBilledAt = new Date();
       nextBilledAt.setMonth(nextBilledAt.getMonth() + (existing.is_annual ? 12 : 1));
 
+      // subscription_start_date는 최초 구독 시작일에만 고정 (app/api/payment/verify와 동일한 가드)
+      const { data: existingUserRow } = await adminClient
+        .from('users')
+        .select('subscription_start_date')
+        .eq('id', existing.user_id)
+        .maybeSingle();
+
       await adminClient.from('users').update({
         plan:                 existing.plan,
         subscription_plan:    existing.plan,
         subscription_status:  'active',
         payment_method:       'VIRTUAL_ACCOUNT',
         next_billed_at:       nextBilledAt.toISOString(),
+        ...(existingUserRow?.subscription_start_date ? {} : { subscription_start_date: new Date().toISOString() }),
       }).eq('id', existing.user_id);
 
       console.log(`[webhook] 계좌이체 입금 확인, 구독 활성화 — userId:${existing.user_id} plan:${existing.plan}`);
     }
 
-    // 취소·실패 시 사용자 플랜 다운그레이드
+    // 취소·실패 시 사용자 플랜 다운그레이드 — subscription_start_date도 초기화해
+    // 다음에 재구독할 때 새 시작일 기준으로 청구 주기가 다시 계산되도록 한다.
     if (payment.status === 'CANCELLED' || payment.status === 'FAILED') {
       await adminClient.from('users').update({
-        plan:                'free',
-        subscription_plan:   'free',
-        subscription_status: payment.status === 'CANCELLED' ? 'cancelled' : 'failed',
+        plan:                    'free',
+        subscription_plan:       'free',
+        subscription_status:     payment.status === 'CANCELLED' ? 'cancelled' : 'failed',
+        subscription_start_date: null,
       }).eq('id', existing.user_id);
 
       console.log(`[webhook] 플랜 다운그레이드 — userId:${existing.user_id} status:${dbStatus}`);
