@@ -30,6 +30,9 @@
     },
     "app/api/cron/bank-transfer-expire/route.ts": {
       "maxDuration": 30
+    },
+    "app/api/cron/bank-transfer-renewal-notice/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -72,6 +75,10 @@
     {
       "path": "/api/cron/bank-transfer-expire",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/bank-transfer-renewal-notice",
+      "schedule": "0 1 * * *"
     }
   ]
 }

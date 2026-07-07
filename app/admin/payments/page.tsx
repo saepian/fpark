@@ -2,15 +2,16 @@
 
 // 관리자 전용 — 계좌이체(무통장입금) 승인 화면.
 // 실시간 은행 입금 알림을 보고 입금자명·금액으로 빠르게 대조 후 승인 버튼 하나로 처리한다.
+// "대기중"(신규가입/갱신 배지로 구분)과 "만료됨"(재활성화 가능)을 구분해서 보여준다.
 // 인증은 클라이언트에서 별도로 검증하지 않고 /api/admin/bank-transfers가 서버에서
 // 관리자 이메일을 확인해 401을 내려주면 그걸 보고 리다이렉트한다 (app/mypage와 동일 패턴).
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Landmark, CheckCircle2, XCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Landmark, CheckCircle2, XCircle, RefreshCw, Loader2, RotateCcw, ChevronDown } from 'lucide-react';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 
-interface PendingRequest {
+interface RequestItem {
   id:             string;
   user_id:        string;
   email:          string;
@@ -18,11 +19,15 @@ interface PendingRequest {
   is_annual:      boolean;
   amount:         number;
   depositor_name: string;
+  request_type:   'new' | 'renewal';
   requested_at:   string;
+  processed_at:   string | null;
 }
 
 const PLAN_LABEL: Record<'basic' | 'pro', string> = { basic: 'Basic', pro: 'Pro' };
 const PLAN_COLOR: Record<'basic' | 'pro', string> = { basic: '#818cf8', pro: '#fbbf24' };
+const TYPE_LABEL: Record<'new' | 'renewal', string> = { new: '신규가입', renewal: '갱신' };
+const TYPE_COLOR: Record<'new' | 'renewal', string> = { new: '#38bdf8', renewal: '#a78bfa' };
 
 function formatElapsed(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -35,9 +40,13 @@ function formatElapsed(iso: string): string {
   return `${days}일 전`;
 }
 
+type Action = 'approve' | 'reject' | 'reactivate';
+
 export default function AdminPaymentsPage() {
   const router = useRouter();
-  const [items, setItems]     = useState<PendingRequest[] | null>(null);
+  const [pending, setPending] = useState<RequestItem[] | null>(null);
+  const [expired, setExpired] = useState<RequestItem[] | null>(null);
+  const [showExpired, setShowExpired] = useState(false);
   const [busyId, setBusyId]   = useState<string | null>(null);
   const [error, setError]     = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -53,7 +62,8 @@ export default function AdminPaymentsPage() {
       }
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? '조회 실패');
-      setItems(json.items);
+      setPending(json.pending);
+      setExpired(json.expired);
     } catch (e) {
       setError(e instanceof Error ? e.message : '목록을 불러오지 못했습니다.');
     } finally {
@@ -69,9 +79,10 @@ export default function AdminPaymentsPage() {
     return () => clearInterval(timer);
   }, [load]);
 
-  async function handleAction(id: string, action: 'approve' | 'reject') {
+  async function handleAction(id: string, action: Action, fromList: 'pending' | 'expired') {
     if (busyId) return;
     if (action === 'reject' && !confirm('이 신청을 거절하시겠습니까?')) return;
+    if (action === 'reactivate' && !confirm('만료된 구독을 오늘부터 새 주기로 재활성화하시겠습니까?')) return;
 
     setBusyId(id);
     try {
@@ -82,13 +93,92 @@ export default function AdminPaymentsPage() {
       });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error ?? '처리 실패');
-      // 처리 완료 — 목록에서 즉시 제거
-      setItems((prev) => (prev ?? []).filter((it) => it.id !== id));
+      // 처리 완료 — 해당 목록에서 즉시 제거
+      if (fromList === 'pending') {
+        setPending((prev) => (prev ?? []).filter((it) => it.id !== id));
+      } else {
+        setExpired((prev) => (prev ?? []).filter((it) => it.id !== id));
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : '처리 중 오류가 발생했습니다.');
     } finally {
       setBusyId(null);
     }
+  }
+
+  function RequestCard({ it, fromList }: { it: RequestItem; fromList: 'pending' | 'expired' }) {
+    const isBusy = busyId === it.id;
+    return (
+      <div
+        className="rounded-2xl p-5 sm:p-6"
+        style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}
+      >
+        {/* 상단: 이메일 + 경과시간 */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <p className="text-[14px] font-semibold text-white break-all">{it.email}</p>
+          <span className="text-[11px] text-slate-500 shrink-0 whitespace-nowrap pt-0.5">
+            {formatElapsed(fromList === 'pending' ? it.requested_at : (it.processed_at ?? it.requested_at))}
+          </span>
+        </div>
+
+        {/* 유형/플랜/금액 */}
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <span
+            className="text-[11px] font-bold px-2.5 py-1 rounded-full"
+            style={{ background: `${TYPE_COLOR[it.request_type]}22`, color: TYPE_COLOR[it.request_type] }}
+          >
+            {TYPE_LABEL[it.request_type]}
+          </span>
+          <span
+            className="text-[11px] font-bold px-2.5 py-1 rounded-full"
+            style={{ background: `${PLAN_COLOR[it.plan]}22`, color: PLAN_COLOR[it.plan] }}
+          >
+            {PLAN_LABEL[it.plan]} · {it.is_annual ? '연간' : '월간'}
+          </span>
+          <span className="text-[15px] font-bold text-white">{it.amount.toLocaleString()}원</span>
+        </div>
+
+        {/* 입금자명 — 가장 중요한 매칭 키라 크게 강조 */}
+        <div
+          className="rounded-xl px-4 py-3 mb-5 flex items-center justify-between"
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
+        >
+          <span className="text-[12px] text-amber-300/80">입금자명</span>
+          <span className="text-[18px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span>
+        </div>
+
+        {/* 액션 버튼 — 모바일에서도 크고 누르기 쉽게 */}
+        {fromList === 'pending' ? (
+          <div className="flex gap-2.5">
+            <button
+              onClick={() => handleAction(it.id, 'approve', 'pending')}
+              disabled={isBusy}
+              className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-[14px] font-bold cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isBusy ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <CheckCircle2 className="w-4.5 h-4.5" />}
+              승인
+            </button>
+            <button
+              onClick={() => handleAction(it.id, 'reject', 'pending')}
+              disabled={isBusy}
+              className="flex items-center justify-center gap-1.5 px-5 py-3.5 rounded-xl bg-[#1a1f2e] hover:bg-slate-800 active:scale-[0.98] border border-slate-700/60 text-slate-400 hover:text-red-400 text-[13.5px] font-semibold cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <XCircle className="w-4 h-4" />
+              거절
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => handleAction(it.id, 'reactivate', 'expired')}
+            disabled={isBusy}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-[14px] font-bold cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isBusy ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <RotateCcw className="w-4.5 h-4.5" />}
+            재활성화 (오늘부터 새 주기)
+          </button>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -102,7 +192,7 @@ export default function AdminPaymentsPage() {
             </span>
             <div>
               <h1 className="text-[18px] sm:text-[20px] font-bold text-white leading-tight">계좌이체 승인</h1>
-              <p className="text-[12px] text-slate-500">대기중 {items?.length ?? 0}건</p>
+              <p className="text-[12px] text-slate-500">대기중 {pending?.length ?? 0}건</p>
             </div>
           </div>
           <button
@@ -121,76 +211,40 @@ export default function AdminPaymentsPage() {
           </div>
         )}
 
-        {items === null ? (
+        {/* ── 대기중 ── */}
+        {pending === null ? (
           <div className="flex flex-col items-center gap-3 py-24">
             <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
             <p className="text-[13px] text-slate-500">불러오는 중...</p>
           </div>
-        ) : items.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-24 text-center">
+        ) : pending.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
             <CheckCircle2 className="w-10 h-10 text-slate-700" />
             <p className="text-[14px] text-slate-500">대기중인 신청이 없습니다</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            {items.map((it) => {
-              const isBusy = busyId === it.id;
-              return (
-                <div
-                  key={it.id}
-                  className="rounded-2xl p-5 sm:p-6"
-                  style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}
-                >
-                  {/* 상단: 이메일 + 경과시간 */}
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <p className="text-[14px] font-semibold text-white break-all">{it.email}</p>
-                    <span className="text-[11px] text-slate-500 shrink-0 whitespace-nowrap pt-0.5">
-                      {formatElapsed(it.requested_at)}
-                    </span>
-                  </div>
+          <div className="flex flex-col gap-4 mb-4">
+            {pending.map((it) => <RequestCard key={it.id} it={it} fromList="pending" />)}
+          </div>
+        )}
 
-                  {/* 플랜/금액 */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <span
-                      className="text-[11px] font-bold px-2.5 py-1 rounded-full"
-                      style={{ background: `${PLAN_COLOR[it.plan]}22`, color: PLAN_COLOR[it.plan] }}
-                    >
-                      {PLAN_LABEL[it.plan]} · {it.is_annual ? '연간' : '월간'}
-                    </span>
-                    <span className="text-[15px] font-bold text-white">{it.amount.toLocaleString()}원</span>
-                  </div>
-
-                  {/* 입금자명 — 가장 중요한 매칭 키라 크게 강조 */}
-                  <div
-                    className="rounded-xl px-4 py-3 mb-5 flex items-center justify-between"
-                    style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
-                  >
-                    <span className="text-[12px] text-amber-300/80">입금자명</span>
-                    <span className="text-[18px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span>
-                  </div>
-
-                  {/* 액션 버튼 — 모바일에서도 크고 누르기 쉽게 */}
-                  <div className="flex gap-2.5">
-                    <button
-                      onClick={() => handleAction(it.id, 'approve')}
-                      disabled={isBusy}
-                      className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-[14px] font-bold cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isBusy ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <CheckCircle2 className="w-4.5 h-4.5" />}
-                      승인
-                    </button>
-                    <button
-                      onClick={() => handleAction(it.id, 'reject')}
-                      disabled={isBusy}
-                      className="flex items-center justify-center gap-1.5 px-5 py-3.5 rounded-xl bg-[#1a1f2e] hover:bg-slate-800 active:scale-[0.98] border border-slate-700/60 text-slate-400 hover:text-red-400 text-[13.5px] font-semibold cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      거절
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {/* ── 만료됨 (재활성화 가능) ── */}
+        {expired !== null && expired.length > 0 && (
+          <div className="mt-8">
+            <button
+              onClick={() => setShowExpired((v) => !v)}
+              className="w-full flex items-center justify-between px-1 py-2 mb-3 cursor-pointer"
+            >
+              <span className="text-[13px] font-bold text-slate-500 uppercase tracking-wide">
+                만료됨 · 재활성화 가능 ({expired.length})
+              </span>
+              <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${showExpired ? 'rotate-180' : ''}`} />
+            </button>
+            {showExpired && (
+              <div className="flex flex-col gap-4">
+                {expired.map((it) => <RequestCard key={it.id} it={it} fromList="expired" />)}
+              </div>
+            )}
           </div>
         )}
       </div>

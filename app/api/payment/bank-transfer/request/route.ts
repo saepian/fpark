@@ -6,6 +6,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { adminClient } from '@/lib/supabase-admin';
 import { PLAN_ALLOWED_AMOUNTS } from '@/lib/payment-constants';
+import { computeDepositorName } from '@/lib/bank-transfer';
 import type { Database } from '@/lib/database.types';
 
 function makeSupabase() {
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, request: existing });
     }
 
-    const depositorName = (user.email ?? '').split('@')[0] || 'user';
+    const depositorName = computeDepositorName(user.email);
 
     const { data: inserted, error } = await adminClient
       .from('bank_transfer_requests')

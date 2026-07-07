@@ -66,6 +66,7 @@ export type Database = {
           plan: string
           processed_at: string | null
           processed_by: string | null
+          request_type: string
           requested_at: string
           status: string
           user_id: string
@@ -79,6 +80,7 @@ export type Database = {
           plan: string
           processed_at?: string | null
           processed_by?: string | null
+          request_type?: string
           requested_at?: string
           status?: string
           user_id: string
@@ -92,6 +94,7 @@ export type Database = {
           plan?: string
           processed_at?: string | null
           processed_by?: string | null
+          request_type?: string
           requested_at?: string
           status?: string
           user_id?: string

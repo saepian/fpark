@@ -36,6 +36,8 @@ const SUBSCRIPTION_STATUS_META: Record<string, { label: string; color: string; b
   payment_failed:    { label: '결제 실패',  color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
   cancelled:         { label: '해지됨',     color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
   inactive:          { label: '무료 플랜',  color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
+  pending_renewal:   { label: '갱신 대기',  color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
+  expired:           { label: '만료됨',     color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
 };
 
 const BANK_NAMES: Record<string, string> = {
