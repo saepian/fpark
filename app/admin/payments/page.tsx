@@ -217,7 +217,7 @@ export default function AdminPaymentsPage() {
   const isLoading = pending === null;
 
   return (
-    <div className="min-h-screen bg-[#0a0c12] px-4 py-8 sm:py-12">
+    <div className="px-4 py-8 sm:py-12">
       <div className="max-w-6xl mx-auto">
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -411,4 +411,5 @@ export default function AdminPaymentsPage() {
       </div>
     </div>
   );
+
 }
