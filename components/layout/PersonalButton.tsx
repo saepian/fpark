@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
+import { User } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { useSession } from '@/lib/useSession';
@@ -205,8 +206,6 @@ export default function PersonalButton() {
     window.location.href = '/';
   };
 
-  const initials = user?.email?.slice(0, 2).toUpperCase() ?? '';
-
   if (!user) {
     return (
       <button
@@ -230,7 +229,7 @@ export default function PersonalButton() {
             transition-colors cursor-pointer"
           aria-label="내 계정"
         >
-          {initials}
+          <User className="w-4 h-4" />
         </button>
 
         {open && (
