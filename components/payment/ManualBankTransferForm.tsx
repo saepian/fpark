@@ -6,8 +6,9 @@
 // "신청 접수"만 하고 활성화 여부는 이메일 안내 또는 마이페이지에서 확인하도록 한다.
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
-import { Loader2, CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Copy, Check, Star } from 'lucide-react';
 import { BANK_TRANSFER_ACCOUNT } from '@/lib/payment-constants';
 
 interface Props {
@@ -25,11 +26,17 @@ const PLAN_NAMES: Record<'basic' | 'pro', string> = {
 
 type Step = 'confirm' | 'processing' | 'requested' | 'error';
 
+// Pro 플랜의 브리핑/리포트 메일은 관심기업 기준으로 발송되므로, Pro 신청 직후
+// 관심기업이 비어있으면 등록을 유도한다. 이미 등록돼 있으면 안심시키는 톤으로 전환.
+type WatchlistNudge = 'none' | 'empty' | 'has-items';
+
 export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose, onBack }: Props) {
+  const router = useRouter();
   const [step, setStep] = useState<Step>('confirm');
   const [errMsg, setErrMsg] = useState('');
   const [copied, setCopied] = useState<'account' | 'name' | null>(null);
   const [depositorName, setDepositorName] = useState('');
+  const [nudge, setNudge] = useState<WatchlistNudge>('none');
 
   const planLabel = `${PLAN_NAMES[plan]} ${isAnnual ? '연간' : '월간'} 구독`;
 
@@ -54,10 +61,27 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
       }
       setDepositorName(json.request.depositor_name);
       setStep('requested');
+
+      if (plan === 'pro') {
+        const userId = data.session?.user?.id;
+        if (userId) {
+          const { count } = await supabase
+            .from('watchlist')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', userId);
+          setNudge((count ?? 0) > 0 ? 'has-items' : 'empty');
+        }
+      }
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : '신청 중 오류가 발생했습니다.');
       setStep('error');
     }
+  }
+
+  function goToWatchlist() {
+    setNudge('none');
+    onClose();
+    router.push('/');
   }
 
   function copy(text: string, which: 'account' | 'name') {
@@ -180,6 +204,73 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
           >
             다시 시도
           </button>
+        </div>
+      )}
+
+      {/* Pro 신청 완료 직후 — 관심기업 등록 유도 (계좌 안내 화면 위에 겹쳐 표시) */}
+      {nudge !== 'none' && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setNudge('none')} />
+          <div
+            className="relative w-full max-w-sm rounded-2xl p-6 shadow-2xl text-center"
+            style={{ background: '#0f1117', border: '1px solid rgba(52,211,153,0.3)' }}
+          >
+            <div
+              className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)' }}
+            >
+              <Star className="w-5.5 h-5.5 text-amber-400" fill="currentColor" />
+            </div>
+
+            {nudge === 'empty' ? (
+              <>
+                <h3 className="text-[16px] font-bold text-white mb-2.5">관심기업을 등록해주세요</h3>
+                <p className="text-[12.5px] text-slate-400 leading-relaxed mb-5">
+                  Pro 플랜의 장 시작 전 브리핑과 장 마감 후 리포트는 회원님이 등록한 관심기업을
+                  기준으로 발송됩니다. 관심기업을 등록하지 않으면 메일을 받아보실 수 없어요.
+                  지금 바로 등록하고 Pro 플랜을 100% 활용해보세요.
+                </p>
+                <div className="flex flex-col gap-2.5">
+                  <button
+                    onClick={goToWatchlist}
+                    className="w-full py-3 rounded-xl text-[13.5px] font-bold text-white cursor-pointer transition-all hover:opacity-90"
+                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}
+                  >
+                    관심기업 등록하러 가기
+                  </button>
+                  <button
+                    onClick={() => setNudge('none')}
+                    className="w-full py-2.5 rounded-xl text-[12.5px] font-semibold text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
+                  >
+                    나중에 하기
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-[16px] font-bold text-white mb-2.5">이미 관심기업을 등록하셨네요</h3>
+                <p className="text-[12.5px] text-slate-400 leading-relaxed mb-5">
+                  Pro 플랜의 장 시작 전 브리핑과 장 마감 후 리포트가 등록하신 관심기업을 기준으로
+                  정상 발송됩니다. 관심기업은 언제든 추가하거나 변경하실 수 있어요.
+                </p>
+                <div className="flex flex-col gap-2.5">
+                  <button
+                    onClick={goToWatchlist}
+                    className="w-full py-3 rounded-xl text-[13.5px] font-bold text-white cursor-pointer transition-all hover:opacity-90"
+                    style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}
+                  >
+                    관심기업 관리하러 가기
+                  </button>
+                  <button
+                    onClick={() => setNudge('none')}
+                    className="w-full py-2.5 rounded-xl text-[12.5px] font-semibold text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
+                  >
+                    확인
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </>
