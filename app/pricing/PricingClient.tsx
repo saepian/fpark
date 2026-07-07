@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
-import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import PageBackground from '@/components/layout/PageBackground';
 import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
 
@@ -140,7 +139,19 @@ function CardContent({
   const isBasic = plan.type === 'basic';
   const isFree  = plan.type === 'free';
   const isCurrent = isLoggedIn && userPlan === plan.type;
+  // Pro 이용중인 유저에게 Basic 카드 — 다운그레이드는 아직 자동화하지 않고 고객센터 문의로 유도
+  const isDowngradeBlocked = isLoggedIn && userPlan === 'pro' && isBasic;
   const p = annual ? plan.annual : plan.monthly;
+
+  let ctaLabel: string;
+  if (!isFree) {
+    if (!isLoggedIn) ctaLabel = '회원가입하고 무료로 시작하기';
+    else if (userPlan === 'free') ctaLabel = '신청하기';
+    else if (userPlan === 'basic' && isPro) ctaLabel = '업그레이드';
+    else ctaLabel = annual ? '연간 시작하기' : plan.cta;
+  } else {
+    ctaLabel = plan.cta;
+  }
 
   const checkHex   = isPro ? '#f59e0b' : '#6366f1';
   const checkBgHex = isPro ? 'rgba(245,158,11,0.18)' : 'rgba(99,102,241,0.18)';
@@ -219,6 +230,14 @@ function CardContent({
         >
           현재 이용 중
         </button>
+      ) : isDowngradeBlocked ? (
+        <button
+          disabled
+          className="w-full py-3 rounded-xl text-[11.5px] font-semibold cursor-default leading-snug"
+          style={{ background: 'rgba(51,65,85,0.35)', color: '#94a3b8', border: '1px solid rgba(51,65,85,0.4)' }}
+        >
+          다운그레이드는 고객센터로 문의해주세요
+        </button>
       ) : (
         <button
           onClick={() => onAction(plan.type)}
@@ -231,7 +250,7 @@ function CardContent({
           }`}
           style={ctaBg ? { background: ctaBg } : undefined}
         >
-          {annual && !isFree ? '연간 시작하기' : plan.cta}
+          {ctaLabel}
         </button>
       )}
 
@@ -388,7 +407,7 @@ export default function PricingClient() {
   const handleAction = (type: PlanType) => {
     if (type === 'free') { router.push('/'); return; }
 
-    if (!isLoggedIn) { router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)); return; }
+    if (!isLoggedIn) { router.push('/auth/signup'); return; }
 
     const planData = PLANS.find(p => p.type === type)!;
     const amount   = annual ? planData.annualTotal : planData.monthly;
