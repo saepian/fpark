@@ -29,6 +29,16 @@ export default function SignupPage() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState('');
   const [done, setDone] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  const [agreePrivacy, setAgreePrivacy] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
+  const agreeAll = agreeTerms && agreePrivacy;
+
+  const toggleAllAgree = (checked: boolean) => {
+    setAgreeTerms(checked);
+    setAgreePrivacy(checked);
+  };
 
   const formatPhone = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 11);
@@ -57,17 +67,25 @@ export default function SignupPage() {
       setErrors(fieldErrors);
       return;
     }
+    if (!agreeTerms || !agreePrivacy) {
+      setSubmitError('필수 약관에 모두 동의해주세요.');
+      return;
+    }
     setErrors({});
     setLoading(true);
 
+    const agreedAt = new Date().toISOString();
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo: `${location.origin}/auth/callback`,
         data: {
           name: name.trim(),
           nickname: nickname.trim(),
           phone: phone || null,
+          terms_agreed_at: agreedAt,
+          privacy_agreed_at: agreedAt,
         },
       },
     });
@@ -92,6 +110,18 @@ export default function SignupPage() {
     });
   };
 
+  const handleResend = async () => {
+    setResending(true);
+    setResent(false);
+    await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: `${location.origin}/auth/callback` },
+    });
+    setResending(false);
+    setResent(true);
+  };
+
   if (done) {
     return (
       <div className="relative min-h-screen flex items-center justify-center px-4">
@@ -108,6 +138,16 @@ export default function SignupPage() {
               <span className="text-slate-300 font-medium">{email}</span>으로
             </p>
             <p className="text-[13px] text-slate-400 mb-6">인증 링크를 발송했습니다. 이메일을 확인해주세요.</p>
+
+            <button
+              onClick={handleResend}
+              disabled={resending}
+              className="w-full mb-4 py-2.5 rounded-lg text-[12.5px] font-medium text-slate-300 hover:text-white transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ background: 'rgba(30,37,55,0.8)', border: '1px solid rgba(51,65,85,0.5)' }}
+            >
+              {resending ? '재발송 중…' : resent ? '재발송 완료 ✓' : '인증 메일 재발송'}
+            </button>
+
             <Link href="/auth/login" className="inline-block text-[13px] text-indigo-400 hover:text-indigo-300 transition-colors">
               로그인으로 이동 →
             </Link>
@@ -223,13 +263,61 @@ export default function SignupPage() {
               {errors.phone && <FieldError msg={errors.phone} />}
             </div>
 
+            {/* 약관 동의 */}
+            <div className="flex flex-col gap-2.5 py-1">
+              <label className="flex items-center gap-2.5 p-3 rounded-lg bg-[#13161f] border border-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agreeAll}
+                  onChange={(e) => toggleAllAgree(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-500 cursor-pointer"
+                />
+                <span className="text-[13.5px] font-semibold text-white">전체 동의</span>
+              </label>
+
+              <div className="flex flex-col gap-2 pl-1">
+                <label className="flex items-center justify-between gap-2 cursor-pointer">
+                  <span className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={agreeTerms}
+                      onChange={(e) => setAgreeTerms(e.target.checked)}
+                      className="w-4 h-4 accent-indigo-500 cursor-pointer"
+                    />
+                    <span className="text-[12.5px] text-slate-300">
+                      <span className="text-indigo-400 font-medium">[필수]</span> 이용약관 동의
+                    </span>
+                  </span>
+                  <Link href="/terms" target="_blank" className="text-[11.5px] text-slate-500 hover:text-slate-300 underline underline-offset-2 shrink-0">
+                    전문보기
+                  </Link>
+                </label>
+                <label className="flex items-center justify-between gap-2 cursor-pointer">
+                  <span className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={agreePrivacy}
+                      onChange={(e) => setAgreePrivacy(e.target.checked)}
+                      className="w-4 h-4 accent-indigo-500 cursor-pointer"
+                    />
+                    <span className="text-[12.5px] text-slate-300">
+                      <span className="text-indigo-400 font-medium">[필수]</span> 개인정보처리방침 동의
+                    </span>
+                  </span>
+                  <Link href="/privacy" target="_blank" className="text-[11.5px] text-slate-500 hover:text-slate-300 underline underline-offset-2 shrink-0">
+                    전문보기
+                  </Link>
+                </label>
+              </div>
+            </div>
+
             {/* 전체 에러 */}
             {submitError && <p className="text-red-400 text-sm">{submitError}</p>}
 
             {/* 가입 버튼 */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !agreeTerms || !agreePrivacy}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed
                 text-white font-semibold text-[14px] py-3 rounded-lg transition-colors cursor-pointer
                 flex items-center justify-center gap-2 mt-1"

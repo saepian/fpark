@@ -23,5 +23,5 @@ export const createClient = (): Client => {
     });
   }
 
-  return createBrowserClient<Database>(url, key, { auth: { flowType: 'implicit' } });
+  return createBrowserClient<Database>(url, key, { auth: { flowType: 'pkce' } });
 };

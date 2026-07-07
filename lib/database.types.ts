@@ -582,10 +582,13 @@ export type Database = {
           phone: string | null
           plan: string
           portfolio_credits: number
+          privacy_agreed_at: string | null
           stock_credits: number
           subscription_plan: string | null
           subscription_start_date: string | null
           subscription_status: string | null
+          terms_agreed_at: string | null
+          welcome_email_sent_at: string | null
         }
         Insert: {
           billing_key?: string | null
@@ -599,10 +602,13 @@ export type Database = {
           phone?: string | null
           plan?: string
           portfolio_credits?: number
+          privacy_agreed_at?: string | null
           stock_credits?: number
           subscription_plan?: string | null
           subscription_start_date?: string | null
           subscription_status?: string | null
+          terms_agreed_at?: string | null
+          welcome_email_sent_at?: string | null
         }
         Update: {
           billing_key?: string | null
@@ -616,10 +622,13 @@ export type Database = {
           phone?: string | null
           plan?: string
           portfolio_credits?: number
+          privacy_agreed_at?: string | null
           stock_credits?: number
           subscription_plan?: string | null
           subscription_start_date?: string | null
           subscription_status?: string | null
+          terms_agreed_at?: string | null
+          welcome_email_sent_at?: string | null
         }
         Relationships: []
       }

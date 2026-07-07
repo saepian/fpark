@@ -17,14 +17,23 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<'google' | null>(null);
   const [error, setError] = useState('');
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setUnconfirmed(false);
+    setResent(false);
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+      if (error.code === 'email_not_confirmed') {
+        setUnconfirmed(true);
+      } else {
+        setError('이메일 또는 비밀번호가 올바르지 않습니다.');
+      }
       setLoading(false);
     } else {
       // router.push + router.refresh는 클라이언트 Router Cache에 남아있던
@@ -33,6 +42,18 @@ function LoginForm() {
       // 반영된 상태로 서버에 새로 요청하도록 하드 네비게이션으로 이동한다.
       window.location.href = redirectTo;
     }
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    setResent(false);
+    await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: `${location.origin}/auth/callback` },
+    });
+    setResending(false);
+    setResent(true);
   };
 
   const signInSocial = async (provider: 'google') => {
@@ -113,6 +134,24 @@ function LoginForm() {
 
             {/* 에러 */}
             {error && <p className="text-red-400 text-sm">{error}</p>}
+
+            {/* 이메일 미확인 안내 */}
+            {unconfirmed && (
+              <div className="rounded-lg px-3.5 py-3 flex flex-col gap-2" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                <p className="text-[12.5px] text-amber-300 leading-relaxed">
+                  이메일 인증이 완료되지 않았습니다.<br />
+                  가입 시 받으신 메일의 링크를 확인해주세요.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resending}
+                  className="self-start text-[12px] font-medium text-amber-300 hover:text-amber-200 underline underline-offset-2 transition-colors cursor-pointer disabled:opacity-60"
+                >
+                  {resending ? '재발송 중…' : resent ? '재발송 완료 ✓' : '인증 메일 재발송'}
+                </button>
+              </div>
+            )}
 
             {/* 로그인 버튼 */}
             <button

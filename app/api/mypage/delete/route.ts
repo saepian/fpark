@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 import { adminClient } from '@/lib/supabase-admin';
 import { cookies } from 'next/headers';
 import type { Database } from '@/lib/database.types';
+import { sendBankTransferEmail } from '@/lib/bank-transfer';
+import { buildWithdrawalCompletedEmailHtml } from '@/lib/account-emails';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +28,23 @@ export async function DELETE() {
   const supabase = makeSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { data: userRow } = await adminClient
+    .from('users')
+    .select('email, plan')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  // DB 삭제 전에 먼저 안내 메일을 발송한다 — 삭제가 성공한 뒤에는 유저 행을 다시 조회할 수 없다.
+  const email = userRow?.email ?? user.email ?? null;
+  if (email) {
+    await sendBankTransferEmail({
+      to: email,
+      subject: 'Finance Park 탈퇴가 완료되었습니다',
+      html: buildWithdrawalCompletedEmailHtml(userRow?.plan !== 'free'),
+      logTag: 'WITHDRAWAL_EMAIL',
+    });
+  }
 
   const { error } = await adminClient.auth.admin.deleteUser(user.id);
   if (error) {

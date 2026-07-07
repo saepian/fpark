@@ -260,6 +260,8 @@ export default function MyPage() {
     setWithdrawing(true);
     const res = await fetch('/api/mypage/delete', { method: 'DELETE' });
     if (res.ok) {
+      const supabase = createClient();
+      await supabase.auth.signOut();
       window.location.href = '/';
     } else {
       setWithdrawing(false);
@@ -926,6 +928,13 @@ export default function MyPage() {
                 탈퇴 시 분석 내역, 관심기업 등<br />
                 모든 데이터가 영구 삭제됩니다.
               </p>
+              {data.plan !== 'free' && (
+                <p className="mt-3 text-[11.5px] text-amber-300 leading-relaxed rounded-lg px-3 py-2.5" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                  현재 이용 중인 유료 구독은 탈퇴와 함께 해지되며,{' '}
+                  <Link href="/refund" target="_blank" className="underline underline-offset-2 hover:text-amber-200">환불 정책</Link>
+                  에 따라 환불이 진행될 수 있습니다.
+                </p>
+              )}
             </div>
 
             <div className="flex gap-2.5">
