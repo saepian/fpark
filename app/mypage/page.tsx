@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import PageBackground from '@/components/layout/PageBackground';
+import { BANK_TRANSFER_ACCOUNT } from '@/lib/payment-constants';
 
 type PlanType = 'free' | 'basic' | 'pro';
 
@@ -23,8 +24,8 @@ interface MyPageData {
     status:        string;
     paymentMethod: string | null;
     nextBilledAt:  string | null;
-    pendingDeposit: {
-      bank: string; accountNumber: string; dueAt: string; amount: number;
+    pendingBankTransfer: {
+      depositorName: string; amount: number; plan: string; isAnnual: boolean; requestedAt: string;
     } | null;
   };
 }
@@ -38,11 +39,6 @@ const SUBSCRIPTION_STATUS_META: Record<string, { label: string; color: string; b
   inactive:          { label: '무료 플랜',  color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
   pending_renewal:   { label: '갱신 대기',  color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
   expired:           { label: '만료됨',     color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
-};
-
-const BANK_NAMES: Record<string, string> = {
-  KOOKMIN: '국민은행', SHINHAN: '신한은행', WOORI: '우리은행', HANA: '하나은행',
-  NONGHYUP: '농협은행', IBK: 'IBK기업은행', KAKAO: '카카오뱅크', TOSS: '토스뱅크', K_BANK: '케이뱅크',
 };
 
 const PLAN_META = {
@@ -91,9 +87,10 @@ const PLAN_LIMITS = {
 };
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
-  completed: { label: '완료', color: '#34d399', bg: 'rgba(52,211,153,0.12)' },
-  failed:    { label: '실패', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
-  cancelled: { label: '취소', color: '#94a3b8', bg: 'rgba(148,163,184,0.12)' },
+  approved: { label: '완료',   color: '#34d399', bg: 'rgba(52,211,153,0.12)' },
+  pending:  { label: '대기중', color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
+  rejected: { label: '거절됨', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+  expired:  { label: '만료됨', color: '#94a3b8', bg: 'rgba(148,163,184,0.12)' },
 };
 
 // ── 그라데이션 테두리 카드 래퍼 ────────────────────────────────────────────────
@@ -403,7 +400,9 @@ export default function MyPage() {
           {/* 구독 상태 */}
           {data.plan !== 'free' && (() => {
             const statusMeta = SUBSCRIPTION_STATUS_META[data.subscription.status] ?? SUBSCRIPTION_STATUS_META.inactive;
-            const deposit = data.subscription.pendingDeposit;
+            // 이미 승인되어 active 상태인 구독에는 계좌이체 안내를 보여주지 않는다 —
+            // 잔여 pending 레코드가 있더라도(예: 관리자 승인 처리 지연 중 재조회) 혼란 방지
+            const deposit = data.subscription.status !== 'active' ? data.subscription.pendingBankTransfer : null;
             return (
               <div className="mb-5">
                 <div
@@ -439,15 +438,15 @@ export default function MyPage() {
                     className="mt-2 px-4 py-3 rounded-xl"
                     style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.25)' }}
                   >
-                    <p className="text-[11px] text-amber-300 mb-1.5">아래 계좌로 입금하시면 구독이 활성화됩니다</p>
+                    <p className="text-[11px] text-amber-300 mb-1.5">아래 계좌로 입금하시면 확인 후 구독이 활성화됩니다</p>
                     <div className="flex items-center justify-between">
                       <p className="text-[13px] font-semibold text-white">
-                        {BANK_NAMES[deposit.bank] ?? deposit.bank} {deposit.accountNumber}
+                        {BANK_TRANSFER_ACCOUNT.bankName} {BANK_TRANSFER_ACCOUNT.accountNumber}
                       </p>
                       <p className="text-[13px] font-bold text-white">{deposit.amount.toLocaleString()}원</p>
                     </div>
                     <p className="text-[10.5px] text-amber-400/80 mt-1">
-                      {new Date(deposit.dueAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}까지
+                      입금자명 <span className="font-bold text-amber-300">{deposit.depositorName}</span> (필수) · 확인 후 순차 승인됩니다
                     </p>
                   </div>
                 )}
@@ -583,7 +582,7 @@ export default function MyPage() {
           ) : (
             <div className="divide-y divide-slate-800/60">
               {data.payments.map(p => {
-                const statusMeta = STATUS_META[p.status] ?? STATUS_META.completed;
+                const statusMeta = STATUS_META[p.status] ?? { label: p.status, color: '#94a3b8', bg: 'rgba(148,163,184,0.12)' };
                 const date = new Date(p.created_at).toLocaleDateString('ko-KR', {
                   year: 'numeric', month: '2-digit', day: '2-digit',
                 });

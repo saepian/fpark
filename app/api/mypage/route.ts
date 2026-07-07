@@ -71,7 +71,7 @@ export async function GET() {
     now,
   );
 
-  const [diagnosisCount, portfolioCount, payments, pendingDeposit] = await Promise.all([
+  const [diagnosisCount, portfolioCount, payments, pendingBankTransfer] = await Promise.all([
     (() => {
       const todayKst = new Date(Date.now() + 9 * 3600_000).toISOString().split('T')[0];
       return adminClient
@@ -94,13 +94,19 @@ export async function GET() {
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
         const { data } = await adminClient
-          .from('payments')
-          .select('id, created_at, plan, amount, status')
+          .from('bank_transfer_requests')
+          .select('id, requested_at, plan, amount, status')
           .eq('user_id', user.id)
-          .gte('created_at', sixMonthsAgo.toISOString())
-          .order('created_at', { ascending: false })
+          .gte('requested_at', sixMonthsAgo.toISOString())
+          .order('requested_at', { ascending: false })
           .limit(20);
-        return data ?? [];
+        return (data ?? []).map(r => ({
+          id:         r.id,
+          created_at: r.requested_at,
+          plan:       r.plan,
+          amount:     r.amount,
+          status:     r.status,
+        }));
       } catch {
         return [];
       }
@@ -109,12 +115,11 @@ export async function GET() {
     (async () => {
       try {
         const { data } = await adminClient
-          .from('payments')
-          .select('va_bank, va_account_number, va_due_at, amount')
+          .from('bank_transfer_requests')
+          .select('depositor_name, amount, plan, is_annual, requested_at')
           .eq('user_id', user.id)
-          .eq('payment_method', 'VIRTUAL_ACCOUNT')
           .eq('status', 'pending')
-          .order('created_at', { ascending: false })
+          .order('requested_at', { ascending: false })
           .limit(1)
           .maybeSingle();
         return data;
@@ -142,11 +147,12 @@ export async function GET() {
       status:        userRow?.subscription_status ?? 'inactive',
       paymentMethod: userRow?.payment_method ?? null,
       nextBilledAt:  userRow?.next_billed_at ?? null,
-      pendingDeposit: pendingDeposit ? {
-        bank:          pendingDeposit.va_bank,
-        accountNumber: pendingDeposit.va_account_number,
-        dueAt:         pendingDeposit.va_due_at,
-        amount:        pendingDeposit.amount,
+      pendingBankTransfer: pendingBankTransfer ? {
+        depositorName: pendingBankTransfer.depositor_name,
+        amount:        pendingBankTransfer.amount,
+        plan:          pendingBankTransfer.plan,
+        isAnnual:      pendingBankTransfer.is_annual,
+        requestedAt:   pendingBankTransfer.requested_at,
       } : null,
     },
   });
