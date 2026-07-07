@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
-import type { User } from '@supabase/supabase-js';
+import { useSession } from '@/lib/useSession';
 
 // ── Watchlist 사이드 패널 내부 리스트 ─────────────────────────────────────────
 
@@ -176,21 +176,13 @@ export default function PersonalButton() {
   const clientRef = useRef<ReturnType<typeof createClient> | null>(null);
   const getClient = () => clientRef.current ??= createClient();
   const router   = useRouter();
-  const [user, setUser]               = useState<User | null>(null);
+  const { user } = useSession();
   const [open, setOpen]               = useState(false);
   const [isWatchlistOpen, setWatchlistOpen] = useState(false);
   const [mounted, setMounted]         = useState(false);
   const dropdownRef                   = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setMounted(true); }, []);
-
-  useEffect(() => {
-    getClient().auth.getUser().then(({ data }) => setUser(data.user));
-    const { data: listener } = getClient().auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-    return () => listener.subscription.unsubscribe();
-  }, []); // eslint-disable-line
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

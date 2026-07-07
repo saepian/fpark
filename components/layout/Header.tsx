@@ -29,7 +29,7 @@ const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: 
 export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
   const pathname = usePathname();
   const router   = useRouter();
-  const user     = useSession();
+  const { user } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogoClick = () => {

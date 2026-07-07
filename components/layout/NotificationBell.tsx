@@ -3,16 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell } from 'lucide-react';
-import type { User } from '@supabase/supabase-js';
-import { createClient } from '@/lib/supabase-browser';
+import { useSession } from '@/lib/useSession';
 import type { StockNotification } from '@/lib/types';
 
 export default function NotificationBell() {
   const router       = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [user, setUser]                 = useState<User | null>(null);
-  const [authReady, setAuthReady]       = useState(false);
+  const { user, loading: authLoading } = useSession();
+  const authReady = !authLoading;
   const [open, setOpen]                 = useState(false);
 
   // Pro 관심기업 알림
@@ -20,19 +19,6 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState<StockNotification[]>([]);
   const [unreadCount, setUnreadCount]   = useState(0);
   const [notifLoading, setNotifLoading] = useState(false);
-
-  // ── 인증 상태 ──────────────────────────────────────────────────
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      setAuthReady(true);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUser(session?.user ?? null);
-    });
-    return () => listener.subscription.unsubscribe();
-  }, []); // eslint-disable-line
 
   // ── Pro 관심기업 알림 fetch ────────────────────────────────────
   const fetchNotifications = () =>
