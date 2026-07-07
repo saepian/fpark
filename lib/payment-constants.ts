@@ -20,3 +20,11 @@ export const BANK_TRANSFER_ACCOUNT = {
   accountNumber: process.env.NEXT_PUBLIC_BANK_TRANSFER_ACCOUNT_NUMBER ?? '',
   accountHolder: process.env.NEXT_PUBLIC_BANK_TRANSFER_ACCOUNT_HOLDER ?? '',
 };
+
+// mypage 사용량 표시 + lib/refund.ts 환불 계산에서 공용으로 쓰는 플랜별 한도
+// (기업분석: 일일한도, 포트폴리오분석: 월간한도)
+export const PLAN_USAGE_LIMITS = {
+  free:  { diagnosis: 1,  portfolio: 0  },
+  basic: { diagnosis: 6,  portfolio: 1  },
+  pro:   { diagnosis: 11, portfolio: 20 },
+} as const;

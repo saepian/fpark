@@ -57,7 +57,7 @@ type SortKey = 'email' | 'plan' | 'amount' | 'depositor_name' | 'requested_at';
 type Action = 'approve' | 'reject' | 'reactivate';
 
 const FILTER_LABEL: Record<Filter, string> = {
-  all: '전체 대기', new: '신규가입 대기', renewal: '갱신 대기', expired: '만료됨', refund: '환불 대기',
+  all: '계좌이체 대기', new: '신규가입 대기', renewal: '갱신 대기', expired: '만료됨', refund: '환불 대기',
 };
 const PAGE_SIZE = 20;
 
@@ -424,11 +424,8 @@ export default function AdminPaymentsPage() {
                             {PLAN_LABEL[r.plan]}
                           </span>
                         </td>
-                        <td className="px-3 py-3 text-[12px] text-slate-400 max-w-[260px]">
-                          <span className={`font-semibold ${r.usage_detected ? 'text-amber-300' : 'text-emerald-400'}`}>
-                            {r.usage_detected ? '사용함' : '미사용'}
-                          </span>
-                          {' · '}{r.elapsed_days}일 경과
+                        <td className="px-3 py-3 text-[11.5px] text-slate-400 max-w-[320px] leading-relaxed">
+                          {r.refund_reason ?? `${r.usage_detected ? '사용함' : '미사용'} · ${r.elapsed_days}일 경과`}
                         </td>
                         <td className="px-3 py-3 text-[13.5px] text-white font-bold whitespace-nowrap tabular-nums">{r.refund_amount.toLocaleString()}원</td>
                         <td className="px-3 py-3 text-[12.5px] text-slate-300 whitespace-nowrap">
@@ -453,12 +450,12 @@ export default function AdminPaymentsPage() {
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
                         {PLAN_LABEL[r.plan]}
                       </span>
-                      <span className={`text-[10px] font-bold ${r.usage_detected ? 'text-amber-300' : 'text-emerald-400'}`}>
-                        {r.usage_detected ? '사용함' : '미사용'} · {r.elapsed_days}일 경과
-                      </span>
                       <span className="text-[13px] font-bold text-white ml-auto">{r.refund_amount.toLocaleString()}원</span>
                     </div>
                     <p className="text-[13px] font-semibold text-white truncate mb-1">{r.email}</p>
+                    <p className="text-[11px] text-slate-500 mb-1.5 leading-relaxed">
+                      {r.refund_reason ?? `${r.usage_detected ? '사용함' : '미사용'} · ${r.elapsed_days}일 경과`}
+                    </p>
                     <p className="text-[12.5px] text-slate-400 mb-2.5">
                       {r.refund_account_bank} {r.refund_account_number} ({r.refund_account_holder})
                     </p>

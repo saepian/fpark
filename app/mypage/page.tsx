@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import PageBackground from '@/components/layout/PageBackground';
-import { BANK_TRANSFER_ACCOUNT } from '@/lib/payment-constants';
+import { BANK_TRANSFER_ACCOUNT, PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
 type PlanType = 'free' | 'basic' | 'pro';
 
@@ -90,12 +90,6 @@ const PLAN_META = {
     price: 19900,
     priceText: '19,900원',
   },
-};
-
-const PLAN_LIMITS = {
-  free:  { diagnosis: 1,  portfolio: 0  },
-  basic: { diagnosis: 6,  portfolio: 1  },
-  pro:   { diagnosis: 11, portfolio: 20 },
 };
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
@@ -345,7 +339,7 @@ export default function MyPage() {
   if (!data) return null;
 
   const meta       = PLAN_META[data.plan];
-  const limits     = PLAN_LIMITS[data.plan];
+  const limits     = PLAN_USAGE_LIMITS[data.plan];
   const initials   = (data.name ?? data.email).slice(0, 2).toUpperCase();
   const joinedDate = new Date(data.createdAt).toLocaleDateString('ko-KR', {
     year: 'numeric', month: 'long', day: 'numeric',
@@ -835,6 +829,11 @@ export default function MyPage() {
                     </span>
                   </div>
                 </div>
+
+                <p className="text-[11px] text-slate-600 mb-4 leading-relaxed">
+                  환불액은 경과일수와 실제 이용 실적 중 더 큰 비율로 계산됩니다.{' '}
+                  <Link href="/pricing#faq-refund-calc" target="_blank" className="text-indigo-400 hover:underline">자세히 보기</Link>
+                </p>
 
                 {cancelPreview.refundEligible ? (
                   cancelPreview.refundAmount > 0 && (

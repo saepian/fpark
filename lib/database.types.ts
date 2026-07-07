@@ -410,10 +410,14 @@ export type Database = {
       refund_requests: {
         Row: {
           created_at: string
+          diagnosis_count: number
           elapsed_days: number
+          elapsed_ratio: number
+          final_ratio: number
           id: string
           paid_amount: number
           plan: string
+          portfolio_count: number
           processed_at: string | null
           processed_by: string | null
           refund_account_bank: string | null
@@ -425,14 +429,19 @@ export type Database = {
           requested_at: string
           subscription_start_date: string
           usage_detected: boolean
+          usage_ratio: number
           user_id: string
         }
         Insert: {
           created_at?: string
+          diagnosis_count?: number
           elapsed_days: number
+          elapsed_ratio?: number
+          final_ratio?: number
           id?: string
           paid_amount: number
           plan: string
+          portfolio_count?: number
           processed_at?: string | null
           processed_by?: string | null
           refund_account_bank?: string | null
@@ -444,14 +453,19 @@ export type Database = {
           requested_at?: string
           subscription_start_date: string
           usage_detected: boolean
+          usage_ratio?: number
           user_id: string
         }
         Update: {
           created_at?: string
+          diagnosis_count?: number
           elapsed_days?: number
+          elapsed_ratio?: number
+          final_ratio?: number
           id?: string
           paid_amount?: number
           plan?: string
+          portfolio_count?: number
           processed_at?: string | null
           processed_by?: string | null
           refund_account_bank?: string | null
@@ -463,6 +477,7 @@ export type Database = {
           requested_at?: string
           subscription_start_date?: string
           usage_detected?: boolean
+          usage_ratio?: number
           user_id?: string
         }
         Relationships: []

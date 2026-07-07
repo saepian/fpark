@@ -6,7 +6,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { adminClient } from '@/lib/supabase-admin';
-import { calculateRefund, buildRefundRequestAdminEmailHtml } from '@/lib/refund';
+import {
+  calculateRefund, buildRefundRequestAdminEmailHtml,
+  buildCancelRefundRequestedEmailHtml, buildCancelReservedEmailHtml,
+} from '@/lib/refund';
 import { sendBankTransferEmail } from '@/lib/bank-transfer';
 import { PLAN_AMOUNTS } from '@/lib/payment-constants';
 import type { Database } from '@/lib/database.types';
@@ -67,7 +70,6 @@ async function loadCancellableUser(userId: string) {
       .maybeSingle(),
   ]);
 
-  const usageDetected = (stockCount ?? 0) + (portfolioCount ?? 0) > 0;
   const paidAmount = lastApproved?.amount ?? PLAN_AMOUNTS[plan].monthly;
   const subscriptionStartDate = new Date(userRow.subscription_start_date);
 
@@ -75,11 +77,13 @@ async function loadCancellableUser(userId: string) {
     paidAmount,
     subscriptionStartDate,
     cancelAt: new Date(),
-    usageDetected,
+    plan,
+    diagnosisCount: stockCount ?? 0,
+    portfolioCount: portfolioCount ?? 0,
   });
 
   return {
-    userRow, plan, paidAmount, subscriptionStartDate, usageDetected, calc,
+    userRow, plan, paidAmount, subscriptionStartDate, calc,
   };
 }
 
@@ -93,12 +97,12 @@ export async function GET() {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  const { plan, paidAmount, usageDetected, calc, userRow } = result;
+  const { plan, paidAmount, calc, userRow } = result;
   return NextResponse.json({
     ok: true,
     plan,
     paidAmount,
-    usageDetected,
+    usageDetected:  calc.usageDetected,
     elapsedDays:    calc.elapsedDays,
     refundEligible: calc.refundEligible,
     refundAmount:   calc.refundAmount,
@@ -116,7 +120,7 @@ export async function POST(request: NextRequest) {
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
-  const { plan, paidAmount, usageDetected, calc, subscriptionStartDate, userRow } = result;
+  const { plan, paidAmount, calc, subscriptionStartDate, userRow } = result;
 
   const body = await request.json().catch(() => ({})) as {
     refundAccountBank?: string; refundAccountNumber?: string; refundAccountHolder?: string;
@@ -134,7 +138,12 @@ export async function POST(request: NextRequest) {
     plan,
     paid_amount:              paidAmount,
     subscription_start_date:  subscriptionStartDate.toISOString(),
-    usage_detected:           usageDetected,
+    usage_detected:           calc.usageDetected,
+    diagnosis_count:          calc.diagnosisCount,
+    portfolio_count:          calc.portfolioCount,
+    usage_ratio:              calc.usageRatio,
+    elapsed_ratio:            calc.elapsedRatio,
+    final_ratio:              calc.finalRatio,
     elapsed_days:             calc.elapsedDays,
     refund_amount:            calc.refundAmount,
     refund_reason:            calc.reasonText,
@@ -183,9 +192,33 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // 관리자 알림과 별도로, 취소를 신청한 유저 본인에게도 확인 메일 발송
+  const userEmail = userRow.email ?? user.email;
+  if (userEmail) {
+    if (calc.refundEligible) {
+      await sendBankTransferEmail({
+        to:      userEmail,
+        subject: '[fpark] 구독이 취소되었습니다',
+        html:    buildCancelRefundRequestedEmailHtml(calc.refundAmount),
+        logTag:  'subscription/cancel',
+      });
+    } else {
+      const nextBilledAtStr = userRow.next_billed_at
+        ? new Date(userRow.next_billed_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric' })
+        : '현재 결제 기간 종료일';
+      await sendBankTransferEmail({
+        to:      userEmail,
+        subject: '[fpark] 구독 취소가 접수되었습니다',
+        html:    buildCancelReservedEmailHtml(nextBilledAtStr),
+        logTag:  'subscription/cancel',
+      });
+    }
+  }
+
   console.log(
     `[subscription/cancel] userId:${user.id} plan:${plan} elapsedDays:${calc.elapsedDays} ` +
-    `usageDetected:${usageDetected} refundAmount:${calc.refundAmount} eligible:${calc.refundEligible}`,
+    `diagnosisCount:${calc.diagnosisCount} portfolioCount:${calc.portfolioCount} ` +
+    `finalRatio:${calc.finalRatio} refundAmount:${calc.refundAmount} eligible:${calc.refundEligible}`,
   );
 
   return NextResponse.json({
