@@ -5,7 +5,7 @@
 // (/admin/payments). 입금 확인 후 활성화까지는 관리자 승인이 필요하므로 이 화면에서는
 // "신청 접수"만 하고 활성화 여부는 이메일 안내 또는 마이페이지에서 확인하도록 한다.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import { Loader2, CheckCircle2, AlertCircle, Copy, Check, Star } from 'lucide-react';
@@ -37,6 +37,12 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
   const [copied, setCopied] = useState<'account' | 'name' | null>(null);
   const [depositorName, setDepositorName] = useState('');
   const [nudge, setNudge] = useState<WatchlistNudge>('none');
+  // 계좌 안내 화면이 완전히 닫힌 뒤에만 true — nudge 콘텐츠가 먼저 준비돼 있어도
+  // 이 값이 true가 되기 전에는 절대 렌더링하지 않는다(두 모달 동시 노출 방지).
+  const [nudgeVisible, setNudgeVisible] = useState(false);
+  // 관심기업 조회는 신청 접수 직후 미리 시작해두되(빠른 응답을 위해), 실제 모달을
+  // 띄우는 건 "확인했습니다" 클릭 시점 — 그 사이 조회가 안 끝났으면 클릭 시 대기한다.
+  const nudgeCheckRef = useRef<Promise<WatchlistNudge> | null>(null);
 
   const planLabel = `${PLAN_NAMES[plan]} ${isAnnual ? '연간' : '월간'} 구독`;
 
@@ -64,13 +70,14 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
 
       if (plan === 'pro') {
         const userId = data.session?.user?.id;
-        if (userId) {
+        nudgeCheckRef.current = (async (): Promise<WatchlistNudge> => {
+          if (!userId) return 'none';
           const { count } = await supabase
             .from('watchlist')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', userId);
-          setNudge((count ?? 0) > 0 ? 'has-items' : 'empty');
-        }
+          return (count ?? 0) > 0 ? 'has-items' : 'empty';
+        })();
       }
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : '신청 중 오류가 발생했습니다.');
@@ -78,8 +85,26 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
     }
   }
 
+  // "확인했습니다" 클릭 — 계좌 안내 화면을 먼저 완전히 닫은 뒤에만 관심기업 모달을 띄운다.
+  async function handleRequestedConfirm() {
+    if (nudgeCheckRef.current) {
+      const result = await nudgeCheckRef.current;
+      if (result !== 'none') {
+        setNudge(result);
+        setNudgeVisible(true);
+        return;
+      }
+    }
+    onClose();
+  }
+
+  function dismissNudge() {
+    setNudgeVisible(false);
+    onClose();
+  }
+
   function goToWatchlist() {
-    setNudge('none');
+    setNudgeVisible(false);
     onClose();
     router.push('/');
   }
@@ -185,7 +210,7 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
           </p>
 
           <button
-            onClick={onClose}
+            onClick={handleRequestedConfirm}
             className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-bold cursor-pointer transition-colors"
           >
             확인했습니다
@@ -207,10 +232,10 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
         </div>
       )}
 
-      {/* Pro 신청 완료 직후 — 관심기업 등록 유도 (계좌 안내 화면 위에 겹쳐 표시) */}
-      {nudge !== 'none' && (
+      {/* Pro 신청 완료 직후 — 계좌 안내 화면을 "확인했습니다"로 닫은 뒤에만 순차적으로 표시 */}
+      {nudgeVisible && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setNudge('none')} />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={dismissNudge} />
           <div
             className="relative w-full max-w-sm rounded-2xl p-6 shadow-2xl text-center"
             style={{ background: '#0f1117', border: '1px solid rgba(52,211,153,0.3)' }}
@@ -239,7 +264,7 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
                     관심기업 등록하러 가기
                   </button>
                   <button
-                    onClick={() => setNudge('none')}
+                    onClick={dismissNudge}
                     className="w-full py-2.5 rounded-xl text-[12.5px] font-semibold text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
                   >
                     나중에 하기
@@ -262,7 +287,7 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
                     관심기업 관리하러 가기
                   </button>
                   <button
-                    onClick={() => setNudge('none')}
+                    onClick={dismissNudge}
                     className="w-full py-2.5 rounded-xl text-[12.5px] font-semibold text-slate-400 hover:text-slate-200 cursor-pointer transition-colors"
                   >
                     확인
