@@ -56,6 +56,48 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_transfer_requests: {
+        Row: {
+          amount: number
+          created_at: string
+          depositor_name: string
+          id: string
+          is_annual: boolean
+          plan: string
+          processed_at: string | null
+          processed_by: string | null
+          requested_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          depositor_name: string
+          id?: string
+          is_annual?: boolean
+          plan: string
+          processed_at?: string | null
+          processed_by?: string | null
+          requested_at?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          depositor_name?: string
+          id?: string
+          is_annual?: boolean
+          plan?: string
+          processed_at?: string | null
+          processed_by?: string | null
+          requested_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       billing_executions: {
         Row: {
           created_at: string

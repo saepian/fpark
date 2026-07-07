@@ -27,6 +27,9 @@
     },
     "app/api/cron/virtual-account-renewal/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/bank-transfer-expire/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -65,6 +68,10 @@
     {
       "path": "/api/cron/virtual-account-renewal",
       "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/bank-transfer-expire",
+      "schedule": "0 17 * * *"
     }
   ]
 }
