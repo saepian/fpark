@@ -76,18 +76,52 @@ const PLANS: Plan[] = [
 
 const FAQ_ITEMS = [
   {
+    id: 'cancel',
     q: '언제든지 해지할 수 있나요?',
     a: '네, 언제든지 해지 가능합니다. 해지 후에도 남은 결제 기간 동안 서비스를 계속 이용하실 수 있습니다.',
   },
   {
+    id: 'payment-method',
     q: '결제는 어떻게 이루어지나요?',
     a: '신용카드, 체크카드, 카카오페이 등 다양한 결제 수단을 지원할 예정입니다. 현재 결제 시스템 연동 준비 중입니다.',
   },
   {
+    id: 'refund-policy',
     q: '환불 정책은 어떻게 되나요?',
-    a: '결제 후 3일 이내 미사용 시 전액 환불이 가능합니다. 사용 이력이 있는 경우 실제 사용일 수를 제외한 잔여 기간에 대해 일할 계산하여 환불해드립니다. 환불 문의는 saepian2@gmail.com으로 연락해주세요.',
+    a: (
+      <>
+        결제일로부터 <strong className="text-slate-200">7일 이내</strong>에 마이페이지 &gt; 구독 취소 메뉴에서 신청하시면 환불 금액이 자동으로 계산되어 접수됩니다 (전자상거래법 기준).
+        {'\n\n'}
+        환불 금액은 경과일수와 실제 이용 실적 중 더 큰 비율로 차감되어 계산됩니다. 구체적인 계산 방식은{' '}
+        <a href="#faq-refund-calc" className="text-indigo-400 hover:underline">
+          &lsquo;환불 금액은 어떻게 계산되나요?&rsquo;
+        </a>{' '}
+        항목을 참고해주세요.
+        {'\n\n'}
+        결제일로부터 7일이 지난 경우에는 환불 없이 다음 결제부터 자동으로 중단되며, 현재 결제 기간까지는 계속 이용하실 수 있습니다.
+        {'\n\n'}
+        그 외 문의사항은 saepian2@gmail.com으로 연락해주세요.
+      </>
+    ),
   },
   {
+    id: 'refund-calc',
+    q: '환불 금액은 어떻게 계산되나요?',
+    a: `환불 금액은 아래 두 기준 중 더 큰 차감 비율을 적용하여 계산됩니다.
+
+① 경과일수 기준: 결제일로부터 환불 신청일까지 경과한 일수 ÷ 30일
+
+② 이용실적 기준
+- 기업 분석: 이용 건수 ÷ (플랜별 일일 이용 한도 × 30일)
+- 포트폴리오 분석: 이용 건수 ÷ 플랜별 월간 이용 한도 (1회 이용 시에는 완화된 기준 적용)
+
+예시
+- 결제 후 3일 이내, 서비스 이용 없이 환불 신청 시 → 전액 환불
+- 결제 후 이용 한도를 상당 부분 사용한 뒤 즉시 환불 신청 시 → 이용실적 기준에 따라 환불액이 크게 줄어들 수 있음
+- 결제 후 며칠이 지났으나 이용 실적이 적은 경우 → 경과일수 기준으로 계산`,
+  },
+  {
+    id: 'plan-diff',
     q: '무료 플랜과 유료 플랜의 차이는?',
     a: '무료 플랜은 기업 분석을 매일 1회 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, AI 리포트 저장, 우선순위 처리 등 고급 기능을 이용하실 수 있습니다.',
   },
@@ -332,6 +366,25 @@ export default function PricingClient() {
     });
   }, []); // eslint-disable-line
 
+  // #faq-<id> 해시로 들어오면 해당 FAQ를 펼치고 스크롤 — 다른 페이지(환불정책/이용약관)에서
+  // 넘어올 때뿐 아니라, FAQ 답변 안에서 다른 FAQ 항목을 가리키는 같은 페이지 내 링크
+  // 클릭(hashchange)도 동일하게 처리한다.
+  useEffect(() => {
+    const openFromHash = () => {
+      const hash = window.location.hash.replace('#faq-', '');
+      if (!hash) return;
+      const idx = FAQ_ITEMS.findIndex((item) => item.id === hash);
+      if (idx === -1) return;
+      setOpenFaq(idx);
+      setTimeout(() => {
+        document.getElementById(`faq-${hash}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    };
+    openFromHash();
+    window.addEventListener('hashchange', openFromHash);
+    return () => window.removeEventListener('hashchange', openFromHash);
+  }, []); // eslint-disable-line
+
   const handleAction = (type: PlanType) => {
     if (type === 'free') { router.push('/'); return; }
 
@@ -496,7 +549,8 @@ export default function PricingClient() {
           {FAQ_ITEMS.map((item, i) => (
             <div
               key={i}
-              className="rounded-xl overflow-hidden"
+              id={`faq-${item.id}`}
+              className="rounded-xl overflow-hidden scroll-mt-24"
               style={{ background: 'rgba(15,17,23,0.6)', border: '1px solid rgba(51,65,85,0.5)' }}
             >
               <button
@@ -510,7 +564,7 @@ export default function PricingClient() {
               </button>
               {openFaq === i && (
                 <div className="px-5 pb-4">
-                  <p className="text-[13px] text-slate-400 leading-relaxed">{item.a}</p>
+                  <p className="text-[13px] text-slate-400 leading-relaxed whitespace-pre-line">{item.a}</p>
                 </div>
               )}
             </div>

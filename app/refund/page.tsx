@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'FPARK | 환불정책',
@@ -72,6 +73,11 @@ export default function RefundPage() {
             <li>서비스를 사용하지 않은 경우</li>
           </ul>
           <p className="mt-3">서비스를 이미 사용한 경우에는 사용 기간에 해당하는 금액을 제외한 나머지 금액을 환불합니다.</p>
+          <p className="mt-3 text-slate-400 text-[13px]">
+            환불 금액은 경과일수와 실제 이용 실적(분석 이용 횟수) 중 더 큰 차감 비율을 적용하여 계산됩니다.
+            자세한 계산 방식은{' '}
+            <Link href="/pricing#faq-refund-calc" className="text-indigo-400 hover:underline">요금제 페이지 FAQ</Link>를 참고해주세요.
+          </p>
         </section>
 
         <section>
