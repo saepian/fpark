@@ -172,11 +172,11 @@ export default function AdminUsersPage() {
     return (
       <th
         onClick={() => toggleSort(k)}
-        className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide cursor-pointer select-none hover:text-slate-300 transition-colors whitespace-nowrap"
+        className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide cursor-pointer select-none hover:text-slate-300 transition-colors whitespace-nowrap"
       >
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center gap-1.5">
           {label}
-          {active ? (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 opacity-30" />}
+          {active ? (sortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />) : <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />}
         </span>
       </th>
     );
@@ -238,8 +238,8 @@ export default function AdminUsersPage() {
   const isLoading = users === null;
 
   return (
-    <div className="px-4 py-8 sm:py-12">
-      <div className="max-w-6xl mx-auto">
+    <div className="px-4 sm:px-6 py-8 sm:py-12">
+      <div className="w-full">
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -327,18 +327,24 @@ export default function AdminUsersPage() {
                     <SortHeader label="이메일" k="email" />
                     <SortHeader label="가입일" k="created_at" />
                     <SortHeader label="플랜" k="plan" />
-                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">구독 상태</th>
+                    <th className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">구독 상태</th>
                     <SortHeader label="다음 결제일" k="next_billed_at" />
                     <th
-                      className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
-                      title="종목진단은 일일 한도라 오늘 이용 건수 / 일일한도로 표시(이번 달 누적은 참고용). 포트폴리오는 월간 한도라 이번 결제 사이클(무료 유저는 매월 1일 기준) 누적 이용 건수 / 월간한도로 표시"
+                      className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+                      title="일일 한도라 오늘 이용 건수 / 일일한도로 표시. 이번 달 누적은 참고용"
                     >
-                      이번달 이용현황
+                      종목진단
+                    </th>
+                    <th
+                      className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+                      title="월간 한도라 이번 결제 사이클(무료 유저는 매월 1일 기준) 누적 이용 건수 / 월간한도로 표시"
+                    >
+                      포트폴리오
                     </th>
                     <SortHeader label="종목크레딧(1회권)" k="stock_credits" />
                     <SortHeader label="포트폴리오크레딧(1회권)" k="portfolio_credits" />
                     <SortHeader label="최근 로그인" k="last_sign_in_at" />
-                    <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">결제 이력</th>
+                    <th className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide">결제 이력</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -353,35 +359,37 @@ export default function AdminUsersPage() {
                           className="border-b border-slate-800/60 last:border-0 hover:bg-white/[0.02] transition-colors"
                           style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.012)' }}
                         >
-                          <td className="px-3 py-3 text-[13px] text-white font-medium max-w-[220px] truncate" title={u.email ?? ''}>{u.email ?? '-'}</td>
-                          <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDate(u.created_at)}</td>
-                          <td className="px-3 py-3">
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: `${PLAN_COLOR[u.plan] ?? PLAN_COLOR.free}22`, color: PLAN_COLOR[u.plan] ?? PLAN_COLOR.free }}>
+                          <td className="px-4 py-3 text-[13.5px] text-white font-medium max-w-[220px] truncate" title={u.email ?? ''}>{u.email ?? '-'}</td>
+                          <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">{formatDate(u.created_at)}</td>
+                          <td className="px-4 py-3">
+                            <span className="text-[11.5px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap" style={{ background: `${PLAN_COLOR[u.plan] ?? PLAN_COLOR.free}22`, color: PLAN_COLOR[u.plan] ?? PLAN_COLOR.free }}>
                               {PLAN_LABEL[u.plan] ?? u.plan}
                             </span>
                           </td>
-                          <td className="px-3 py-3">
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: `${STATUS_COLOR[status]}1f`, color: STATUS_COLOR[status] }}>
+                          <td className="px-4 py-3">
+                            <span className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full whitespace-nowrap" style={{ background: `${STATUS_COLOR[status]}1f`, color: STATUS_COLOR[status] }}>
                               {STATUS_LABEL[status]}
                             </span>
                           </td>
-                          <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDate(u.next_billed_at)}</td>
-                          <td className="px-3 py-3 text-[12px] text-slate-300 whitespace-nowrap">
-                            <div className="flex flex-col gap-0.5">
-                              <span>오늘 종목 <span className="tabular-nums font-medium text-slate-200">{u.diagnosis_used_today}/{u.diagnosis_limit}</span></span>
-                              <span className="text-slate-500">포트폴리오 <span className={`tabular-nums font-medium ${usageColorClass(u.portfolio_used, u.portfolio_limit)}`}>{u.portfolio_used}/{u.portfolio_limit}</span></span>
-                              <span className="text-[10.5px] text-slate-600">이번달 누적 {u.diagnosis_used_month}회</span>
+                          <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">{formatDate(u.next_billed_at)}</td>
+                          <td className="px-4 py-3 text-[13px] text-slate-300 whitespace-nowrap">
+                            <div className="flex flex-col gap-1">
+                              <span className="tabular-nums font-medium text-slate-200">{u.diagnosis_used_today}/{u.diagnosis_limit}</span>
+                              <span className="text-[11px] text-slate-600">이번달 누적 {u.diagnosis_used_month}회</span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-[13px] text-slate-300 tabular-nums">{u.stock_credits}</td>
-                          <td className="px-3 py-3 text-[13px] text-slate-300 tabular-nums">{u.portfolio_credits}</td>
-                          <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(u.last_sign_in_at)}</td>
-                          <td className="px-3 py-3">
+                          <td className="px-4 py-3 text-[13px] whitespace-nowrap">
+                            <span className={`tabular-nums font-medium ${usageColorClass(u.portfolio_used, u.portfolio_limit)}`}>{u.portfolio_used}/{u.portfolio_limit}</span>
+                          </td>
+                          <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.stock_credits}</td>
+                          <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.portfolio_credits}</td>
+                          <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(u.last_sign_in_at)}</td>
+                          <td className="px-4 py-3">
                             <div className="flex items-center gap-1.5 whitespace-nowrap">
                               <button
                                 onClick={() => setExpandedId(expanded ? null : u.id)}
                                 disabled={historyCount === 0 && refundCount === 0}
-                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#1a1f2e] border border-slate-700/50 text-slate-300 hover:border-slate-500 whitespace-nowrap shrink-0"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#1a1f2e] border border-slate-700/50 text-slate-300 hover:border-slate-500 whitespace-nowrap shrink-0"
                               >
                                 <Receipt className="w-3.5 h-3.5 shrink-0" />
                                 {historyCount}건
@@ -389,7 +397,7 @@ export default function AdminUsersPage() {
                               {refundCount > 0 && (
                                 <button
                                   onClick={() => setExpandedId(expanded ? null : u.id)}
-                                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer transition-colors bg-[#1a1f2e] border border-amber-700/40 text-amber-400 hover:border-amber-500 whitespace-nowrap shrink-0"
+                                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-colors bg-[#1a1f2e] border border-amber-700/40 text-amber-400 hover:border-amber-500 whitespace-nowrap shrink-0"
                                 >
                                   <Banknote className="w-3.5 h-3.5 shrink-0" />
                                   환불 {refundCount}건
@@ -400,7 +408,7 @@ export default function AdminUsersPage() {
                         </tr>
                         {expanded && (
                           <tr className="border-b border-slate-800/60" style={{ background: 'rgba(99,102,241,0.04)' }}>
-                            <td colSpan={10}>
+                            <td colSpan={11}>
                               <PaymentHistoryPanel userId={u.id} />
                               <RefundHistoryPanel userId={u.id} />
                             </td>
