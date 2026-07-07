@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 const REFUND_EMAIL = 'saepian2@gmail.com';
-const LAST_UPDATED = '2026년 7월 6일';
+const LAST_UPDATED = '2026년 7월 7일';
 
 const webPageJsonLd = {
   '@context': 'https://schema.org',
@@ -23,7 +23,7 @@ const webPageJsonLd = {
   alternateName: 'Refund Policy',
   description: 'FPARK 서비스의 환불 기준 및 환불 절차를 안내합니다.',
   url: 'https://fpark.com/refund',
-  dateModified: '2026-07-06',
+  dateModified: '2026-07-07',
   inLanguage: 'ko-KR',
   isPartOf: {
     '@type': 'WebSite',
@@ -86,18 +86,22 @@ export default function RefundPage() {
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">4. 자동결제 해지</h2>
-          <p>구독은 언제든지 해지할 수 있습니다.</p>
-          <p className="mt-2">해지 이후에는 다음 결제일부터 자동결제가 중단됩니다.</p>
-          <p className="mt-2">이미 결제된 기간은 환불정책에 따라 처리됩니다.</p>
+          <p>구독은 마이페이지 &gt; 구독 취소 메뉴에서 언제든지 해지할 수 있습니다.</p>
+          <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
+            <li>결제일로부터 7일 이내로 환불 대상에 해당하는 경우, 환불 처리와 동시에 서비스 이용이 즉시 중단됩니다.</li>
+            <li>결제일로부터 7일이 지나 환불 대상이 아닌 경우, 다음 결제일부터 자동결제가 중단되며 그 전까지는 서비스를 계속 이용할 수 있습니다.</li>
+          </ul>
+          <p className="mt-2">이미 결제된 기간은 위 환불 기준에 따라 처리됩니다.</p>
         </section>
 
         <section>
           <h2 className="text-lg font-semibold text-white mb-3">5. 환불 신청</h2>
-          <p>환불은 아래 이메일로 신청할 수 있습니다.</p>
+          <p>마이페이지 &gt; 구독 취소 메뉴에서 취소를 신청하면 위 환불 기준에 따라 환불 금액이 자동으로 계산되어 접수됩니다.</p>
+          <p className="mt-3">그 외 문의사항은 아래 이메일로 연락해주세요.</p>
           <p className="mt-2">
             <a href={`mailto:${REFUND_EMAIL}`} className="text-indigo-400 hover:underline">{REFUND_EMAIL}</a>
           </p>
-          <p className="mt-3">신청 시 아래 내용을 포함해주세요.</p>
+          <p className="mt-3">이메일 문의 시 아래 내용을 포함해주세요.</p>
           <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
             <li>이름</li>
             <li>가입 이메일</li>

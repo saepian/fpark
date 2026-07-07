@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Landmark, CheckCircle2, XCircle, RefreshCw, Loader2, RotateCcw,
-  Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
+  Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Banknote, Pencil,
 } from 'lucide-react';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 
@@ -28,17 +28,36 @@ interface RequestItem {
   processed_at:   string | null;
 }
 
+interface RefundItem {
+  id:                     string;
+  user_id:                string;
+  email:                  string;
+  plan:                   'basic' | 'pro';
+  paid_amount:            number;
+  usage_detected:         boolean;
+  elapsed_days:           number;
+  refund_amount:          number;
+  refund_reason:          string | null;
+  refund_status:          'none' | 'requested' | 'completed' | 'rejected';
+  refund_account_bank:    string | null;
+  refund_account_number:  string | null;
+  refund_account_holder:  string | null;
+  requested_at:           string;
+  processed_at:           string | null;
+  processed_by:           string | null;
+}
+
 const PLAN_LABEL: Record<'basic' | 'pro', string> = { basic: 'Basic', pro: 'Pro' };
 const PLAN_COLOR: Record<'basic' | 'pro', string> = { basic: '#818cf8', pro: '#fbbf24' };
 const TYPE_LABEL: Record<'new' | 'renewal', string> = { new: '신규가입', renewal: '갱신' };
 const TYPE_COLOR: Record<'new' | 'renewal', string> = { new: '#38bdf8', renewal: '#a78bfa' };
 
-type Filter = 'all' | 'new' | 'renewal' | 'expired';
+type Filter = 'all' | 'new' | 'renewal' | 'expired' | 'refund';
 type SortKey = 'email' | 'plan' | 'amount' | 'depositor_name' | 'requested_at';
 type Action = 'approve' | 'reject' | 'reactivate';
 
 const FILTER_LABEL: Record<Filter, string> = {
-  all: '전체 대기', new: '신규가입 대기', renewal: '갱신 대기', expired: '만료됨',
+  all: '전체 대기', new: '신규가입 대기', renewal: '갱신 대기', expired: '만료됨', refund: '환불 대기',
 };
 const PAGE_SIZE = 20;
 
@@ -64,7 +83,9 @@ export default function AdminPaymentsPage() {
   const router = useRouter();
   const [pending, setPending] = useState<RequestItem[] | null>(null);
   const [expired, setExpired] = useState<RequestItem[] | null>(null);
+  const [refunds, setRefunds] = useState<RefundItem[] | null>(null);
   const [busyId, setBusyId]   = useState<string | null>(null);
+  const [refundBusyId, setRefundBusyId] = useState<string | null>(null);
   const [error, setError]     = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -78,15 +99,22 @@ export default function AdminPaymentsPage() {
     if (!silent) setError('');
     else setRefreshing(true);
     try {
-      const res = await fetch('/api/admin/bank-transfers');
-      if (res.status === 401) {
+      const [btRes, refundRes] = await Promise.all([
+        fetch('/api/admin/bank-transfers'),
+        fetch('/api/admin/refunds'),
+      ]);
+      if (btRes.status === 401 || refundRes.status === 401) {
         router.push(loginUrlWithRedirect('/admin/payments'));
         return;
       }
-      const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json.error ?? '조회 실패');
-      setPending(json.pending);
-      setExpired(json.expired);
+      const btJson = await btRes.json();
+      if (!btRes.ok || !btJson.ok) throw new Error(btJson.error ?? '조회 실패');
+      setPending(btJson.pending);
+      setExpired(btJson.expired);
+
+      const refundJson = await refundRes.json();
+      if (!refundRes.ok || !refundJson.ok) throw new Error(refundJson.error ?? '환불 목록 조회 실패');
+      setRefunds(refundJson.refunds);
     } catch (e) {
       setError(e instanceof Error ? e.message : '목록을 불러오지 못했습니다.');
     } finally {
@@ -101,6 +129,8 @@ export default function AdminPaymentsPage() {
     const timer = setInterval(() => load(true), 20_000);
     return () => clearInterval(timer);
   }, [load]);
+
+  const pendingRefunds = useMemo(() => (refunds ?? []).filter((r) => r.refund_status === 'requested'), [refunds]);
 
   const allItems = useMemo(() => [...(pending ?? []), ...(expired ?? [])], [pending, expired]);
 
@@ -131,6 +161,15 @@ export default function AdminPaymentsPage() {
   const pageClamped = Math.min(page, totalPages);
   const paged = sorted.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE);
 
+  const filteredRefunds = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return pendingRefunds;
+    return pendingRefunds.filter((r) => r.email.toLowerCase().includes(q));
+  }, [pendingRefunds, search]);
+  const refundTotalPages = Math.max(1, Math.ceil(filteredRefunds.length / PAGE_SIZE));
+  const refundPageClamped = Math.min(page, refundTotalPages);
+  const pagedRefunds = filteredRefunds.slice((refundPageClamped - 1) * PAGE_SIZE, refundPageClamped * PAGE_SIZE);
+
   // 필터/검색이 바뀌면 첫 페이지로
   useEffect(() => { setPage(1); }, [filter, search]);
 
@@ -160,6 +199,76 @@ export default function AdminPaymentsPage() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function handleCompleteRefund(id: string) {
+    if (refundBusyId) return;
+    if (!confirm('실제로 송금을 완료하셨습니까? 완료 처리 시 유저에게 환불 완료 안내 메일이 자동 발송됩니다.')) return;
+    setRefundBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/refunds/${id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'complete' }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? '처리 실패');
+      setRefunds((prev) => (prev ?? []).map((r) => (r.id === id ? { ...r, refund_status: 'completed' } : r)));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '처리 중 오류가 발생했습니다.');
+    } finally {
+      setRefundBusyId(null);
+    }
+  }
+
+  async function handleUpdateRefundAmount(id: string, currentAmount: number) {
+    if (refundBusyId) return;
+    const input = prompt('수정할 환불 금액을 입력하세요 (원)', String(currentAmount));
+    if (input === null) return;
+    const amount = Number(input.replace(/[^0-9]/g, ''));
+    if (!Number.isFinite(amount) || amount < 0) {
+      alert('올바른 금액을 입력해주세요.');
+      return;
+    }
+    setRefundBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/refunds/${id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'update_amount', amount }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? '수정 실패');
+      setRefunds((prev) => (prev ?? []).map((r) => (r.id === id ? { ...r, refund_amount: json.refundAmount } : r)));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '수정 중 오류가 발생했습니다.');
+    } finally {
+      setRefundBusyId(null);
+    }
+  }
+
+  function RefundActionButtons({ r, compact }: { r: RefundItem; compact?: boolean }) {
+    const isBusy = refundBusyId === r.id;
+    return (
+      <div className="flex gap-2">
+        <button
+          onClick={() => handleCompleteRefund(r.id)}
+          disabled={isBusy}
+          className={`flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'flex-1 py-3 text-[13.5px]' : 'px-3 py-2 text-[12.5px] whitespace-nowrap'}`}
+        >
+          {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
+          송금 완료
+        </button>
+        <button
+          onClick={() => handleUpdateRefundAmount(r.id, r.refund_amount)}
+          disabled={isBusy}
+          className={`flex items-center justify-center gap-1.5 rounded-lg bg-[#1a1f2e] hover:bg-slate-800 active:scale-[0.98] border border-slate-700/60 text-slate-400 hover:text-slate-200 font-semibold cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed ${compact ? 'px-4 py-3 text-[13px]' : 'px-3 py-2 text-[12.5px] whitespace-nowrap'}`}
+        >
+          <Pencil className="w-3.5 h-3.5" />
+          금액 수정
+        </button>
+      </div>
+    );
   }
 
   function ActionButtons({ it, compact }: { it: RequestItem; compact?: boolean }) {
@@ -227,7 +336,7 @@ export default function AdminPaymentsPage() {
             </span>
             <div>
               <h1 className="text-[18px] sm:text-[20px] font-bold text-white leading-tight">계좌이체 승인</h1>
-              <p className="text-[12px] text-slate-500">대기중 {pending?.length ?? 0}건 · 만료 {expired?.length ?? 0}건</p>
+              <p className="text-[12px] text-slate-500">대기중 {pending?.length ?? 0}건 · 만료 {expired?.length ?? 0}건 · 환불대기 {pendingRefunds.length}건</p>
             </div>
           </div>
           <button
@@ -280,6 +389,107 @@ export default function AdminPaymentsPage() {
             <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
             <p className="text-[13px] text-slate-500">불러오는 중...</p>
           </div>
+        ) : filter === 'refund' ? (
+          filteredRefunds.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <Banknote className="w-10 h-10 text-slate-700" />
+              <p className="text-[14px] text-slate-500">{search ? '검색 결과가 없습니다' : '환불 대기 항목이 없습니다'}</p>
+            </div>
+          ) : (
+            <>
+              {/* ── 데스크톱: 환불 대기 표 ── */}
+              <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-700/50">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-700/50" style={{ background: '#12151f' }}>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">이메일</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">플랜</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">계산 근거</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">환불 예정액</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">환불 계좌</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">신청일시</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">액션</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedRefunds.map((r, i) => (
+                      <tr
+                        key={r.id}
+                        className="border-b border-slate-800/60 last:border-0 hover:bg-white/[0.02] transition-colors"
+                        style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.012)' }}
+                      >
+                        <td className="px-3 py-3 text-[13px] text-white font-medium max-w-[200px] truncate" title={r.email}>{r.email}</td>
+                        <td className="px-3 py-3">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
+                            {PLAN_LABEL[r.plan]}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-[12px] text-slate-400 max-w-[260px]">
+                          <span className={`font-semibold ${r.usage_detected ? 'text-amber-300' : 'text-emerald-400'}`}>
+                            {r.usage_detected ? '사용함' : '미사용'}
+                          </span>
+                          {' · '}{r.elapsed_days}일 경과
+                        </td>
+                        <td className="px-3 py-3 text-[13.5px] text-white font-bold whitespace-nowrap tabular-nums">{r.refund_amount.toLocaleString()}원</td>
+                        <td className="px-3 py-3 text-[12.5px] text-slate-300 whitespace-nowrap">
+                          {r.refund_account_bank} {r.refund_account_number}
+                          <span className="text-slate-500"> ({r.refund_account_holder})</span>
+                        </td>
+                        <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(r.requested_at)}</td>
+                        <td className="px-3 py-3">
+                          <RefundActionButtons r={r} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ── 모바일: 환불 대기 압축 카드 ── */}
+              <div className="md:hidden flex flex-col gap-2.5">
+                {pagedRefunds.map((r) => (
+                  <div key={r.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
+                    <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
+                        {PLAN_LABEL[r.plan]}
+                      </span>
+                      <span className={`text-[10px] font-bold ${r.usage_detected ? 'text-amber-300' : 'text-emerald-400'}`}>
+                        {r.usage_detected ? '사용함' : '미사용'} · {r.elapsed_days}일 경과
+                      </span>
+                      <span className="text-[13px] font-bold text-white ml-auto">{r.refund_amount.toLocaleString()}원</span>
+                    </div>
+                    <p className="text-[13px] font-semibold text-white truncate mb-1">{r.email}</p>
+                    <p className="text-[12.5px] text-slate-400 mb-2.5">
+                      {r.refund_account_bank} {r.refund_account_number} ({r.refund_account_holder})
+                    </p>
+                    <RefundActionButtons r={r} compact />
+                  </div>
+                ))}
+              </div>
+
+              {refundTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-3 mt-6">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={refundPageClamped <= 1}
+                    className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#1a1f2e] border border-slate-700/50 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer hover:border-slate-500 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-[12.5px] text-slate-400 tabular-nums">
+                    {refundPageClamped} / {refundTotalPages} 페이지 · 총 {filteredRefunds.length}건
+                  </span>
+                  <button
+                    onClick={() => setPage((p) => Math.min(refundTotalPages, p + 1))}
+                    disabled={refundPageClamped >= refundTotalPages}
+                    className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#1a1f2e] border border-slate-700/50 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer hover:border-slate-500 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </>
+          )
         ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
             <CheckCircle2 className="w-10 h-10 text-slate-700" />

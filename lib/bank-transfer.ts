@@ -16,7 +16,7 @@ export function computeNextBilledAt(from: Date, isAnnual: boolean): Date {
   return next;
 }
 
-function emailShell(bodyHtml: string): string {
+export function emailShell(bodyHtml: string): string {
   return `<!DOCTYPE html>
 <html lang="ko">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Finance Park</title></head>

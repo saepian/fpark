@@ -407,6 +407,66 @@ export type Database = {
         }
         Relationships: []
       }
+      refund_requests: {
+        Row: {
+          created_at: string
+          elapsed_days: number
+          id: string
+          paid_amount: number
+          plan: string
+          processed_at: string | null
+          processed_by: string | null
+          refund_account_bank: string | null
+          refund_account_holder: string | null
+          refund_account_number: string | null
+          refund_amount: number
+          refund_reason: string | null
+          refund_status: string
+          requested_at: string
+          subscription_start_date: string
+          usage_detected: boolean
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          elapsed_days: number
+          id?: string
+          paid_amount: number
+          plan: string
+          processed_at?: string | null
+          processed_by?: string | null
+          refund_account_bank?: string | null
+          refund_account_holder?: string | null
+          refund_account_number?: string | null
+          refund_amount?: number
+          refund_reason?: string | null
+          refund_status?: string
+          requested_at?: string
+          subscription_start_date: string
+          usage_detected: boolean
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          elapsed_days?: number
+          id?: string
+          paid_amount?: number
+          plan?: string
+          processed_at?: string | null
+          processed_by?: string | null
+          refund_account_bank?: string | null
+          refund_account_holder?: string | null
+          refund_account_number?: string | null
+          refund_amount?: number
+          refund_reason?: string | null
+          refund_status?: string
+          requested_at?: string
+          subscription_start_date?: string
+          usage_detected?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
       shared_reports: {
         Row: {
           created_at: string

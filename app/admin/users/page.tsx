@@ -12,7 +12,7 @@ import {
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 
 type Plan = 'free' | 'basic' | 'pro' | 'admin';
-type StatusBucket = 'active' | 'pending_renewal' | 'expired' | 'free';
+type StatusBucket = 'active' | 'pending_renewal' | 'pending_cancellation' | 'expired' | 'free';
 
 interface UserRow {
   id:                 string;
@@ -41,8 +41,8 @@ interface PaymentHistoryItem {
 
 const PLAN_LABEL: Record<string, string> = { free: '무료', basic: 'Basic', pro: 'Pro', admin: '관리자' };
 const PLAN_COLOR: Record<string, string> = { free: '#64748b', basic: '#818cf8', pro: '#fbbf24', admin: '#f472b6' };
-const STATUS_LABEL: Record<StatusBucket, string> = { active: '활성', pending_renewal: '갱신대기', expired: '만료', free: '무료' };
-const STATUS_COLOR: Record<StatusBucket, string> = { active: '#34d399', pending_renewal: '#fbbf24', expired: '#f87171', free: '#64748b' };
+const STATUS_LABEL: Record<StatusBucket, string> = { active: '활성', pending_renewal: '갱신대기', pending_cancellation: '해지예약', expired: '만료', free: '무료' };
+const STATUS_COLOR: Record<StatusBucket, string> = { active: '#34d399', pending_renewal: '#fbbf24', pending_cancellation: '#94a3b8', expired: '#f87171', free: '#64748b' };
 const REQ_STATUS_LABEL: Record<string, string> = { pending: '대기중', approved: '승인됨', rejected: '거절됨', expired: '만료됨' };
 
 type PlanFilter = 'all' | Plan;
@@ -54,6 +54,7 @@ const PAGE_SIZE = 20;
 function normalizeStatus(u: UserRow): StatusBucket {
   if (u.plan === 'free' || !u.subscription_status) return 'free';
   if (u.subscription_status === 'pending_renewal') return 'pending_renewal';
+  if (u.subscription_status === 'pending_cancellation') return 'pending_cancellation';
   if (u.subscription_status === 'expired') return 'expired';
   if (u.subscription_status === 'active') return 'active';
   return 'free';
@@ -239,6 +240,7 @@ export default function AdminUsersPage() {
               <option value="all">전체 상태</option>
               <option value="active">활성</option>
               <option value="pending_renewal">갱신대기</option>
+              <option value="pending_cancellation">해지예약</option>
               <option value="expired">만료</option>
               <option value="free">무료</option>
             </select>

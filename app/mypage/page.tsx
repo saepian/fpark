@@ -30,6 +30,17 @@ interface MyPageData {
   };
 }
 
+interface CancelPreview {
+  plan:           string;
+  paidAmount:     number;
+  usageDetected:  boolean;
+  elapsedDays:    number;
+  refundEligible: boolean;
+  refundAmount:   number;
+  reasonText:     string;
+  nextBilledAt:   string | null;
+}
+
 const SUBSCRIPTION_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   active:            { label: '정상',       color: '#34d399', bg: 'rgba(52,211,153,0.12)' },
   awaiting_deposit:  { label: '입금 대기',  color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
@@ -37,8 +48,9 @@ const SUBSCRIPTION_STATUS_META: Record<string, { label: string; color: string; b
   payment_failed:    { label: '결제 실패',  color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
   cancelled:         { label: '해지됨',     color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
   inactive:          { label: '무료 플랜',  color: '#64748b', bg: 'rgba(100,116,139,0.12)' },
-  pending_renewal:   { label: '갱신 대기',  color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
-  expired:           { label: '만료됨',     color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+  pending_renewal:      { label: '갱신 대기',   color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
+  expired:              { label: '만료됨',      color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+  pending_cancellation: { label: '해지 예약됨', color: '#94a3b8', bg: 'rgba(148,163,184,0.12)' },
 };
 
 const PLAN_META = {
@@ -194,8 +206,17 @@ export default function MyPage() {
   const [morningBriefingEnabled, setMorningBriefingEnabled] = useState(true);
   const [togglingMorning, setTogglingMorning] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/mypage')
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
+  const [cancelPreviewLoading, setCancelPreviewLoading] = useState(false);
+  const [cancelPreviewError, setCancelPreviewError] = useState('');
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [refundBank, setRefundBank] = useState('');
+  const [refundAccountNumber, setRefundAccountNumber] = useState('');
+  const [refundAccountHolder, setRefundAccountHolder] = useState('');
+
+  const loadMypage = () => {
+    return fetch('/api/mypage')
       .then(async r => {
         if (r.status === 401) { router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)); return; }
         const json = await r.json();
@@ -203,8 +224,11 @@ export default function MyPage() {
         setEmailAlertEnabled(json.emailAlertEnabled ?? true);
         setMorningBriefingEnabled(json.morningBriefingEnabled ?? true);
       })
-      .catch(() => router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)))
-      .finally(() => setLoading(false));
+      .catch(() => router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)));
+  };
+
+  useEffect(() => {
+    loadMypage().finally(() => setLoading(false));
   }, []); // eslint-disable-line
 
   const handleSignOut = async () => {
@@ -246,6 +270,59 @@ export default function MyPage() {
     } else {
       setWithdrawing(false);
       alert('탈퇴 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    }
+  };
+
+  const handleOpenCancelModal = async () => {
+    setShowCancelModal(true);
+    setCancelPreview(null);
+    setCancelPreviewError('');
+    setRefundBank('');
+    setRefundAccountNumber('');
+    setRefundAccountHolder('');
+    setCancelPreviewLoading(true);
+    try {
+      const res = await fetch('/api/subscription/cancel');
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? '예상 환불액을 계산하지 못했습니다.');
+      setCancelPreview(json);
+    } catch (e) {
+      setCancelPreviewError(e instanceof Error ? e.message : '예상 환불액을 계산하지 못했습니다.');
+    } finally {
+      setCancelPreviewLoading(false);
+    }
+  };
+
+  const handleSubmitCancel = async () => {
+    if (!cancelPreview) return;
+    if (cancelPreview.refundAmount > 0 && (!refundBank || !refundAccountNumber || !refundAccountHolder)) {
+      alert('환불받을 계좌 정보를 모두 입력해주세요.');
+      return;
+    }
+    setCancelSubmitting(true);
+    try {
+      const res = await fetch('/api/subscription/cancel', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          refundAccountBank:   refundBank,
+          refundAccountNumber,
+          refundAccountHolder: refundAccountHolder,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? '취소 처리 중 오류가 발생했습니다.');
+      setShowCancelModal(false);
+      await loadMypage();
+      alert(
+        json.refundEligible
+          ? `구독이 해지되었습니다.${json.refundAmount > 0 ? ` 환불 예정액 ${json.refundAmount.toLocaleString()}원은 확인 후 입력하신 계좌로 송금됩니다.` : ''}`
+          : '해지가 예약되었습니다. 다음 결제일까지는 계속 이용하실 수 있습니다.',
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '취소 처리 중 오류가 발생했습니다.');
+    } finally {
+      setCancelSubmitting(false);
     }
   };
 
@@ -466,9 +543,18 @@ export default function MyPage() {
           {/* 구독 취소 (유료 플랜만, 눈에 덜 띄게) */}
           {data.plan !== 'free' && (
             <div className="text-center mt-3">
-              <button className="text-[11px] text-slate-600 hover:text-slate-400 transition-colors cursor-pointer underline underline-offset-2">
-                구독 취소
-              </button>
+              {data.subscription.status === 'pending_cancellation' ? (
+                <p className="text-[11px] text-slate-600">
+                  해지 예약됨 · {data.subscription.nextBilledAt ? new Date(data.subscription.nextBilledAt).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric' }) : ''}까지 이용 가능
+                </p>
+              ) : (
+                <button
+                  onClick={handleOpenCancelModal}
+                  className="text-[11px] text-slate-600 hover:text-slate-400 transition-colors cursor-pointer underline underline-offset-2"
+                >
+                  구독 취소
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -699,6 +785,118 @@ export default function MyPage() {
           </div>
         </div>
       </div>
+
+      {/* ── 구독 취소 확인 모달 ──────────────────────────────────────────── */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => !cancelSubmitting && setShowCancelModal(false)}
+          />
+          <div
+            className="relative w-full max-w-sm rounded-2xl p-7 shadow-2xl max-h-[90vh] overflow-y-auto"
+            style={{ backgroundColor: '#111827', border: '1px solid rgba(51,65,85,0.6)' }}
+          >
+            <h3 className="text-[17px] font-bold text-white mb-1 text-center">구독을 취소하시겠어요?</h3>
+            <p className="text-[11.5px] text-slate-500 leading-relaxed text-center mb-5">
+              결제일로부터 7일 이내 미사용 시 전액환불, 사용한 경우 일할계산하여 환불됩니다.
+              7일이 지났다면 환불 없이 다음 결제일부터 이용이 중단됩니다.
+            </p>
+
+            {cancelPreviewLoading ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <Spinner />
+                <p className="text-[12.5px] text-slate-500">예상 환불액을 계산하는 중…</p>
+              </div>
+            ) : cancelPreviewError ? (
+              <div className="mb-5">
+                <p className="text-[12.5px] text-red-400 text-center">{cancelPreviewError}</p>
+              </div>
+            ) : cancelPreview && (
+              <div className="mb-5">
+                <div
+                  className="rounded-xl p-4 mb-4"
+                  style={{ background: 'rgba(30,37,55,0.6)', border: '1px solid rgba(51,65,85,0.4)' }}
+                >
+                  <div className="flex items-center justify-between text-[12px] py-1">
+                    <span className="text-slate-500">사용 여부</span>
+                    <span className="text-slate-300 font-medium">{cancelPreview.usageDetected ? '사용함' : '미사용'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[12px] py-1">
+                    <span className="text-slate-500">결제일로부터 경과</span>
+                    <span className="text-slate-300 font-medium">{cancelPreview.elapsedDays}일</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[13px] py-1.5 mt-1 border-t border-slate-700/50">
+                    <span className="text-slate-400 font-semibold">
+                      {cancelPreview.refundEligible ? '예상 환불액' : '환불 대상 여부'}
+                    </span>
+                    <span className={`font-bold ${cancelPreview.refundEligible ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {cancelPreview.refundEligible ? `${cancelPreview.refundAmount.toLocaleString()}원` : '환불 대상 아님'}
+                    </span>
+                  </div>
+                </div>
+
+                {cancelPreview.refundEligible ? (
+                  cancelPreview.refundAmount > 0 && (
+                    <div className="flex flex-col gap-2 mb-1">
+                      <p className="text-[11.5px] text-slate-500 mb-0.5">환불받을 계좌 정보를 입력해주세요</p>
+                      <input
+                        value={refundBank}
+                        onChange={(e) => setRefundBank(e.target.value)}
+                        placeholder="은행명 (예: KB국민은행)"
+                        className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+                        style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+                      />
+                      <input
+                        value={refundAccountNumber}
+                        onChange={(e) => setRefundAccountNumber(e.target.value)}
+                        placeholder="계좌번호"
+                        className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+                        style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+                      />
+                      <input
+                        value={refundAccountHolder}
+                        onChange={(e) => setRefundAccountHolder(e.target.value)}
+                        placeholder="예금주명"
+                        className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+                        style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+                      />
+                    </div>
+                  )
+                ) : (
+                  <p className="text-[11.5px] text-slate-500 text-center">
+                    {cancelPreview.nextBilledAt
+                      ? `${new Date(cancelPreview.nextBilledAt).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric' })}까지는 계속 이용하실 수 있습니다.`
+                      : '다음 결제일부터 이용이 중단됩니다.'}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2.5">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                disabled={cancelSubmitting}
+                className="flex-1 py-3 rounded-xl text-[13px] font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                style={{ background: 'rgba(30,37,55,0.8)', border: '1px solid rgba(51,65,85,0.5)' }}
+              >
+                돌아가기
+              </button>
+              {cancelPreview && !cancelPreviewError && (
+                <button
+                  onClick={handleSubmitCancel}
+                  disabled={cancelSubmitting}
+                  className="flex-1 py-3 rounded-xl text-[13px] font-semibold text-white flex items-center justify-center gap-2 transition-all hover:opacity-90 cursor-pointer disabled:opacity-60"
+                  style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' }}
+                >
+                  {cancelSubmitting && <Spinner />}
+                  {cancelSubmitting ? '처리 중…' : cancelPreview.refundEligible ? '취소 신청하기' : '해지 예약하기'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 회원탈퇴 확인 모달 ────────────────────────────────────────────── */}
       {showWithdrawModal && (
