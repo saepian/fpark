@@ -7,7 +7,7 @@ import { Fragment, useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Users as UsersIcon, RefreshCw, Loader2, Search,
-  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Receipt,
+  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Receipt, Banknote,
 } from 'lucide-react';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 
@@ -25,6 +25,11 @@ interface UserRow {
   stock_credits:      number;
   portfolio_credits:  number;
   last_sign_in_at:    string | null;
+  diagnosis_used_today: number;
+  diagnosis_used_month: number;
+  diagnosis_limit:    number;
+  portfolio_used:     number;
+  portfolio_limit:    number;
 }
 
 interface PaymentHistoryItem {
@@ -39,11 +44,24 @@ interface PaymentHistoryItem {
   processed_at:   string | null;
 }
 
+interface RefundHistoryItem {
+  id:            string;
+  plan:          'basic' | 'pro';
+  paid_amount:   number;
+  elapsed_days:  number;
+  refund_amount: number;
+  refund_status: 'none' | 'requested' | 'completed' | 'rejected';
+  requested_at:  string;
+  processed_at:  string | null;
+}
+
 const PLAN_LABEL: Record<string, string> = { free: '무료', basic: 'Basic', pro: 'Pro', admin: '관리자' };
 const PLAN_COLOR: Record<string, string> = { free: '#64748b', basic: '#818cf8', pro: '#fbbf24', admin: '#f472b6' };
 const STATUS_LABEL: Record<StatusBucket, string> = { active: '활성', pending_renewal: '갱신대기', pending_cancellation: '해지예약', expired: '만료', free: '무료' };
 const STATUS_COLOR: Record<StatusBucket, string> = { active: '#34d399', pending_renewal: '#fbbf24', pending_cancellation: '#94a3b8', expired: '#f87171', free: '#64748b' };
 const REQ_STATUS_LABEL: Record<string, string> = { pending: '대기중', approved: '승인됨', rejected: '거절됨', expired: '만료됨' };
+const REFUND_STATUS_LABEL: Record<string, string> = { none: '환불없음(해지예약)', requested: '환불대기', completed: '환불완료', rejected: '환불거절' };
+const REFUND_STATUS_COLOR: Record<string, string> = { none: '#94a3b8', requested: '#fbbf24', completed: '#34d399', rejected: '#f87171' };
 
 type PlanFilter = 'all' | Plan;
 type StatusFilter = 'all' | StatusBucket;
@@ -60,6 +78,12 @@ function normalizeStatus(u: UserRow): StatusBucket {
   return 'free';
 }
 
+// 포트폴리오는 원래 "월간" 한도라 이번 달 누적치와 직접 비교해도 의미가 맞는다 —
+// 한도를 넘겼다면(크레딧으로 추가 이용 등) 참고할 만한 신호라 경고색으로 구분한다.
+function usageColorClass(used: number, limit: number): string {
+  return limit > 0 && used > limit ? 'text-amber-400' : 'text-slate-200';
+}
+
 function formatDate(iso: string | null): string {
   if (!iso) return '-';
   return new Date(iso).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -74,6 +98,7 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[] | null>(null);
   const [paymentHistory, setPaymentHistory] = useState<Record<string, PaymentHistoryItem[]>>({});
+  const [refundHistory, setRefundHistory] = useState<Record<string, RefundHistoryItem[]>>({});
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -98,6 +123,7 @@ export default function AdminUsersPage() {
       if (!res.ok || !json.ok) throw new Error(json.error ?? '조회 실패');
       setUsers(json.users);
       setPaymentHistory(json.paymentHistory ?? {});
+      setRefundHistory(json.refundHistory ?? {});
     } catch (e) {
       setError(e instanceof Error ? e.message : '목록을 불러오지 못했습니다.');
     } finally {
@@ -178,6 +204,30 @@ export default function AdminUsersPage() {
               }}
             >
               {REQ_STATUS_LABEL[h.status] ?? h.status}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function RefundHistoryPanel({ userId }: { userId: string }) {
+    const history = refundHistory[userId] ?? [];
+    if (history.length === 0) return null;
+    return (
+      <div className="px-4 py-3 flex flex-col gap-1.5 border-t border-slate-800/60">
+        <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">환불 내역</p>
+        {history.map((h) => (
+          <div key={h.id} className="flex items-center gap-2.5 text-[12px] py-1.5 flex-wrap">
+            <span className="text-slate-400 w-16 shrink-0">{PLAN_LABEL[h.plan]}</span>
+            <span className="text-white font-medium w-24 shrink-0">{h.refund_amount.toLocaleString()}원</span>
+            <span className="text-slate-500 w-20 shrink-0">경과 {h.elapsed_days}일</span>
+            <span className="text-slate-500 whitespace-nowrap">{formatDateTime(h.requested_at)}</span>
+            <span
+              className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ml-auto whitespace-nowrap"
+              style={{ background: `${REFUND_STATUS_COLOR[h.refund_status]}1f`, color: REFUND_STATUS_COLOR[h.refund_status] }}
+            >
+              {REFUND_STATUS_LABEL[h.refund_status] ?? h.refund_status}
             </span>
           </div>
         ))}
@@ -279,8 +329,14 @@ export default function AdminUsersPage() {
                     <SortHeader label="플랜" k="plan" />
                     <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">구독 상태</th>
                     <SortHeader label="다음 결제일" k="next_billed_at" />
-                    <SortHeader label="종목크레딧" k="stock_credits" />
-                    <SortHeader label="포트폴리오크레딧" k="portfolio_credits" />
+                    <th
+                      className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+                      title="종목진단은 일일 한도라 오늘 이용 건수 / 일일한도로 표시(이번 달 누적은 참고용). 포트폴리오는 월간 한도라 이번 결제 사이클(무료 유저는 매월 1일 기준) 누적 이용 건수 / 월간한도로 표시"
+                    >
+                      이번달 이용현황
+                    </th>
+                    <SortHeader label="종목크레딧(1회권)" k="stock_credits" />
+                    <SortHeader label="포트폴리오크레딧(1회권)" k="portfolio_credits" />
                     <SortHeader label="최근 로그인" k="last_sign_in_at" />
                     <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">결제 이력</th>
                   </tr>
@@ -289,6 +345,7 @@ export default function AdminUsersPage() {
                   {paged.map((u, i) => {
                     const status = normalizeStatus(u);
                     const historyCount = (paymentHistory[u.id] ?? []).length;
+                    const refundCount = (refundHistory[u.id] ?? []).length;
                     const expanded = expandedId === u.id;
                     return (
                       <Fragment key={u.id}>
@@ -309,24 +366,43 @@ export default function AdminUsersPage() {
                             </span>
                           </td>
                           <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDate(u.next_billed_at)}</td>
+                          <td className="px-3 py-3 text-[12px] text-slate-300 whitespace-nowrap">
+                            <div className="flex flex-col gap-0.5">
+                              <span>오늘 종목 <span className="tabular-nums font-medium text-slate-200">{u.diagnosis_used_today}/{u.diagnosis_limit}</span></span>
+                              <span className="text-slate-500">포트폴리오 <span className={`tabular-nums font-medium ${usageColorClass(u.portfolio_used, u.portfolio_limit)}`}>{u.portfolio_used}/{u.portfolio_limit}</span></span>
+                              <span className="text-[10.5px] text-slate-600">이번달 누적 {u.diagnosis_used_month}회</span>
+                            </div>
+                          </td>
                           <td className="px-3 py-3 text-[13px] text-slate-300 tabular-nums">{u.stock_credits}</td>
                           <td className="px-3 py-3 text-[13px] text-slate-300 tabular-nums">{u.portfolio_credits}</td>
                           <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(u.last_sign_in_at)}</td>
                           <td className="px-3 py-3">
-                            <button
-                              onClick={() => setExpandedId(expanded ? null : u.id)}
-                              disabled={historyCount === 0}
-                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#1a1f2e] border border-slate-700/50 text-slate-300 hover:border-slate-500"
-                            >
-                              <Receipt className="w-3.5 h-3.5" />
-                              {historyCount}건
-                            </button>
+                            <div className="flex items-center gap-1.5 whitespace-nowrap">
+                              <button
+                                onClick={() => setExpandedId(expanded ? null : u.id)}
+                                disabled={historyCount === 0 && refundCount === 0}
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#1a1f2e] border border-slate-700/50 text-slate-300 hover:border-slate-500 whitespace-nowrap shrink-0"
+                              >
+                                <Receipt className="w-3.5 h-3.5 shrink-0" />
+                                {historyCount}건
+                              </button>
+                              {refundCount > 0 && (
+                                <button
+                                  onClick={() => setExpandedId(expanded ? null : u.id)}
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer transition-colors bg-[#1a1f2e] border border-amber-700/40 text-amber-400 hover:border-amber-500 whitespace-nowrap shrink-0"
+                                >
+                                  <Banknote className="w-3.5 h-3.5 shrink-0" />
+                                  환불 {refundCount}건
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                         {expanded && (
                           <tr className="border-b border-slate-800/60" style={{ background: 'rgba(99,102,241,0.04)' }}>
-                            <td colSpan={9}>
+                            <td colSpan={10}>
                               <PaymentHistoryPanel userId={u.id} />
+                              <RefundHistoryPanel userId={u.id} />
                             </td>
                           </tr>
                         )}
@@ -342,6 +418,7 @@ export default function AdminUsersPage() {
               {paged.map((u) => {
                 const status = normalizeStatus(u);
                 const historyCount = (paymentHistory[u.id] ?? []).length;
+                const refundCount = (refundHistory[u.id] ?? []).length;
                 const expanded = expandedId === u.id;
                 return (
                   <div key={u.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
@@ -356,23 +433,43 @@ export default function AdminUsersPage() {
                     </div>
                     <p className="text-[13px] font-semibold text-white truncate mb-1.5">{u.email ?? '-'}</p>
                     <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                      <span>종목 {u.stock_credits} · 포트폴리오 {u.portfolio_credits}</span>
+                      <span>
+                        오늘 종목 <span className="font-medium text-slate-200">{u.diagnosis_used_today}/{u.diagnosis_limit}</span>
+                        {' · 포트폴리오 '}
+                        <span className={usageColorClass(u.portfolio_used, u.portfolio_limit)}>{u.portfolio_used}/{u.portfolio_limit}</span>
+                      </span>
                       <span>다음결제 {formatDate(u.next_billed_at)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                      <span>1회권 잔여 종목 {u.stock_credits} · 포트폴리오 {u.portfolio_credits}</span>
+                      <span className="text-slate-600">이번달 종목 누적 {u.diagnosis_used_month}회</span>
                     </div>
                     <div className="flex items-center justify-between mb-2.5">
                       <span className="text-[11px] text-slate-500">최근 로그인 {formatDateTime(u.last_sign_in_at)}</span>
                     </div>
-                    <button
-                      onClick={() => setExpandedId(expanded ? null : u.id)}
-                      disabled={historyCount === 0}
-                      className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#1a1f2e] border border-slate-700/50 text-slate-300"
-                    >
-                      <Receipt className="w-3.5 h-3.5" />
-                      결제 이력 {historyCount}건
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setExpandedId(expanded ? null : u.id)}
+                        disabled={historyCount === 0 && refundCount === 0}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#1a1f2e] border border-slate-700/50 text-slate-300"
+                      >
+                        <Receipt className="w-3.5 h-3.5" />
+                        결제 이력 {historyCount}건
+                      </button>
+                      {refundCount > 0 && (
+                        <button
+                          onClick={() => setExpandedId(expanded ? null : u.id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-colors bg-[#1a1f2e] border border-amber-700/40 text-amber-400 whitespace-nowrap"
+                        >
+                          <Banknote className="w-3.5 h-3.5 shrink-0" />
+                          환불 {refundCount}건
+                        </button>
+                      )}
+                    </div>
                     {expanded && (
                       <div className="mt-2 rounded-lg" style={{ background: 'rgba(99,102,241,0.06)' }}>
                         <PaymentHistoryPanel userId={u.id} />
+                        <RefundHistoryPanel userId={u.id} />
                       </div>
                     )}
                   </div>
