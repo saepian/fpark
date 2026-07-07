@@ -10,7 +10,6 @@ interface FieldErrors {
   password?: string;
   confirm?: string;
   name?: string;
-  nickname?: string;
   phone?: string;
 }
 
@@ -20,7 +19,6 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [name, setName] = useState('');
-  const [nickname, setNickname] = useState('');
   const [phone, setPhone] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -53,8 +51,6 @@ export default function SignupPage() {
     if (password.length < 8) e.password = '비밀번호는 8자 이상이어야 합니다.';
     if (password !== confirm) e.confirm = '비밀번호가 일치하지 않습니다.';
     if (name.trim().length < 2) e.name = '이름은 2자 이상이어야 합니다.';
-    if (nickname.trim().length < 2) e.nickname = '닉네임은 2자 이상이어야 합니다.';
-    if (nickname.trim().length > 10) e.nickname = '닉네임은 10자 이하여야 합니다.';
     if (phone && !/^010-\d{4}-\d{4}$/.test(phone)) e.phone = '010으로 시작하는 11자리 번호를 입력해주세요.';
     return e;
   };
@@ -82,7 +78,6 @@ export default function SignupPage() {
         emailRedirectTo: `${location.origin}/auth/callback`,
         data: {
           name: name.trim(),
-          nickname: nickname.trim(),
           phone: phone || null,
           terms_agreed_at: agreedAt,
           privacy_agreed_at: agreedAt,
@@ -232,20 +227,6 @@ export default function SignupPage() {
                 className={inputCls(!!errors.name)}
               />
               {errors.name && <FieldError msg={errors.name} />}
-            </div>
-
-            {/* 닉네임 */}
-            <div>
-              <Label text="닉네임" required />
-              <input
-                type="text"
-                value={nickname}
-                onChange={(e) => { setNickname(e.target.value); setErrors((p) => ({ ...p, nickname: undefined })); }}
-                placeholder="서비스 내 표시 이름 (2~10자)"
-                maxLength={10}
-                className={inputCls(!!errors.nickname)}
-              />
-              {errors.nickname && <FieldError msg={errors.nickname} />}
             </div>
 
             {/* 전화번호 */}
