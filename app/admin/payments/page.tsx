@@ -52,13 +52,15 @@ const PLAN_COLOR: Record<'basic' | 'pro', string> = { basic: '#818cf8', pro: '#f
 const TYPE_LABEL: Record<'new' | 'renewal', string> = { new: '신규가입', renewal: '갱신' };
 const TYPE_COLOR: Record<'new' | 'renewal', string> = { new: '#38bdf8', renewal: '#a78bfa' };
 
-type Filter = 'all' | 'new' | 'renewal' | 'expired' | 'refund';
+type Filter = 'overview' | 'all' | 'new' | 'renewal' | 'expired' | 'refund';
 type SortKey = 'email' | 'plan' | 'amount' | 'depositor_name' | 'requested_at';
 type Action = 'approve' | 'reject' | 'reactivate';
 
 const FILTER_LABEL: Record<Filter, string> = {
-  all: '계좌이체 대기', new: '신규가입 대기', renewal: '갱신 대기', expired: '만료됨', refund: '환불 대기',
+  overview: '전체보기', all: '계좌이체 대기', new: '신규가입 대기', renewal: '갱신 대기', expired: '만료됨', refund: '환불 대기',
 };
+// 탭 배지 대상 (전체보기 탭 자체는 배지 없음)
+const COUNT_FILTERS: Exclude<Filter, 'overview'>[] = ['all', 'new', 'renewal', 'expired', 'refund'];
 const PAGE_SIZE = 20;
 
 function formatElapsed(iso: string): string {
@@ -131,6 +133,17 @@ export default function AdminPaymentsPage() {
   }, [load]);
 
   const pendingRefunds = useMemo(() => (refunds ?? []).filter((r) => r.refund_status === 'requested'), [refunds]);
+
+  const newPending     = useMemo(() => (pending ?? []).filter((it) => it.request_type === 'new'), [pending]);
+  const renewalPending = useMemo(() => (pending ?? []).filter((it) => it.request_type === 'renewal'), [pending]);
+
+  const counts: Record<Exclude<Filter, 'overview'>, number> = {
+    all:     pending?.length ?? 0,
+    new:     newPending.length,
+    renewal: renewalPending.length,
+    expired: expired?.length ?? 0,
+    refund:  pendingRefunds.length,
+  };
 
   const allItems = useMemo(() => [...(pending ?? []), ...(expired ?? [])], [pending, expired]);
 
@@ -308,6 +321,18 @@ export default function AdminPaymentsPage() {
     );
   }
 
+  function CountBadge({ n }: { n: number }) {
+    return (
+      <span
+        className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums ${
+          n > 0 ? 'bg-violet-500 text-white' : 'bg-slate-700/50 text-slate-500'
+        }`}
+      >
+        {n}
+      </span>
+    );
+  }
+
   function SortHeader({ label, k }: { label: string; k: SortKey }) {
     const active = sortKey === k;
     return (
@@ -320,6 +345,179 @@ export default function AdminPaymentsPage() {
           {active && (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
         </span>
       </th>
+    );
+  }
+
+  // ── 전체보기 탭 전용: 섹션 접기/펴기 + 간이 목록(표/카드) ─────────────────────
+  function CategorySection({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+    const [open, setOpen] = useState(count > 0);
+    return (
+      <div className="mb-7 last:mb-0">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="w-full flex items-center gap-2.5 mb-3 cursor-pointer group"
+        >
+          <h2 className="text-[14px] font-bold text-white">{title}</h2>
+          <CountBadge n={count} />
+          <div className="flex-1 h-px bg-slate-700/50" />
+          <ChevronDown className={`w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && (count === 0 ? (
+          <p className="text-[12.5px] text-slate-600 text-center py-5 rounded-xl" style={{ background: '#12151f', border: '1px dashed rgba(51,65,85,0.5)' }}>
+            없음
+          </p>
+        ) : children)}
+      </div>
+    );
+  }
+
+  function RequestListView({ items }: { items: RequestItem[] }) {
+    return (
+      <>
+        {/* 데스크톱 표 */}
+        <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-700/50">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-700/50" style={{ background: '#12151f' }}>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">유형</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">이메일</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">플랜</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">금액</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">입금자명</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">신청일시</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">상태</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">액션</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it, i) => (
+                <tr
+                  key={it.id}
+                  className="border-b border-slate-800/60 last:border-0 hover:bg-white/[0.02] transition-colors"
+                  style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.012)' }}
+                >
+                  <td className="px-3 py-3">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: `${TYPE_COLOR[it.request_type]}22`, color: TYPE_COLOR[it.request_type] }}>
+                      {TYPE_LABEL[it.request_type]}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-[13px] text-white font-medium max-w-[220px] truncate" title={it.email}>{it.email}</td>
+                  <td className="px-3 py-3">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: `${PLAN_COLOR[it.plan]}22`, color: PLAN_COLOR[it.plan] }}>
+                      {PLAN_LABEL[it.plan]} · {it.is_annual ? '연간' : '월간'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-[13px] text-white font-semibold whitespace-nowrap">{it.amount.toLocaleString()}원</td>
+                  <td className="px-3 py-3"><span className="text-[13.5px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span></td>
+                  <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(it.requested_at)}</td>
+                  <td className="px-3 py-3">
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                      it.status === 'expired' ? 'text-red-300' : 'text-amber-300'
+                    }`} style={{ background: it.status === 'expired' ? 'rgba(248,113,113,0.12)' : 'rgba(245,158,11,0.12)' }}>
+                      {it.status === 'expired' ? '만료됨' : '대기중'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3"><ActionButtons it={it} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 모바일 카드 */}
+        <div className="md:hidden flex flex-col gap-2.5">
+          {items.map((it) => (
+            <div key={it.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
+              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${TYPE_COLOR[it.request_type]}22`, color: TYPE_COLOR[it.request_type] }}>
+                  {TYPE_LABEL[it.request_type]}
+                </span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[it.plan]}22`, color: PLAN_COLOR[it.plan] }}>
+                  {PLAN_LABEL[it.plan]}·{it.is_annual ? '연' : '월'}
+                </span>
+                <span className="text-[12.5px] font-bold text-white ml-auto">{it.amount.toLocaleString()}원</span>
+              </div>
+              <p className="text-[13px] font-semibold text-white truncate mb-1.5">{it.email}</p>
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span>
+                <span className="text-[10.5px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
+              </div>
+              <ActionButtons it={it} compact />
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  function RefundListView({ items }: { items: RefundItem[] }) {
+    return (
+      <>
+        {/* 데스크톱 표 */}
+        <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-700/50">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-700/50" style={{ background: '#12151f' }}>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">이메일</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">플랜</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">계산 근거</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">환불 예정액</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">환불 계좌</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">신청일시</th>
+                <th className="text-left px-3 py-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">액션</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r, i) => (
+                <tr
+                  key={r.id}
+                  className="border-b border-slate-800/60 last:border-0 hover:bg-white/[0.02] transition-colors"
+                  style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.012)' }}
+                >
+                  <td className="px-3 py-3 text-[13px] text-white font-medium max-w-[200px] truncate" title={r.email}>{r.email}</td>
+                  <td className="px-3 py-3">
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
+                      {PLAN_LABEL[r.plan]}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-[11.5px] text-slate-400 max-w-[320px] leading-relaxed">
+                    {r.refund_reason ?? `${r.usage_detected ? '사용함' : '미사용'} · ${r.elapsed_days}일 경과`}
+                  </td>
+                  <td className="px-3 py-3 text-[13.5px] text-white font-bold whitespace-nowrap tabular-nums">{r.refund_amount.toLocaleString()}원</td>
+                  <td className="px-3 py-3 text-[12.5px] text-slate-300 whitespace-nowrap">
+                    {r.refund_account_bank} {r.refund_account_number}
+                    <span className="text-slate-500"> ({r.refund_account_holder})</span>
+                  </td>
+                  <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(r.requested_at)}</td>
+                  <td className="px-3 py-3"><RefundActionButtons r={r} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 모바일 카드 */}
+        <div className="md:hidden flex flex-col gap-2.5">
+          {items.map((r) => (
+            <div key={r.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
+              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
+                  {PLAN_LABEL[r.plan]}
+                </span>
+                <span className="text-[13px] font-bold text-white ml-auto">{r.refund_amount.toLocaleString()}원</span>
+              </div>
+              <p className="text-[13px] font-semibold text-white truncate mb-1">{r.email}</p>
+              <p className="text-[11px] text-slate-500 mb-1.5 leading-relaxed">
+                {r.refund_reason ?? `${r.usage_detected ? '사용함' : '미사용'} · ${r.elapsed_days}일 경과`}
+              </p>
+              <p className="text-[12.5px] text-slate-400 mb-2.5">
+                {r.refund_account_bank} {r.refund_account_number} ({r.refund_account_holder})
+              </p>
+              <RefundActionButtons r={r} compact />
+            </div>
+          ))}
+        </div>
+      </>
     );
   }
 
@@ -362,13 +560,14 @@ export default function AdminPaymentsPage() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-3.5 py-2 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-colors ${
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-colors ${
                   filter === f
                     ? 'bg-indigo-600 text-white'
                     : 'bg-[#1a1f2e] text-slate-400 hover:text-slate-200 border border-slate-700/50'
                 }`}
               >
                 {FILTER_LABEL[f]}
+                {f !== 'overview' && <CountBadge n={counts[f]} />}
               </button>
             ))}
           </div>
@@ -389,7 +588,34 @@ export default function AdminPaymentsPage() {
             <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
             <p className="text-[13px] text-slate-500">불러오는 중...</p>
           </div>
-        ) : filter === 'refund' ? (
+        ) : filter === 'overview' ? (() => {
+          const q = search.trim().toLowerCase();
+          const byEmail = <T extends { email: string }>(list: T[]) => (q ? list.filter((it) => it.email.toLowerCase().includes(q)) : list);
+          const oAll     = byEmail(pending ?? []);
+          const oNew     = byEmail(newPending);
+          const oRenewal = byEmail(renewalPending);
+          const oExpired = byEmail(expired ?? []);
+          const oRefund  = byEmail(pendingRefunds);
+          return (
+            <div>
+              <CategorySection title="계좌이체 대기" count={oAll.length}>
+                <RequestListView items={oAll} />
+              </CategorySection>
+              <CategorySection title="신규가입 대기" count={oNew.length}>
+                <RequestListView items={oNew} />
+              </CategorySection>
+              <CategorySection title="갱신 대기" count={oRenewal.length}>
+                <RequestListView items={oRenewal} />
+              </CategorySection>
+              <CategorySection title="만료됨" count={oExpired.length}>
+                <RequestListView items={oExpired} />
+              </CategorySection>
+              <CategorySection title="환불 대기" count={oRefund.length}>
+                <RefundListView items={oRefund} />
+              </CategorySection>
+            </div>
+          );
+        })() : filter === 'refund' ? (
           filteredRefunds.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <Banknote className="w-10 h-10 text-slate-700" />
