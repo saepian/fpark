@@ -137,7 +137,8 @@ export default function SignupPage() {
             <p className="text-[13px] text-slate-400 mb-1">
               <span className="text-slate-300 font-medium">{email}</span>으로
             </p>
-            <p className="text-[13px] text-slate-400 mb-6">인증 링크를 발송했습니다. 이메일을 확인해주세요.</p>
+            <p className="text-[13px] text-slate-400 mb-1">인증 링크를 발송했습니다. 이메일을 확인해주세요.</p>
+            <p className="text-[11.5px] text-slate-500 mb-6">메일 도착까지 최대 1분 정도 걸릴 수 있어요. 안 보이면 스팸함도 확인해주세요.</p>
 
             <button
               onClick={handleResend}

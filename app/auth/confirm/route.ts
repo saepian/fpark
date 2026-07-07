@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { Database } from '@/lib/database.types';
 import { sanitizeRedirect } from '@/lib/auth-redirect';
+import { resolvePostAuthRedirect } from '@/lib/post-auth-redirect';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -29,9 +30,16 @@ export async function GET(request: Request) {
       }
     );
 
-    const { error } = await supabase.auth.verifyOtp({ token_hash, type });
+    const { data, error } = await supabase.auth.verifyOtp({ token_hash, type });
     if (!error) {
-      return NextResponse.redirect(`https://fpark.com${next}`);
+      const userId = data.user?.id;
+      const finalNext = userId
+        ? await resolvePostAuthRedirect(userId, next, {
+            email: data.user?.email,
+            name: (data.user?.user_metadata?.name as string | undefined) ?? null,
+          })
+        : next;
+      return NextResponse.redirect(`https://fpark.com${finalNext}`);
     }
   }
 

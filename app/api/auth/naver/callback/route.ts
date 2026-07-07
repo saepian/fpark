@@ -3,8 +3,6 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from '@/lib/database.types';
 import { sanitizeRedirect } from '@/lib/auth-redirect';
-import { sendBankTransferEmail } from '@/lib/bank-transfer';
-import { buildWelcomeEmailHtml } from '@/lib/account-emails';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -65,11 +63,7 @@ export async function GET(request: Request) {
     (u: { email?: string }) => u.email === naverUser.email
   );
 
-  let userId;
-  const isNewUser = !existingUser;
-  if (existingUser) {
-    userId = existingUser.id;
-  } else {
+  if (!existingUser) {
     // 새 유저 생성
     const { data: newUser, error } = await supabase.auth.admin.createUser({
       email: naverUser.email,
@@ -83,38 +77,10 @@ export async function GET(request: Request) {
     if (error || !newUser.user) {
       return NextResponse.redirect('https://fpark.com/?error=auth_failed');
     }
-    userId = newUser.user.id;
   }
 
-  // 신규 유저는 약관 동의 전에는 원래 목적지로 바로 보내지 않고 동의 페이지를 먼저 거치게 한다.
-  // (기존 가입자는 terms_agreed_at이 이미 채워져 있으므로 이 분기와 무관)
-  const finalNext = isNewUser
-    ? `/auth/agree-terms?next=${encodeURIComponent(redirectTo)}`
-    : redirectTo;
-
-  // 최초 로그인(=신규 유저 생성) 시점에 1회만 환영 메일 발송.
-  const { data: userRow } = await supabase
-    .from('users')
-    .select('welcome_email_sent_at, email')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (userRow && !userRow.welcome_email_sent_at) {
-    await supabase
-      .from('users')
-      .update({ welcome_email_sent_at: new Date().toISOString() })
-      .eq('id', userId);
-
-    const to = userRow.email ?? naverUser.email ?? null;
-    if (to) {
-      await sendBankTransferEmail({
-        to,
-        subject: 'Finance Park 가입을 환영합니다 🎉',
-        html: buildWelcomeEmailHtml(naverUser.name || naverUser.nickname || null),
-        logTag: 'WELCOME_EMAIL',
-      });
-    }
-  }
+  // 약관 동의 체크 + 환영 메일 발송은 /auth/confirm에서 공용 헬퍼(resolvePostAuthRedirect)로
+  // 일괄 처리한다 — 여기서 redirectTo를 그대로 next로 넘기기만 하면 된다.
 
   // 세션 링크 생성
   const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
@@ -132,6 +98,6 @@ export async function GET(request: Request) {
   const hashed_token = linkData.properties.hashed_token;
 
   return NextResponse.redirect(
-    `https://fpark.com/auth/confirm?token_hash=${hashed_token}&type=magiclink&next=${encodeURIComponent(finalNext)}`
+    `https://fpark.com/auth/confirm?token_hash=${hashed_token}&type=magiclink&next=${encodeURIComponent(redirectTo)}`
   );
 }
