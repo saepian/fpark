@@ -7,6 +7,7 @@ import NewsFeed from './main/NewsFeed';
 import TopMovers from './main/TopMovers';
 import MarketSummary from './main/MarketSummary';
 import AiInsightCard from './main/AiInsightCard';
+import OnboardingChecklist from './main/OnboardingChecklist';
 import AdFit from './AdFit';
 
 export default function AppShell() {
@@ -20,6 +21,9 @@ export default function AppShell() {
 
       {/* 콘텐츠 그리드 */}
       <div className="max-w-[1400px] mx-auto px-6 py-8">
+        {/* 신규 가입자 온보딩 체크리스트 (가입 7일 이내 + 닫지 않은 유저에게만 노출) */}
+        <OnboardingChecklist />
+
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
           <NewsFeed onSelectStock={handleSelectStock} />
           <aside className="flex flex-col gap-4">
