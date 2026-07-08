@@ -483,6 +483,13 @@ export function buildNewsBlock(news: { title: string; summary?: string; date?: s
 // 그 자체만으로는 채택 기준(MIN_SCORE)을 넘지 못하도록 보조 가중치로만 반영한다.
 const RELEVANCE_MIN_SCORE = 2;
 
+// 실적 발표 기사는 제목에 종목명만 있는 다른 기사(신제품 출시 등)와 점수가 같으면
+// 배열 순서(먼저 들어온 검색 쿼리 결과)에 밀려 top-N에서 탈락할 수 있다 — 2026-07-08
+// 삼성전자 2분기 잠정실적 발표 기사가 "삼성전자, PCIe 6.0 SSD 양산" 같은 동일 스코어(제목에
+// 종목명 포함) 기사에 밀려 리포트 프롬프트에 아예 전달되지 않았던 문제로 실측 확인. 실적
+// 관련 키워드가 제목에 있으면 가산점을 더해 동률 상황에서 우선권을 갖도록 한다.
+const EARNINGS_KEYWORDS = ['실적', '영업이익', '영업익', '매출액', '매출'];
+
 export function pickRelevantNews<T extends { title: string; summary?: string }>(
   candidates: T[],
   stockName: string,
@@ -510,6 +517,8 @@ export function pickRelevantNews<T extends { title: string; summary?: string }>(
       // 스니펫에만 이름/업종이 등장 — 오탐이 잦으므로 보조 가중치로만 반영 (단독 채택 불가)
       if (nameLower && summary.includes(nameLower))                  score += 1;
       if (sectorLower.length >= 2 && summary.includes(sectorLower))   score += 0.5;
+      // 실적 발표는 리포트에서 절대 놓치면 안 되는 신호 — 동률 경쟁에서 항상 이기도록 가산
+      if (EARNINGS_KEYWORDS.some((kw) => title.includes(kw)))         score += 3;
       return { item: n, score };
     });
 

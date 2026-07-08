@@ -69,6 +69,11 @@ const STOCK_ANALYSIS_OUTPUT_INSTRUCTIONS = `## 출력 형식 (JSON만)
 - 데이터가 서로 다른 방향을 가리키면(예: 과거엔 반등했지만 오늘 거래대금은 낮음) 어느 신호에 더 비중을 두는지와 그 이유를 밝히세요
 - 위에 제공된 수치 외의 "관찰됨", "일반적으로 참고하는 지표" 같은 모호한 일반론 문장은 절대 생성하지 말 것
 - 제공되지 않은 데이터(섹터 비교, 동종업계 순위 등)에 대해서는 언급하지 말 것
+- "최근 뉴스"에 실적 발표(잠정실적·확정실적 등) 관련 기사가 있으면 반드시 과거형으로 서술하세요
+  (예: "2분기 실적을 발표했다", "영업이익이 X조원으로 나타났다") — 이미 발표된 실적을 "실적 발표를
+  앞두고", "발표 예정" 같은 미래형·예정형으로 쓰지 마세요. "최근 뉴스"에 실적 관련 기사가 없다면
+  실적 발표 여부·시기를 본인의 사전 지식으로 추측해서 서술하지 말고(예: "이번 분기 실적 발표를
+  앞두고" 같은 문장 금지), 언급 자체를 생략하세요 — 뉴스로 확인되지 않은 이벤트는 없는 것으로 취급
 - 본문에서 현재가·52주 고가·52주 저가를 언급할 때는 위 "종목 데이터"에 제시된 숫자를 한 글자도 다르지 않게 그대로 쓰세요 — 익숙한 가격대와 다르다는 이유로 자릿수를 줄이거나 늘리지 말 것
 - signal은 전체 분석과 일관성 있게 선택
 - tags에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말 것
@@ -155,8 +160,12 @@ export async function GET(
   const [price, info] = priceInfo;
 
   // 3. 관련 뉴스 — DB 캐시(articles) 조회는 유지하되, 중소형주는 DB에 거의 안 걸리므로
-  // Naver 실시간 검색 결과를 보완적으로 병행하고 관련도 스코어링으로 상위 3건만 선별
-  const [{ data: dbNews }, naverResult] = await Promise.all([
+  // Naver 실시간 검색 결과를 보완적으로 병행하고 관련도 스코어링으로 상위 3건만 선별.
+  // 종목명 단독 검색만으로는 실적 발표처럼 특정 이슈를 짚어야 하는 날에 다른 기사에
+  // 밀려 못 잡는 경우가 있어(app/api/news/stock/[ticker]/route.ts와 동일한 원인으로
+  // 2026-07-08 삼성전자 2분기 잠정실적 오서술 문제 조사 중 확인), 실적 관련 보조
+  // 검색을 병행한다.
+  const [{ data: dbNews }, ...naverResults] = await Promise.all([
     supabase
       .from('articles')
       .select('title, summary, published_at')
@@ -164,8 +173,17 @@ export async function GET(
       .not('summary', 'is', null)
       .order('published_at', { ascending: false })
       .limit(5),
-    fetchNaverNews(price.name),
+    fetchNaverNews(price.name, { sort: 'date' }),
+    fetchNaverNews(`${price.name} 잠정실적`, { sort: 'date' }),
+    fetchNaverNews(`${price.name} 실적발표`, { sort: 'date' }),
   ]);
+
+  const seenNaverTitle = new Set<string>();
+  const naverItems = naverResults.flatMap((r) => r.items).filter((item) => {
+    if (seenNaverTitle.has(item.title)) return false;
+    seenNaverTitle.add(item.title);
+    return true;
+  });
 
   const newsCandidates = [
     ...(dbNews ?? []).map((n) => ({
@@ -173,7 +191,7 @@ export async function GET(
       summary: n.summary ?? undefined,
       date:    n.published_at ? new Date(n.published_at).toLocaleDateString('ko-KR') : undefined,
     })),
-    ...naverResult.items.map((n) => ({ title: n.title, summary: n.description })),
+    ...naverItems.map((n) => ({ title: n.title, summary: n.description })),
   ];
   const relevantNews = pickRelevantNews(newsCandidates, price.name, price.sector, 3);
   const newsBlock = buildNewsBlock(relevantNews);
