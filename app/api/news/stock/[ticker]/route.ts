@@ -29,7 +29,14 @@ export async function GET(
   // 되도록 KIS에서 실시간으로 종목명을 해석(실패 시 STOCK_NAMES로 폴백)
   const stockName = STOCK_NAMES[ticker] ?? await fetchStockPrice(ticker).then((p) => p.name, () => undefined);
 
-  const [byStock, byTitle, naverResult] = await Promise.all([
+  // 종목명 단독 검색은 실적 발표처럼 특정 이슈를 짚어내야 하는 날에 취약하다 —
+  // 시황/제품 발표 등 그 종목을 언급하는 다른 기사가 워낙 많으면 display 개수 안에서
+  // 밀려날 수 있다(2026-07-08 삼성전자 2분기 잠정실적 뉴스 미검색 문의로 실측 확인:
+  // "삼성전자" 단독 검색은 date 정렬 20건 안에도 실적 기사가 전혀 안 잡혔지만,
+  // "삼성전자 잠정실적"/"삼성전자 실적발표"로는 바로 잡혔고 SK하이닉스로도 동일하게
+  // 재현됨 — 특정 종목만의 문제가 아니라 구조적 문제). 실적 관련 보조 쿼리를 병행해
+  // pickRelevantNews()가 채점할 후보 폭을 넓힌다.
+  const [byStock, byTitle, ...naverResults] = await Promise.all([
     supabase
       .from('articles')
       .select('id, title, source, category, sub_category, original_url, summary, stocks, image_url, published_at, created_at')
@@ -46,8 +53,24 @@ export async function GET(
           .limit(6)
       : Promise.resolve({ data: [], error: null }),
 
-    stockName ? fetchNaverNews(stockName) : Promise.resolve({ items: [], apiError: false }),
+    ...(stockName
+      ? [
+          fetchNaverNews(stockName, { sort: 'date' }),
+          fetchNaverNews(`${stockName} 잠정실적`, { sort: 'date' }),
+          fetchNaverNews(`${stockName} 실적발표`, { sort: 'date' }),
+        ]
+      : [Promise.resolve({ items: [], apiError: false })]),
   ]);
+
+  const seenNaverTitle = new Set<string>();
+  const naverResult = {
+    items: naverResults.flatMap((r) => r.items).filter((item) => {
+      if (seenNaverTitle.has(item.title)) return false;
+      seenNaverTitle.add(item.title);
+      return true;
+    }),
+    apiError: naverResults.every((r) => r.apiError),
+  };
 
   if (byStock.error) {
     console.error('[NEWS/STOCK API] error:', byStock.error);

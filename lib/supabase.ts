@@ -12,7 +12,10 @@ export const supabase = new Proxy(
       if (!_client) {
         _client = createClient<Database>(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          // '??'는 빈 문자열('')엔 안 걸려서 안전장치로 SUPABASE_SERVICE_ROLE_KEY를
+          // 의도적으로 비워둔 로컬 환경(lib/supabase-admin.ts 주석 참고)에서 이 클라이언트가
+          // 빈 키로 초기화돼 "supabaseKey is required" 에러가 나는 버그가 있었다 — '||'로 교체.
+          process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         );
       }
       return Reflect.get(_client, prop, receiver);
