@@ -30,3 +30,12 @@ export function resolveDiagnosisLimit(plan: Plan): number {
   if (plan === 'admin') return 999;
   return PLAN_USAGE_LIMITS[plan].diagnosis;
 }
+
+// 포트폴리오 분석 월간 한도 — admin은 무제한, 나머지는 PLAN_USAGE_LIMITS 그대로.
+// app/api/portfolio-diagnosis/route.ts가 로컬 상수(MONTHLY_LIMIT/BASIC_MONTHLY_LIMIT)로
+// 따로 들고 있던 것을 resolveDiagnosisLimit과 같은 패턴으로 공용화 — 이 값도 diagnosis처럼
+// PLAN_USAGE_LIMITS와 어긋날 수 있는 하드코딩이라 같은 방식으로 고정해둔다.
+export function resolvePortfolioLimit(plan: Plan): number {
+  if (plan === 'admin') return 999;
+  return PLAN_USAGE_LIMITS[plan].portfolio;
+}

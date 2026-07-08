@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
-import { checkPlan } from '@/lib/plan';
+import { checkPlan, resolvePortfolioLimit } from '@/lib/plan';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -21,8 +21,6 @@ export const dynamic     = 'force-dynamic';
 export const maxDuration = 60;
 
 const claude        = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const MONTHLY_LIMIT       = 20;
-const BASIC_MONTHLY_LIMIT = 1;
 const MAX_HOLDINGS        = 10;
 
 // 종목별 개별 분석(Stage 1) 고정 지침 — 종목마다 반복 호출되므로 프롬프트 캐싱 대상.
@@ -340,7 +338,7 @@ export async function GET() {
   const count   = await getMonthlyCount(supabase, user.id);
   const isPro   = plan === 'pro' || plan === 'admin';
   const isBasic = plan === 'basic';
-  const limit   = plan === 'admin' ? 999 : isPro ? MONTHLY_LIMIT : isBasic ? BASIC_MONTHLY_LIMIT : 0;
+  const limit   = resolvePortfolioLimit(plan);
   return NextResponse.json({
     isPro,
     isBasic,
@@ -375,7 +373,7 @@ export async function POST(request: NextRequest) {
   }
 
   const count = await getMonthlyCount(supabase, user.id);
-  const limit = plan === 'admin' ? 999 : isPro ? MONTHLY_LIMIT : BASIC_MONTHLY_LIMIT;
+  const limit = resolvePortfolioLimit(plan);
   if (!usedCredit && count >= limit) {
     // 월 한도 초과 시에도 1회권 크레딧 원자적 차감
     const result = await deductCredit(user.id, 'portfolio');
