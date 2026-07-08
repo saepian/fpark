@@ -246,14 +246,26 @@ export async function getAccessToken(): Promise<string> {
     const expiresAt = new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
     tokenCache = { token: data.access_token, expiresAt: expiresAt.getTime() };
 
-    // 5) 기존 토큰 전체 삭제 후 새 토큰 저장
+    // 5) 새 토큰 저장 — 예전엔 기존 행을 전부 지우고 새로 넣었는데, 그러면 재발급
+    // 이력이 하나도 안 남아 "오늘 몇 번, 몇 시에 재발급됐는지"를 나중에 확인할 방법이
+    // Vercel 로그(보존 기간이 짧음)뿐이었다(2026-07-08 재발급 빈도 조사 때 직접 겪음).
+    // 이제는 지우지 않고 계속 쌓되, 최근 50건만 남기고 오래된 건 정리한다 — 조회는
+    // 여전히 created_at 최신 1건만 보므로 캐시 동작에는 영향 없음.
     try {
-      await supabaseAdmin.from('kis_tokens').delete().neq('id', 0);
       await supabaseAdmin.from('kis_tokens').insert({
         access_token: data.access_token,
         expired_at: expiresAt.toISOString(),
       });
       console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
+
+      const { data: history } = await supabaseAdmin
+        .from('kis_tokens')
+        .select('id')
+        .order('created_at', { ascending: false })
+        .range(50, 1000);
+      if (history && history.length > 0) {
+        await supabaseAdmin.from('kis_tokens').delete().in('id', history.map((r) => r.id));
+      }
     } catch (e) {
       console.error('[KIS] 토큰 저장 실패:', e);
     }
