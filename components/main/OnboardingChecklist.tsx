@@ -43,7 +43,14 @@ export default function OnboardingChecklist() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user || cancelled) return;
       fetch('/api/onboarding')
-        .then((r) => (r.ok ? r.json() : null))
+        .then((r) => {
+          if (!r.ok) {
+            // 조용히 숨기는 대신 콘솔에는 남겨서 "그냥 안 보임" 상태를 디버깅할 수 있게 함
+            console.error(`[OnboardingChecklist] /api/onboarding 응답 실패: ${r.status}`);
+            return null;
+          }
+          return r.json();
+        })
         .then((json: OnboardingState | null) => {
           if (cancelled || !json || !json.shouldShow) return;
           setState(json);

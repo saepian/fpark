@@ -29,17 +29,34 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const [{ data: userRow }, { count: portfolioCount }] = await Promise.all([
-    adminClient
-      .from('users')
-      .select('created_at, onboarding_watchlist_added, onboarding_report_viewed, onboarding_alert_enabled, onboarding_dismissed')
-      .eq('id', user.id)
-      .maybeSingle(),
-    adminClient
-      .from('portfolio_diagnosis')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id),
-  ]);
+  // adminClient 호출 실패(로컬 dev 안전장치 등)를 그대로 던지면 클라이언트에서는
+  // 500 → r.ok===false → null 로만 흡수돼(OnboardingChecklist.tsx) 원인 파악 없이
+  // "체크리스트가 그냥 안 뜸"으로만 보인다 — 서버 로그에 명확히 남긴다.
+  let userRow: { created_at: string | null; onboarding_watchlist_added: boolean; onboarding_report_viewed: boolean; onboarding_alert_enabled: boolean; onboarding_dismissed: boolean } | null = null;
+  let portfolioCount = 0;
+  try {
+    const [{ data, error: userErr }, { count, error: pfErr }] = await Promise.all([
+      adminClient
+        .from('users')
+        .select('created_at, onboarding_watchlist_added, onboarding_report_viewed, onboarding_alert_enabled, onboarding_dismissed')
+        .eq('id', user.id)
+        .maybeSingle(),
+      adminClient
+        .from('portfolio_diagnosis')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+    ]);
+    if (userErr) console.error('[ONBOARDING] users 조회 실패:', userErr.message);
+    if (pfErr) console.error('[ONBOARDING] portfolio_diagnosis 조회 실패:', pfErr.message);
+    userRow = data;
+    portfolioCount = count ?? 0;
+  } catch (e) {
+    console.error('[ONBOARDING] GET 조회 예외 — shouldShow:false로 폴백:', e instanceof Error ? e.message : e);
+    return NextResponse.json({
+      shouldShow: false, requiredComplete: false,
+      watchlistAdded: false, reportViewed: false, alertEnabled: false, portfolioAdded: false,
+    });
+  }
 
   const createdAt = userRow?.created_at ?? user.created_at;
   const daysSinceSignup = (Date.now() - new Date(createdAt).getTime()) / 86_400_000;
@@ -48,7 +65,7 @@ export async function GET() {
   const reportViewed   = userRow?.onboarding_report_viewed   ?? false;
   const alertEnabled   = userRow?.onboarding_alert_enabled   ?? false;
   const dismissed      = userRow?.onboarding_dismissed       ?? false;
-  const portfolioAdded = (portfolioCount ?? 0) > 0; // 선택 항목 — 별도 플래그 없이 실제 이용 여부로 판단
+  const portfolioAdded = portfolioCount > 0; // 선택 항목 — 별도 플래그 없이 실제 이용 여부로 판단
 
   const requiredComplete = watchlistAdded && reportViewed && alertEnabled;
 
