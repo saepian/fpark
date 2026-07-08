@@ -111,6 +111,7 @@ export async function PATCH(
     subscription_status: 'active',
     payment_method:      'BANK_TRANSFER',
     next_billed_at:      nextBilledAt.toISOString(),
+    is_annual:           reqRow.is_annual,
     ...(shouldSetStartDate ? { subscription_start_date: new Date().toISOString() } : {}),
   }).eq('id', reqRow.user_id);
 

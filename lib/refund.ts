@@ -1,7 +1,11 @@
 // 구독 취소/환불 계산 — 계좌이체 특성상 자동 송금이 불가능해 계산까지만 자동화하고
 // 실제 송금은 관리자가 /admin/payments "환불 대기" 탭에서 수동으로 처리한다.
-// 환불정책(app/refund/page.tsx) 제6조와 정확히 일치해야 하는 규칙:
-//   - 결제일로부터 7일 초과: 환불 없음, 해지예약(다음 결제일부터 서비스 중단) — 하드 컷오프, 변경 없음
+// 월간결제(calculateRefund)와 연간결제(calculateAnnualRefund)는 계산 방식 자체가 달라
+// 완전히 별도 함수로 분리한다 — 연간은 "약정 할인 소급 취소" 개념이라 일할/이용량 비례가 아니라
+// 정가 개월수 환산으로 계산해야 하기 때문(2026-07-08).
+//
+// ── 월간결제 (calculateRefund) — 환불정책(app/refund/page.tsx) 제6조 ──
+//   - 결제일로부터 7일 초과: 환불 없음, 해지예약(다음 결제일부터 서비스 중단) — 하드 컷오프.
 //   - 7일 이내: 하이브리드 방식 — "경과일수 비율"과 "실제 이용량 비율" 중 더 큰 쪽으로 차감
 //     (결제 당일 한도를 다 쓰고 바로 취소해도 경과일수가 0이라는 이유로 전액환불되는 허점을 막기 위함)
 //     - 경과일수비율 = elapsedDays / 30
@@ -9,7 +13,7 @@
 //     - 포트폴리오비율 = 0건 0% · 1건 20%(정상 체험 취급, 계단식) · 2건 이상 건수/월간한도
 //     - 이용량비율 = max(기업분석비율, 포트폴리오비율), 최종차감비율 = max(경과일수비율, 이용량비율), 각각 100% cap
 
-import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { PLAN_USAGE_LIMITS, PLAN_AMOUNTS } from '@/lib/payment-constants';
 
 const REFUND_WINDOW_DAYS = 7;
 const PRORATION_DENOMINATOR_DAYS = 30;
@@ -68,7 +72,7 @@ export function calculateRefund(params: {
 
   const pct = (n: number) => `${Math.round(n * 1000) / 10}%`;
   const reasonText =
-    `경과 ${elapsedDays}일(${pct(elapsedRatio)}) · ` +
+    `월간결제 · 경과 ${elapsedDays}일(${pct(elapsedRatio)}) · ` +
     `기업분석 ${diagnosisCount}/${diagnosisDenom}(${pct(diagnosisRatio)}) · ` +
     `포트폴리오 ${portfolioCount}/${limits.portfolio}(${pct(portfolioRatio)}) · ` +
     `최종차감 ${pct(finalRatio)}`;
@@ -77,6 +81,71 @@ export function calculateRefund(params: {
     elapsedDays, elapsedRatio, diagnosisCount, diagnosisRatio, portfolioCount, portfolioRatio,
     usageRatio, finalRatio, usageDetected,
     refundEligible: true,
+    refundAmount,
+    reasonText,
+  };
+}
+
+// ── 연간결제 (calculateAnnualRefund) — "약정 할인 소급 취소" 방식 ──────────────
+// 연간결제는 20% 할인을 조건으로 한 약정이므로, 중도 해지 시 그 할인을 소급 취소하고
+// 정가(월간 요금) 기준으로 실제 사용한 개월 수만큼만 청구한 뒤 나머지를 환불한다.
+// 월간결제처럼 경과일수/이용량 "비율"로 계산하지 않는다 — 순수 개월수(정가 환산) 기준.
+//   1) 예외: 7일 이내 + 완전 미사용(진단 0건, 포트폴리오 0건) → 전액환불
+//      (전자상거래법 기준 절대 예외, 월간결제와 동일하게 유지)
+//   2) 그 외(7일 이내라도 사용했거나, 7일 초과): 해지예약 없이 즉시 해지 + 아래 공식으로 환불
+//      - monthsUsed = max(1, ceil(경과일수 / 30)), 최대 12개월로 cap
+//      - retroactiveCost = monthsUsed × 플랜 정가 월요금(PLAN_AMOUNTS[plan].monthly)
+//      - refundAmount = max(0, 결제금액 - retroactiveCost)
+//   연간결제는 "7일 초과 시 환불 불가·해지예약" 규칙을 적용하지 않는다 — 언제든 취소 가능.
+
+const ANNUAL_MAX_MONTHS_CHARGED = 12;
+
+export interface AnnualRefundCalcResult {
+  elapsedDays:      number;
+  monthsUsed:       number;
+  retroactiveCost:  number;
+  diagnosisCount:   number;
+  portfolioCount:   number;
+  usageDetected:    boolean;
+  refundEligible:   boolean; // 연간은 항상 true — 해지예약 없이 즉시 해지
+  refundAmount:     number;
+  reasonText:       string;
+}
+
+export function calculateAnnualRefund(params: {
+  paidAmount:             number;
+  subscriptionStartDate:  Date;
+  cancelAt:               Date;
+  plan:                   'basic' | 'pro';
+  diagnosisCount:         number;
+  portfolioCount:         number;
+}): AnnualRefundCalcResult {
+  const { paidAmount, subscriptionStartDate, cancelAt, plan, diagnosisCount, portfolioCount } = params;
+  const elapsedDays   = Math.floor((cancelAt.getTime() - subscriptionStartDate.getTime()) / 86_400_000);
+  const usageDetected = diagnosisCount + portfolioCount > 0;
+
+  // 7일 이내 + 완전 미사용 → 전액환불 (전자상거래법 기준 예외, 그대로 유지)
+  if (elapsedDays <= REFUND_WINDOW_DAYS && !usageDetected) {
+    return {
+      elapsedDays, monthsUsed: 0, retroactiveCost: 0, diagnosisCount, portfolioCount, usageDetected,
+      refundEligible: true,
+      refundAmount:   paidAmount,
+      reasonText:     `연간결제 · 결제일로부터 ${elapsedDays}일 경과, 미사용 — 전액환불(7일 이내 미사용 예외)`,
+    };
+  }
+
+  const monthlyFullPrice = PLAN_AMOUNTS[plan].monthly;
+  const monthsUsed       = Math.min(ANNUAL_MAX_MONTHS_CHARGED, Math.max(1, Math.ceil(elapsedDays / PRORATION_DENOMINATOR_DAYS)));
+  const retroactiveCost  = monthsUsed * monthlyFullPrice;
+  const refundAmount     = Math.max(0, paidAmount - retroactiveCost);
+
+  const reasonText =
+    `연간결제(약정 할인 소급 취소) · 경과 ${elapsedDays}일 → ${monthsUsed}개월 사용 (정가 환산) · ` +
+    `정가 ${monthlyFullPrice.toLocaleString()}원 × ${monthsUsed}개월 = ${retroactiveCost.toLocaleString()}원 차감`;
+
+  return {
+    elapsedDays, monthsUsed, retroactiveCost, diagnosisCount, portfolioCount, usageDetected,
+    refundEligible: true, // 연간은 7일 초과해도 해지예약 없이 즉시 해지
     refundAmount,
     reasonText,
   };

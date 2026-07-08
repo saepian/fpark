@@ -74,7 +74,9 @@ export default function RefundPage() {
           </ul>
           <p className="mt-3">서비스를 이미 사용한 경우에는 사용 기간에 해당하는 금액을 제외한 나머지 금액을 환불합니다.</p>
           <p className="mt-3 text-slate-400 text-[13px]">
-            환불 금액은 경과일수와 실제 이용 실적(분석 이용 횟수) 중 더 큰 차감 비율을 적용하여 계산됩니다.
+            월간결제는 환불 금액을 경과일수와 실제 이용 실적(분석 이용 횟수) 중 더 큰 차감 비율을 적용하여 계산합니다.
+            연간결제는 결제 시 적용된 약정 할인이 중도 해지 시 소급 취소되며, 정가(월간 요금) 기준으로
+            실제 이용한 개월 수만큼 재계산한 금액을 차감한 뒤 나머지를 환불합니다.
             자세한 계산 방식은{' '}
             <Link href="/pricing#faq-refund-calc" className="text-indigo-400 hover:underline">요금제 페이지 FAQ</Link>를 참고해주세요.
           </p>

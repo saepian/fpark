@@ -57,14 +57,20 @@ export default function TermsPage() {
               <li>결제일로부터 7일 이내로 환불 대상에 해당하는 경우: 환불 처리와 동시에 서비스 이용이 즉시 중단됩니다.</li>
               <li>결제일로부터 7일이 지나 환불 대상이 아닌 경우: 다음 결제일부터 자동 결제가 중단되며, 그 전까지는 서비스를 계속 이용할 수 있습니다.</li>
             </ul>
-            <p><span className="text-slate-300 font-medium">환불 기준:</span></p>
+            <p><span className="text-slate-300 font-medium">환불 기준(월간결제):</span></p>
             <ul className="list-disc list-inside space-y-1 pl-2">
               <li>결제일로부터 <span className="text-slate-300">7일 이내</span>이고 서비스를 이용하지 않은 경우: 전액 환불</li>
               <li>결제일로부터 7일 이내이나 서비스를 이용한 경우: 이용 일수에 해당하는 금액을 제외하고 환불</li>
               <li>결제일로부터 7일 초과: 환불 불가 (단, 서비스 중대한 결함으로 인한 장애 시 협의 가능)</li>
             </ul>
+            <p><span className="text-slate-300 font-medium">환불 기준(연간결제):</span></p>
+            <ul className="list-disc list-inside space-y-1 pl-2">
+              <li>결제일로부터 7일 이내이고 서비스를 이용하지 않은 경우: 전액 환불</li>
+              <li>그 외의 경우(7일 이내 이용했거나 7일 초과): 연간결제 약정 할인이 소급 취소되며, 정가(월간 요금) 기준으로
+                실제 이용한 개월 수만큼 재계산한 금액을 차감하고 나머지를 환불. 7일 초과 시에도 환불 불가 규정을 적용하지 않고
+                언제든지 해지 및 환불 신청이 가능</li>
+            </ul>
             <p className="text-[13px]">
-              환불 금액은 경과일수와 실제 이용 실적(분석 이용 횟수) 중 더 큰 차감 비율을 적용하여 계산됩니다.
               자세한 계산 방식은{' '}
               <Link href="/pricing#faq-refund-calc" className="text-indigo-400 hover:underline">요금제 페이지 FAQ</Link>를 참고해주세요.
             </p>

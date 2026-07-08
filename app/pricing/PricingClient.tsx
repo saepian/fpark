@@ -22,9 +22,25 @@ interface Plan {
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
+// 연간결제 옵션 — lib/refund.ts의 연간 환불 계산 버그 수정 및 검증 완료(2026-07-08)로 재활성화.
+const ANNUAL_BILLING_ENABLED = true;
+
+// 연간 일시불 = 월 요금 × 12 × (1 - 할인율). 상수로 박아두면 월 요금이 바뀔 때
+// 연간 값과 어긋날 수 있어, 항상 이 공식으로 계산해 자동 동기화한다.
+const ANNUAL_DISCOUNT_RATE = 0.2; // 20% 할인
+
+function withAnnualPricing(
+  data: { type: PlanType; name: string; monthly: number; description: string; features: Feature[]; cta: string },
+): Plan {
+  const annual      = Math.round(data.monthly * (1 - ANNUAL_DISCOUNT_RATE));
+  const annualTotal = Math.round(data.monthly * 12 * (1 - ANNUAL_DISCOUNT_RATE));
+  const annualSaving = data.monthly * 12 - annualTotal;
+  return { ...data, annual, annualTotal, annualSaving };
+}
+
 const PLANS: Plan[] = [
-  {
-    type: 'free', name: 'FREE', monthly: 0, annual: 0, annualTotal: 0, annualSaving: 0,
+  withAnnualPricing({
+    type: 'free', name: 'FREE', monthly: 0,
     description: '기업 데이터 분석을 처음 시작하는 분들을 위한 플랜',
     features: [
       { text: '기업 분석 매일 1회', included: true },
@@ -38,9 +54,9 @@ const PLANS: Plan[] = [
       { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
     ],
     cta: '시작하기',
-  },
-  {
-    type: 'basic', name: 'BASIC', monthly: 9900, annual: 7920, annualTotal: 95040, annualSaving: 23760,
+  }),
+  withAnnualPricing({
+    type: 'basic', name: 'BASIC', monthly: 9900,
     description: '더 많은 분석이 필요한 이용자를 위한 플랜',
     features: [
       { text: '기업 분석 매일 6회', included: true },
@@ -54,9 +70,9 @@ const PLANS: Plan[] = [
       { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
     ],
     cta: '시작하기',
-  },
-  {
-    type: 'pro', name: 'PRO', monthly: 19900, annual: 15920, annualTotal: 191040, annualSaving: 47760,
+  }),
+  withAnnualPricing({
+    type: 'pro', name: 'PRO', monthly: 19900,
     description: '전문적인 포트폴리오 관리가 필요한 이용자',
     features: [
       { text: '기업 분석 매일 11회', included: true },
@@ -70,7 +86,7 @@ const PLANS: Plan[] = [
       { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: true },
     ],
     cta: '시작하기',
-  },
+  }),
 ];
 
 const FAQ_ITEMS = [
@@ -106,7 +122,10 @@ const FAQ_ITEMS = [
   {
     id: 'refund-calc',
     q: '환불 금액은 어떻게 계산되나요?',
-    a: `환불 금액은 아래 두 기준 중 더 큰 차감 비율을 적용하여 계산됩니다.
+    a: `월간결제와 연간결제는 계산 방식이 다릅니다.
+
+■ 월간결제
+아래 두 기준 중 더 큰 차감 비율을 적용하여 계산합니다.
 
 ① 경과일수 기준: 결제일로부터 환불 신청일까지 경과한 일수 ÷ 30일
 
@@ -117,7 +136,20 @@ const FAQ_ITEMS = [
 예시
 - 결제 후 3일 이내, 서비스 이용 없이 환불 신청 시 → 전액 환불
 - 결제 후 이용 한도를 상당 부분 사용한 뒤 즉시 환불 신청 시 → 이용실적 기준에 따라 환불액이 크게 줄어들 수 있음
-- 결제 후 며칠이 지났으나 이용 실적이 적은 경우 → 경과일수 기준으로 계산`,
+- 결제 후 며칠이 지났으나 이용 실적이 적은 경우 → 경과일수 기준으로 계산
+
+■ 연간결제
+연간결제는 20% 약정 할인을 조건으로 하므로, 중도 해지 시 이 할인을 소급 취소하고 정가(월간 요금) 기준으로 재계산합니다.
+
+- 결제일로부터 7일 이내이고 서비스를 전혀 이용하지 않은 경우: 전액 환불
+- 그 외의 모든 경우(7일 이내 이용했거나 7일을 초과한 경우): 실제 이용한 개월 수(경과일수 ÷ 30일, 올림, 최대 12개월)만큼
+  정가 월요금을 소급 청구한 뒤 나머지를 환불. 7일이 지나도 환불이 불가능해지지 않으며 언제든 해지·환불 신청이 가능합니다.
+
+예시(Pro 연간, 191,040원 결제 기준)
+- 0일, 미사용 → 전액환불 191,040원
+- 3일 경과(사용 여부 무관) → 1개월 정가(19,900원) 소급 차감 → 171,140원 환불
+- 40일 경과 → 2개월 정가(39,800원) 소급 차감 → 151,240원 환불
+- 350일 경과 → 12개월(정가 소급 상한) 238,800원 ≥ 결제액이라 환불 0원`,
   },
   {
     id: 'plan-diff',
@@ -472,15 +504,25 @@ export default function PricingClient() {
               월간
             </button>
             <button
-              onClick={() => setAnnual(true)}
+              onClick={() => ANNUAL_BILLING_ENABLED && setAnnual(true)}
+              disabled={!ANNUAL_BILLING_ENABLED}
+              title={ANNUAL_BILLING_ENABLED ? undefined : '환불 로직 점검 중 — 곧 다시 열립니다'}
               className={`flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold transition-all ${
-                annual ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-200'
+                !ANNUAL_BILLING_ENABLED
+                  ? 'text-slate-600 cursor-not-allowed'
+                  : annual ? 'bg-white text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               연간
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white whitespace-nowrap">
-                20% 할인 · 일시불
-              </span>
+              {ANNUAL_BILLING_ENABLED ? (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white whitespace-nowrap">
+                  20% 할인 · 일시불
+                </span>
+              ) : (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-300 whitespace-nowrap">
+                  준비 중
+                </span>
+              )}
             </button>
           </div>
         </div>

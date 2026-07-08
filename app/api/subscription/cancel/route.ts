@@ -7,7 +7,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { adminClient } from '@/lib/supabase-admin';
 import {
-  calculateRefund, buildRefundRequestAdminEmailHtml,
+  calculateRefund, calculateAnnualRefund, buildRefundRequestAdminEmailHtml,
   buildCancelRefundRequestedEmailHtml, buildCancelReservedEmailHtml,
 } from '@/lib/refund';
 import { sendBankTransferEmail } from '@/lib/bank-transfer';
@@ -33,7 +33,7 @@ function makeSupabase() {
 async function loadCancellableUser(userId: string) {
   const { data: userRow } = await adminClient
     .from('users')
-    .select('email, plan, subscription_status, subscription_start_date, next_billed_at')
+    .select('email, plan, subscription_status, subscription_start_date, next_billed_at, is_annual')
     .eq('id', userId)
     .maybeSingle();
 
@@ -62,7 +62,7 @@ async function loadCancellableUser(userId: string) {
       .gte('created_at', userRow.subscription_start_date),
     adminClient
       .from('bank_transfer_requests')
-      .select('amount')
+      .select('amount, is_annual')
       .eq('user_id', userId)
       .eq('status', 'approved')
       .order('processed_at', { ascending: false })
@@ -71,19 +71,24 @@ async function loadCancellableUser(userId: string) {
   ]);
 
   const paidAmount = lastApproved?.amount ?? PLAN_AMOUNTS[plan].monthly;
+  // 결제 주기는 실제 승인된 신청 건(bank_transfer_requests) 기준이 우선 —
+  // amount와 같은 행에서 나와야 프로레이션 계산이 서로 어긋나지 않는다.
+  // 해당 행이 없는 예외 상황(레거시 데이터 등)에서만 users.is_annual로 폴백.
+  const isAnnual = lastApproved?.is_annual ?? userRow.is_annual ?? false;
   const subscriptionStartDate = new Date(userRow.subscription_start_date);
 
-  const calc = calculateRefund({
+  const calcParams = {
     paidAmount,
     subscriptionStartDate,
     cancelAt: new Date(),
     plan,
     diagnosisCount: stockCount ?? 0,
     portfolioCount: portfolioCount ?? 0,
-  });
+  };
+  const calc = isAnnual ? calculateAnnualRefund(calcParams) : calculateRefund(calcParams);
 
   return {
-    userRow, plan, paidAmount, subscriptionStartDate, calc,
+    userRow, plan, paidAmount, isAnnual, subscriptionStartDate, calc,
   };
 }
 
@@ -120,7 +125,7 @@ export async function POST(request: NextRequest) {
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
-  const { plan, paidAmount, calc, subscriptionStartDate, userRow } = result;
+  const { plan, paidAmount, isAnnual, calc, subscriptionStartDate, userRow } = result;
 
   const body = await request.json().catch(() => ({})) as {
     refundAccountBank?: string; refundAccountNumber?: string; refundAccountHolder?: string;
@@ -133,6 +138,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // 월간(비율 기반)과 연간(정가 개월수 기반)은 계산 방식이 달라 elapsed_ratio/usage_ratio/final_ratio
+  // 의미가 다르다 — 연간은 해당 개념이 없어 elapsed_ratio/usage_ratio는 0, final_ratio만
+  // "전체 결제액 대비 소급 차감액 비율"로 환산해 감사 목적으로 남긴다.
+  const ratioFields = 'monthsUsed' in calc
+    ? { usage_ratio: 0, elapsed_ratio: 0, final_ratio: paidAmount > 0 ? Math.min(1, calc.retroactiveCost / paidAmount) : 0 }
+    : { usage_ratio: calc.usageRatio, elapsed_ratio: calc.elapsedRatio, final_ratio: calc.finalRatio };
+
   const { error: insertError } = await adminClient.from('refund_requests').insert({
     user_id:                  user.id,
     plan,
@@ -141,9 +153,9 @@ export async function POST(request: NextRequest) {
     usage_detected:           calc.usageDetected,
     diagnosis_count:          calc.diagnosisCount,
     portfolio_count:          calc.portfolioCount,
-    usage_ratio:              calc.usageRatio,
-    elapsed_ratio:            calc.elapsedRatio,
-    final_ratio:              calc.finalRatio,
+    usage_ratio:              ratioFields.usage_ratio,
+    elapsed_ratio:            ratioFields.elapsed_ratio,
+    final_ratio:              ratioFields.final_ratio,
     elapsed_days:             calc.elapsedDays,
     refund_amount:            calc.refundAmount,
     refund_reason:            calc.reasonText,
@@ -165,6 +177,7 @@ export async function POST(request: NextRequest) {
         subscription_status:      'cancelled',
         next_billed_at:           null,
         subscription_start_date:  null,
+        is_annual:                false,
       }
     : {
         subscription_status: 'pending_cancellation',
@@ -216,9 +229,9 @@ export async function POST(request: NextRequest) {
   }
 
   console.log(
-    `[subscription/cancel] userId:${user.id} plan:${plan} elapsedDays:${calc.elapsedDays} ` +
+    `[subscription/cancel] userId:${user.id} plan:${plan} isAnnual:${isAnnual} elapsedDays:${calc.elapsedDays} ` +
     `diagnosisCount:${calc.diagnosisCount} portfolioCount:${calc.portfolioCount} ` +
-    `finalRatio:${calc.finalRatio} refundAmount:${calc.refundAmount} eligible:${calc.refundEligible}`,
+    `finalRatio:${ratioFields.final_ratio} refundAmount:${calc.refundAmount} eligible:${calc.refundEligible}`,
   );
 
   return NextResponse.json({
