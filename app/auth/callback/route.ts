@@ -39,6 +39,10 @@ export async function GET(request: Request) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (error) {
+      // 예전엔 원인 로그 없이 조용히 /?error=auth_failed로만 보냈음 — PKCE code_verifier
+      // 유실(다른 브라우저/기기에서 링크를 열거나 세션 스토리지가 지워진 경우) 등 로그인 실패의
+      // 실제 원인을 추적할 수 있도록 서버 로그를 남긴다.
+      console.error('[AUTH_CALLBACK] exchangeCodeForSession 실패:', error.message);
       return NextResponse.redirect(`https://fpark.com/?error=auth_failed`);
     }
 

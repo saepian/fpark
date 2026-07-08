@@ -41,6 +41,10 @@ export async function GET(request: Request) {
         : next;
       return NextResponse.redirect(`https://fpark.com${finalNext}`);
     }
+    // 원인 로그 없이 조용히 실패 리다이렉트만 하면 이후 추적이 불가능해 서버 로그를 남긴다.
+    console.error('[AUTH_CONFIRM] verifyOtp 실패:', { type, message: error.message });
+  } else {
+    console.warn('[AUTH_CONFIRM] token_hash/type 누락:', { hasTokenHash: !!token_hash, type });
   }
 
   return NextResponse.redirect('https://fpark.com/?error=auth_failed');

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
@@ -20,6 +20,27 @@ function LoginForm() {
   const [unconfirmed, setUnconfirmed] = useState(false);
   const [resending, setResending] = useState(false);
   const [resent, setResent] = useState(false);
+  // 이미 로그인된 상태로 /auth/login에 접근한 경우(뒤로가기로 로그인 전 페이지가
+  // bfcache/캐시에서 그대로 보이는 경우, 여러 탭에서 세션 상태가 어긋난 경우,
+  // 혹은 redirect 파라미터가 자기 자신을 가리키는 경우 등)를 감지해 로그인 폼을
+  // 보여주지 않고 바로 원래 목적지로 돌려보낸다 — "로그인했는데 로그인 페이지에
+  // 그대로 머무는" 것처럼 보이는 문제의 확인된 원인 중 하나였음.
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (cancelled) return;
+      if (!error && data.user) {
+        console.log('[LOGIN] 이미 로그인된 세션 감지 — 리다이렉트:', redirectTo);
+        window.location.href = redirectTo;
+        return; // checkingSession을 false로 내리지 않아 리다이렉트 중 폼이 잠깐 보이는 것도 방지
+      }
+      setCheckingSession(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +61,7 @@ function LoginForm() {
       // 로그인 전 "/" 응답(미들웨어가 비로그인으로 rewrite한 버전)을 재사용해
       // 로그인 직후에도 화면이 안 바뀐 것처럼 보일 수 있다 — 세션 쿠키가 확실히
       // 반영된 상태로 서버에 새로 요청하도록 하드 네비게이션으로 이동한다.
+      console.log('[LOGIN] 로그인 성공 — 리다이렉트:', redirectTo);
       window.location.href = redirectTo;
     }
   };
@@ -69,6 +91,16 @@ function LoginForm() {
       },
     });
   };
+
+  // 세션 확인 중에는 로그인 폼을 보여주지 않는다 — 이미 로그인된 상태였다면
+  // 폼이 잠깐 보였다 사라지는 깜빡임 없이 바로 리다이렉트된다.
+  if (checkingSession) {
+    return (
+      <div className="relative min-h-screen flex items-center justify-center px-4">
+        <AuthBackground />
+      </div>
+    );
+  }
 
   return (
     <div className="relative min-h-screen flex items-center justify-center px-4">
