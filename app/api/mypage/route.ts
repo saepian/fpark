@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse, after } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { adminClient } from '@/lib/supabase-admin';
 import { cookies } from 'next/headers';
-import { markOnboardingFlag } from '@/lib/onboarding';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -179,11 +178,5 @@ export async function PATCH(request: NextRequest) {
     .eq('id', user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // 온보딩 체크리스트: 이메일/아침 브리핑 알림을 켰을 때 완료 처리
-  if (update.email_alert_enabled === true || update.morning_briefing_enabled === true) {
-    after(() => markOnboardingFlag(user.id, 'onboarding_alert_enabled'));
-  }
-
   return NextResponse.json({ ok: true });
 }

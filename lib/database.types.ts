@@ -254,6 +254,27 @@ export type Database = {
         }
         Relationships: []
       }
+      codef_tokens: {
+        Row: {
+          access_token: string
+          created_at: string
+          expired_at: string
+          id: string
+        }
+        Insert: {
+          access_token: string
+          created_at?: string
+          expired_at: string
+          id?: string
+        }
+        Update: {
+          access_token?: string
+          created_at?: string
+          expired_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
       kis_tokens: {
         Row: {
           access_token: string
@@ -579,10 +600,6 @@ export type Database = {
           is_annual: boolean
           morning_briefing_enabled: boolean
           next_billed_at: string | null
-          onboarding_alert_enabled: boolean
-          onboarding_dismissed: boolean
-          onboarding_report_viewed: boolean
-          onboarding_watchlist_added: boolean
           payment_method: string | null
           phone: string | null
           plan: string
@@ -604,10 +621,6 @@ export type Database = {
           is_annual?: boolean
           morning_briefing_enabled?: boolean
           next_billed_at?: string | null
-          onboarding_alert_enabled?: boolean
-          onboarding_dismissed?: boolean
-          onboarding_report_viewed?: boolean
-          onboarding_watchlist_added?: boolean
           payment_method?: string | null
           phone?: string | null
           plan?: string
@@ -629,10 +642,6 @@ export type Database = {
           is_annual?: boolean
           morning_briefing_enabled?: boolean
           next_billed_at?: string | null
-          onboarding_alert_enabled?: boolean
-          onboarding_dismissed?: boolean
-          onboarding_report_viewed?: boolean
-          onboarding_watchlist_added?: boolean
           payment_method?: string | null
           phone?: string | null
           plan?: string

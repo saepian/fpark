@@ -696,7 +696,7 @@ export default function MyPage() {
 
         {/* ── 5. 알림 설정 (Pro 전용) ──────────────────────────────────────── */}
         {data.plan === 'pro' && (
-          <div id="notification-settings" className="rounded-2xl border border-slate-800/70 p-6 md:p-7 scroll-mt-20" style={{ backgroundColor: '#0d1117' }}>
+          <div className="rounded-2xl border border-slate-800/70 p-6 md:p-7" style={{ backgroundColor: '#0d1117' }}>
             <SectionLabel>알림 설정</SectionLabel>
 
             <div className="flex flex-col gap-5">

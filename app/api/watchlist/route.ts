@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse, after } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { fetchStockPrice } from '../../../lib/kis-api';
 import { fetchOverseasQuote } from '../../../lib/yahoo-finance';
-import { markOnboardingFlag } from '../../../lib/onboarding';
 import type { Database } from '../../../lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -118,13 +117,6 @@ export async function POST(request: NextRequest) {
     .insert({ user_id: user.id, ticker, name, market, sort_order: count ?? 0 });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-  // 온보딩 체크리스트: 관심종목 3개 이상 등록 시 완료 처리
-  const newCount = (count ?? 0) + 1;
-  if (newCount >= 3) {
-    after(() => markOnboardingFlag(user.id, 'onboarding_watchlist_added'));
-  }
-
   return NextResponse.json({ success: true });
 }
 
