@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
 import YahooFinanceClass from 'yahoo-finance2';
@@ -210,19 +210,21 @@ export async function GET(
       createdAt: new Date().toISOString(),
     };
 
-    supabase
-      .from('stock_analysis')
-      .upsert({
-        ticker: cacheKey,
-        summary: result.summary,
-        details: JSON.stringify(result),
-        keywords: result.tags,
-        sentiment: signalToSentiment(result.signal),
-        created_at: result.createdAt,
-      })
-      .then(({ error }) => {
-        if (error) console.error('[OVERSEAS ANALYSIS] 캐시 저장 실패:', error.message);
-      });
+    // await 없이 던지면 응답 직후 실행 컨텍스트가 얼어붙어 fetch가 중간에 끊길 수 있음
+    // (app/api/stock/[ticker]/analysis와 동일한 이유로 after() 사용)
+    after(async () => {
+      const { error } = await supabase
+        .from('stock_analysis')
+        .upsert({
+          ticker: cacheKey,
+          summary: result.summary,
+          details: JSON.stringify(result),
+          keywords: result.tags,
+          sentiment: signalToSentiment(result.signal),
+          created_at: result.createdAt,
+        });
+      if (error) console.error('[OVERSEAS ANALYSIS] 캐시 저장 실패:', error.message);
+    });
 
     return NextResponse.json({ ...result, isCached: false });
   } catch (e) {

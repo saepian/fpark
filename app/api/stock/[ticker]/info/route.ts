@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { fetchStockInfo } from '../../../../../lib/kis-api';
 import { supabase } from '../../../../../lib/supabase';
 import type { StockInfo } from '../../../../../lib/types';
@@ -21,13 +21,15 @@ async function loadCache(ticker: string): Promise<{ data: StockInfo; updatedAt: 
   }
 }
 
+// await 없이 던지면 응답 직후 실행 컨텍스트가 얼어붙어 fetch가 중간에 끊길 수 있어
+// after()로 등록 — 응답은 즉시 나가되 이 저장은 런타임이 끝까지 살려서 완료시킨다.
 function saveCache(ticker: string, data: StockInfo) {
-  supabase
-    .from('market_cache')
-    .upsert({ key: cacheKey(ticker), data, updated_at: new Date().toISOString() })
-    .then(({ error }) => {
-      if (error) console.warn(`[INFO] ${ticker} 캐시 저장 실패:`, error.message);
-    });
+  after(async () => {
+    const { error } = await supabase
+      .from('market_cache')
+      .upsert({ key: cacheKey(ticker), data, updated_at: new Date().toISOString() });
+    if (error) console.warn(`[INFO] ${ticker} 캐시 저장 실패:`, error.message);
+  });
 }
 
 export async function GET(

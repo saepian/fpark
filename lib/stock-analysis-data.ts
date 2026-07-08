@@ -1,5 +1,6 @@
 import { load } from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
+import { after } from 'next/server';
 import { getAccessToken } from './kis-api';
 import type { ChartDataPoint } from './types';
 import type { Database } from './database.types';
@@ -86,13 +87,15 @@ async function loadPriceCache(ticker: string): Promise<{ data: KisPriceResult; u
   }
 }
 
+// await 없이 던지면 응답 직후 실행 컨텍스트가 얼어붙어 fetch가 중간에 끊길 수 있어
+// after()로 등록 — 응답은 즉시 나가되 이 저장은 런타임이 끝까지 살려서 완료시킨다.
 function savePriceCache(ticker: string, data: KisPriceResult) {
-  getSb()
-    .from('market_cache')
-    .upsert({ key: priceCacheKey(ticker), data, updated_at: new Date().toISOString() })
-    .then(({ error }) => {
-      if (error) console.warn(`[ANALYSIS] ${ticker} 시세 캐시 저장 실패:`, error.message);
-    });
+  after(async () => {
+    const { error } = await getSb()
+      .from('market_cache')
+      .upsert({ key: priceCacheKey(ticker), data, updated_at: new Date().toISOString() });
+    if (error) console.warn(`[ANALYSIS] ${ticker} 시세 캐시 저장 실패:`, error.message);
+  });
 }
 
 async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisPriceResult | null> {

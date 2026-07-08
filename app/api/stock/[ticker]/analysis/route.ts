@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
 import { fetchStockPrice, fetchStockInfo, fetchDailyChart } from '@/lib/kis-api';
@@ -253,20 +253,25 @@ ${tradingValueBlock}
     // 4-1. 본문 서술 중 현재가/52주 고저가 불일치 교정 (저장 전에 적용)
     result = correctPriceMentions(result, ticker);
 
-    // 5. 히스토리/로그 목적으로 저장 (캐시로 재사용하지 않음 — 응답을 기다리지 않는 비동기 저장)
-    supabase
-      .from('stock_analysis')
-      .upsert({
-        ticker,
-        summary: result.summary,
-        details: JSON.stringify(result),
-        keywords: result.tags,
-        sentiment: signalToSentiment(result.signal),
-        created_at: result.createdAt,
-      })
-      .then(({ error }) => {
-        if (error) console.error('[ANALYSIS] 결과 저장 실패:', error.message);
-      });
+    // 5. 히스토리/로그 목적으로 저장 (캐시로 재사용하지 않음 — 응답을 기다리지 않는 비동기 저장).
+    // 예전엔 await 없이 던져놓기만 해서, 응답이 나간 직후 서버리스 실행 컨텍스트가 얼어붙으며
+    // 이 fetch가 중간에 끊겨 "TypeError: fetch failed"가 간헐적으로 발생했다(Vercel 로그에서
+    // 다른 동시 요청의 로그 블록에 섞여 나타나 stock-alerts 크론 문제로 오인되기도 했음).
+    // after()로 등록하면 응답은 그대로 즉시 나가면서도, 런타임이 이 작업이 끝날 때까지
+    // 실행 컨텍스트를 유지해준다.
+    after(async () => {
+      const { error } = await supabase
+        .from('stock_analysis')
+        .upsert({
+          ticker,
+          summary: result.summary,
+          details: JSON.stringify(result),
+          keywords: result.tags,
+          sentiment: signalToSentiment(result.signal),
+          created_at: result.createdAt,
+        });
+      if (error) console.error('[ANALYSIS] 결과 저장 실패:', error.message);
+    });
 
     return NextResponse.json(result);
   } catch (e) {
