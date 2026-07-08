@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '@/lib/supabase';
 import YahooFinanceClass from 'yahoo-finance2';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
+import { nowKstString, TEMPORAL_GROUNDING_INSTRUCTION } from '@/lib/ai-grounding';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,7 @@ const OVERSEAS_ANALYSIS_OUTPUT_INSTRUCTIONS = `## 출력 형식 (JSON만)
       "points": [
         "관찰된 사실 → 시장 해석 구조 (예: 'AI 인프라 수요 증가가 확인되며, 매출 성장 지속 가능성이 있다는 해석도 있음') — 55자 이내",
         "밸류에이션 또는 수급 관찰 — 55자 이내",
-        "추가 촉매 또는 뉴스 기반 관찰 — 55자 이내"
+        "재무 지표(매출·영업이익률·ROE 등) 기반 추가 관찰 — 55자 이내"
       ]
     },
     {
@@ -69,6 +70,9 @@ const OVERSEAS_ANALYSIS_OUTPUT_INSTRUCTIONS = `## 출력 형식 (JSON만)
 - "참고 지표" 섹션은 목표가·손절가·진입전략·분할매수·저항선·지지선·매물대 같은 기술적 분석/지시형 문구를 쓰지 말고, 52주 고/저점 대비 현재가의 위치 관계를 사실로 서술하세요
 - "정당화", "충분", "권고", "~하는 것이 좋습니다" 같은 결론형·권유형 단어를 쓰지 말고 "~라는 해석도 있습니다", "~라는 특징이 관찰됩니다" 형태를 사용하세요
 - 각 point는 실제 데이터(주가·PER·52주가·매출·마진 등)를 인용해 구체적으로 작성하고, 제공되지 않은 수치를 지어내지 마세요
+- 이 리포트에는 개별 뉴스 기사 데이터가 제공되지 않습니다 — "~라는 뉴스가 있었다", "~를 발표했다/앞두고 있다" 같이
+  구체적인 뉴스·공시 사건을 언급하거나 지어내지 말고, 아래 제공된 가격·재무 수치만 근거로 서술하세요
+- ${TEMPORAL_GROUNDING_INSTRUCTION}
 - signal은 전체 분석과 일관성 있게 선택
 - tags에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말 것
 - JSON 키 순서 및 구조 변경 금지`;
@@ -168,6 +172,9 @@ export async function GET(
   };
 
   const prompt = `아래 종목 데이터를 관찰된 사실 위주로 정리하고 반드시 JSON만 출력하세요. JSON 외 텍스트는 절대 포함하지 마세요.
+
+## 기준 시각
+현재 시각: ${nowKstString()}
 
 ## 종목 데이터
 - 종목명: ${quote.name} (${ticker})

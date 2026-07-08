@@ -4,6 +4,7 @@ import { getAccessToken, fetchStockPrice, STOCK_NAMES, CURATED_TICKERS_MKT } fro
 import { fetchInvestorTrend, pickRelevantNews } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
+import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry } from '@/lib/ai-grounding';
 import type { Database } from '@/lib/database.types';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
@@ -152,6 +153,7 @@ const DAILY_PICK_OUTPUT_INSTRUCTIONS = `## 출력 형식 (JSON만)
 - "재도약 기대", "매력도를 높이는 핵심 요인", "권고", "정당화" 같은 결론형·권유형 표현을 쓰지 말고 "~관찰됩니다", "~라는 특징이 있습니다", "~라는 해석도 있습니다" 형태로 작성하세요
 - 목표가·저항선·진입전략 관련 내용은 만들지 마세요 (52주 고점 대비 위치는 별도로 표시됩니다)
 - summary·analysis·keywords 전부에서 "매수"/"매도"/"순매수"/"순매도" 단어를 쓰지 말고 "자금 유입"/"자금 유출"로 표현하세요 (예: "순매수 572억원" → "자금 유입 572억원", "순유출 상태" → "자금 유출 상태")
+- ${TEMPORAL_GROUNDING_INSTRUCTION}
 - JSON 키 순서 및 구조 변경 금지`;
 
 async function notifyKisFailure(apiErrorCount: number, totalCount: number, apiErrorRate: number) {
@@ -267,6 +269,9 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
   // 3. Claude로 수급 데이터 관찰 서술 생성 (뉴스는 참고 정보로만 보조 배치)
   const prompt = `아래는 정량적 수급 기준(외국인·기관 자금 유입)으로 스크리닝된 종목입니다. 이 데이터를 관찰된 사실 위주로 정리하고 JSON만 출력하세요.
 
+## 기준 시각
+현재 시각: ${nowKstString()}
+
 ## 종목 정보
 - 종목명: ${selected.name} (${selected.ticker})
 - 현재가: ${currentPrice.toLocaleString()}원 (오늘 등락률 ${changeRate}%)
@@ -276,12 +281,13 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
 - 52주 최고가: ${detail?.week52High?.toLocaleString() ?? '-'}원 / 최저가: ${detail?.week52Low?.toLocaleString() ?? '-'}원
 - 시가총액: ${detail?.marketCap ?? '-'} | PER: ${detail?.per ?? '-'}배 | PBR: ${detail?.pbr ?? '-'}배
 
-## 참고 뉴스 (보조 정보, ${relevantNews.length}건)
+## 참고 뉴스 (보조 정보, ${buildNewsFreshnessLine(relevantNews)})
 ${newsText}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 형식과 규칙에 따라 정리하세요.`;
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const newsTextForCheck = relevantNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
   let analysisResult: any = {
     summary: `${selected.name} — ${selected.reason} 관찰됨`,
     analysis: '수급 데이터 기반 관찰 정보를 준비 중입니다.',
@@ -291,18 +297,27 @@ ${newsText}
   };
 
   try {
-    const msg = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system: [
-        { type: 'text', text: COMPLIANCE_PRINCIPLE },
-        { type: 'text', text: DAILY_PICK_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-      ],
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) analysisResult = JSON.parse(match[0]);
+    analysisResult = await withTemporalRetry(
+      async () => {
+        const msg = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          system: [
+            { type: 'text', text: COMPLIANCE_PRINCIPLE },
+            { type: 'text', text: DAILY_PICK_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+          ],
+          messages: [{ role: 'user', content: prompt }],
+        });
+        const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
+        const parsed = JSON.parse(match[0]);
+        const reportText = [parsed.summary, parsed.analysis, ...(parsed.reference_info ?? [])].filter(Boolean).join(' ');
+        return { parsed, reportText };
+      },
+      newsTextForCheck,
+      '[DAILY-PICK]',
+    );
   } catch (e) {
     console.error('[DAILY-PICK] Claude 분석 실패:', e);
   }

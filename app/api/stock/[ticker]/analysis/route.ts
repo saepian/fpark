@@ -12,6 +12,7 @@ import {
 } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
+import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry } from '@/lib/ai-grounding';
 
 export const dynamic = 'force-dynamic';
 // 캐시 없이 매 요청마다 KIS + Claude를 호출 — 관측된 응답 시간이 16~21초로
@@ -69,11 +70,7 @@ const STOCK_ANALYSIS_OUTPUT_INSTRUCTIONS = `## 출력 형식 (JSON만)
 - 데이터가 서로 다른 방향을 가리키면(예: 과거엔 반등했지만 오늘 거래대금은 낮음) 어느 신호에 더 비중을 두는지와 그 이유를 밝히세요
 - 위에 제공된 수치 외의 "관찰됨", "일반적으로 참고하는 지표" 같은 모호한 일반론 문장은 절대 생성하지 말 것
 - 제공되지 않은 데이터(섹터 비교, 동종업계 순위 등)에 대해서는 언급하지 말 것
-- "최근 뉴스"에 실적 발표(잠정실적·확정실적 등) 관련 기사가 있으면 반드시 과거형으로 서술하세요
-  (예: "2분기 실적을 발표했다", "영업이익이 X조원으로 나타났다") — 이미 발표된 실적을 "실적 발표를
-  앞두고", "발표 예정" 같은 미래형·예정형으로 쓰지 마세요. "최근 뉴스"에 실적 관련 기사가 없다면
-  실적 발표 여부·시기를 본인의 사전 지식으로 추측해서 서술하지 말고(예: "이번 분기 실적 발표를
-  앞두고" 같은 문장 금지), 언급 자체를 생략하세요 — 뉴스로 확인되지 않은 이벤트는 없는 것으로 취급
+- ${TEMPORAL_GROUNDING_INSTRUCTION}
 - 본문에서 현재가·52주 고가·52주 저가를 언급할 때는 위 "종목 데이터"에 제시된 숫자를 한 글자도 다르지 않게 그대로 쓰세요 — 익숙한 가격대와 다르다는 이유로 자릿수를 줄이거나 늘리지 말 것
 - signal은 전체 분석과 일관성 있게 선택
 - tags에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말 것
@@ -90,6 +87,7 @@ export interface AnalysisResult {
   resistance: number; // 52주 고가 — 서버에서 직접 계산 (AI가 지어내지 않음)
   support: number;     // 52주 저가 — 서버에서 직접 계산
   tradingValueMultiple: number | null; // 오늘 거래대금 / 최근 20거래일 평균 — 순수 데이터 지표
+  hasRelevantNews: boolean; // false면 UI에서 "최근 관련 뉴스 반영: 없음" 배지 표시
   disclaimer: string;
   createdAt: string;
 }
@@ -217,6 +215,9 @@ export async function GET(
 
   const prompt = `아래 종목 데이터를 관찰된 사실 위주로 정리하고 반드시 JSON만 출력하세요. JSON 외 텍스트는 절대 포함하지 마세요.
 
+## 기준 시각
+현재 시각: ${nowKstString()}
+
 ## 종목 데이터
 ※ 현재가·52주 고저가는 서버가 직접 실측한 값입니다. 본인이 알고 있는 시세감이나 관례적인 가격대와 다르더라도
 임의로 보정하거나 축소·확대해서 쓰지 말고, 아래 숫자를 본문에서도 그대로 인용하세요.
@@ -226,7 +227,7 @@ export async function GET(
 - 52주 고가: ${info.week52High.toLocaleString()}원 / 저가: ${info.week52Low.toLocaleString()}원${w52pos !== null ? ` (현재가 52주 레인지의 ${w52pos}% 위치)` : ''}
 - 시가총액: ${info.marketCap} / PER: ${info.per || 'N/A'} / PBR: ${info.pbr || 'N/A'}
 
-## 최근 뉴스
+## 최근 뉴스 (${buildNewsFreshnessLine(relevantNews)})
 ${newsBlock}
 
 ## 과거 유사 급등/급락 이력 (최근 약 5개월, 서버 계산값)
@@ -237,25 +238,35 @@ ${tradingValueBlock}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 형식과 규칙에 따라 정리하세요.`;
 
+  const newsText = relevantNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+
   try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system: [
-        { type: 'text', text: COMPLIANCE_PRINCIPLE },
-        { type: 'text', text: STOCK_ANALYSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-      ],
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
-
-    const analysis = JSON.parse(jsonMatch[0]) as Omit<
+    type ParsedAnalysis = Omit<
       AnalysisResult,
       'current_price' | 'resistance' | 'support' | 'tradingValueMultiple' | 'disclaimer' | 'createdAt'
     >;
+
+    const analysis = await withTemporalRetry<ParsedAnalysis>(
+      async () => {
+        const message = await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          system: [
+            { type: 'text', text: COMPLIANCE_PRINCIPLE },
+            { type: 'text', text: STOCK_ANALYSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+          ],
+          messages: [{ role: 'user', content: prompt }],
+        });
+        const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
+        const parsed = JSON.parse(jsonMatch[0]) as ParsedAnalysis;
+        const reportText = [parsed.summary, ...parsed.sections.flatMap((s) => s.points)].join(' ');
+        return { parsed, reportText };
+      },
+      newsText,
+      '[ANALYSIS]',
+    );
 
     let result: AnalysisResult = {
       ...analysis,
@@ -264,6 +275,7 @@ ${tradingValueBlock}
       resistance: info.week52High, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
       support: info.week52Low,     // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
       tradingValueMultiple: tradingValueMultiple?.valid ? tradingValueMultiple.multiple : null,
+      hasRelevantNews: relevantNews.length > 0,
       disclaimer: INVESTMENT_DISCLAIMER,
       createdAt: new Date().toISOString(),
     };

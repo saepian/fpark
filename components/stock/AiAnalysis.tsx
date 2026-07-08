@@ -183,6 +183,11 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
                 거래대금 20일 평균 대비 {data.tradingValueMultiple}배
               </span>
             )}
+            {data.hasRelevantNews === false && (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-slate-800 text-slate-500">
+                최근 관련 뉴스 반영: 없음
+              </span>
+            )}
             <button
               onClick={showToast}
               className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[10px] font-bold rounded uppercase tracking-widest hover:border-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
