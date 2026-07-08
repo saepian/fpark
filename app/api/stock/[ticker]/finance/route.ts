@@ -1,6 +1,13 @@
 import { NextRequest } from 'next/server';
 import { getAccessToken } from '@/lib/kis-api';
 
+// 캐시 없음(cache: 'no-store') — 요청마다 KIS를 실시간 호출한다.
+// 이 라우트는 의도적으로 "최근 3개 연도의 확정 연간 실적"만 반환한다(annualRows 필터).
+// 분기 실적이나 "잠정실적"(장 마감 후 공시되는 속보성 실적, DART/거래소 공시 기반)은
+// 애초에 다루지 않는다 — KIS의 financial-ratio/balance-sheet TR 자체가 정식 재무제표
+// 기준이라 잠정실적 공시와는 별개의 파이프라인이고(2026-07-08 삼성전자 2분기 잠정실적
+// 미반영 문의로 확인: 이 시점 KIS 데이터의 최신 분기 행도 202603(1분기)까지만 존재),
+// 여기서 분기 데이터를 노출하려면 완전히 다른 데이터 소스(DART 공시 API 등) 연동이 필요하다.
 export const dynamic = 'force-dynamic';
 
 const KIS = 'https://openapi.koreainvestment.com:9443';
