@@ -47,8 +47,6 @@ const PLANS: Plan[] = [
       { text: '포트폴리오 분석', included: false },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
-      { text: 'AI 분석 리포트 저장', included: false },
-      { text: '우선순위 분석 처리', included: false },
       { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
       { text: '외국인/기관 수급 알림 (1,000억 이상 자금 유입·유출)', included: false },
       { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
@@ -63,8 +61,6 @@ const PLANS: Plan[] = [
       { text: '포트폴리오 분석 월 1회', included: true },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
-      { text: 'AI 분석 리포트 저장', included: true },
-      { text: '우선순위 분석 처리', included: false },
       { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
       { text: '외국인/기관 수급 알림 (1,000억 이상 자금 유입·유출)', included: false },
       { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
@@ -79,8 +75,6 @@ const PLANS: Plan[] = [
       { text: '포트폴리오 분석 월 20회', included: true },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
-      { text: 'AI 분석 리포트 저장', included: true },
-      { text: '우선순위 분석 처리', included: true },
       { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: true },
       { text: '외국인/기관 수급 알림 (1,000억 이상 자금 유입·유출)', included: true },
       { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: true },
@@ -154,7 +148,7 @@ const FAQ_ITEMS = [
   {
     id: 'plan-diff',
     q: '무료 플랜과 유료 플랜의 차이는?',
-    a: '무료 플랜은 기업 분석을 매일 1회 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, AI 리포트 저장, 우선순위 처리 등 고급 기능을 이용하실 수 있습니다.',
+    a: '무료 플랜은 기업 분석을 매일 1회 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, 관심기업 알림 등 고급 기능을 이용하실 수 있습니다.',
   },
 ];
 

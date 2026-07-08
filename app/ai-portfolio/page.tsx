@@ -150,13 +150,13 @@ const LANDING_PLANS = [
   {
     type: 'basic' as const, name: 'BASIC', price: PLAN_AMOUNTS.basic.monthly,
     desc: '더 많은 분석이 필요한 이용자를 위한 플랜',
-    features: ['기업 분석 매일 6회', '포트폴리오 분석 월 1회', 'AI 분석 리포트 저장', '뉴스/시장 데이터 무제한'],
+    features: ['기업 분석 매일 6회', '포트폴리오 분석 월 1회', '워치리스트', '뉴스/시장 데이터 무제한'],
     highlight: false,
   },
   {
     type: 'pro' as const, name: 'PRO', price: PLAN_AMOUNTS.pro.monthly,
     desc: '전문적인 포트폴리오 관리가 필요한 이용자',
-    features: ['기업 분석 매일 11회', '포트폴리오 분석 월 20회', '관심기업 주가·수급 알림', '우선순위 분석 처리'],
+    features: ['기업 분석 매일 11회', '포트폴리오 분석 월 20회', '관심기업 주가·수급 알림', '관심기업 일일 리포트 이메일'],
     highlight: true,
   },
 ];

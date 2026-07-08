@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
+import { checkPlan } from '@/lib/plan';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -65,21 +66,6 @@ function makeSupabase() {
       },
     },
   );
-}
-
-async function checkPlan(
-  supabase: ReturnType<typeof makeSupabase>,
-  userId: string,
-  email: string | undefined,
-): Promise<'admin' | 'pro' | 'basic' | 'free'> {
-  if (email === process.env.ADMIN_EMAIL) return 'admin';
-  try {
-    const { data } = await supabase.from('users').select('plan').eq('id', userId).maybeSingle();
-    const plan = data?.plan;
-    if (plan === 'pro')   return 'pro';
-    if (plan === 'basic') return 'basic';
-    return 'free';
-  } catch { return 'free'; }
 }
 
 // subscription_start_date 기준 현재 사이클 시작일 계산 (null이면 매월 1일 폴백)

@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
+import { checkPlan, resolveDiagnosisLimit } from '@/lib/plan';
 import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart } from '@/lib/kis-api';
 import {
   collectStockAnalysisData,
@@ -77,8 +78,9 @@ export async function GET() {
     .eq('user_id', user.id)
     .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
-  const isAdmin = user.email === process.env.ADMIN_EMAIL;
-  return NextResponse.json({ count: count ?? 0, remaining: isAdmin ? 999 : Math.max(0, 1 - (count ?? 0)) });
+  const plan  = await checkPlan(supabase, user.id, user.email);
+  const limit = resolveDiagnosisLimit(plan);
+  return NextResponse.json({ count: count ?? 0, remaining: Math.max(0, limit - (count ?? 0)) });
 }
 
 export async function POST(request: NextRequest) {
@@ -95,9 +97,12 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id)
       .gte('created_at', `${todayKst}T00:00:00+09:00`);
 
-    const isAdmin = user.email === process.env.ADMIN_EMAIL;
+    // 2026-07-08까지는 관리자 제외 전원이 하루 1회로 하드코딩돼 pricing 광고
+    // (Free 1회/Basic 6회/Pro 11회)와 어긋나 있었음 — 실제 플랜별 한도로 교체.
+    const plan  = await checkPlan(supabase, user.id, user.email);
+    const limit = resolveDiagnosisLimit(plan);
     let usedCredit = false;
-    if (!isAdmin && (count ?? 0) >= 1) {
+    if ((count ?? 0) >= limit) {
       // 기본 한도 초과 시 1회권 크레딧 원자적 차감(레이스 컨디션 방지) —
       // 분석 성공 여부와 무관하게 사용 처리
       const result = await deductCredit(user.id, 'stock');
