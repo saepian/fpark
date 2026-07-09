@@ -5,7 +5,7 @@
 // 버그가 재발하지 않도록 그 시나리오를 명시적으로 커버한다.
 
 import { describe, it, expect } from 'vitest';
-import { calculateRefund, calculateAnnualRefund } from './refund';
+import { calculateRefund, calculateAnnualRefund, SINGLE_PORTFOLIO_USE_RATIO } from './refund';
 
 const DAY_MS = 86_400_000;
 
@@ -25,6 +25,8 @@ describe('calculateRefund (월간결제)', () => {
     });
     expect(result.refundEligible).toBe(true);
     expect(result.refundAmount).toBe(19900);
+    expect(result.decidingFactor).toBe('none');
+    expect(result.deductionAmount).toBe(0);
   });
 
   it('경과일 비율이 이용실적 비율보다 큰 경우 → 경과일 비율로 차감', () => {
@@ -38,6 +40,8 @@ describe('calculateRefund (월간결제)', () => {
     });
     // elapsedRatio = 5/30 ≈ 16.67% > usageRatio(0%)
     expect(result.refundAmount).toBe(16583); // 19900 - round(19900 * 5/30)
+    expect(result.decidingFactor).toBe('elapsed');
+    expect(result.deductionAmount).toBe(3317); // 19900 - 16583
   });
 
   it('이용실적 비율이 경과일 비율보다 큰 경우 → 이용실적 비율로 차감 (결제 당일 사용 후 전액환불 버그 회귀 방지)', () => {
@@ -53,6 +57,27 @@ describe('calculateRefund (월간결제)', () => {
     });
     expect(result.refundAmount).toBeLessThan(19900);
     expect(result.refundAmount).toBe(17910); // 19900 - round(19900 * 0.1)
+    expect(result.decidingFactor).toBe('usage');
+    expect(result.portfolioLimit).toBe(20); // pro 플랜 월간 한도
+  });
+
+  it('포트폴리오 진단 1건 사용 → 계단식 특수규칙(20% 고정)이 정확히 적용됨(마이페이지 계산 과정 표기 근거)', () => {
+    // 2026-07-09 유저 리포트: basic 플랜, 9900원, 0일 경과, 포트폴리오 1건 → 예상 환불액 7920원.
+    // 화면에 "1/1회 20%"라고만 쓰면 한도가 1회로 오해될 수 있어, 계단식 규칙이라는 걸
+    // 문구에 명시하기로 함 — 그 근거가 되는 실제 숫자를 고정 테스트로 남긴다.
+    const result = calculateRefund({
+      paidAmount: 9900,
+      subscriptionStartDate: daysAgo(0),
+      cancelAt: new Date(),
+      plan: 'basic',
+      diagnosisCount: 0,
+      portfolioCount: 1,
+    });
+    expect(result.portfolioRatio).toBe(SINGLE_PORTFOLIO_USE_RATIO);
+    expect(result.finalRatio).toBe(SINGLE_PORTFOLIO_USE_RATIO);
+    expect(result.decidingFactor).toBe('usage');
+    expect(result.deductionAmount).toBe(1980); // 9900 * 0.2
+    expect(result.refundAmount).toBe(7920);
   });
 
   it('7일 초과 → 환불 대상 아님(해지예약), 환불액 0원', () => {
@@ -111,6 +136,8 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
     expect(result.refundEligible).toBe(true);
     expect(result.refundAmount).toBe(PAID);
     expect(result.monthsUsed).toBe(0);
+    expect(result.fullRefundException).toBe(true);
+    expect(result.monthlyFullPrice).toBe(MONTHLY_FULL);
   });
 
   it('1개월 사용 후 환불 — 정가 1개월분 소급 차감', () => {
@@ -125,6 +152,7 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
     expect(result.monthsUsed).toBe(1);
     expect(result.retroactiveCost).toBe(MONTHLY_FULL);
     expect(result.refundAmount).toBe(PAID - MONTHLY_FULL); // 171,140원
+    expect(result.fullRefundException).toBe(false);
   });
 
   it('6개월 사용 후 환불 — 정가 6개월분 소급 재계산 검증(20% 할인 소급 취소)', () => {

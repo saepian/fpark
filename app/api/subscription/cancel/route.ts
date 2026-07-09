@@ -103,6 +103,35 @@ export async function GET() {
   }
 
   const { plan, paidAmount, calc, userRow } = result;
+
+  // calc는 월간/연간 계산 결과 유니온 — 'monthsUsed' 존재 여부로 좁혀서(tagged union이 아니라서
+  // isAnnual 변수만으로는 TS가 못 좁힘) 계산 과정 화면에 필요한 세부 필드를 그대로 실어 보낸다.
+  // reasonText 문자열 파싱 대신 프론트가 이 구조화된 값으로 직접 문장을 조립한다.
+  const breakdown = 'monthsUsed' in calc
+    ? {
+        isAnnual:            true as const,
+        monthsUsed:          calc.monthsUsed,
+        monthlyFullPrice:    calc.monthlyFullPrice,
+        retroactiveCost:     calc.retroactiveCost,
+        fullRefundException: calc.fullRefundException,
+        diagnosisCount:      calc.diagnosisCount,
+        portfolioCount:      calc.portfolioCount,
+      }
+    : {
+        isAnnual:        false as const,
+        elapsedRatio:    calc.elapsedRatio,
+        diagnosisCount:  calc.diagnosisCount,
+        diagnosisLimit:  calc.diagnosisLimit,
+        diagnosisRatio:  calc.diagnosisRatio,
+        portfolioCount:  calc.portfolioCount,
+        portfolioLimit:  calc.portfolioLimit,
+        portfolioRatio:  calc.portfolioRatio,
+        usageRatio:      calc.usageRatio,
+        finalRatio:      calc.finalRatio,
+        decidingFactor:  calc.decidingFactor,
+        deductionAmount: calc.deductionAmount,
+      };
+
   return NextResponse.json({
     ok: true,
     plan,
@@ -113,6 +142,7 @@ export async function GET() {
     refundAmount:   calc.refundAmount,
     reasonText:     calc.reasonText,
     nextBilledAt:   userRow.next_billed_at,
+    ...breakdown,
   });
 }
 

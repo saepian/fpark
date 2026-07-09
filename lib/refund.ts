@@ -17,18 +17,25 @@ import { PLAN_USAGE_LIMITS, PLAN_AMOUNTS } from '@/lib/payment-constants';
 
 const REFUND_WINDOW_DAYS = 7;
 const PRORATION_DENOMINATOR_DAYS = 30;
-const SINGLE_PORTFOLIO_USE_RATIO = 0.2;
+export const SINGLE_PORTFOLIO_USE_RATIO = 0.2;
 
 export interface RefundCalcResult {
+  paidAmount:      number;
   elapsedDays:     number;
   elapsedRatio:    number;
   diagnosisCount:  number;
+  diagnosisLimit:  number; // 일일 한도(플랜별) — 화면에 "n/한도" 형태로 보여줄 때 사용
   diagnosisRatio:  number;
   portfolioCount:  number;
+  portfolioLimit:  number; // 월간 한도(플랜별)
   portfolioRatio:  number;
   usageRatio:      number;
   finalRatio:      number;
   usageDetected:   boolean;
+  // 최종 차감 비율(finalRatio)이 이용실적/경과일 중 어느 쪽에서 왔는지 — 화면에 "OO 기준이
+  // 더 커서 적용됨" 문구를 정확히 붙이기 위함. 둘 다 0%면 'none'(차감 없음, 전액환불).
+  decidingFactor:  'usage' | 'elapsed' | 'none';
+  deductionAmount: number; // paidAmount - refundAmount (계산 과정 화면에 그대로 노출)
   refundEligible:  boolean; // true면 즉시 해지(cancelled), false면 해지예약(pending_cancellation)
   refundAmount:    number;
   reasonText:      string;
@@ -58,8 +65,12 @@ export function calculateRefund(params: {
 
   if (elapsedDays > REFUND_WINDOW_DAYS) {
     return {
-      elapsedDays, elapsedRatio, diagnosisCount, diagnosisRatio, portfolioCount, portfolioRatio,
+      paidAmount, elapsedDays, elapsedRatio,
+      diagnosisCount, diagnosisLimit: limits.diagnosis, diagnosisRatio,
+      portfolioCount, portfolioLimit: limits.portfolio, portfolioRatio,
       usageRatio, finalRatio: 0, usageDetected,
+      decidingFactor:  'none',
+      deductionAmount: 0,
       refundEligible: false,
       refundAmount:   0,
       reasonText:     `결제일로부터 ${elapsedDays}일 경과 — 환불 대상 아님(7일 초과). 다음 결제일부터 구독이 중단됩니다.`,
@@ -69,6 +80,8 @@ export function calculateRefund(params: {
   const finalRatio   = Math.min(1, Math.max(elapsedRatio, usageRatio));
   const deduction    = Math.round(paidAmount * finalRatio);
   const refundAmount = Math.max(0, paidAmount - deduction);
+  const decidingFactor: 'usage' | 'elapsed' | 'none' =
+    finalRatio === 0 ? 'none' : usageRatio >= elapsedRatio ? 'usage' : 'elapsed';
 
   const pct = (n: number) => `${Math.round(n * 1000) / 10}%`;
   const reasonText =
@@ -78,8 +91,12 @@ export function calculateRefund(params: {
     `최종차감 ${pct(finalRatio)}`;
 
   return {
-    elapsedDays, elapsedRatio, diagnosisCount, diagnosisRatio, portfolioCount, portfolioRatio,
+    paidAmount, elapsedDays, elapsedRatio,
+    diagnosisCount, diagnosisLimit: limits.diagnosis, diagnosisRatio,
+    portfolioCount, portfolioLimit: limits.portfolio, portfolioRatio,
     usageRatio, finalRatio, usageDetected,
+    decidingFactor,
+    deductionAmount: deduction,
     refundEligible: true,
     refundAmount,
     reasonText,
@@ -101,15 +118,18 @@ export function calculateRefund(params: {
 const ANNUAL_MAX_MONTHS_CHARGED = 12;
 
 export interface AnnualRefundCalcResult {
-  elapsedDays:      number;
-  monthsUsed:       number;
-  retroactiveCost:  number;
-  diagnosisCount:   number;
-  portfolioCount:   number;
-  usageDetected:    boolean;
-  refundEligible:   boolean; // 연간은 항상 true — 해지예약 없이 즉시 해지
-  refundAmount:     number;
-  reasonText:       string;
+  paidAmount:        number;
+  elapsedDays:       number;
+  monthsUsed:        number;
+  monthlyFullPrice:  number; // 플랜 정가 월요금(PLAN_AMOUNTS[plan].monthly) — 소급 계산의 단가
+  retroactiveCost:   number;
+  diagnosisCount:    number;
+  portfolioCount:    number;
+  usageDetected:     boolean;
+  fullRefundException: boolean; // true면 "7일 이내 미사용 전액환불" 예외로 처리된 것
+  refundEligible:    boolean; // 연간은 항상 true — 해지예약 없이 즉시 해지
+  refundAmount:      number;
+  reasonText:        string;
 }
 
 export function calculateAnnualRefund(params: {
@@ -124,17 +144,20 @@ export function calculateAnnualRefund(params: {
   const elapsedDays   = Math.floor((cancelAt.getTime() - subscriptionStartDate.getTime()) / 86_400_000);
   const usageDetected = diagnosisCount + portfolioCount > 0;
 
+  const monthlyFullPrice = PLAN_AMOUNTS[plan].monthly;
+
   // 7일 이내 + 완전 미사용 → 전액환불 (전자상거래법 기준 예외, 그대로 유지)
   if (elapsedDays <= REFUND_WINDOW_DAYS && !usageDetected) {
     return {
-      elapsedDays, monthsUsed: 0, retroactiveCost: 0, diagnosisCount, portfolioCount, usageDetected,
+      paidAmount, elapsedDays, monthsUsed: 0, monthlyFullPrice, retroactiveCost: 0,
+      diagnosisCount, portfolioCount, usageDetected,
+      fullRefundException: true,
       refundEligible: true,
       refundAmount:   paidAmount,
       reasonText:     `연간결제 · 결제일로부터 ${elapsedDays}일 경과, 미사용 — 전액환불(7일 이내 미사용 예외)`,
     };
   }
 
-  const monthlyFullPrice = PLAN_AMOUNTS[plan].monthly;
   const monthsUsed       = Math.min(ANNUAL_MAX_MONTHS_CHARGED, Math.max(1, Math.ceil(elapsedDays / PRORATION_DENOMINATOR_DAYS)));
   const retroactiveCost  = monthsUsed * monthlyFullPrice;
   const refundAmount     = Math.max(0, paidAmount - retroactiveCost);
@@ -144,7 +167,9 @@ export function calculateAnnualRefund(params: {
     `정가 ${monthlyFullPrice.toLocaleString()}원 × ${monthsUsed}개월 = ${retroactiveCost.toLocaleString()}원 차감`;
 
   return {
-    elapsedDays, monthsUsed, retroactiveCost, diagnosisCount, portfolioCount, usageDetected,
+    paidAmount, elapsedDays, monthsUsed, monthlyFullPrice, retroactiveCost,
+    diagnosisCount, portfolioCount, usageDetected,
+    fullRefundException: false,
     refundEligible: true, // 연간은 7일 초과해도 해지예약 없이 즉시 해지
     refundAmount,
     reasonText,

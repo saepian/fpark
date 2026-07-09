@@ -31,7 +31,7 @@ interface MyPageData {
   };
 }
 
-interface CancelPreview {
+interface CancelPreviewBase {
   plan:           string;
   paidAmount:     number;
   usageDetected:  boolean;
@@ -41,6 +41,33 @@ interface CancelPreview {
   reasonText:     string;
   nextBilledAt:   string | null;
 }
+
+interface CancelPreviewMonthly extends CancelPreviewBase {
+  isAnnual:        false;
+  elapsedRatio:    number;
+  diagnosisCount:  number;
+  diagnosisLimit:  number;
+  diagnosisRatio:  number;
+  portfolioCount:  number;
+  portfolioLimit:  number;
+  portfolioRatio:  number;
+  usageRatio:      number;
+  finalRatio:      number;
+  decidingFactor:  'usage' | 'elapsed' | 'none';
+  deductionAmount: number;
+}
+
+interface CancelPreviewAnnual extends CancelPreviewBase {
+  isAnnual:             true;
+  monthsUsed:           number;
+  monthlyFullPrice:     number;
+  retroactiveCost:      number;
+  fullRefundException:  boolean;
+  diagnosisCount:       number;
+  portfolioCount:       number;
+}
+
+type CancelPreview = CancelPreviewMonthly | CancelPreviewAnnual;
 
 const SUBSCRIPTION_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   active:            { label: '정상',       color: '#34d399', bg: 'rgba(52,211,153,0.12)' },
@@ -183,6 +210,108 @@ function Spinner() {
 
 // ──────────────────────────────────────────────────────────────────────────────
 
+function pct(ratio: number): string {
+  return `${Math.round(ratio * 1000) / 10}%`;
+}
+
+function won(n: number): string {
+  return `${n.toLocaleString()}원`;
+}
+
+// 포트폴리오 진단은 lib/refund.ts의 계단식 특수 규칙(1회=20% 고정, 2회부터 건수/한도)을
+// 그대로 문장으로 옮긴다 — "1/1회 20%"처럼 쓰면 한도가 1회인 것으로 오해할 수 있어
+// "1회 이용 시 정상 체험으로 간주"라는 이유를 그 자리에 바로 붙인다.
+function portfolioLine(count: number, limit: number, ratio: number): string {
+  if (count === 0) return `포트폴리오 진단 0회 사용 → ${pct(0)}`;
+  if (count === 1) return `포트폴리오 진단 1회 사용 (1회 이용 시 정상 체험으로 간주) → ${pct(ratio)}`;
+  return `포트폴리오 진단 ${count}/${limit}회 사용 → ${pct(ratio)}`;
+}
+
+function decidingFactorSentence(factor: 'usage' | 'elapsed' | 'none'): string {
+  if (factor === 'usage')   return '이용 실적 기준이 더 커서 적용됨';
+  if (factor === 'elapsed') return '경과일 기준이 더 커서 적용됨';
+  return '이용 실적과 경과일 모두 0%라 차감 없음';
+}
+
+// 취소 모달의 "계산 과정 보기" — 이 유저의 실제 숫자를 그대로 대입한 계산 내역.
+// 일반 수식(/pricing#faq-refund-calc)이 아니라 지금 이 사람에게 실제로 적용된 값만 보여준다.
+function RefundBreakdown({ preview }: { preview: CancelPreview }) {
+  const lineCls = 'text-[11.5px] text-slate-400 leading-relaxed';
+  const subCls  = 'text-[11px] text-slate-500 leading-relaxed pl-3';
+
+  if (!preview.refundEligible) {
+    return (
+      <p className={lineCls}>
+        결제일로부터 {preview.elapsedDays}일 경과 — 7일 환불 기한을 초과해 계산 대상이 아닙니다.
+        다음 결제일부터 서비스가 중단됩니다.
+      </p>
+    );
+  }
+
+  if (preview.isAnnual) {
+    if (preview.fullRefundException) {
+      return (
+        <div className="flex flex-col gap-1.5">
+          <p className={lineCls}>결제일로부터 {preview.elapsedDays}일 경과, 아직 이용하지 않으셨습니다.</p>
+          <p className={lineCls}>
+            → 연간결제 7일 이내 미사용 전액환불 규정에 따라 전액({won(preview.paidAmount)}) 환불됩니다.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-1.5">
+        <p className={lineCls}>결제금액: {won(preview.paidAmount)} (연간, 할인 적용가)</p>
+        <p className={lineCls}>
+          연간결제는 중도 해지 시 할인을 소급 취소하고, 실제 사용한 개월수만큼 정가로 재청구합니다.
+        </p>
+        <p className={subCls}>
+          · 경과 {preview.elapsedDays}일 → {preview.monthsUsed}개월 사용으로 환산 (30일 = 1개월, 최대 12개월)
+        </p>
+        <p className={subCls}>
+          · 정가 {won(preview.monthlyFullPrice)} × {preview.monthsUsed}개월 = {won(preview.retroactiveCost)} 재청구
+        </p>
+        <p className={lineCls}>
+          환불액 = {won(preview.paidAmount)} − {won(preview.retroactiveCost)} = {won(preview.refundAmount)}
+        </p>
+      </div>
+    );
+  }
+
+  // preview.isAnnual === false로 이미 확정됐지만, 이 프로젝트 tsconfig(strict:false)에서는
+  // 판별 유니온이 여기서 자동으로 안 좁혀져(직접 확인) 명시적으로 단언한다.
+  const m = preview as CancelPreviewMonthly;
+  const diagnosisDenom = m.diagnosisLimit * 30;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className={lineCls}>결제금액: {won(m.paidAmount)}</p>
+
+      <p className={lineCls + ' mt-1'}>이용 실적</p>
+      <p className={subCls}>· {portfolioLine(m.portfolioCount, m.portfolioLimit, m.portfolioRatio)}</p>
+      <p className={subCls}>
+        · 기업분석 진단 {m.diagnosisCount}/{diagnosisDenom}회 사용 → {pct(m.diagnosisRatio)}
+      </p>
+      <p className={subCls}>→ 이용 실적 차감 비율: {pct(m.usageRatio)} (둘 중 더 큰 값)</p>
+
+      <p className={lineCls + ' mt-1'}>경과일</p>
+      <p className={subCls}>· 결제 후 {m.elapsedDays}일 경과 (30일 기준) → {pct(m.elapsedRatio)}</p>
+
+      <p className={lineCls + ' mt-1'}>
+        → 최종 차감 비율 = max(이용 실적 {pct(m.usageRatio)}, 경과일 {pct(m.elapsedRatio)}) = {pct(m.finalRatio)}
+      </p>
+      <p className={subCls}>{decidingFactorSentence(m.decidingFactor)}</p>
+
+      <p className={lineCls + ' mt-1'}>
+        차감액 = {won(m.paidAmount)} × {pct(m.finalRatio)} = {won(m.deductionAmount)}
+      </p>
+      <p className={lineCls}>
+        환불액 = {won(m.paidAmount)} − {won(m.deductionAmount)} = {won(m.refundAmount)}
+      </p>
+    </div>
+  );
+}
+
 export default function MyPage() {
   const router = useRouter();
   const [data, setData] = useState<MyPageData | null>(null);
@@ -203,6 +332,7 @@ export default function MyPage() {
   const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
   const [cancelPreviewLoading, setCancelPreviewLoading] = useState(false);
   const [cancelPreviewError, setCancelPreviewError] = useState('');
+  const [showRefundBreakdown, setShowRefundBreakdown] = useState(false);
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [refundBank, setRefundBank] = useState('');
   const [refundAccountNumber, setRefundAccountNumber] = useState('');
@@ -303,6 +433,7 @@ export default function MyPage() {
     setRefundBank('');
     setRefundAccountNumber('');
     setRefundAccountHolder('');
+    setShowRefundBreakdown(false);
     setCancelPreviewLoading(true);
     try {
       const res = await fetch('/api/subscription/cancel');
@@ -898,10 +1029,26 @@ export default function MyPage() {
                   </div>
                 </div>
 
-                <p className="text-[11px] text-slate-600 mb-4 leading-relaxed">
-                  환불액은 경과일수와 실제 이용 실적 중 더 큰 비율로 계산됩니다.{' '}
-                  <Link href="/pricing#faq-refund-calc" target="_blank" className="text-indigo-400 hover:underline">자세히 보기</Link>
-                </p>
+                <div className="mb-4">
+                  <button
+                    onClick={() => setShowRefundBreakdown((v) => !v)}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 cursor-pointer transition-colors"
+                  >
+                    {showRefundBreakdown ? '계산 과정 접기 ▴' : '계산 과정 보기 ▾'}
+                  </button>
+                  {showRefundBreakdown && (
+                    <div
+                      className="mt-2.5 rounded-lg p-3"
+                      style={{ background: 'rgba(15,17,23,0.6)', border: '1px solid rgba(51,65,85,0.4)' }}
+                    >
+                      <RefundBreakdown preview={cancelPreview} />
+                    </div>
+                  )}
+                  <p className="text-[10.5px] text-slate-600 mt-2 leading-relaxed">
+                    계산 방식 자체가 궁금하시면{' '}
+                    <Link href="/pricing#faq-refund-calc" target="_blank" className="text-indigo-400 hover:underline">FAQ</Link>도 참고해주세요.
+                  </p>
+                </div>
 
                 {cancelPreview.refundEligible ? (
                   cancelPreview.refundAmount > 0 && (
