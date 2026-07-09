@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchMarketIndex, fetchUsdKrw } from '../../../lib/kis-api';
+import { fetchMarketIndex } from '../../../lib/kis-api';
 import { supabase } from '../../../lib/supabase';
 import { isKoreanMarketOpen, getLastTradingDate } from '../../../lib/market-utils';
 import type { MarketResponse, MarketIndexData } from '../../../lib/types';
@@ -8,15 +8,15 @@ export const dynamic = 'force-dynamic';
 
 const CACHE_KEY = 'market_indices';
 
+// 2026-07-09: KIS 해외주식 당일체결(inquire-price, HHDFS00000300)로 USD/KRW를 가져오던
+// 1순위 시도를 제거함 — EXCD=FX/SYMB=USDKRW뿐 아니라 정상 동작해야 할 해외주식 심볼
+// (EXCD=NAS/SYMB=AAPL)로도 동일하게 404(빈 바디)가 나는 것을 실계좌로 확인, 이 KIS 계정에
+// 해외주식 API 권한 자체가 없는 것으로 보임(코드 문제가 아니라 KIS Developers 콘솔에서
+// 별도 신청/승인이 필요한 계정 설정 문제). 이 함수는 처음부터 한 번도 성공한 적이 없어
+// 보이고(git log 기준 원본 커밋 이후 수정 이력 없음) 매 요청마다 확실히 실패하는 호출을
+// 반복할 이유가 없어 제거 — open.er-api.com이 이미 안정적으로 동작 중이라 1순위로 승격.
 async function fetchUsdKrwWithFallback(): Promise<MarketIndexData | null> {
-  // 1순위: KIS API
-  try {
-    return await fetchUsdKrw();
-  } catch (e) {
-    console.warn('[MARKET] fetchUsdKrw 실패, manana.kr 시도:', e instanceof Error ? e.message : e);
-  }
-
-  // 2순위: open.er-api.com (무료, 안정적, API 키 불필요)
+  // 1순위: open.er-api.com (무료, 안정적, API 키 불필요)
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/USD', {
       cache: 'no-store',
@@ -33,7 +33,7 @@ async function fetchUsdKrwWithFallback(): Promise<MarketIndexData | null> {
     console.warn('[MARKET] open.er-api.com 환율 조회 실패:', e instanceof Error ? e.message : e);
   }
 
-  // 3순위: Yahoo Finance
+  // 2순위: Yahoo Finance
   return fetchYahooFX('KRW=X').catch(() => null);
 }
 

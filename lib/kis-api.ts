@@ -540,34 +540,6 @@ export async function fetchIndexRangeChange(
   }
 }
 
-// USD/KRW: KIS 해외주식 당일체결 API 활용
-// KIS API 구독 플랜에 따라 EXCD/SYMB 값이 다를 수 있으니 확인 후 조정
-export async function fetchUsdKrw(signal?: AbortSignal): Promise<MarketIndexData> {
-  const token = await getAccessToken();
-
-  const url = new URL(`${KIS_BASE}/uapi/overseas-stock/v1/quotations/inquire-price`);
-  url.searchParams.set('AUTH', '');
-  url.searchParams.set('EXCD', 'FX');
-  url.searchParams.set('SYMB', 'USDKRW');
-
-  const res = await fetch(url.toString(), {
-    headers: headers(token, 'HHDFS00000300'),
-    cache: 'no-store',
-    signal,
-  });
-
-  if (!res.ok) throw new Error(`USD/KRW 조회 실패 [${res.status}]`);
-
-  const data = await res.json();
-  if (data.rt_cd !== '0') throw new Error(`USD/KRW 오류: ${data.msg1}`);
-
-  const o = data.output;
-  return {
-    value: parseFloat(o.last),
-    change: parseFloat(o.diff ?? '0'),
-    changeRate: parseFloat(o.rate ?? '0'),
-  };
-}
 
 // 인기 종목 20개 당일 시세 조회 후 등락률 정렬 → 급등/급락 대체
 // [ticker, market] — J=KOSPI, Q=KOSDAQ, X=both 시도
