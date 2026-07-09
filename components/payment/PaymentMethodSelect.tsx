@@ -22,12 +22,20 @@ import PortoneCheckout from './PortoneCheckout';
 const VA_ENABLED   = true;  // 계좌이체(수동 승인) — PG 승인 여부와 무관하게 항상 사용 가능
 const CARD_ENABLED = false; // 이니시스 카드결제 재노출 시 true
 
+export interface UpgradeInfo {
+  creditAmount:       number;
+  remainingDays:      number;
+  currentPlanMonthly: number;
+  targetPlanMonthly:  number;
+}
+
 interface Props {
-  plan:      'basic' | 'pro';
-  amount:    number;
-  isAnnual:  boolean;
-  onClose:   () => void;
-  onSuccess: (plan: 'basic' | 'pro') => void;
+  plan:         'basic' | 'pro';
+  amount:       number;
+  isAnnual:     boolean;
+  onClose:      () => void;
+  onSuccess:    (plan: 'basic' | 'pro') => void;
+  upgradeInfo?: UpgradeInfo | null;
 }
 
 const PLAN_NAMES: Record<'basic' | 'pro', string> = {
@@ -37,7 +45,7 @@ const PLAN_NAMES: Record<'basic' | 'pro', string> = {
 
 type Step = 'method' | 'va' | 'card';
 
-export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, onSuccess }: Props) {
+export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, onSuccess, upgradeInfo }: Props) {
   const [step, setStep] = useState<Step>('method');
 
   const planLabel = `${PLAN_NAMES[plan]} ${isAnnual ? '연간' : '월간'} 구독`;
@@ -133,6 +141,7 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
             isAnnual={isAnnual}
             onClose={onClose}
             onBack={() => setStep('method')}
+            upgradeInfo={upgradeInfo}
           />
         )}
       </div>

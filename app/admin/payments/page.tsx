@@ -23,7 +23,7 @@ interface RequestItem {
   amount:               number;
   depositor_name:       string;
   depositor_real_name:  string | null;
-  request_type:         'new' | 'renewal';
+  request_type:         'new' | 'renewal' | 'upgrade';
   status:               'pending' | 'expired';
   requested_at:         string;
   processed_at:         string | null;
@@ -50,8 +50,8 @@ interface RefundItem {
 
 const PLAN_LABEL: Record<'basic' | 'pro', string> = { basic: 'Basic', pro: 'Pro' };
 const PLAN_COLOR: Record<'basic' | 'pro', string> = { basic: '#818cf8', pro: '#fbbf24' };
-const TYPE_LABEL: Record<'new' | 'renewal', string> = { new: '신규가입', renewal: '갱신' };
-const TYPE_COLOR: Record<'new' | 'renewal', string> = { new: '#38bdf8', renewal: '#a78bfa' };
+const TYPE_LABEL: Record<'new' | 'renewal' | 'upgrade', string> = { new: '신규가입', renewal: '갱신', upgrade: '업그레이드' };
+const TYPE_COLOR: Record<'new' | 'renewal' | 'upgrade', string> = { new: '#38bdf8', renewal: '#a78bfa', upgrade: '#34d399' };
 
 type Filter = 'overview' | 'all' | 'new' | 'renewal' | 'expired' | 'refund';
 type SortKey = 'email' | 'plan' | 'amount' | 'depositor_name' | 'requested_at';

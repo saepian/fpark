@@ -20,6 +20,23 @@ interface Plan {
   description: string; features: Feature[]; cta: string;
 }
 
+// Basic→Pro 업그레이드 견적 — GET /api/payment/bank-transfer/request 응답과 동일 shape.
+// 서버가 계산한 값만 신뢰(클라이언트에서 직접 차액 계산 안 함).
+type UpgradeQuote =
+  | {
+      isUpgrade:          true;
+      chargeAmount:       number;
+      creditAmount:       number;
+      remainingDays:      number;
+      currentPlanMonthly: number;
+      targetPlanMonthly:  number;
+    }
+  | {
+      isUpgrade:     false;
+      chargeAmount:  number;
+      blockedReason: 'annual' | null;
+    };
+
 // ── Data ─────────────────────────────────────────────────────────────────────
 
 // 연간결제 옵션 — lib/refund.ts의 연간 환불 계산 버그 수정 및 검증 완료(2026-07-08)로 재활성화.
@@ -155,11 +172,12 @@ const FAQ_ITEMS = [
 // ── CardContent ───────────────────────────────────────────────────────────────
 
 function CardContent({
-  plan, annual, userPlan, isLoggedIn, onAction,
+  plan, annual, userPlan, isLoggedIn, onAction, upgradeQuote,
 }: {
   plan: Plan; annual: boolean;
   userPlan: PlanType | null; isLoggedIn: boolean;
   onAction: (type: PlanType) => void;
+  upgradeQuote: UpgradeQuote | null;
 }) {
   const isPro   = plan.type === 'pro';
   const isBasic = plan.type === 'basic';
@@ -168,6 +186,13 @@ function CardContent({
   // Pro 이용중인 유저에게 Basic 카드 — 다운그레이드는 아직 자동화하지 않고 고객센터 문의로 유도
   const isDowngradeBlocked = isLoggedIn && userPlan === 'pro' && isBasic;
   const p = annual ? plan.annual : plan.monthly;
+
+  // Basic→Pro 업그레이드 대상이면 정가 대신 실제 청구액(잔여기간 크레딧 차감)을 보여준다.
+  // tsconfig strict:false에서 판별 유니온이 조건식만으로는 안 좁혀져(다른 파일에서도 확인한
+  // 이슈) 명시적으로 좁혀진 변수를 따로 둔다.
+  const isUpgradingHere = isPro && userPlan === 'basic' && upgradeQuote?.isUpgrade === true;
+  const upgrade = isUpgradingHere ? (upgradeQuote as Extract<UpgradeQuote, { isUpgrade: true }>) : null;
+  const isAnnualBlocked = isPro && userPlan === 'basic' && upgradeQuote?.isUpgrade === false && upgradeQuote.blockedReason === 'annual';
 
   let ctaLabel: string;
   if (!isFree) {
@@ -215,6 +240,16 @@ function CardContent({
         <div className="flex items-end gap-1">
           {isFree ? (
             <span className="text-[2.5rem] font-bold text-white leading-none">무료</span>
+          ) : upgrade ? (
+            <>
+              <span className="text-slate-500 text-[13px] mb-[7px] line-through">
+                ₩{p.toLocaleString()}
+              </span>
+              <span className="text-slate-400 text-[13px] mb-[5px]">₩</span>
+              <span className="text-[2.5rem] font-bold text-white leading-none">
+                {upgrade.chargeAmount.toLocaleString()}
+              </span>
+            </>
           ) : (
             <>
               <span className="text-slate-400 text-[13px] mb-[5px]">₩</span>
@@ -222,7 +257,7 @@ function CardContent({
               <span className="text-slate-400 text-sm mb-[5px]">/월</span>
             </>
           )}
-          {annual && !isFree && (
+          {annual && !isFree && !upgrade && (
             <span className="ml-1.5 mb-[5px] text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full whitespace-nowrap">
               {plan.annualSaving.toLocaleString()}원 절약
             </span>
@@ -230,6 +265,10 @@ function CardContent({
         </div>
         {isFree ? (
           <p className="text-[11px] text-slate-600 mt-1">영원히 무료</p>
+        ) : upgrade ? (
+          <p className="text-[11px] text-emerald-400 mt-1">
+            기존 Basic 잔여 {upgrade.remainingDays}일 — {upgrade.creditAmount.toLocaleString()}원 차감
+          </p>
         ) : annual ? (
           <div className="mt-2.5 pt-2.5 border-t border-slate-700/40">
             <p className="text-[10px] text-slate-500 mb-1">연간 총 결제금액</p>
@@ -239,6 +278,11 @@ function CardContent({
           </div>
         ) : (
           <p className="text-[11px] text-slate-600 mt-1">월별 청구</p>
+        )}
+        {isAnnualBlocked && (
+          <p className="text-[10.5px] text-amber-400/90 mt-1.5 leading-snug">
+            연간 결제로의 업그레이드는 별도 처리가 필요합니다 — <a href="/contact" className="underline">문의하기</a>로 연락해주세요.
+          </p>
         )}
         {!isFree && (
           <p className="text-[10px] text-slate-600 mt-1.5 leading-snug">
@@ -314,11 +358,12 @@ function CardContent({
 // ── PlanCard ──────────────────────────────────────────────────────────────────
 
 function PlanCard({
-  plan, annual, userPlan, isLoggedIn, onAction,
+  plan, annual, userPlan, isLoggedIn, onAction, upgradeQuote,
 }: {
   plan: Plan; annual: boolean;
   userPlan: PlanType | null; isLoggedIn: boolean;
   onAction: (type: PlanType) => void;
+  upgradeQuote: UpgradeQuote | null;
 }) {
   const isPro   = plan.type === 'pro';
   const isBasic = plan.type === 'basic';
@@ -329,6 +374,7 @@ function PlanCard({
       plan={plan} annual={annual}
       userPlan={userPlan} isLoggedIn={isLoggedIn}
       onAction={onAction}
+      upgradeQuote={upgradeQuote}
     />
   );
 
@@ -391,6 +437,10 @@ export default function PricingClient() {
   const [checkoutPlan,   setCheckoutPlan]   = useState<'basic' | 'pro' | null>(null);
   const [checkoutAmount, setCheckoutAmount] = useState(0);
 
+  // Basic→Pro 업그레이드 견적 — 정가 대신 실제 청구액(잔여기간 크레딧 차감)을 보여주기 위함.
+  // 서버(GET /api/payment/bank-transfer/request)가 계산한 값만 신뢰한다.
+  const [upgradeQuote, setUpgradeQuote] = useState<UpgradeQuote | null>(null);
+
   // 현재 로그인 유저 + plan 조회
   useEffect(() => {
     const supabase = createClient();
@@ -410,6 +460,16 @@ export default function PricingClient() {
       }
     });
   }, []); // eslint-disable-line
+
+  // Basic 유저가 Pro 카드를 볼 때(또는 연간/월간 토글을 바꿀 때)마다 견적을 새로 받아온다 —
+  // 잔여일수 기반이라 시간이 지나면 값이 바뀌고, 연간 토글 시 blockedReason도 달라진다.
+  useEffect(() => {
+    if (!isLoggedIn || userPlan !== 'basic') { setUpgradeQuote(null); return; }
+    fetch(`/api/payment/bank-transfer/request?plan=pro&isAnnual=${annual}`)
+      .then(r => r.json())
+      .then(json => setUpgradeQuote(json.ok ? json : null))
+      .catch(() => setUpgradeQuote(null));
+  }, [isLoggedIn, userPlan, annual]);
 
   // #faq-<id> 해시로 들어오면 해당 FAQ를 펼치고 스크롤 — 다른 페이지(환불정책/이용약관)에서
   // 넘어올 때뿐 아니라, FAQ 답변 안에서 다른 FAQ 항목을 가리키는 같은 페이지 내 링크
@@ -436,7 +496,8 @@ export default function PricingClient() {
     if (!isLoggedIn) { router.push('/auth/signup'); return; }
 
     const planData = PLANS.find(p => p.type === type)!;
-    const amount   = annual ? planData.annualTotal : planData.monthly;
+    const standardAmount = annual ? planData.annualTotal : planData.monthly;
+    const amount = upgradeQuote?.isUpgrade ? upgradeQuote.chargeAmount : standardAmount;
     setCheckoutAmount(amount);
     setCheckoutPlan(type as 'basic' | 'pro');
   };
@@ -458,6 +519,12 @@ export default function PricingClient() {
           isAnnual={annual}
           onClose={() => setCheckoutPlan(null)}
           onSuccess={handlePaymentSuccess}
+          upgradeInfo={upgradeQuote?.isUpgrade ? {
+            creditAmount:       upgradeQuote.creditAmount,
+            remainingDays:      upgradeQuote.remainingDays,
+            currentPlanMonthly: upgradeQuote.currentPlanMonthly,
+            targetPlanMonthly:  upgradeQuote.targetPlanMonthly,
+          } : null}
         />
       )}
 
@@ -533,6 +600,7 @@ export default function PricingClient() {
               userPlan={userPlan}
               isLoggedIn={isLoggedIn}
               onAction={handleAction}
+              upgradeQuote={plan.type === 'pro' ? upgradeQuote : null}
             />
           ))}
         </div>

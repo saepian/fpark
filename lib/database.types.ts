@@ -70,6 +70,7 @@ export type Database = {
           request_type: string
           requested_at: string
           status: string
+          superseded_by: string | null
           user_id: string
         }
         Insert: {
@@ -85,6 +86,7 @@ export type Database = {
           request_type?: string
           requested_at?: string
           status?: string
+          superseded_by?: string | null
           user_id: string
         }
         Update: {
@@ -100,6 +102,7 @@ export type Database = {
           request_type?: string
           requested_at?: string
           status?: string
+          superseded_by?: string | null
           user_id?: string
         }
         Relationships: []

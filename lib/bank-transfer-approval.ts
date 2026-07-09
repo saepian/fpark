@@ -64,7 +64,10 @@ export async function approveBankTransferRequest(
 
   // subscription_start_date는 최초 구독 시점(또는 만료 후 재활성화 시점)에만 고정 —
   // 갱신 승인에서는 절대 건드리지 않는다(월간 사용량 한도 계산의 청구 기준일이기 때문).
-  const shouldSetStartDate = !existingUserRow?.subscription_start_date;
+  // 업그레이드는 예외: next_billed_at을 오늘부터 새로 계산하면서 subscription_start_date를
+  // 그대로 두면 "결제일"과 "사용량 리셋 기준일"이 서로 어긋난다 — 플랜이 바뀐 시점부터
+  // 두 앵커를 함께 오늘로 리셋한다.
+  const shouldSetStartDate = !existingUserRow?.subscription_start_date || reqRow.request_type === 'upgrade';
 
   const { error: updateError } = await adminClient.from('users').update({
     plan,
@@ -88,6 +91,30 @@ export async function approveBankTransferRequest(
   if (statusError) {
     console.error('[bank-transfer-approval] 상태 업데이트 실패(구독은 이미 활성화됨):', statusError);
     // 유저 플랜은 이미 활성화됐으므로 에러를 반환하지 않고 로그만 남김
+  }
+
+  // 업그레이드 승인이면, 대체되는 이전 승인 건(예: Basic)을 삭제하지 않고 superseded_by로
+  // 연결만 해서 이력을 보존한다 — 관리자가 나중에 "이 신청이 무엇으로 이어졌는지" 추적 가능.
+  if (reqRow.request_type === 'upgrade') {
+    const { data: previousApproved } = await adminClient
+      .from('bank_transfer_requests')
+      .select('id')
+      .eq('user_id', reqRow.user_id)
+      .eq('status', 'approved')
+      .neq('id', requestId)
+      .order('processed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (previousApproved) {
+      const { error: supersedeError } = await adminClient
+        .from('bank_transfer_requests')
+        .update({ superseded_by: requestId })
+        .eq('id', previousApproved.id);
+      if (supersedeError) {
+        console.error('[bank-transfer-approval] superseded_by 연결 실패:', supersedeError);
+      }
+    }
   }
 
   // 승인 확인 이메일 (실패해도 승인 자체는 유지 — 이메일은 부가 기능)

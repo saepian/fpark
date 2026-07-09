@@ -12,13 +12,15 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import { Loader2, CheckCircle2, AlertCircle, Copy, Check, Star } from 'lucide-react';
 import { BANK_TRANSFER_ACCOUNT } from '@/lib/payment-constants';
+import type { UpgradeInfo } from './PaymentMethodSelect';
 
 interface Props {
-  plan:      'basic' | 'pro';
-  amount:    number;
-  isAnnual:  boolean;
-  onClose:   () => void;
-  onBack:    () => void;
+  plan:         'basic' | 'pro';
+  amount:       number;
+  isAnnual:     boolean;
+  onClose:      () => void;
+  onBack:       () => void;
+  upgradeInfo?: UpgradeInfo | null;
 }
 
 const PLAN_NAMES: Record<'basic' | 'pro', string> = {
@@ -32,7 +34,7 @@ type Step = 'confirm' | 'processing' | 'requested' | 'error';
 // 관심기업이 비어있으면 등록을 유도한다. 이미 등록돼 있으면 안심시키는 톤으로 전환.
 type WatchlistNudge = 'none' | 'empty' | 'has-items';
 
-export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose, onBack }: Props) {
+export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose, onBack, upgradeInfo }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('confirm');
   const [errMsg, setErrMsg] = useState('');
@@ -139,6 +141,16 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
             {amount.toLocaleString()}원
             <span className="text-[13px] text-slate-500 ml-1">{isAnnual ? '/ 1년' : '/ 월'}</span>
           </p>
+
+          {upgradeInfo && (
+            <div className="rounded-xl p-3.5 mb-4" style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.25)' }}>
+              <p className="text-[11px] font-semibold text-emerald-400 mb-1">Basic → Pro 업그레이드 — 잔여 기간 크레딧 적용</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                정가 {upgradeInfo.targetPlanMonthly.toLocaleString()}원 − 기존 Basic 잔여 {upgradeInfo.remainingDays}일 크레딧{' '}
+                {upgradeInfo.creditAmount.toLocaleString()}원 = <span className="text-white font-semibold">{amount.toLocaleString()}원</span>
+              </p>
+            </div>
+          )}
 
           <div className="rounded-2xl p-4 mb-4" style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}>
             <p className="text-[11px] text-slate-500 mb-1">입금 계좌</p>

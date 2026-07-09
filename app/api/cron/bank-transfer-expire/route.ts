@@ -39,7 +39,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // ── 1. 신규가입 3일 미승인 만료 ─────────────────────────────────────────────
+  // ── 1. 신규가입/업그레이드 3일 미승인 만료 ──────────────────────────────────
+  // 업그레이드 신청도 신규가입과 동일하게 화면에서 접수만 되고 입금 안 하면 계속 pending으로
+  // 남는 구조라, 방치된 채 무한정 대기하지 않도록 같은 3일 컷오프를 적용한다.
   const newSignupCutoff = new Date();
   newSignupCutoff.setDate(newSignupCutoff.getDate() - NEW_SIGNUP_EXPIRE_AFTER_DAYS);
 
@@ -47,12 +49,12 @@ export async function GET(request: NextRequest) {
     .from('bank_transfer_requests')
     .update({ status: 'expired', processed_at: new Date().toISOString() })
     .eq('status', 'pending')
-    .eq('request_type', 'new')
+    .in('request_type', ['new', 'upgrade'])
     .lt('requested_at', newSignupCutoff.toISOString())
     .select('id');
 
   if (newError) {
-    console.error('[cron/bank-transfer-expire] 신규가입 만료 처리 실패:', newError);
+    console.error('[cron/bank-transfer-expire] 신규가입/업그레이드 만료 처리 실패:', newError);
   }
 
   // ── 2. 갱신 결제일 당일까지 미승인 시 즉시 만료 (그레이스 기간 없음) ─────────
@@ -133,7 +135,7 @@ export async function GET(request: NextRequest) {
   }
 
   console.log(
-    `[cron/bank-transfer-expire] 완료 — 신규가입 만료:${expiredNew?.length ?? 0} ` +
+    `[cron/bank-transfer-expire] 완료 — 신규가입/업그레이드 만료:${expiredNew?.length ?? 0} ` +
     `갱신 만료:${renewalExpiredCount} 실패:${renewalExpireFailed} 해지예약 만료:${cancelledUsers?.length ?? 0}`,
   );
   return NextResponse.json({

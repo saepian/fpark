@@ -39,7 +39,7 @@ interface PaymentHistoryItem {
   amount:         number;
   depositor_name: string;
   status:         string;
-  request_type:   'new' | 'renewal';
+  request_type:   'new' | 'renewal' | 'upgrade';
   requested_at:   string;
   processed_at:   string | null;
 }
@@ -191,7 +191,9 @@ export default function AdminUsersPage() {
       <div className="px-4 py-3 flex flex-col gap-1.5">
         {history.map((h) => (
           <div key={h.id} className="flex items-center gap-2.5 text-[12px] py-1.5 flex-wrap">
-            <span className="font-semibold text-slate-300 w-14 shrink-0">{h.request_type === 'new' ? '신규가입' : '갱신'}</span>
+            <span className="font-semibold text-slate-300 w-14 shrink-0">
+              {h.request_type === 'new' ? '신규가입' : h.request_type === 'upgrade' ? '업그레이드' : '갱신'}
+            </span>
             <span className="text-slate-400 w-16 shrink-0">{PLAN_LABEL[h.plan]}{h.is_annual ? '·연' : '·월'}</span>
             <span className="text-white font-medium w-20 shrink-0">{h.amount.toLocaleString()}원</span>
             <span className="text-amber-300 w-20 shrink-0 truncate">{h.depositor_name}</span>
