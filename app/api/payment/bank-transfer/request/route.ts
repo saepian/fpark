@@ -61,7 +61,7 @@ async function computeUpgradeQuote(
 
   const { data: userRow } = await adminClient
     .from('users')
-    .select('plan, subscription_status, next_billed_at, is_annual')
+    .select('plan, subscription_status, next_billed_at, is_annual, subscription_start_date')
     .eq('id', userId)
     .maybeSingle();
 
@@ -76,15 +76,34 @@ async function computeUpgradeQuote(
     return { isUpgrade: false, chargeAmount: standardAmount, blockedReason: 'annual' };
   }
 
-  if (!userRow.next_billed_at) {
+  if (!userRow.next_billed_at || !userRow.subscription_start_date) {
     return { isUpgrade: false, chargeAmount: standardAmount, blockedReason: null };
   }
 
+  // 크레딧 상한(calculateRefund) 계산에 필요한 이용실적 — "지금 취소하면 얼마 돌려받는지"와
+  // 동일한 기준을 쓰기 위해 app/api/subscription/cancel과 같은 방식으로 집계한다.
+  const [{ count: diagnosisCount }, { count: portfolioCount }] = await Promise.all([
+    adminClient
+      .from('stock_diagnosis')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', userRow.subscription_start_date),
+    adminClient
+      .from('portfolio_diagnosis')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', userRow.subscription_start_date),
+  ]);
+
   const { credit, chargeAmount } = calculateUpgradeChargeAmount({
-    currentPlanMonthly: PLAN_AMOUNTS.basic.monthly,
-    targetPlanMonthly:  PLAN_AMOUNTS.pro.monthly,
-    nextBilledAt:       new Date(userRow.next_billed_at),
-    now:                new Date(),
+    currentPlanMonthly:    PLAN_AMOUNTS.basic.monthly,
+    targetPlanMonthly:     PLAN_AMOUNTS.pro.monthly,
+    nextBilledAt:          new Date(userRow.next_billed_at),
+    now:                   new Date(),
+    subscriptionStartDate: new Date(userRow.subscription_start_date),
+    currentPlan:           'basic',
+    diagnosisCount:        diagnosisCount ?? 0,
+    portfolioCount:        portfolioCount ?? 0,
   });
 
   return {
