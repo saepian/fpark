@@ -7,6 +7,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MessageCircle, X, Send } from 'lucide-react';
 import { CHATBOT_MAX_HISTORY_MESSAGES, CHATBOT_MAX_MESSAGE_LENGTH } from '@/lib/chatbot-constants';
+import { useSession } from '@/lib/useSession';
+import { shouldResetChatbotHistory, CHATBOT_HISTORY_ANONYMOUS_OWNER } from '@/lib/chatbot-history-owner';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -14,6 +16,11 @@ interface ChatMessage {
 }
 
 const STORAGE_KEY = 'fpark-chatbot-history';
+// 이 히스토리를 마지막으로 저장한 계정 식별자 — 로그아웃/계정 전환 감지용.
+// 로그인 안 한 상태는 'anonymous' sentinel로 저장(비로그인 방문자의 대화는 PII가 아니라서
+// 로그인 전환 시에는 굳이 지우지 않음 — 아래 useEffect 주석 참고).
+const OWNER_KEY = 'fpark-chatbot-history-owner';
+const ANONYMOUS = CHATBOT_HISTORY_ANONYMOUS_OWNER;
 
 const WELCOME_MESSAGE: ChatMessage = {
   role: 'assistant',
@@ -21,34 +28,74 @@ const WELCOME_MESSAGE: ChatMessage = {
 };
 
 export default function ChatWidget() {
+  const { user, loading: sessionLoading } = useSession();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ownerResolved, setOwnerResolved] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const TEXTAREA_MAX_HEIGHT = 96; // px — max-h-24, textarea 자체 스크롤이 시작되는 지점
 
+  // 로그아웃/계정 전환 시 이전 계정의 대화가 그대로 보이던 프라이버시 버그 수정
+  // (2026-07-09). sessionStorage는 탭을 닫을 때까지 남아있고 로그아웃도 대부분
+  // window.location.href 풀 리로드라 자동으로는 안 지워진다 — 로그아웃 버튼마다
+  // 따로 정리 코드를 심는 대신, useSession()으로 로그인 상태 자체를 구독해서 저장된
+  // 히스토리의 "소유자"와 현재 로그인 사용자가 다르면 이 컴포넌트가 스스로 초기화한다.
+  // 이렇게 하면 로그아웃 버튼이 앞으로 몇 개가 더 생기든(PersonalButton, 마이페이지,
+  // useSession의 clearInvalidSession 등) 전부 자동으로 커버된다.
+  //
+  // 단, 비로그인 → 로그인 전환은 초기화하지 않는다 — 비로그인 방문자가 요금제 등을
+  // 물어본 대화에는 계정 고유 정보가 없어 프라이버시 리스크가 낮고, 회원가입 직전까지
+  // 나눈 대화 맥락을 그대로 이어가는 게 UX상 낫다고 판단(2026-07-09 결정). 반대로
+  // "로그인된 계정이 있었는데 그 사이 바뀐" 경우(로그아웃, 다른 계정으로 전환)는 항상 초기화.
   useEffect(() => {
+    if (sessionLoading) return;
+    const currentOwner = user?.id ?? ANONYMOUS;
+    let storedOwner: string | null = null;
     try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as ChatMessage[];
-        if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
-      }
+      storedOwner = sessionStorage.getItem(OWNER_KEY);
     } catch {
-      // sessionStorage 파싱 실패 시 기본 welcome 메시지 그대로 유지
+      // sessionStorage 접근 실패 시 소유자 비교 없이 안전하게 새 세션으로 취급
     }
-  }, []);
 
+    const shouldReset = shouldResetChatbotHistory(storedOwner, currentOwner);
+
+    if (shouldReset) {
+      setMessages([WELCOME_MESSAGE]);
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch {}
+    } else {
+      try {
+        const saved = sessionStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved) as ChatMessage[];
+          if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
+        }
+      } catch {
+        // sessionStorage 파싱 실패 시 기본 welcome 메시지 그대로 유지
+      }
+    }
+
+    try {
+      sessionStorage.setItem(OWNER_KEY, currentOwner);
+    } catch {}
+    setOwnerResolved(true);
+  }, [sessionLoading, user?.id]);
+
+  // 소유자 확인이 끝나기 전에는 저장하지 않는다 — 먼저 저장해버리면 아직 비교 전인
+  // 초기 welcome 메시지가 다른 계정의 실제 대화 기록을 덮어써버릴 수 있다.
   useEffect(() => {
+    if (!ownerResolved) return;
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
     } catch {
       // 저장 실패해도 대화 자체는 계속 가능하므로 무시
     }
-  }, [messages]);
+  }, [messages, ownerResolved]);
 
   useEffect(() => {
     if (open) listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
@@ -57,11 +104,20 @@ export default function ChatWidget() {
   // textarea 높이를 입력 내용에 맞춰 자동 조절 — rows={1} 고정 높이에 여러 줄을 입력하면
   // 내부 스크롤이 바로 생겨 "스크롤이 이상하다"는 문제로 이어졌다(2026-07-09). 내용이 늘면
   // TEXTAREA_MAX_HEIGHT까지는 높이 자체가 커지고, 그 이상만 textarea 내부 스크롤을 쓴다.
+  //
+  // 2026-07-09 프로덕션 재현 후 발견한 추가 버그: box-sizing:border-box인 상태에서
+  // `el.style.height = scrollHeight + 'px'`만 하면 border(위+아래 2px)만큼 content 영역이
+  // 부족해져(clientHeight가 scrollHeight보다 2px 작아짐) 내용이 한 줄뿐이어도 빈 스크롤바가
+  // 생겼다. offsetHeight - clientHeight로 border 두께를 구해 보정하고, 실제로 내용이 넘칠
+  // 때만 overflow-y: auto를 켜도록 명시적으로 토글해 스크롤바가 필요할 때만 나오게 한다.
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT)}px`;
+    const borderHeight = el.offsetHeight - el.clientHeight; // box-sizing:border-box의 테두리 두께
+    const contentHeight = el.scrollHeight + borderHeight;
+    el.style.height = `${Math.min(contentHeight, TEXTAREA_MAX_HEIGHT)}px`;
+    el.style.overflowY = contentHeight > TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden';
   }, [input]);
 
   async function handleSend() {
@@ -145,7 +201,7 @@ export default function ChatWidget() {
             )}
           </div>
 
-          <div className="p-3 border-t border-[#2a3350] bg-[#131a30]">
+          <div className="p-3 border-t border-[#33406e] bg-[#181f3d] shadow-[inset_0_1px_0_rgba(129,140,248,0.08)]">
             <div className="flex items-end gap-2">
               <textarea
                 ref={textareaRef}
@@ -154,7 +210,7 @@ export default function ChatWidget() {
                 onKeyDown={handleKeyDown}
                 placeholder="궁금한 점을 물어보세요"
                 rows={1}
-                className="flex-1 resize-none bg-[#1b2340] border border-[#3a4468] rounded-xl px-3 py-2.5 text-[13.5px] text-[#e2e8f0] placeholder:text-[#5b6790] focus:outline-none focus:border-indigo-500 max-h-24 overflow-y-auto overscroll-contain"
+                className="flex-1 resize-none bg-[#212a52] border border-[#4a5690] rounded-xl px-3 py-2.5 text-[13.5px] text-[#e2e8f0] placeholder:text-[#7883b3] focus:outline-none focus:border-indigo-400 max-h-24 overscroll-contain"
               />
               <button
                 onClick={handleSend}
