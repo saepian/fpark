@@ -106,7 +106,12 @@ export async function GET(request: NextRequest) {
       await sendBankTransferEmail({
         to:      u.email,
         subject: `[fpark] ${dueDateStr} 결제 예정 — 계좌이체 갱신 안내`,
-        html:    buildRenewalReminderEmailHtml({ planName: PLAN_AMOUNTS[plan].name, amount, depositorName, dueDateStr }),
+        html:    buildRenewalReminderEmailHtml({
+          planName:          PLAN_AMOUNTS[plan].name,
+          amount,
+          depositorRealName: u.depositor_real_name,
+          dueDateStr,
+        }),
         logTag:  'cron/bank-transfer-renewal-notice',
       });
 

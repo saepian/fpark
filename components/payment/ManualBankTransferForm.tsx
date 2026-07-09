@@ -220,7 +220,9 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
           </div>
 
           <p className="text-[10.5px] text-slate-600 leading-relaxed">
-            입금 계좌의 예금주명이 위와 일치하면 적요(메모)를 따로 입력하지 않아도 자동으로 확인됩니다. 확인되는 대로 이메일로 안내드립니다.
+            입금 계좌의 예금주명이 위와 일치하면 적요(메모)는 따로 입력하지 않아도 됩니다.
+            입금 확인 후 <span className="text-slate-400 font-semibold">최대 30분 이내</span> 자동으로 활성화되며,
+            확인이 어려운 경우 관리자가 직접 확인 후 처리해드립니다 (영업일 기준 1일 이내).
           </p>
 
           <button

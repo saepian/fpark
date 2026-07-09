@@ -48,9 +48,17 @@ export function buildApprovalEmailHtml(planName: string): string {
 }
 
 export function buildRenewalReminderEmailHtml(params: {
-  planName: string; amount: number; depositorName: string; dueDateStr: string;
+  planName: string; amount: number; depositorRealName: string | null; dueDateStr: string;
 }): string {
-  const { planName, amount, depositorName, dueDateStr } = params;
+  const { planName, amount, depositorRealName, dueDateStr } = params;
+  const depositorRow = depositorRealName
+    ? `<div style="display:flex;justify-content:space-between;padding:6px 0;color:#fbbf24;font-size:14px">
+         <span>예금주명</span><span style="font-weight:800">${depositorRealName}</span>
+       </div>`
+    : `<div style="padding:6px 0;color:#fbbf24;font-size:12.5px;line-height:1.6">
+         예금주명이 등록되어 있지 않아 자동 확인이 어렵습니다. 입금 후 관리자가 직접 확인해드리니
+         조금 더 걸릴 수 있어요 — 마이페이지에서 예금주명을 등록해두시면 다음 결제부터 자동으로 처리됩니다.
+       </div>`;
   return emailShell(`
     <div style="background:#0d1117;border:1px solid #1e2537;border-radius:14px;padding:28px 24px">
       <p style="margin:0 0 8px;color:#e2e8f0;font-size:16px;font-weight:700;text-align:center">다음 결제일이 다가옵니다</p>
@@ -67,11 +75,13 @@ export function buildRenewalReminderEmailHtml(params: {
         <div style="display:flex;justify-content:space-between;padding:6px 0;color:#cbd5e1;font-size:13px">
           <span style="color:#64748b">입금 금액</span><span style="font-weight:700">${amount.toLocaleString()}원</span>
         </div>
-        <div style="display:flex;justify-content:space-between;padding:6px 0;color:#fbbf24;font-size:14px">
-          <span>입금자명 (필수)</span><span style="font-weight:800">${depositorName}</span>
-        </div>
+        ${depositorRow}
       </div>
-      <p style="margin:16px 0 0;color:#f87171;font-size:12px;line-height:1.7;text-align:center">
+      <p style="margin:16px 0 0;color:#94a3b8;font-size:12px;line-height:1.7;text-align:center">
+        입금이 확인되면 최대 30분 이내 자동으로 갱신됩니다. 예금주명·금액이 정확히 일치해야
+        자동 처리되며, 확인이 어려운 경우 관리자가 직접 확인 후 처리해드립니다(영업일 기준 1일 이내).
+      </p>
+      <p style="margin:12px 0 0;color:#f87171;font-size:12px;line-height:1.7;text-align:center">
         결제 예정일까지 입금이 확인되지 않으면 구독이 만료되어 Basic/Pro 기능 이용이 제한됩니다.
         그레이스 기간(유예) 없이 당일 마감 기준으로 처리되니 미리 입금해주세요.
       </p>

@@ -116,7 +116,7 @@ export async function GET() {
       try {
         const { data } = await adminClient
           .from('bank_transfer_requests')
-          .select('depositor_name, amount, plan, is_annual, requested_at')
+          .select('depositor_name, depositor_real_name, amount, plan, is_annual, requested_at')
           .eq('user_id', user.id)
           .eq('status', 'pending')
           .order('requested_at', { ascending: false })
@@ -149,11 +149,11 @@ export async function GET() {
       paymentMethod: userRow?.payment_method ?? null,
       nextBilledAt:  userRow?.next_billed_at ?? null,
       pendingBankTransfer: pendingBankTransfer ? {
-        depositorName: pendingBankTransfer.depositor_name,
-        amount:        pendingBankTransfer.amount,
-        plan:          pendingBankTransfer.plan,
-        isAnnual:      pendingBankTransfer.is_annual,
-        requestedAt:   pendingBankTransfer.requested_at,
+        depositorRealName: pendingBankTransfer.depositor_real_name,
+        amount:            pendingBankTransfer.amount,
+        plan:              pendingBankTransfer.plan,
+        isAnnual:          pendingBankTransfer.is_annual,
+        requestedAt:       pendingBankTransfer.requested_at,
       } : null,
     },
   });

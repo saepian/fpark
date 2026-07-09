@@ -26,7 +26,7 @@ interface MyPageData {
     paymentMethod: string | null;
     nextBilledAt:  string | null;
     pendingBankTransfer: {
-      depositorName: string; amount: number; plan: string; isAnnual: boolean; requestedAt: string;
+      depositorRealName: string | null; amount: number; plan: string; isAnnual: boolean; requestedAt: string;
     } | null;
   };
 }
@@ -551,8 +551,17 @@ export default function MyPage() {
                       </p>
                       <p className="text-[13px] font-bold text-white">{deposit.amount.toLocaleString()}원</p>
                     </div>
-                    <p className="text-[10.5px] text-amber-400/80 mt-1">
-                      입금자명 <span className="font-bold text-amber-300">{deposit.depositorName}</span> (필수) · 확인 후 순차 승인됩니다
+                    {deposit.depositorRealName ? (
+                      <p className="text-[10.5px] text-amber-400/80 mt-1">
+                        예금주명 <span className="font-bold text-amber-300">{deposit.depositorRealName}</span>과 일치하면 자동 확인됩니다
+                      </p>
+                    ) : (
+                      <p className="text-[10.5px] text-amber-400/80 mt-1">
+                        예금주명이 등록되어 있지 않아 관리자가 직접 확인합니다 — 아래에서 등록하시면 다음부터 자동 처리돼요
+                      </p>
+                    )}
+                    <p className="text-[10px] text-slate-500 mt-1.5">
+                      입금 확인 후 최대 30분 이내 자동 승인 · 확인이 어려운 경우 관리자가 직접 처리(영업일 기준 1일 이내)
                     </p>
                   </div>
                 )}
