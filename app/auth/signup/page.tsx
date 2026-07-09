@@ -70,25 +70,17 @@ export default function SignupPage() {
     setErrors({});
     setLoading(true);
 
-    const agreedAt = new Date().toISOString();
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${location.origin}/auth/callback`,
-        data: {
-          name: name.trim(),
-          phone: phone || null,
-          terms_agreed_at: agreedAt,
-          privacy_agreed_at: agreedAt,
-        },
-      },
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name: name.trim(), phone: phone || null }),
     });
+    const result = await res.json().catch(() => ({ error: 'signup_failed' }));
 
     setLoading(false);
-    if (error) {
+    if (!res.ok) {
       setSubmitError(
-        error.message === 'User already registered'
+        result.error === 'duplicate_email'
           ? '이미 가입된 이메일입니다.'
           : '회원가입 중 오류가 발생했습니다.',
       );
