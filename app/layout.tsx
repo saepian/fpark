@@ -3,6 +3,7 @@ import './globals.css';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import KakaoScript from '../components/KakaoScript';
+import ChatWidget from '../components/ChatWidget';
 
 export const metadata: Metadata = {
   title: 'FINANCE PARK - AI 기반 기업 데이터 분석 플랫폼',
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main className="flex-1">{children}</main>
         <Footer />
         <KakaoScript />
+        <ChatWidget />
       </body>
     </html>
   );
