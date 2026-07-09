@@ -81,6 +81,49 @@ async function main() {
 
   console.log(`총 ${transactions.length}건`);
   console.log(JSON.stringify(transactions, null, 2));
+
+  // 특정 텍스트가 desc1~4 중 어디에 들어오는지 확인 (TX_SEARCH_TEXT로 재정의 가능).
+  // resTrHistoryList 배열 요소는 JSON.parse 결과 그대로라 CodefTransaction 타입에 없는
+  // 필드가 실제로 와도 여기서 다 잡힌다 — known 필드에 없으면 원본 응답까지 덤프해서 확인.
+  const searchText = process.env.TX_SEARCH_TEXT || 'TEST0709';
+  console.log(`\n=== "${searchText}" 텍스트 검색 ===`);
+  let found = false;
+  transactions.forEach((tx, i) => {
+    for (const [field, value] of Object.entries(tx as Record<string, unknown>)) {
+      if (typeof value === 'string' && value.includes(searchText)) {
+        console.log(`거래 #${i} 필드 "${field}" 에서 발견: "${value}"`);
+        found = true;
+      }
+    }
+  });
+
+  if (!found) {
+    console.log('resTrHistoryList의 어떤 필드에서도 찾지 못함 — CODEF 원본 응답 전체를 재조회해 출력합니다.');
+    const { getCodefAccessToken, CODEF_BASE, KB_ORGANIZATION_CODE } = await import('../lib/codef-api');
+    const token = await getCodefAccessToken();
+    const res = await fetch(`${CODEF_BASE}/v1/kr/bank/b/account/transaction-list`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json;charset=UTF-8',
+        Authorization:  `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        connectedId,
+        organization: KB_ORGANIZATION_CODE,
+        account,
+        startDate: startStr,
+        endDate:   endStr,
+        orderBy:     '0',
+        inquiryType: '0',
+      }),
+      cache: 'no-store',
+    });
+    const rawText = await res.text();
+    const decoded = decodeURIComponent(rawText.replace(/\+/g, ' '));
+    console.log('\n=== CODEF 원본 응답 (percent-decode만 적용, 미가공) ===');
+    console.log(decoded);
+    console.log(`\n원본 응답에 "${searchText}" 포함 여부:`, decoded.includes(searchText));
+  }
 }
 
 main().catch((e) => {
