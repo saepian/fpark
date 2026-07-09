@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import PageBackground from '@/components/layout/PageBackground';
-import { BANK_TRANSFER_ACCOUNT, PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { BANK_TRANSFER_ACCOUNT, PLAN_USAGE_LIMITS, PLAN_AMOUNTS } from '@/lib/payment-constants';
 
 type PlanType = 'free' | 'basic' | 'pro';
 
@@ -64,8 +64,6 @@ const PLAN_META = {
     cardGradient: undefined as string | undefined,
     cardInnerBg: '#0f1117',
     avatarRing: '#334155',
-    price: 0,
-    priceText: '무료',
   },
   basic: {
     label: 'BASIC',
@@ -76,8 +74,6 @@ const PLAN_META = {
     cardGradient: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
     cardInnerBg: '#0a0d1f',
     avatarRing: '#4f46e5',
-    price: 4900,
-    priceText: '4,900원',
   },
   pro: {
     label: 'PRO',
@@ -88,8 +84,6 @@ const PLAN_META = {
     cardGradient: 'linear-gradient(135deg, #f59e0b 0%, #f97316 60%, #ef4444 100%)',
     cardInnerBg: '#0d0c18',
     avatarRing: '#f59e0b',
-    price: 19900,
-    priceText: '19,900원',
   },
 };
 
@@ -495,7 +489,7 @@ export default function MyPage() {
                 <div className="flex items-end gap-0.5">
                   <span className="text-slate-500 text-[15px] mb-0.5">₩</span>
                   <span className="text-[28px] font-bold text-white leading-none font-mono">
-                    {meta.price.toLocaleString()}
+                    {PLAN_AMOUNTS[data.plan as 'basic' | 'pro'].monthly.toLocaleString()}
                   </span>
                   <span className="text-slate-500 text-[13px] mb-0.5">/월</span>
                 </div>
