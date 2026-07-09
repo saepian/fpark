@@ -1008,47 +1008,58 @@ export default function MyPage() {
             ) : cancelPreview && (
               <div className="mb-5">
                 <div
-                  className="rounded-xl p-4 mb-4"
+                  className="rounded-xl overflow-hidden mb-2"
                   style={{ background: 'rgba(30,37,55,0.6)', border: '1px solid rgba(51,65,85,0.4)' }}
                 >
-                  <div className="flex items-center justify-between text-[12px] py-1">
-                    <span className="text-slate-500">사용 여부</span>
-                    <span className="text-slate-300 font-medium">{cancelPreview.usageDetected ? '사용함' : '미사용'}</span>
+                  <div className="p-4">
+                    <div className="flex items-center justify-between text-[12px] py-1">
+                      <span className="text-slate-500">사용 여부</span>
+                      <span className="text-slate-300 font-medium">{cancelPreview.usageDetected ? '사용함' : '미사용'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[12px] py-1">
+                      <span className="text-slate-500">결제일로부터 경과</span>
+                      <span className="text-slate-300 font-medium">{cancelPreview.elapsedDays}일</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[13px] py-1.5 mt-1 border-t border-slate-700/50">
+                      <span className="text-slate-400 font-semibold">
+                        {cancelPreview.refundEligible ? '예상 환불액' : '환불 대상 여부'}
+                      </span>
+                      <span className={`font-bold ${cancelPreview.refundEligible ? 'text-emerald-400' : 'text-slate-500'}`}>
+                        {cancelPreview.refundEligible ? `${cancelPreview.refundAmount.toLocaleString()}원` : '환불 대상 아님'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-[12px] py-1">
-                    <span className="text-slate-500">결제일로부터 경과</span>
-                    <span className="text-slate-300 font-medium">{cancelPreview.elapsedDays}일</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[13px] py-1.5 mt-1 border-t border-slate-700/50">
-                    <span className="text-slate-400 font-semibold">
-                      {cancelPreview.refundEligible ? '예상 환불액' : '환불 대상 여부'}
-                    </span>
-                    <span className={`font-bold ${cancelPreview.refundEligible ? 'text-emerald-400' : 'text-slate-500'}`}>
-                      {cancelPreview.refundEligible ? `${cancelPreview.refundAmount.toLocaleString()}원` : '환불 대상 아님'}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="mb-4">
+                  {/* 카드에 바로 붙은 토글 — 클릭 가능 영역임이 분명하도록 배경/호버로 구분 */}
                   <button
                     onClick={() => setShowRefundBreakdown((v) => !v)}
-                    className="text-[11px] text-indigo-400 hover:text-indigo-300 cursor-pointer transition-colors"
+                    className="w-full flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-semibold cursor-pointer transition-colors"
+                    style={{
+                      color: '#a5b4fc',
+                      background: showRefundBreakdown ? 'rgba(99,102,241,0.14)' : 'rgba(99,102,241,0.07)',
+                      borderTop: '1px solid rgba(99,102,241,0.2)',
+                    }}
                   >
-                    {showRefundBreakdown ? '계산 과정 접기 ▴' : '계산 과정 보기 ▾'}
-                  </button>
-                  {showRefundBreakdown && (
-                    <div
-                      className="mt-2.5 rounded-lg p-3"
-                      style={{ background: 'rgba(15,17,23,0.6)', border: '1px solid rgba(51,65,85,0.4)' }}
+                    {showRefundBreakdown ? '계산 과정 접기' : '계산 과정 보기'}
+                    <svg
+                      className={`w-3.5 h-3.5 transition-transform duration-200 ${showRefundBreakdown ? 'rotate-180' : ''}`}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"
                     >
+                      <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+
+                  {showRefundBreakdown && (
+                    <div className="p-3.5" style={{ background: 'rgba(15,17,23,0.5)', borderTop: '1px solid rgba(51,65,85,0.4)' }}>
                       <RefundBreakdown preview={cancelPreview} />
                     </div>
                   )}
-                  <p className="text-[10.5px] text-slate-600 mt-2 leading-relaxed">
-                    계산 방식 자체가 궁금하시면{' '}
-                    <Link href="/pricing#faq-refund-calc" target="_blank" className="text-indigo-400 hover:underline">FAQ</Link>도 참고해주세요.
-                  </p>
                 </div>
+
+                <p className="text-[10.5px] text-slate-600 mb-4 leading-relaxed">
+                  계산 방식 자체가 궁금하시면{' '}
+                  <Link href="/pricing#faq-refund-calc" target="_blank" className="text-indigo-400 hover:underline">FAQ</Link>도 참고해주세요.
+                </p>
 
                 {cancelPreview.refundEligible ? (
                   cancelPreview.refundAmount > 0 && (
