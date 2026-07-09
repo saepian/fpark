@@ -4,7 +4,7 @@
 // 대화 히스토리는 sessionStorage에만 저장(서버에 로그 남기지 않음, app/api/chatbot/route.ts
 // 주석 참고) — 탭을 닫으면 사라진다.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MessageCircle, X, Send } from 'lucide-react';
 import { CHATBOT_MAX_HISTORY_MESSAGES, CHATBOT_MAX_MESSAGE_LENGTH } from '@/lib/chatbot-constants';
 
@@ -26,6 +26,9 @@ export default function ChatWidget() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const TEXTAREA_MAX_HEIGHT = 96; // px — max-h-24, textarea 자체 스크롤이 시작되는 지점
 
   useEffect(() => {
     try {
@@ -50,6 +53,16 @@ export default function ChatWidget() {
   useEffect(() => {
     if (open) listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, open]);
+
+  // textarea 높이를 입력 내용에 맞춰 자동 조절 — rows={1} 고정 높이에 여러 줄을 입력하면
+  // 내부 스크롤이 바로 생겨 "스크롤이 이상하다"는 문제로 이어졌다(2026-07-09). 내용이 늘면
+  // TEXTAREA_MAX_HEIGHT까지는 높이 자체가 커지고, 그 이상만 textarea 내부 스크롤을 쓴다.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT)}px`;
+  }, [input]);
 
   async function handleSend() {
     const text = input.trim();
@@ -81,7 +94,10 @@ export default function ChatWidget() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 한글 IME 조합 중 Enter는 "조합 확정" 용도이지 전송 트리거가 아니다 — isComposing 체크
+    // 없이 그냥 Enter만 보면, 조합 중 Enter를 눌러 확정하는 순간 메시지가 잘못 전송되거나
+    // 이벤트가 씹히는 것처럼 느껴질 수 있다(2026-07-09 스크롤 버그 조사 중 함께 발견).
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -105,7 +121,7 @@ export default function ChatWidget() {
             </button>
           </div>
 
-          <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+          <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-3">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -129,15 +145,16 @@ export default function ChatWidget() {
             )}
           </div>
 
-          <div className="p-3 border-t border-[#1e2537] bg-[#0f1320]">
+          <div className="p-3 border-t border-[#2a3350] bg-[#131a30]">
             <div className="flex items-end gap-2">
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value.slice(0, CHATBOT_MAX_MESSAGE_LENGTH))}
                 onKeyDown={handleKeyDown}
                 placeholder="궁금한 점을 물어보세요"
                 rows={1}
-                className="flex-1 resize-none bg-[#161b2b] border border-[#2d3348] rounded-xl px-3 py-2.5 text-[13.5px] text-[#e2e8f0] placeholder:text-[#475569] focus:outline-none focus:border-indigo-500 max-h-24"
+                className="flex-1 resize-none bg-[#1b2340] border border-[#3a4468] rounded-xl px-3 py-2.5 text-[13.5px] text-[#e2e8f0] placeholder:text-[#5b6790] focus:outline-none focus:border-indigo-500 max-h-24 overflow-y-auto overscroll-contain"
               />
               <button
                 onClick={handleSend}

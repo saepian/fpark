@@ -47,6 +47,6 @@ export function checkInvestmentAdviceLanguage(responseText: string): ChatbotGuar
 }
 
 export const CHATBOT_INVESTMENT_REFUSAL_MESSAGE =
-  '죄송하지만 종목이나 투자 관련 질문에는 답변드릴 수 없어요. 종목 분석이 궁금하시면 ' +
-  'fpark의 [종목 분석] 페이지(/diagnosis)를 이용해보세요! 요금제, 결제, 환불, 계정 관리 같은 ' +
+  '죄송하지만 종목이나 투자 관련 질문에는 답변드릴 수 없어요. 특정 기업이 궁금하시면 ' +
+  'fpark의 [기업 분석] 페이지(/diagnosis)를 이용해보세요! 요금제, 결제, 환불, 계정 관리 같은 ' +
   '사이트 이용 관련 질문은 편하게 물어봐주세요 🙂';
