@@ -12,8 +12,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { adminClient } from '@/lib/supabase-admin';
 import { isAdminEmail } from '@/lib/admin-auth';
-import { PLAN_AMOUNTS } from '@/lib/payment-constants';
-import { computeNextBilledAt, buildApprovalEmailHtml, sendBankTransferEmail } from '@/lib/bank-transfer';
+import { approveBankTransferRequest } from '@/lib/bank-transfer-approval';
 import type { Database } from '@/lib/database.types';
 
 function makeSupabase() {
@@ -50,24 +49,20 @@ export async function PATCH(
     return NextResponse.json({ error: '잘못된 action' }, { status: 400 });
   }
 
-  const { data: reqRow, error: fetchError } = await adminClient
-    .from('bank_transfer_requests')
-    .select('id, user_id, plan, is_annual, amount, status, request_type')
-    .eq('id', id)
-    .maybeSingle();
-
-  if (fetchError || !reqRow) {
-    return NextResponse.json({ error: '신청 내역을 찾을 수 없습니다.' }, { status: 404 });
-  }
-
-  if ((action === 'approve' || action === 'reject') && reqRow.status !== 'pending') {
-    return NextResponse.json({ error: `이미 처리된 신청입니다 (상태: ${reqRow.status})` }, { status: 409 });
-  }
-  if (action === 'reactivate' && reqRow.status !== 'expired') {
-    return NextResponse.json({ error: `만료된 신청만 재활성화할 수 있습니다 (상태: ${reqRow.status})` }, { status: 409 });
-  }
-
   if (action === 'reject') {
+    const { data: reqRow, error: fetchError } = await adminClient
+      .from('bank_transfer_requests')
+      .select('id, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError || !reqRow) {
+      return NextResponse.json({ error: '신청 내역을 찾을 수 없습니다.' }, { status: 404 });
+    }
+    if (reqRow.status !== 'pending') {
+      return NextResponse.json({ error: `이미 처리된 신청입니다 (상태: ${reqRow.status})` }, { status: 409 });
+    }
+
     const { error } = await adminClient
       .from('bank_transfer_requests')
       .update({ status: 'rejected', processed_at: new Date().toISOString(), processed_by: user.email })
@@ -80,66 +75,10 @@ export async function PATCH(
     return NextResponse.json({ ok: true, status: 'rejected' });
   }
 
-  // ── 승인 / 재활성화 ─────────────────────────────────────────────────────
-  const plan = reqRow.plan as 'basic' | 'pro';
-
-  const { data: existingUserRow } = await adminClient
-    .from('users')
-    .select('subscription_start_date, next_billed_at, email')
-    .eq('id', reqRow.user_id)
-    .maybeSingle();
-
-  let nextBilledAt: Date;
-  if (action === 'reactivate') {
-    // 뒤늦은 재활성화 — 오늘부터 새 주기 시작
-    nextBilledAt = computeNextBilledAt(new Date(), reqRow.is_annual);
-  } else if (reqRow.request_type === 'renewal' && existingUserRow?.next_billed_at) {
-    // 갱신 승인 — 기존 결제 예정일을 기준으로 다음 주기 연장(청구 기준일 유지)
-    nextBilledAt = computeNextBilledAt(new Date(existingUserRow.next_billed_at), reqRow.is_annual);
-  } else {
-    // 신규가입 승인
-    nextBilledAt = computeNextBilledAt(new Date(), reqRow.is_annual);
+  // ── 승인 / 재활성화 — 자동 매칭 크론과 동일한 승인 로직을 공유(lib/bank-transfer-approval.ts) ──
+  const result = await approveBankTransferRequest(id, action, user.email!);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   }
-
-  // subscription_start_date는 최초 구독 시점(또는 만료 후 재활성화 시점)에만 고정 —
-  // 갱신 승인에서는 절대 건드리지 않는다(월간 사용량 한도 계산의 청구 기준일이기 때문).
-  const shouldSetStartDate = !existingUserRow?.subscription_start_date;
-
-  const { error: updateError } = await adminClient.from('users').update({
-    plan,
-    subscription_plan:   plan,
-    subscription_status: 'active',
-    payment_method:      'BANK_TRANSFER',
-    next_billed_at:      nextBilledAt.toISOString(),
-    is_annual:           reqRow.is_annual,
-    ...(shouldSetStartDate ? { subscription_start_date: new Date().toISOString() } : {}),
-  }).eq('id', reqRow.user_id);
-
-  if (updateError) {
-    console.error('[admin/bank-transfers] users 업데이트 실패:', updateError);
-    return NextResponse.json({ error: '구독 활성화 실패' }, { status: 500 });
-  }
-
-  const { error: statusError } = await adminClient
-    .from('bank_transfer_requests')
-    .update({ status: 'approved', processed_at: new Date().toISOString(), processed_by: user.email })
-    .eq('id', id);
-  if (statusError) {
-    console.error('[admin/bank-transfers] 상태 업데이트 실패(구독은 이미 활성화됨):', statusError);
-    // 유저 플랜은 이미 활성화됐으므로 에러를 반환하지 않고 로그만 남김
-  }
-
-  // 승인 확인 이메일 (실패해도 승인 자체는 유지 — 이메일은 부가 기능)
-  const email = existingUserRow?.email;
-  if (email) {
-    await sendBankTransferEmail({
-      to:      email,
-      subject: '[fpark] 입금 확인 완료 — 구독이 활성화되었습니다',
-      html:    buildApprovalEmailHtml(PLAN_AMOUNTS[plan].name),
-      logTag:  'admin/bank-transfers',
-    });
-  }
-
-  console.log(`[admin/bank-transfers] ${action} — requestId:${id} userId:${reqRow.user_id} plan:${plan} type:${reqRow.request_type} by:${user.email}`);
   return NextResponse.json({ ok: true, status: 'approved' });
 }

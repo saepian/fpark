@@ -275,6 +275,30 @@ export type Database = {
         }
         Relationships: []
       }
+      codef_connected_accounts: {
+        Row: {
+          business_registration_number: string | null
+          connected_id: string
+          bank_name: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          business_registration_number?: string | null
+          connected_id: string
+          bank_name: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          business_registration_number?: string | null
+          connected_id?: string
+          bank_name?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: []
+      }
       kis_tokens: {
         Row: {
           access_token: string

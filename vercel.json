@@ -33,6 +33,9 @@
     },
     "app/api/cron/bank-transfer-renewal-notice/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/bank-transfer-auto-match/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -79,6 +82,10 @@
     {
       "path": "/api/cron/bank-transfer-renewal-notice",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/bank-transfer-auto-match",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
