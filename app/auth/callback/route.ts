@@ -52,7 +52,11 @@ export async function GET(request: Request) {
     if (userId) {
       const finalNext = await resolvePostAuthRedirect(userId, next, {
         email: data.user?.email,
-        name: (data.user?.user_metadata?.name as string | undefined) ?? null,
+        // 이메일/Google 가입은 user_metadata.name, 네이버 가입(app/api/auth/naver/callback)은
+        // full_name으로 저장돼 있어 둘 다 확인해야 한다 — full_name만 보고 name을 놓치면
+        // 네이버 가입자는 이 값이 항상 null로 빠져서 환영 메일 인사말에 이름이 안 붙는다.
+        name: (data.user?.user_metadata?.full_name as string | undefined) ??
+              (data.user?.user_metadata?.name as string | undefined) ?? null,
       });
       return NextResponse.redirect(`https://fpark.com${finalNext}`);
     }

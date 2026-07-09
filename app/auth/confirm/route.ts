@@ -36,7 +36,10 @@ export async function GET(request: Request) {
       const finalNext = userId
         ? await resolvePostAuthRedirect(userId, next, {
             email: data.user?.email,
-            name: (data.user?.user_metadata?.name as string | undefined) ?? null,
+            // 네이버 가입(app/api/auth/naver/callback)은 이 경로(매직링크)로 들어오고
+            // user_metadata.full_name으로 저장돼 있다 — name만 보면 항상 null.
+            name: (data.user?.user_metadata?.full_name as string | undefined) ??
+                  (data.user?.user_metadata?.name as string | undefined) ?? null,
           })
         : next;
       return NextResponse.redirect(`https://fpark.com${finalNext}`);
