@@ -1,6 +1,8 @@
 // 계좌이체 자동 매칭 판정 로직(matchPendingPayments) 단위 테스트.
 // 2026-07-09 CODEF 실계좌 테스트로 확정된 사실 반영: resAccountDesc3 = 적요(입금자
 // 자유텍스트, 비어있으면 계좌주명 자동), resAccountIn = 입금액.
+// depositorName은 예금주 실명(depositor_real_name) 기준 — 이메일ID 기반 매칭에서
+// 전환하면서 유저가 은행 앱 적요를 직접 안 건드려도(계좌주명 자동표시) 매칭되도록 함.
 
 import { describe, it, expect } from 'vitest';
 import { matchPendingPayments, depositTimestamp, depositKey, type PendingPaymentRequest, type CodefDeposit } from './codef-payment-matching';
@@ -127,6 +129,40 @@ describe('matchPendingPayments — 신청 이전 입금 제외', () => {
       [deposit({ resAccountTrDate: '20260702', resAccountTrTime: '120000' })],
     );
     expect(decisions[0].decision).toBe('auto_approve');
+  });
+});
+
+describe('matchPendingPayments — 예금주 실명 미입력(방어 코드)', () => {
+  it('depositorName이 null이면 그룹핑 없이 즉시 manual_review', () => {
+    const decisions = matchPendingPayments(
+      [request({ depositorName: null })],
+      [deposit()],
+    );
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].decision).toBe('manual_review');
+    if (decisions[0].decision === 'manual_review') {
+      expect(decisions[0].candidateCount).toBe(0);
+      expect(decisions[0].reason).toContain('미입력');
+    }
+  });
+
+  it('depositorName이 빈 문자열/공백만 있어도 미입력으로 취급', () => {
+    const decisions = matchPendingPayments(
+      [request({ depositorName: '   ' })],
+      [deposit()],
+    );
+    expect(decisions[0].decision).toBe('manual_review');
+  });
+
+  it('이름 없는 신청이 섞여 있어도 이름 있는 신청의 유니크 매칭에는 영향 없음', () => {
+    const decisions = matchPendingPayments(
+      [request({ id: 'no-name', depositorName: null }), request({ id: 'named', depositorName: 'hong' })],
+      [deposit()],
+    );
+    const noName = decisions.find((d) => d.requestId === 'no-name')!;
+    const named = decisions.find((d) => d.requestId === 'named')!;
+    expect(noName.decision).toBe('manual_review');
+    expect(named.decision).toBe('auto_approve');
   });
 });
 

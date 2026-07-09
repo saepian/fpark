@@ -24,7 +24,7 @@ function makeSupabase() {
 }
 
 const USER_COLS = 'id, email, created_at, plan, subscription_plan, subscription_status, next_billed_at, subscription_start_date, stock_credits, portfolio_credits';
-const REQUEST_COLS = 'id, user_id, plan, is_annual, amount, depositor_name, status, request_type, requested_at, processed_at';
+const REQUEST_COLS = 'id, user_id, plan, is_annual, amount, depositor_name, depositor_real_name, status, request_type, requested_at, processed_at';
 const REFUND_COLS = 'id, user_id, plan, paid_amount, elapsed_days, refund_amount, refund_status, requested_at, processed_at';
 
 // mypage/portfolio-diagnosis와 동일한 규칙 — subscription_start_date 기준 이번 결제

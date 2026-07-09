@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
   const { data: dueUsers, error } = await adminClient
     .from('users')
-    .select('id, email, plan, next_billed_at')
+    .select('id, email, plan, next_billed_at, depositor_real_name')
     .eq('subscription_status', 'active')
     .eq('payment_method', 'BANK_TRANSFER')
     .gte('next_billed_at', targetStart.toISOString())
@@ -72,13 +72,18 @@ export async function GET(request: NextRequest) {
       const amount = isAnnual ? PLAN_AMOUNTS[plan].annual : PLAN_AMOUNTS[plan].monthly;
       const depositorName = computeDepositorName(u.email);
 
+      // 갱신 신청은 화면 없이 여기서 바로 생성되므로, 최초 가입 시 입력받아 users에
+      // 영구 저장해둔 예금주 실명을 그대로 재사용한다(마이페이지에서 수정 가능). 아직
+      // 한 번도 입력한 적 없는 유저(이 기능 이전 가입자)는 null — 자동 매칭 로직이
+      // null을 만나면 안전하게 manual_review로 넘긴다.
       const { error: insertError } = await adminClient.from('bank_transfer_requests').insert({
-        user_id:        u.id,
+        user_id:             u.id,
         plan,
-        is_annual:      isAnnual,
+        is_annual:           isAnnual,
         amount,
-        depositor_name: depositorName,
-        request_type:   'renewal',
+        depositor_name:      depositorName,
+        depositor_real_name: u.depositor_real_name,
+        request_type:        'renewal',
       });
       if (insertError) {
         console.error(`[cron/bank-transfer-renewal-notice] 신청 생성 실패 (${u.email}):`, insertError);

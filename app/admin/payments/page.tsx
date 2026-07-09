@@ -15,17 +15,18 @@ import {
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 
 interface RequestItem {
-  id:             string;
-  user_id:        string;
-  email:          string;
-  plan:           'basic' | 'pro';
-  is_annual:      boolean;
-  amount:         number;
-  depositor_name: string;
-  request_type:   'new' | 'renewal';
-  status:         'pending' | 'expired';
-  requested_at:   string;
-  processed_at:   string | null;
+  id:                   string;
+  user_id:              string;
+  email:                string;
+  plan:                 'basic' | 'pro';
+  is_annual:            boolean;
+  amount:               number;
+  depositor_name:       string;
+  depositor_real_name:  string | null;
+  request_type:         'new' | 'renewal';
+  status:               'pending' | 'expired';
+  requested_at:         string;
+  processed_at:         string | null;
 }
 
 interface RefundItem {
@@ -408,7 +409,12 @@ export default function AdminPaymentsPage() {
                     </span>
                   </td>
                   <td className="px-3 py-3 text-[13px] text-white font-semibold whitespace-nowrap">{it.amount.toLocaleString()}원</td>
-                  <td className="px-3 py-3"><span className="text-[13.5px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span></td>
+                  <td className="px-3 py-3">
+                    <div className="flex flex-col">
+                      <span className="text-[13.5px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
+                      <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                    </div>
+                  </td>
                   <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(it.requested_at)}</td>
                   <td className="px-3 py-3">
                     <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
@@ -439,7 +445,10 @@ export default function AdminPaymentsPage() {
               </div>
               <p className="text-[13px] font-semibold text-white truncate mb-1.5">{it.email}</p>
               <div className="flex items-center justify-between mb-2.5">
-                <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span>
+                <div className="flex flex-col">
+                  <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
+                  <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                </div>
                 <span className="text-[10.5px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
               </div>
               <ActionButtons it={it} compact />
@@ -764,7 +773,10 @@ export default function AdminPaymentsPage() {
                       </td>
                       <td className="px-3 py-3 text-[13px] text-white font-semibold whitespace-nowrap">{it.amount.toLocaleString()}원</td>
                       <td className="px-3 py-3">
-                        <span className="text-[13.5px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span>
+                        <div className="flex flex-col">
+                          <span className="text-[13.5px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
+                          <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                        </div>
                       </td>
                       <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(it.requested_at)}</td>
                       <td className="px-3 py-3 text-[12px] text-slate-500 whitespace-nowrap">{formatElapsed(it.requested_at)}</td>
@@ -809,7 +821,10 @@ export default function AdminPaymentsPage() {
                   </div>
                   <p className="text-[13px] font-semibold text-white truncate mb-1.5">{it.email}</p>
                   <div className="flex items-center justify-between mb-2.5">
-                    <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_name}</span>
+                    <div className="flex flex-col">
+                      <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
+                      <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                    </div>
                     <span className="text-[10.5px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
                   </div>
                   <ActionButtons it={it} compact />

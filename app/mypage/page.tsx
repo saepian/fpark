@@ -18,6 +18,7 @@ interface MyPageData {
   createdAt: string;
   emailAlertEnabled: boolean;
   morningBriefingEnabled: boolean;
+  depositorRealName: string | null;
   usage: { diagnosisToday: number; portfolioMonth: number; nextResetDate: string };
   payments: { id: string; created_at: string; plan: string; amount: number; status: string }[];
   subscription: {
@@ -199,6 +200,10 @@ export default function MyPage() {
   const [togglingEmail, setTogglingEmail] = useState(false);
   const [morningBriefingEnabled, setMorningBriefingEnabled] = useState(true);
   const [togglingMorning, setTogglingMorning] = useState(false);
+  const [depositorRealName, setDepositorRealName] = useState('');
+  const [savingDepositorName, setSavingDepositorName] = useState(false);
+  const [depositorNameSaved, setDepositorNameSaved] = useState(false);
+  const [depositorNameError, setDepositorNameError] = useState('');
 
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelPreview, setCancelPreview] = useState<CancelPreview | null>(null);
@@ -217,6 +222,7 @@ export default function MyPage() {
         setData(json);
         setEmailAlertEnabled(json.emailAlertEnabled ?? true);
         setMorningBriefingEnabled(json.morningBriefingEnabled ?? true);
+        setDepositorRealName(json.depositorRealName ?? '');
       })
       .catch(() => router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)));
   };
@@ -254,6 +260,33 @@ export default function MyPage() {
       body: JSON.stringify({ morning_briefing_enabled: next }),
     });
     setTogglingMorning(false);
+  };
+
+  const handleSaveDepositorName = async () => {
+    const trimmed = depositorRealName.trim();
+    if (!trimmed) {
+      setDepositorNameError('예금주 실명을 입력해주세요.');
+      return;
+    }
+    setSavingDepositorName(true);
+    setDepositorNameError('');
+    setDepositorNameSaved(false);
+    try {
+      const res = await fetch('/api/mypage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ depositor_real_name: trimmed }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? '저장에 실패했습니다.');
+      setDepositorRealName(trimmed);
+      setDepositorNameSaved(true);
+      setTimeout(() => setDepositorNameSaved(false), 2400);
+    } catch (e) {
+      setDepositorNameError(e instanceof Error ? e.message : '저장에 실패했습니다.');
+    } finally {
+      setSavingDepositorName(false);
+    }
   };
 
   const handleWithdraw = async () => {
@@ -752,6 +785,36 @@ export default function MyPage() {
             </div>
           </div>
         )}
+
+        {/* ── 5.5. 결제 정보 ────────────────────────────────────────────────── */}
+        <div className="rounded-2xl border border-slate-800/70 p-6 md:p-7" style={{ backgroundColor: '#0d1117' }}>
+          <SectionLabel>결제 정보</SectionLabel>
+
+          <p className="text-[13.5px] font-semibold text-slate-200 mb-1">예금주명 (계좌이체 결제용)</p>
+          <p className="text-[11.5px] text-slate-500 mb-3 leading-relaxed">
+            계좌이체로 결제하실 때 입금 계좌의 예금주명과 대조해 자동으로 확인합니다.
+            오타가 있거나 입금 계좌를 바꾸신 경우 여기서 수정해주세요.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={depositorRealName}
+              onChange={(e) => setDepositorRealName(e.target.value)}
+              placeholder="예: 홍길동"
+              className="flex-1 px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+              style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+            />
+            <button
+              onClick={handleSaveDepositorName}
+              disabled={savingDepositorName}
+              className="shrink-0 px-4 py-2.5 rounded-lg text-[13px] font-semibold text-white cursor-pointer transition-colors disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)' }}
+            >
+              {savingDepositorName ? <Spinner /> : '저장'}
+            </button>
+          </div>
+          {depositorNameError && <p className="mt-2 text-[11px] text-red-400">{depositorNameError}</p>}
+          {depositorNameSaved && <p className="mt-2 text-[11px] text-emerald-400">저장되었습니다.</p>}
+        </div>
 
         {/* ── 6. 계정 관리 ─────────────────────────────────────────────────── */}
         <div className="rounded-2xl border border-slate-800/70 p-6 md:p-7" style={{ backgroundColor: '#0d1117' }}>

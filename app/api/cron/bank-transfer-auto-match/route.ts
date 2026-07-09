@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 
   const { data: pendingRows, error: pendingError } = await adminClient
     .from('bank_transfer_requests')
-    .select('id, amount, depositor_name, requested_at')
+    .select('id, amount, depositor_real_name, requested_at')
     .eq('status', 'pending');
 
   if (pendingError) {
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
   const requests: PendingPaymentRequest[] = (pendingRows ?? []).map((r) => ({
     id:            r.id,
     amount:        r.amount,
-    depositorName: r.depositor_name,
+    depositorName: r.depositor_real_name,
     requestedAt:   r.requested_at,
   }));
 

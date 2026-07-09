@@ -24,7 +24,7 @@ function makeSupabase() {
   );
 }
 
-const SELECT_COLS = 'id, user_id, plan, is_annual, amount, depositor_name, status, request_type, requested_at, processed_at';
+const SELECT_COLS = 'id, user_id, plan, is_annual, amount, depositor_name, depositor_real_name, status, request_type, requested_at, processed_at';
 
 export async function GET() {
   const supabase = makeSupabase();

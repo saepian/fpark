@@ -5,14 +5,20 @@
 //   2) deposits는 입금/출금 구분 없이 CODEF 거래내역을 그대로 넘겨도 된다(resAccountIn<=0은
 //      내부에서 자동 제외).
 //
-// 매칭 기준(금액 + 적요이름) 조합이 신청 쪽에서도 입금 쪽에서도 각각 정확히 1건씩일 때만
-// auto_approve — 동명이인(신청 2건 이상), 중복입금(입금 2건 이상), 미확인(입금 0건) 등
-// 애매한 경우는 전부 manual_review로 남겨 기존 관리자 수동 승인 대기열이 그대로 안전망 역할을 한다.
+// 매칭 기준: 금액 + 적요(예금주 실명) 조합이 신청 쪽에서도 입금 쪽에서도 각각 정확히
+// 1건씩일 때만 auto_approve — 동명이인(신청 2건 이상), 중복입금(입금 2건 이상),
+// 미확인(입금 0건) 등 애매한 경우는 전부 manual_review로 남겨 기존 관리자 수동 승인
+// 대기열이 그대로 안전망 역할을 한다.
+//
+// depositorName은 예금주 실명(users.depositor_real_name/bank_transfer_requests.
+// depositor_real_name) 기준 — 2026-07-09 이전 신청 건은 이 필드가 없어 null일 수 있고,
+// 그런 신청은 매칭 근거 자체가 없으므로 그룹핑에 섞지 않고 바로 manual_review로 분리한다
+// (null끼리 그룹핑되면 "동명이인 충돌"처럼 잘못 보고될 수 있어 별도 처리).
 
 export interface PendingPaymentRequest {
   id:            string;
   amount:        number;
-  depositorName: string;
+  depositorName: string | null;
   requestedAt:   string; // ISO — 이 시각 이후 입금만 매칭 대상(신청 전 입금 오매칭 방지)
 }
 
@@ -75,14 +81,29 @@ export function matchPendingPayments(
     if (list) list.push(d); else depositsByKey.set(key, [d]);
   }
 
-  const requestsByKey = new Map<string, PendingPaymentRequest[]>();
+  const results: MatchDecision[] = [];
+
+  // 예금주 실명이 없는 신청 — 매칭 근거 자체가 없으므로 그룹핑 없이 즉시 manual_review
+  const namedRequests: (PendingPaymentRequest & { depositorName: string })[] = [];
   for (const r of requests) {
+    if (!r.depositorName || !r.depositorName.trim()) {
+      results.push({
+        requestId:      r.id,
+        decision:       'manual_review',
+        reason:         '예금주 실명 미입력 — 자동 매칭 불가(마이페이지에서 등록 후 다음 주기부터 적용)',
+        candidateCount: 0,
+      });
+      continue;
+    }
+    namedRequests.push(r as PendingPaymentRequest & { depositorName: string });
+  }
+
+  const requestsByKey = new Map<string, (PendingPaymentRequest & { depositorName: string })[]>();
+  for (const r of namedRequests) {
     const key = groupKey(r.amount, r.depositorName);
     const list = requestsByKey.get(key);
     if (list) list.push(r); else requestsByKey.set(key, [r]);
   }
-
-  const results: MatchDecision[] = [];
 
   for (const [key, reqList] of requestsByKey) {
     const allDepositsForKey = depositsByKey.get(key) ?? [];

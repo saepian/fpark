@@ -61,6 +61,7 @@ export type Database = {
           amount: number
           created_at: string
           depositor_name: string
+          depositor_real_name: string | null
           id: string
           is_annual: boolean
           plan: string
@@ -75,6 +76,7 @@ export type Database = {
           amount: number
           created_at?: string
           depositor_name: string
+          depositor_real_name?: string | null
           id?: string
           is_annual?: boolean
           plan: string
@@ -89,6 +91,7 @@ export type Database = {
           amount?: number
           created_at?: string
           depositor_name?: string
+          depositor_real_name?: string | null
           id?: string
           is_annual?: boolean
           plan?: string
@@ -618,6 +621,7 @@ export type Database = {
         Row: {
           billing_key: string | null
           created_at: string | null
+          depositor_real_name: string | null
           email: string | null
           email_alert_enabled: boolean
           id: string
@@ -639,6 +643,7 @@ export type Database = {
         Insert: {
           billing_key?: string | null
           created_at?: string | null
+          depositor_real_name?: string | null
           email?: string | null
           email_alert_enabled?: boolean
           id: string
@@ -660,6 +665,7 @@ export type Database = {
         Update: {
           billing_key?: string | null
           created_at?: string | null
+          depositor_real_name?: string | null
           email?: string | null
           email_alert_enabled?: boolean
           id?: string

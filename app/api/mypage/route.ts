@@ -59,7 +59,7 @@ export async function GET() {
   // users 테이블 조회 — service role key로 RLS 우회
   const { data: userRow } = await adminClient
     .from('users')
-    .select('plan, created_at, email_alert_enabled, morning_briefing_enabled, subscription_status, payment_method, next_billed_at')
+    .select('plan, created_at, email_alert_enabled, morning_briefing_enabled, subscription_status, payment_method, next_billed_at, depositor_real_name')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -137,6 +137,7 @@ export async function GET() {
     createdAt: userRow?.created_at ?? user.created_at,
     emailAlertEnabled: userRow?.email_alert_enabled ?? true,
     morningBriefingEnabled: userRow?.morning_briefing_enabled ?? true,
+    depositorRealName: userRow?.depositor_real_name ?? null,
     usage: {
       diagnosisToday: diagnosisCount,
       portfolioMonth: portfolioCount,
@@ -164,9 +165,16 @@ export async function PATCH(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const update: { email_alert_enabled?: boolean; morning_briefing_enabled?: boolean } = {};
+  const update: { email_alert_enabled?: boolean; morning_briefing_enabled?: boolean; depositor_real_name?: string } = {};
   if (typeof body.email_alert_enabled === 'boolean') update.email_alert_enabled = body.email_alert_enabled;
   if (typeof body.morning_briefing_enabled === 'boolean') update.morning_briefing_enabled = body.morning_briefing_enabled;
+  if (typeof body.depositor_real_name === 'string') {
+    const trimmed = body.depositor_real_name.trim();
+    if (!trimmed) {
+      return NextResponse.json({ error: '예금주 실명을 입력해주세요.' }, { status: 400 });
+    }
+    update.depositor_real_name = trimmed;
+  }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: '잘못된 요청' }, { status: 400 });
@@ -178,5 +186,17 @@ export async function PATCH(request: NextRequest) {
     .eq('id', user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // 오타 등으로 예금주명을 수정한 경우, 이미 접수된 대기중 신청의 매칭 근거도 최신값으로
+  // 맞춰준다 — users 값만 바뀌고 이미 만들어진 신청 건이 옛날 값을 계속 들고 있으면
+  // 자동 매칭이 조용히 실패하게 된다.
+  if (update.depositor_real_name) {
+    await adminClient
+      .from('bank_transfer_requests')
+      .update({ depositor_real_name: update.depositor_real_name })
+      .eq('user_id', user.id)
+      .eq('status', 'pending');
+  }
+
   return NextResponse.json({ ok: true });
 }

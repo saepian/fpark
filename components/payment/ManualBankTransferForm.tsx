@@ -1,9 +1,11 @@
 'use client';
 
 // 계좌이체(무통장입금) 신청 폼 — PG 가상계좌(VirtualAccountForm)와 달리 PG 연동이 전혀 없다.
-// 회사 명의 고정 계좌로 사용자가 직접 입금하고, 입금자명으로 관리자가 수동 매칭·승인한다
-// (/admin/payments). 입금 확인 후 활성화까지는 관리자 승인이 필요하므로 이 화면에서는
-// "신청 접수"만 하고 활성화 여부는 이메일 안내 또는 마이페이지에서 확인하도록 한다.
+// 회사 명의 고정 계좌로 사용자가 직접 입금한다. 여기서 입력받는 예금주 실명(입금 계좌
+// 명의)과 CODEF로 조회한 입금 적요(은행이 자동 표시하는 계좌주명)를 대조해 금액+이름이
+// 유니크하게 일치하면 자동 승인되고(app/api/cron/bank-transfer-auto-match), 애매하면
+// 관리자가 수동 매칭·승인한다(/admin/payments) — 이 화면에서는 "신청 접수"만 하고
+// 활성화 여부는 이메일 안내 또는 마이페이지에서 확인하도록 한다.
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -34,8 +36,8 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
   const router = useRouter();
   const [step, setStep] = useState<Step>('confirm');
   const [errMsg, setErrMsg] = useState('');
-  const [copied, setCopied] = useState<'account' | 'name' | null>(null);
-  const [depositorName, setDepositorName] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [depositorRealName, setDepositorRealName] = useState('');
   const [nudge, setNudge] = useState<WatchlistNudge>('none');
   // 계좌 안내 화면이 완전히 닫힌 뒤에만 true — nudge 콘텐츠가 먼저 준비돼 있어도
   // 이 값이 true가 되기 전에는 절대 렌더링하지 않는다(두 모달 동시 노출 방지).
@@ -47,6 +49,10 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
   const planLabel = `${PLAN_NAMES[plan]} ${isAnnual ? '연간' : '월간'} 구독`;
 
   async function submit() {
+    if (!depositorRealName.trim()) {
+      setErrMsg('예금주 실명을 입력해주세요.');
+      return;
+    }
     setStep('processing');
     setErrMsg('');
 
@@ -59,13 +65,12 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
           'Content-Type': 'application/json',
           Authorization:  `Bearer ${data.session?.access_token ?? ''}`,
         },
-        body: JSON.stringify({ plan, isAnnual, amount }),
+        body: JSON.stringify({ plan, isAnnual, amount, depositorRealName: depositorRealName.trim() }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
         throw new Error(json.error ?? '신청에 실패했습니다.');
       }
-      setDepositorName(json.request.depositor_name);
       setStep('requested');
 
       if (plan === 'pro') {
@@ -109,10 +114,10 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
     router.push('/');
   }
 
-  function copy(text: string, which: 'account' | 'name') {
+  function copy(text: string) {
     navigator.clipboard.writeText(text);
-    setCopied(which);
-    setTimeout(() => setCopied(null), 1800);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
   }
 
   return (
@@ -144,21 +149,36 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
             <p className="text-[14px] text-white mb-3">{BANK_TRANSFER_ACCOUNT.accountHolder}</p>
             <div className="pt-3" style={{ borderTop: '1px solid rgba(51,65,85,0.6)' }}>
               <p className="text-[11px] text-amber-300/90 leading-relaxed">
-                신청 후 안내되는 <b>입금자명</b>으로 정확히 입금해주셔야 확인이 가능합니다.
+                입금하실 계좌의 <b>예금주명</b>으로 자동 확인됩니다 — 은행 앱의 적요(메모)란은 따로 건드리지 않으셔도 됩니다.
               </p>
             </div>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-[11.5px] text-slate-500 mb-1.5">입금하실 계좌의 예금주명</label>
+            <input
+              value={depositorRealName}
+              onChange={(e) => setDepositorRealName(e.target.value)}
+              placeholder="예: 홍길동"
+              className="w-full px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+              style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+            />
+            <p className="mt-1.5 text-[10.5px] text-slate-600 leading-relaxed">
+              입금 계좌 명의와 정확히 일치해야 자동으로 확인됩니다. 마이페이지에서 나중에 수정할 수 있습니다.
+            </p>
           </div>
 
           {errMsg && <p className="mb-3 text-[11px] text-red-400">{errMsg}</p>}
 
           <button
             onClick={submit}
-            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-bold cursor-pointer transition-colors"
+            disabled={!depositorRealName.trim()}
+            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-[13.5px] font-bold cursor-pointer transition-colors"
           >
-            신청하고 입금자명 안내받기
+            신청하기
           </button>
           <p className="mt-4 text-[10px] text-slate-600 text-center leading-relaxed">
-            자동 결제가 아닙니다. 입금 확인 후 관리자가 직접 구독을 활성화하며, 영업일 기준 1일 이내 처리됩니다.
+            자동 결제가 아닙니다. 입금 확인 후 구독이 활성화되며, 확인이 지연될 경우 관리자가 직접 처리합니다.
           </p>
         </>
       )}
@@ -175,18 +195,18 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
           <CheckCircle2 className="w-11 h-11 text-emerald-400" />
           <div>
             <p className="text-[15px] font-semibold text-white mb-1">신청이 접수되었습니다</p>
-            <p className="text-[12px] text-slate-400">아래 정보로 입금해주세요.</p>
+            <p className="text-[12px] text-slate-400">아래 계좌로 입금해주세요.</p>
           </div>
 
           <div className="w-full rounded-2xl p-4" style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}>
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[12px] text-slate-500">입금 계좌</span>
               <button
-                onClick={() => copy(BANK_TRANSFER_ACCOUNT.accountNumber, 'account')}
+                onClick={() => copy(BANK_TRANSFER_ACCOUNT.accountNumber)}
                 className="flex items-center gap-1.5 text-white text-[13px] font-semibold cursor-pointer"
               >
                 {BANK_TRANSFER_ACCOUNT.bankName} {BANK_TRANSFER_ACCOUNT.accountNumber}
-                {copied === 'account' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
               </button>
             </div>
             <div className="flex items-center justify-between mb-2.5">
@@ -194,19 +214,13 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
               <span className="text-white font-semibold text-[13px]">{amount.toLocaleString()}원</span>
             </div>
             <div className="flex items-center justify-between pt-2.5" style={{ borderTop: '1px solid rgba(51,65,85,0.6)' }}>
-              <span className="text-[12px] text-amber-300">입금자명 (필수)</span>
-              <button
-                onClick={() => copy(depositorName, 'name')}
-                className="flex items-center gap-1.5 text-amber-300 text-[15px] font-bold cursor-pointer"
-              >
-                {depositorName}
-                {copied === 'name' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
+              <span className="text-[12px] text-amber-300">입금 계좌 예금주명</span>
+              <span className="text-amber-300 text-[15px] font-bold">{depositorRealName}</span>
             </div>
           </div>
 
           <p className="text-[10.5px] text-slate-600 leading-relaxed">
-            반드시 위 입금자명으로 입금해주세요. 확인되는 대로 이메일로 안내드립니다.
+            입금 계좌의 예금주명이 위와 일치하면 적요(메모)를 따로 입력하지 않아도 자동으로 확인됩니다. 확인되는 대로 이메일로 안내드립니다.
           </p>
 
           <button
