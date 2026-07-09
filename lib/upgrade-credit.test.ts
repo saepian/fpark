@@ -39,6 +39,7 @@ describe('calculateUpgradeCredit — 상한 없이 날짜비례가 그대로 적
     expect(result.refundCap).toBe(9900);
     expect(result.creditAmount).toBe(9900);
     expect(result.cappedByRefund).toBe(false);
+    expect(result.refundWindowExpired).toBe(false);
   });
 
   it('3일 경과(27일 남음) + 완전 미사용 → 날짜비례와 환불 상한이 동일 공식이라 상한 안 걸림', () => {
@@ -106,6 +107,7 @@ describe('calculateUpgradeCredit — 이용실적이 있어 환불 상한이 실
     expect(result.refundCap).toBe(0);
     expect(result.creditAmount).toBe(0);
     expect(result.cappedByRefund).toBe(true);
+    expect(result.refundWindowExpired).toBe(true); // 화면 안내 문구 표시 조건
   });
 });
 

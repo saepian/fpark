@@ -20,12 +20,15 @@ import { calculateRefund } from '@/lib/refund';
 const CREDIT_DENOMINATOR_DAYS = 30;
 
 export interface UpgradeCreditResult {
-  remainingDays:  number;  // 0~30으로 clamp — 이미 지났으면 0, 30일 초과분은 한 달치로 cap
-  creditRatio:    number;  // remainingDays / 30
-  proratedCredit: number;  // round(currentPlanMonthly * creditRatio) — 상한 적용 전 값
-  refundCap:      number;  // 지금 취소했다면 돌려받을 실제 환불액(calculateRefund) — 상한
-  creditAmount:   number;  // min(proratedCredit, refundCap) — 실제 적용되는 최종 크레딧
-  cappedByRefund: boolean; // refundCap이 proratedCredit보다 작아서 상한이 실제로 걸렸는지
+  remainingDays:       number;  // 0~30으로 clamp — 이미 지났으면 0, 30일 초과분은 한 달치로 cap
+  creditRatio:         number;  // remainingDays / 30
+  proratedCredit:      number;  // round(currentPlanMonthly * creditRatio) — 상한 적용 전 값
+  refundCap:           number;  // 지금 취소했다면 돌려받을 실제 환불액(calculateRefund) — 상한
+  creditAmount:        number;  // min(proratedCredit, refundCap) — 실제 적용되는 최종 크레딧
+  cappedByRefund:      boolean; // refundCap이 proratedCredit보다 작아서 상한이 실제로 걸렸는지
+  refundWindowExpired: boolean; // calculateRefund()의 7일 환불 기한이 지나 refundCap이
+                                 // 강제로 0이 된 상태인지 — 화면에서 "왜 크레딧이 0인지"
+                                 // 안내 문구를 붙일지 판단하는 데 씀
 }
 
 export function calculateUpgradeCredit(params: {
@@ -66,6 +69,7 @@ export function calculateUpgradeCredit(params: {
     refundCap,
     creditAmount,
     cappedByRefund: refundCap < proratedCredit,
+    refundWindowExpired: !refundCalc.refundEligible,
   };
 }
 

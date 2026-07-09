@@ -24,12 +24,13 @@ interface Plan {
 // 서버가 계산한 값만 신뢰(클라이언트에서 직접 차액 계산 안 함).
 type UpgradeQuote =
   | {
-      isUpgrade:          true;
-      chargeAmount:       number;
-      creditAmount:       number;
-      remainingDays:      number;
-      currentPlanMonthly: number;
-      targetPlanMonthly:  number;
+      isUpgrade:           true;
+      chargeAmount:        number;
+      creditAmount:        number;
+      remainingDays:       number;
+      currentPlanMonthly:  number;
+      targetPlanMonthly:   number;
+      refundWindowExpired: boolean; // true면 결제 후 7일이 지나 크레딧이 0원으로 확정됨
     }
   | {
       isUpgrade:     false;
@@ -266,9 +267,15 @@ function CardContent({
         {isFree ? (
           <p className="text-[11px] text-slate-600 mt-1">영원히 무료</p>
         ) : upgrade ? (
-          <p className="text-[11px] text-emerald-400 mt-1">
-            기존 Basic 잔여 {upgrade.remainingDays}일 — {upgrade.creditAmount.toLocaleString()}원 차감
-          </p>
+          upgrade.refundWindowExpired ? (
+            <p className="text-[10.5px] text-slate-500 mt-1 leading-snug">
+              결제 후 7일이 지나면 업그레이드 시 크레딧이 적용되지 않습니다.
+            </p>
+          ) : (
+            <p className="text-[11px] text-emerald-400 mt-1">
+              기존 Basic 잔여 {upgrade.remainingDays}일 — {upgrade.creditAmount.toLocaleString()}원 차감
+            </p>
+          )
         ) : annual ? (
           <div className="mt-2.5 pt-2.5 border-t border-slate-700/40">
             <p className="text-[10px] text-slate-500 mb-1">연간 총 결제금액</p>

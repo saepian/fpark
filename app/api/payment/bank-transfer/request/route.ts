@@ -37,12 +37,13 @@ function makeSupabase() {
 
 type UpgradeQuote =
   | {
-      isUpgrade:          true;
-      chargeAmount:       number;
-      creditAmount:       number;
-      remainingDays:      number;
-      currentPlanMonthly: number;
-      targetPlanMonthly:  number;
+      isUpgrade:           true;
+      chargeAmount:        number;
+      creditAmount:        number;
+      remainingDays:       number;
+      currentPlanMonthly:  number;
+      targetPlanMonthly:   number;
+      refundWindowExpired: boolean; // true면 결제 후 7일이 지나 크레딧이 0원으로 확정됨
     }
   | {
       isUpgrade:      false;
@@ -107,12 +108,13 @@ async function computeUpgradeQuote(
   });
 
   return {
-    isUpgrade:          true,
+    isUpgrade:           true,
     chargeAmount,
-    creditAmount:       credit.creditAmount,
+    creditAmount:        credit.creditAmount,
     remainingDays:       credit.remainingDays,
-    currentPlanMonthly: PLAN_AMOUNTS.basic.monthly,
-    targetPlanMonthly:  PLAN_AMOUNTS.pro.monthly,
+    currentPlanMonthly:  PLAN_AMOUNTS.basic.monthly,
+    targetPlanMonthly:   PLAN_AMOUNTS.pro.monthly,
+    refundWindowExpired: credit.refundWindowExpired,
   };
 }
 
