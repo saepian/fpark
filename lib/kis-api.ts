@@ -391,7 +391,19 @@ export async function invalidateAccessToken(badToken?: string): Promise<void> {
   tokenCache = null;
   if (!target) return;
   try {
-    await supabaseAdmin.from('kis_tokens').delete().eq('access_token', target);
+    const { data, error } = await supabaseAdmin
+      .from('kis_tokens')
+      .delete()
+      .eq('access_token', target)
+      .select('id');
+    if (error) throw error;
+    // 2026-07-10 사고 후속 진단용 — 어떤 토큰이 왜 지워졌는지 추적하기 위해
+    // 성공 시에도 남긴다(기존엔 실패 시에만 로그가 있었음).
+    console.warn('[KIS] 토큰 삭제됨(조기 만료 감지):', {
+      tokenTail: target.slice(-12),
+      deletedRowIds: data?.map((r) => r.id) ?? [],
+      badTokenExplicit: !!badToken,
+    });
   } catch (e) {
     console.error('[KIS] 토큰 캐시 삭제 실패:', e);
   }
