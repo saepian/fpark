@@ -627,6 +627,7 @@ export type Database = {
           depositor_real_name: string | null
           email: string | null
           email_alert_enabled: boolean
+          has_seen_welcome: boolean
           id: string
           is_annual: boolean
           morning_briefing_enabled: boolean
@@ -649,6 +650,7 @@ export type Database = {
           depositor_real_name?: string | null
           email?: string | null
           email_alert_enabled?: boolean
+          has_seen_welcome?: boolean
           id: string
           is_annual?: boolean
           morning_briefing_enabled?: boolean
@@ -671,6 +673,7 @@ export type Database = {
           depositor_real_name?: string | null
           email?: string | null
           email_alert_enabled?: boolean
+          has_seen_welcome?: boolean
           id?: string
           is_annual?: boolean
           morning_briefing_enabled?: boolean

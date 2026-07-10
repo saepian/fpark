@@ -6,18 +6,18 @@ import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import PageBackground from '@/components/layout/PageBackground';
 import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
+import { PLAN_AMOUNTS } from '@/lib/payment-constants';
+import { PLAN_FEATURES, type PlanType, type PlanFeature } from '@/lib/plan-features';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type PlanType = 'free' | 'basic' | 'pro';
-interface Feature { text: string; included: boolean }
 interface Plan {
   type: PlanType; name: string;
   monthly: number;
   annual: number;       // 연간 플랜 월 환산 금액
   annualTotal: number;  // 연간 일시불 총액
   annualSaving: number; // 월간 대비 절약 금액
-  description: string; features: Feature[]; cta: string;
+  description: string; features: PlanFeature[]; cta: string;
 }
 
 // Basic→Pro 업그레이드 견적 — GET /api/payment/bank-transfer/request 응답과 동일 shape.
@@ -48,7 +48,7 @@ const ANNUAL_BILLING_ENABLED = true;
 const ANNUAL_DISCOUNT_RATE = 0.2; // 20% 할인
 
 function withAnnualPricing(
-  data: { type: PlanType; name: string; monthly: number; description: string; features: Feature[]; cta: string },
+  data: { type: PlanType; name: string; monthly: number; description: string; features: PlanFeature[]; cta: string },
 ): Plan {
   const annual      = Math.round(data.monthly * (1 - ANNUAL_DISCOUNT_RATE));
   const annualTotal = Math.round(data.monthly * 12 * (1 - ANNUAL_DISCOUNT_RATE));
@@ -58,45 +58,21 @@ function withAnnualPricing(
 
 const PLANS: Plan[] = [
   withAnnualPricing({
-    type: 'free', name: 'FREE', monthly: 0,
-    description: '기업 데이터 분석을 처음 시작하는 분들을 위한 플랜',
-    features: [
-      { text: '기업 분석 매일 1회', included: true },
-      { text: '포트폴리오 분석', included: false },
-      { text: '뉴스/시장 데이터 무제한', included: true },
-      { text: '워치리스트', included: true },
-      { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
-      { text: '외국인/기관 수급 알림 (1,000억 이상 자금 유입·유출)', included: false },
-      { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
-    ],
+    type: 'free', name: PLAN_FEATURES.free.name, monthly: 0,
+    description: PLAN_FEATURES.free.description,
+    features: PLAN_FEATURES.free.features,
     cta: '시작하기',
   }),
   withAnnualPricing({
-    type: 'basic', name: 'BASIC', monthly: 9900,
-    description: '더 많은 분석이 필요한 이용자를 위한 플랜',
-    features: [
-      { text: '기업 분석 매일 6회', included: true },
-      { text: '포트폴리오 분석 월 1회', included: true },
-      { text: '뉴스/시장 데이터 무제한', included: true },
-      { text: '워치리스트', included: true },
-      { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
-      { text: '외국인/기관 수급 알림 (1,000억 이상 자금 유입·유출)', included: false },
-      { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: false },
-    ],
+    type: 'basic', name: PLAN_FEATURES.basic.name, monthly: PLAN_AMOUNTS.basic.monthly,
+    description: PLAN_FEATURES.basic.description,
+    features: PLAN_FEATURES.basic.features,
     cta: '시작하기',
   }),
   withAnnualPricing({
-    type: 'pro', name: 'PRO', monthly: 19900,
-    description: '전문적인 포트폴리오 관리가 필요한 이용자',
-    features: [
-      { text: '기업 분석 매일 11회', included: true },
-      { text: '포트폴리오 분석 월 20회', included: true },
-      { text: '뉴스/시장 데이터 무제한', included: true },
-      { text: '워치리스트', included: true },
-      { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: true },
-      { text: '외국인/기관 수급 알림 (1,000억 이상 자금 유입·유출)', included: true },
-      { text: '관심기업 일일 리포트 이메일 (AI 분석 포함)', included: true },
-    ],
+    type: 'pro', name: PLAN_FEATURES.pro.name, monthly: PLAN_AMOUNTS.pro.monthly,
+    description: PLAN_FEATURES.pro.description,
+    features: PLAN_FEATURES.pro.features,
     cta: '시작하기',
   }),
 ];

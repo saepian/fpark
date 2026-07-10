@@ -3,6 +3,9 @@
 // 2) 약관 미동의 유저는 next로 바로 보내지 않고 동의 페이지를 먼저 거치게 함
 // /auth/callback(OAuth, PKCE)과 /auth/confirm(이메일 인증/매직링크, token_hash) 양쪽에서
 // 동일하게 호출한다 — 두 라우트에 각각 복제해두면 한쪽만 고치는 실수가 나기 쉽다.
+//
+// 웰컴 페이지(/welcome)는 더 이상 여기서 강제 리다이렉트하지 않는다 — 가입 직후
+// 뜨는 관심기업 등록 모달에 보조 링크로만 노출한다(선택적 진입).
 
 import { adminClient } from '@/lib/supabase-admin';
 import { sendBankTransferEmail } from '@/lib/bank-transfer';
