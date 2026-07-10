@@ -203,6 +203,25 @@ function kstDateStr(): string {
   return kst.toISOString().split('T')[0];
 }
 
+// 2026-07-10 발견: fetchStockPrice/fetchStockInfo(KIS inquire-price)와
+// fetchDailyChart(KIS inquire-daily-itemchartprice)의 "오늘" 행은 정규장 마감(15:30 KST)
+// 전까지는 장중 누적/실시간 값이고, 마감 후에야 그날의 최종 확정치가 된다. 그런데 당일
+// 캐시는 report_date만 보고 무조건 재사용해서, 장중에 생성된 리포트가 마감 후 재방문에도
+// 그대로 남아 "장중 스냅샷을 오늘자 최종 리포트인 것처럼" 계속 보여주는 문제가 있었다.
+// 장 마감 후 첫 방문 때만, 캐시가 장중에 생성된 것이면 무시하고 재생성한다(하루 최대 2건).
+const MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30; // 15:30
+
+function kstMinutesSinceMidnight(d: Date): number {
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return kst.getUTCHours() * 60 + kst.getUTCMinutes();
+}
+
+function isIntradayCacheStale(cachedCreatedAt: string): boolean {
+  const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedCreatedAt)) < MARKET_CLOSE_MINUTES_KST;
+  const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= MARKET_CLOSE_MINUTES_KST;
+  return generatedBeforeClose && nowIsAfterClose;
+}
+
 // 오늘 날짜 문자열과 직전 리포트 날짜 문자열(둘 다 YYYY-MM-DD, KST) 사이의 일수 차이.
 // 직전 리포트가 없으면 null — "첫 리포트"와 "정확히 1일 전"을 구분하기 위해 별도 타입 유지.
 function daysBetween(todayStr: string, prevDateStr: string): number {
@@ -254,7 +273,11 @@ export async function GET(
       .eq('report_date', todayStr)
       .maybeSingle();
     if (cached) {
-      return NextResponse.json({ ...mapRowToResult(cached as HistoryRow), isCached: true });
+      if (isIntradayCacheStale(cached.created_at)) {
+        console.log(`[ANALYSIS] ${ticker} 장중 생성 캐시(${cached.created_at}) 감지 — 장마감 후 첫 조회라 재생성`);
+      } else {
+        return NextResponse.json({ ...mapRowToResult(cached as HistoryRow), isCached: true });
+      }
     }
   } catch (e) {
     console.warn('[ANALYSIS] 당일 캐시 조회 실패, 새로 생성:', e instanceof Error ? e.message : e);
@@ -446,13 +469,15 @@ ${yesterdayComparisonBlock}
     // 4-1. 본문 서술 중 현재가/52주 고저가 불일치 교정 (저장 전에 적용)
     result = correctPriceMentions(result, ticker);
 
-    // 5. 히스토리 저장 — 하루 1건(ticker, report_date unique)만 남긴다. 응답을 기다리지
-    // 않는 비동기 저장(after()로 등록 — 응답 직후 실행 컨텍스트가 얼어붙어 fetch가
-    // 중간에 끊기는 문제 방지, 2026-07-10 이전 코드에서 겪은 문제와 동일한 이유).
+    // 5. 히스토리 저장 — 하루 1건(ticker, report_date unique)만 남긴다. 장중 생성 캐시가
+    // 마감 후 재생성될 때는 같은 (ticker, report_date)에 대한 두 번째 저장이 되므로,
+    // insert가 아니라 upsert로 덮어써야 unique 제약 충돌 없이 최신 결과로 갱신된다.
+    // 응답을 기다리지 않는 비동기 저장(after()로 등록 — 응답 직후 실행 컨텍스트가 얼어붙어
+    // fetch가 중간에 끊기는 문제 방지, 2026-07-10 이전 코드에서 겪은 문제와 동일한 이유).
     after(async () => {
       const { error } = await supabase
         .from('stock_analysis_history')
-        .insert({
+        .upsert({
           ticker,
           report_date: todayStr,
           report_type: result.reportType,
@@ -473,7 +498,7 @@ ${yesterdayComparisonBlock}
           sentiment: signalToSentiment(result.signal),
           disclaimer: result.disclaimer,
           created_at: result.createdAt,
-        });
+        }, { onConflict: 'ticker,report_date' });
       if (error) console.error('[ANALYSIS] 결과 저장 실패:', error.message);
     });
 
