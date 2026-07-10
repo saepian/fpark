@@ -167,6 +167,14 @@ async function resolveStockName(ticker: string, o: any): Promise<string> {
 let tokenCache: { token: string; expiresAt: number } | null = null;
 // 동시 발급 요청 중복 방지
 let tokenFetchPromise: Promise<string> | null = null;
+// 최근 발급 시도 실패 기록 — KIS는 발급 엔드포인트 자체에 "1분당 1회" 제한이 있어
+// (EGW00133), 실패 직후 곧바로 재시도하면 100% 다시 같은 이유로 실패한다. 이 쿨다운이
+// 없으면 하나의 invocation이 여러 종목을 순회하며 매번 getAccessToken()을 호출할 때마다
+// KIS에 다시 발급을 시도해 스스로 rate limit을 계속 유발하는 악순환이 생긴다
+// (2026-07-10 13시대 대량 재발급 실패 사고 원인 중 하나 — 상세 진단 기록은 이 커밋
+// 메시지 참고).
+let lastIssueFailure: { at: number; error: Error } | null = null;
+const ISSUE_FAILURE_COOLDOWN_MS = 65_000;
 
 export async function getAccessToken(): Promise<string> {
   // 1) 인메모리 캐시
@@ -176,6 +184,14 @@ export async function getAccessToken(): Promise<string> {
 
   // 2) 동시 발급 요청 중복 방지
   if (tokenFetchPromise) return tokenFetchPromise;
+
+  // 2.5) 방금 발급을 시도했다가 실패했다면(주로 KIS "1분당 1회" 제한), 쿨다운이
+  // 끝나기 전까지는 같은 에러를 즉시 다시 던진다 — KIS에 또 요청을 보내봐야 100%
+  // 같은 이유로 다시 실패하므로, 이 invocation 안에서 뒤이어 여러 종목을 처리하며
+  // 반복 호출되는 getAccessToken()이 매번 KIS를 두드리는 것을 막는다.
+  if (lastIssueFailure && Date.now() - lastIssueFailure.at < ISSUE_FAILURE_COOLDOWN_MS) {
+    throw lastIssueFailure.error;
+  }
 
   tokenFetchPromise = (async () => {
     // 3) Supabase 영속 캐시 (serverless invocation 간 공유)
@@ -248,12 +264,15 @@ export async function getAccessToken(): Promise<string> {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`KIS 토큰 발급 실패 [${res.status}]: ${text}`);
+      const err = new Error(`KIS 토큰 발급 실패 [${res.status}]: ${text}`);
+      lastIssueFailure = { at: Date.now(), error: err };
+      throw err;
     }
 
     const data = await res.json();
     const expiresAt = new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
     tokenCache = { token: data.access_token, expiresAt: expiresAt.getTime() };
+    lastIssueFailure = null;
 
     // 5) 새 토큰 저장 — 예전엔 기존 행을 전부 지우고 새로 넣었는데, 그러면 재발급
     // 이력이 하나도 안 남아 "오늘 몇 번, 몇 시에 재발급됐는지"를 나중에 확인할 방법이
@@ -288,11 +307,25 @@ export async function getAccessToken(): Promise<string> {
 }
 
 // 캐시된 토큰이 KIS에 의해 (다른 프로세스의 재발급 등으로) 조기 무효화된 경우
-// 강제로 새 토큰을 발급받도록 인메모리·Supabase 캐시를 모두 비움
-export async function invalidateAccessToken(): Promise<void> {
+// 강제로 새 토큰을 발급받도록 캐시를 비운다.
+//
+// 2026-07-10 사고: 예전엔 여기서 `.delete().neq('id', 0)`로 kis_tokens 테이블
+// 전체를 지웠다. 이 인스턴스가 들고 있던 (오래된) in-memory 토큰이 무효화됐다고
+// 해서 Supabase에 저장된 "현재" 토큰까지 나쁘다는 보장은 없는데 — 오히려 다른
+// 프로세스가 그 사이 정상적으로 재발급해 저장해 둔 새 토큰까지 함께 지워버렸다.
+// 그러면 그 새 토큰을 쓰려던 다른 인스턴스도 다음 호출에서 "토큰 없음"을 만나
+// 또 재발급을 시도하고, 그 재발급이 방금 것을 다시 무효화하고 — 하는 식으로
+// 인스턴스 여러 개가 서로의 토큰을 계속 무효화시키는 사슬이 만들어졌다(짧게는
+// 1분 간격으로 재발급이 반복된 원인). 이제는 "이 토큰이 나쁘다"고 알고 있는
+// 경우 그 토큰과 정확히 일치하는 행만 지운다 — badToken을 모르면(레거시 호출부)
+// 로컬에 캐시돼 있던 토큰으로 대체하고, 그마저도 없으면 Supabase는 건드리지
+// 않는다(이미 다른 프로세스가 갱신했을 수 있으므로).
+export async function invalidateAccessToken(badToken?: string): Promise<void> {
+  const target = badToken ?? tokenCache?.token ?? null;
   tokenCache = null;
+  if (!target) return;
   try {
-    await supabaseAdmin.from('kis_tokens').delete().neq('id', 0);
+    await supabaseAdmin.from('kis_tokens').delete().eq('access_token', target);
   } catch (e) {
     console.error('[KIS] 토큰 캐시 삭제 실패:', e);
   }
@@ -377,7 +410,7 @@ async function queryPrice(ticker: string, _retried = false): Promise<any> {
     const msgCd = data?.msg_cd as string | undefined;
     if (!_retried && msgCd && EXPIRED_TOKEN_CODES.has(msgCd)) {
       console.warn(`[KIS] ${ticker} 캐시 토큰 조기 만료 감지(${msgCd}), 토큰 재발급 후 재시도`);
-      await invalidateAccessToken();
+      await invalidateAccessToken(token); // 방금 실패에 쓰인 토큰만 지정해서 지움(다른 프로세스의 최신 토큰 보호)
       return queryPrice(ticker, true);
     }
     throw new Error(`주식 정보를 찾을 수 없습니다: ${ticker} [HTTP ${res.status}${data?.msg1 ? ` ${data.msg1}` : ''}]`);
