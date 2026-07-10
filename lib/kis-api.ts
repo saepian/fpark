@@ -176,6 +176,53 @@ let tokenFetchPromise: Promise<string> | null = null;
 let lastIssueFailure: { at: number; error: Error } | null = null;
 const ISSUE_FAILURE_COOLDOWN_MS = 65_000;
 
+// 2026-07-10 M2 사고 대응: 여러 서버리스 인스턴스가 거의 동시에 "재발급 필요"를
+// 판단하면 KIS의 "1분당 1회" 발급 제한(EGW00133)에 서로 부딪혀 전부 실패하고,
+// 그 상태가 계속 반복돼 사실상 유효한 토큰이 하나도 없는 상태가 지속됐다
+// (지터+재확인 정도로는 막기엔 충돌 창이 너무 넓었다).
+//
+// kis_tokens 테이블의 PK 유일성만으로(새 테이블/마이그레이션 없이) 분산 락을
+// 구현한다 — 고정된 음수 id(-1, 실제 토큰 id는 항상 양수라 절대 안 겹침) 행을
+// "먼저 insert에 성공한 프로세스만" 만들 수 있고, 나머지는 그 즉시 PK 충돌
+// 에러로 알 수 있다(2026-07-10 실측으로 확인). 락 보유자가 비정상 종료해도
+// 무한히 막히지 않도록 TTL을 두고, TTL이 지난 락은 다음 프로세스가 정리하고
+// 다시 시도한다.
+const LOCK_ID = -1;
+const LOCK_TTL_MS = 8_000; // KIS 발급 왕복 + 여유를 넉넉히 덮는 시간
+
+async function acquireIssueLock(): Promise<boolean> {
+  const deadline = new Date(Date.now() + LOCK_TTL_MS).toISOString();
+  const { error } = await supabaseAdmin
+    .from('kis_tokens')
+    .insert({ id: LOCK_ID, access_token: 'LOCK', expired_at: deadline });
+  if (!error) return true;
+
+  // 이미 락 행이 있다 — 아직 유효한(TTL 안 지난) 락인지 확인
+  const { data: existing } = await supabaseAdmin
+    .from('kis_tokens')
+    .select('expired_at')
+    .eq('id', LOCK_ID)
+    .maybeSingle();
+  if (existing && new Date(existing.expired_at).getTime() > Date.now()) {
+    return false; // 다른 프로세스가 유효하게 락을 쥐고 있음
+  }
+
+  // TTL이 지난 락(이전 홀더가 릴리즈 없이 비정상 종료) — 정리하고 한 번만 재시도
+  await supabaseAdmin.from('kis_tokens').delete().eq('id', LOCK_ID);
+  const { error: retryError } = await supabaseAdmin
+    .from('kis_tokens')
+    .insert({ id: LOCK_ID, access_token: 'LOCK', expired_at: deadline });
+  return !retryError;
+}
+
+async function releaseIssueLock(): Promise<void> {
+  try {
+    await supabaseAdmin.from('kis_tokens').delete().eq('id', LOCK_ID);
+  } catch (e) {
+    console.error('[KIS] 발급 락 해제 실패:', e);
+  }
+}
+
 export async function getAccessToken(): Promise<string> {
   // 1) 인메모리 캐시
   if (tokenCache && Date.now() < tokenCache.expiresAt) {
@@ -194,12 +241,15 @@ export async function getAccessToken(): Promise<string> {
   }
 
   tokenFetchPromise = (async () => {
-    // 3) Supabase 영속 캐시 (serverless invocation 간 공유)
+    // 3) Supabase 영속 캐시 (serverless invocation 간 공유) — id>0 조건으로
+    // 발급 락 sentinel 행(id=-1)은 제외한다.
     try {
       const { data: tokenData } = await supabaseAdmin
         .from('kis_tokens')
         .select('access_token, expired_at')
+        .gt('id', 0)
         .order('created_at', { ascending: false })
+        .order('id', { ascending: false }) // created_at 동률 시 결정적 순서 보장
         .limit(1)
         .single();
 
@@ -226,79 +276,95 @@ export async function getAccessToken(): Promise<string> {
       console.log('[KIS] 토큰 캐시 조회 실패, 새로 발급:', e instanceof Error ? e.message : e);
     }
 
-    // 4) KIS에서 신규 발급
-    // 동시에 여러 인스턴스가 "재발급 필요"를 판단할 수 있으므로, 짧은 지터 후
-    // 한 번 더 Supabase를 확인해 다른 프로세스가 이미 새 토큰을 저장했는지 확인한다.
-    // (KIS는 계정당 유효 토큰이 1개뿐이라 동시 재발급 시 서로 무효화 + 403 rate limit 유발)
-    await new Promise((r) => setTimeout(r, 150 + Math.random() * 350));
-    try {
-      const { data: recheck } = await supabaseAdmin
-        .from('kis_tokens')
-        .select('access_token, expired_at')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-      if (recheck?.access_token && recheck?.expired_at) {
-        const remainingMs = new Date(recheck.expired_at).getTime() - Date.now();
-        if (remainingMs > 10 * 60 * 1000) {
-          console.log('[KIS] 재확인 중 다른 프로세스가 재발급한 토큰 발견, 재사용');
-          tokenCache = { token: recheck.access_token, expiresAt: new Date(recheck.expired_at).getTime() };
-          return recheck.access_token;
+    // 4) 발급 락 획득 시도 — 이걸 획득한 프로세스만 실제로 KIS에 발급을 요청한다.
+    // 획득 못 하면 다른 프로세스가 지금 발급 중이라는 뜻이므로, KIS를 또 두드려
+    // rate limit을 더 악화시키는 대신 짧게 폴링하며 그 프로세스가 저장할 새
+    // 토큰을 기다린다(최대 약 LOCK_TTL_MS만큼).
+    const gotLock = await acquireIssueLock();
+    if (!gotLock) {
+      console.log('[KIS] 다른 프로세스가 발급 중 — 대기 후 재확인');
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise((r) => setTimeout(r, 500 + Math.random() * 300));
+        try {
+          const { data: waited } = await supabaseAdmin
+            .from('kis_tokens')
+            .select('access_token, expired_at')
+            .gt('id', 0)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .limit(1)
+            .single();
+          if (waited?.access_token && waited?.expired_at) {
+            const remainingMs = new Date(waited.expired_at).getTime() - Date.now();
+            if (remainingMs > 10 * 60 * 1000) {
+              console.log('[KIS] 대기 중 다른 프로세스가 발급한 토큰 확인, 재사용');
+              tokenCache = { token: waited.access_token, expiresAt: new Date(waited.expired_at).getTime() };
+              return waited.access_token;
+            }
+          }
+        } catch {
+          // 무시하고 다음 폴링 시도
         }
       }
-    } catch {
-      // 재확인 실패는 무시하고 정상적으로 신규 발급 진행
-    }
-
-    console.log('[KIS] 새 토큰 발급 요청');
-    const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json; charset=UTF-8' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        appkey: process.env.KIS_APP_KEY,
-        appsecret: process.env.KIS_APP_SECRET,
-      }),
-      cache: 'no-store',
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      const err = new Error(`KIS 토큰 발급 실패 [${res.status}]: ${text}`);
+      const err = new KisTokenIssueError('다른 프로세스가 토큰 발급 중이라 대기했지만 시간 내에 완료되지 않았습니다');
       lastIssueFailure = { at: Date.now(), error: err };
       throw err;
     }
 
-    const data = await res.json();
-    const expiresAt = new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
-    tokenCache = { token: data.access_token, expiresAt: expiresAt.getTime() };
-    lastIssueFailure = null;
-
-    // 5) 새 토큰 저장 — 예전엔 기존 행을 전부 지우고 새로 넣었는데, 그러면 재발급
-    // 이력이 하나도 안 남아 "오늘 몇 번, 몇 시에 재발급됐는지"를 나중에 확인할 방법이
-    // Vercel 로그(보존 기간이 짧음)뿐이었다(2026-07-08 재발급 빈도 조사 때 직접 겪음).
-    // 이제는 지우지 않고 계속 쌓되, 최근 50건만 남기고 오래된 건 정리한다 — 조회는
-    // 여전히 created_at 최신 1건만 보므로 캐시 동작에는 영향 없음.
     try {
-      await supabaseAdmin.from('kis_tokens').insert({
-        access_token: data.access_token,
-        expired_at: expiresAt.toISOString(),
+      console.log('[KIS] 새 토큰 발급 요청');
+      const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify({
+          grant_type: 'client_credentials',
+          appkey: process.env.KIS_APP_KEY,
+          appsecret: process.env.KIS_APP_SECRET,
+        }),
+        cache: 'no-store',
       });
-      console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
 
-      const { data: history } = await supabaseAdmin
-        .from('kis_tokens')
-        .select('id')
-        .order('created_at', { ascending: false })
-        .range(50, 1000);
-      if (history && history.length > 0) {
-        await supabaseAdmin.from('kis_tokens').delete().in('id', history.map((r) => r.id));
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        const err = new KisTokenIssueError(`KIS 토큰 발급 실패 [${res.status}]: ${text}`);
+        lastIssueFailure = { at: Date.now(), error: err };
+        throw err;
       }
-    } catch (e) {
-      console.error('[KIS] 토큰 저장 실패:', e);
-    }
 
-    return data.access_token;
+      const data = await res.json();
+      const expiresAt = new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
+      tokenCache = { token: data.access_token, expiresAt: expiresAt.getTime() };
+      lastIssueFailure = null;
+
+      // 5) 새 토큰 저장 — 예전엔 기존 행을 전부 지우고 새로 넣었는데, 그러면 재발급
+      // 이력이 하나도 안 남아 "오늘 몇 번, 몇 시에 재발급됐는지"를 나중에 확인할 방법이
+      // Vercel 로그(보존 기간이 짧음)뿐이었다(2026-07-08 재발급 빈도 조사 때 직접 겪음).
+      // 이제는 지우지 않고 계속 쌓되, 최근 50건만 남기고 오래된 건 정리한다 — 조회는
+      // 여전히 created_at 최신 1건만 보므로 캐시 동작에는 영향 없음.
+      try {
+        await supabaseAdmin.from('kis_tokens').insert({
+          access_token: data.access_token,
+          expired_at: expiresAt.toISOString(),
+        });
+        console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
+
+        const { data: history } = await supabaseAdmin
+          .from('kis_tokens')
+          .select('id')
+          .gt('id', 0)
+          .order('created_at', { ascending: false })
+          .range(50, 1000);
+        if (history && history.length > 0) {
+          await supabaseAdmin.from('kis_tokens').delete().in('id', history.map((r) => r.id));
+        }
+      } catch (e) {
+        console.error('[KIS] 토큰 저장 실패:', e);
+      }
+
+      return data.access_token;
+    } finally {
+      await releaseIssueLock();
+    }
   })().finally(() => {
     tokenFetchPromise = null;
   });
@@ -363,7 +429,18 @@ function formatTradingValue(pbmnWon: number): string {
 // KIS가 캐시된 토큰을 조기 무효화했을 때 반환하는 코드 (다른 프로세스의 재발급 등으로 발생)
 const EXPIRED_TOKEN_CODES = new Set(['EGW00123', 'EGW00121']);
 
+// 개별 API 호출에서 "이 토큰이 조기 만료됐다"고 감지된 경우 — 다른 프로세스가 이미
+// 새 토큰을 발급했다는 뜻이라, 캐시를 비우고 다시 시도하면 대개 성공한다
+// (withKisTokenRetry가 처리).
 export class KisTokenExpiredError extends Error {}
+
+// getAccessToken() 자체가 KIS로부터 새 토큰 발급을 거부당한 경우(주로 EGW00133
+// "1분당 1회" 레이트리밋). KisTokenExpiredError와 의도적으로 구분한다 — 이건 "다른
+// 프로세스가 이미 새 토큰을 갖고 있다"는 뜻이 아니라 "지금은 아무도 새 토큰을 못
+// 받는다"는 뜻이라, 즉시 재시도해도 똑같이 실패할 뿐이다. withKisTokenRetry는
+// KisTokenExpiredError만 잡아 재시도하므로 이 타입은 자동으로 재시도 대상에서
+// 제외된다 — 실패가 또 다른 실패(무의미한 재시도)를 유발하지 않도록.
+export class KisTokenIssueError extends Error {}
 
 // KIS 응답의 msg_cd가 토큰 조기 만료 코드인 경우 KisTokenExpiredError를 던진다.
 // 호출부는 rt_cd 체크보다 먼저 이 함수를 호출해 토큰 만료를 구분해야 한다.
@@ -413,7 +490,10 @@ async function queryPrice(ticker: string, _retried = false): Promise<any> {
       await invalidateAccessToken(token); // 방금 실패에 쓰인 토큰만 지정해서 지움(다른 프로세스의 최신 토큰 보호)
       return queryPrice(ticker, true);
     }
-    throw new Error(`주식 정보를 찾을 수 없습니다: ${ticker} [HTTP ${res.status}${data?.msg1 ? ` ${data.msg1}` : ''}]`);
+    // "종목이 없다"는 특정 원인 하나로 단정하지 않는다 — 토큰/레이트리밋 등 다른
+    // 이유일 수 있어 msg_cd/msg1을 그대로 노출해야 나중에 원인 추적이 된다
+    // (2026-07-10 사고 때 이 메시지가 "종목 없음"으로만 보여서 원인 파악이 늦어졌다).
+    throw new Error(`KIS 시세 조회 실패: ${ticker} [HTTP ${res.status}]${data?.msg_cd ? ` (${data.msg_cd})` : ''}${data?.msg1 ? ` ${data.msg1}` : ''}`);
   }
 
   return data.output;
@@ -455,81 +535,92 @@ export async function fetchDailyChart(
   ticker: string,
   period: '1W' | '1M' | '3M' | '1Y'
 ): Promise<ChartDataPoint[]> {
-  const token = await getAccessToken();
+  // 토큰 조기 만료 감지가 없던 함수 — 만료된 토큰으로 J/Q를 번갈아 시도해봐야 둘 다
+  // 같은 이유로 실패할 뿐이라, 감지 즉시 상위 withKisTokenRetry가 재발급 후 한 번
+  // 다시 시도하게 한다(2026-07-10 코드 리뷰에서 발견).
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
 
-  const endDate = new Date();
-  const startDate = new Date();
-  switch (period) {
-    case '1W': startDate.setDate(endDate.getDate() - 7); break;
-    case '1M': startDate.setMonth(endDate.getMonth() - 1); break;
-    case '3M': startDate.setMonth(endDate.getMonth() - 3); break;
-    case '1Y': startDate.setFullYear(endDate.getFullYear() - 1); break;
-  }
+    const endDate = new Date();
+    const startDate = new Date();
+    switch (period) {
+      case '1W': startDate.setDate(endDate.getDate() - 7); break;
+      case '1M': startDate.setMonth(endDate.getMonth() - 1); break;
+      case '3M': startDate.setMonth(endDate.getMonth() - 3); break;
+      case '1Y': startDate.setFullYear(endDate.getFullYear() - 1); break;
+    }
 
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 
-  for (const mktCode of ['J', 'Q']) {
-    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`);
-    url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
-    url.searchParams.set('FID_INPUT_ISCD', ticker);
-    url.searchParams.set('FID_INPUT_DATE_1', fmt(startDate));
-    url.searchParams.set('FID_INPUT_DATE_2', fmt(endDate));
-    url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
-    url.searchParams.set('FID_ORG_ADJ_PRC', '0');
+    for (const mktCode of ['J', 'Q']) {
+      const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`);
+      url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
+      url.searchParams.set('FID_INPUT_ISCD', ticker);
+      url.searchParams.set('FID_INPUT_DATE_1', fmt(startDate));
+      url.searchParams.set('FID_INPUT_DATE_2', fmt(endDate));
+      url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
+      url.searchParams.set('FID_ORG_ADJ_PRC', '0');
 
-    const res = await fetch(url.toString(), {
-      headers: headers(token, 'FHKST03010100'),
-      cache:   'no-store',
-      signal:  AbortSignal.timeout(10000),
-    });
-    if (!res.ok) continue;
+      const res = await fetch(url.toString(), {
+        headers: headers(token, 'FHKST03010100'),
+        cache:   'no-store',
+        signal:  AbortSignal.timeout(10000),
+      });
+      if (!res.ok) continue;
 
-    const data = await res.json();
-    if (data.rt_cd !== '0' || !Array.isArray(data.output2) || data.output2.length === 0) continue;
+      const data = await res.json();
+      assertKisTokenValid(data, `fetchDailyChart(${ticker})`);
+      if (data.rt_cd !== '0' || !Array.isArray(data.output2) || data.output2.length === 0) continue;
 
-    // KIS는 최신순 → 오래된순으로 반환. 차트용으로 역순 정렬
-    return data.output2
-      .filter((item: any) => item.stck_clpr && item.stck_clpr !== '0')
-      .reverse()
-      .map((item: any) => ({
-        date: `${item.stck_bsop_date.slice(0, 4)}-${item.stck_bsop_date.slice(4, 6)}-${item.stck_bsop_date.slice(6, 8)}`,
-        open: parseInt(item.stck_oprc, 10),
-        high: parseInt(item.stck_hgpr, 10),
-        low: parseInt(item.stck_lwpr, 10),
-        close: parseInt(item.stck_clpr, 10),
-        volume: parseInt(item.acml_vol, 10),
-        tradingValue: Number(item.acml_tr_pbmn) || undefined,
-      }));
-  }
+      // KIS는 최신순 → 오래된순으로 반환. 차트용으로 역순 정렬
+      return data.output2
+        .filter((item: any) => item.stck_clpr && item.stck_clpr !== '0')
+        .reverse()
+        .map((item: any) => ({
+          date: `${item.stck_bsop_date.slice(0, 4)}-${item.stck_bsop_date.slice(4, 6)}-${item.stck_bsop_date.slice(6, 8)}`,
+          open: parseInt(item.stck_oprc, 10),
+          high: parseInt(item.stck_hgpr, 10),
+          low: parseInt(item.stck_lwpr, 10),
+          close: parseInt(item.stck_clpr, 10),
+          volume: parseInt(item.acml_vol, 10),
+          tradingValue: Number(item.acml_tr_pbmn) || undefined,
+        }));
+    }
 
-  throw new Error(`차트 데이터를 찾을 수 없습니다: ${ticker}`);
+    throw new Error(`차트 데이터를 찾을 수 없습니다: ${ticker}`);
+  });
 }
 
 export async function fetchMarketIndex(indexCode: string, signal?: AbortSignal): Promise<MarketIndexData> {
-  const token = await getAccessToken();
+  // 토큰 조기 만료 감지가 없던 함수 — /api/market이 지수 14개를 매번 호출하는 만큼
+  // 만료 임박 구간에 가장 자주 걸리던 지점이었다(2026-07-10 코드 리뷰에서 발견).
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
 
-  const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-index-price`);
-  url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
-  url.searchParams.set('FID_INPUT_ISCD', indexCode);
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-index-price`);
+    url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
+    url.searchParams.set('FID_INPUT_ISCD', indexCode);
 
-  const res = await fetch(url.toString(), {
-    headers: headers(token, 'FHPUP02100000'),
-    cache: 'no-store',
-    signal,
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'FHPUP02100000'),
+      cache: 'no-store',
+      signal,
+    });
+
+    if (!res.ok) throw new Error(`지수 조회 실패 [${res.status}]`);
+
+    const data = await res.json();
+    assertKisTokenValid(data, `fetchMarketIndex(${indexCode})`);
+    if (data.rt_cd !== '0') throw new Error(`지수 오류: ${data.msg1}`);
+
+    const o = data.output;
+    return {
+      value: parseFloat(o.bstp_nmix_prpr),
+      change: signedChange(o.bstp_nmix_prdy_vrss, o.prdy_vrss_sign),
+      changeRate: signedChange(o.bstp_nmix_prdy_ctrt, o.prdy_vrss_sign),
+    };
   });
-
-  if (!res.ok) throw new Error(`지수 조회 실패 [${res.status}]`);
-
-  const data = await res.json();
-  if (data.rt_cd !== '0') throw new Error(`지수 오류: ${data.msg1}`);
-
-  const o = data.output;
-  return {
-    value: parseFloat(o.bstp_nmix_prpr),
-    change: signedChange(o.bstp_nmix_prdy_vrss, o.prdy_vrss_sign),
-    changeRate: signedChange(o.bstp_nmix_prdy_ctrt, o.prdy_vrss_sign),
-  };
 }
 
 // 지수(예: KOSPI 0001)의 특정 기간 등락률 — 벤치마크 비교용 (판단 없이 수치만 제공)
@@ -538,44 +629,50 @@ export async function fetchIndexRangeChange(
   fromDate: Date,
   toDate: Date,
 ): Promise<{ startValue: number; endValue: number; changeRate: number; startDate: string; endDate: string } | null> {
+  // 토큰 조기 만료 감지가 없던 함수(2026-07-10 코드 리뷰에서 발견) — withKisTokenRetry로
+  // 한 번은 재시도하되, 이 데이터는 원래도 선택적(벤치마크 비교용)이라 그래도 실패하면
+  // 기존처럼 조용히 null을 반환한다.
   try {
-    const token = await getAccessToken();
-    const fmt = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    return await withKisTokenRetry(async () => {
+      const token = await getAccessToken();
+      const fmt = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 
-    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice`);
-    url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
-    url.searchParams.set('FID_INPUT_ISCD', indexCode);
-    url.searchParams.set('FID_INPUT_DATE_1', fmt(fromDate));
-    url.searchParams.set('FID_INPUT_DATE_2', fmt(toDate));
-    url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
+      const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice`);
+      url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
+      url.searchParams.set('FID_INPUT_ISCD', indexCode);
+      url.searchParams.set('FID_INPUT_DATE_1', fmt(fromDate));
+      url.searchParams.set('FID_INPUT_DATE_2', fmt(toDate));
+      url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
 
-    const res = await fetch(url.toString(), {
-      headers: headers(token, 'FHKUP03500100'),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(8000),
+      const res = await fetch(url.toString(), {
+        headers: headers(token, 'FHKUP03500100'),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      assertKisTokenValid(data, `fetchIndexRangeChange(${indexCode})`);
+      if (data.rt_cd !== '0') return null;
+
+      const rows: any[] = (data.output2 ?? [])
+        .filter((r: any) => r.bstp_nmix_prpr && r.stck_bsop_date)
+        .reverse(); // 오래된순 정렬
+      if (rows.length < 2) return null;
+
+      const first = rows[0];
+      const last  = rows[rows.length - 1];
+      const startValue = parseFloat(first.bstp_nmix_prpr);
+      const endValue    = parseFloat(last.bstp_nmix_prpr);
+      if (!(startValue > 0) || !(endValue > 0)) return null;
+
+      return {
+        startValue,
+        endValue,
+        changeRate: ((endValue - startValue) / startValue) * 100,
+        startDate: `${first.stck_bsop_date.slice(0,4)}-${first.stck_bsop_date.slice(4,6)}-${first.stck_bsop_date.slice(6,8)}`,
+        endDate:   `${last.stck_bsop_date.slice(0,4)}-${last.stck_bsop_date.slice(4,6)}-${last.stck_bsop_date.slice(6,8)}`,
+      };
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.rt_cd !== '0') return null;
-
-    const rows: any[] = (data.output2 ?? [])
-      .filter((r: any) => r.bstp_nmix_prpr && r.stck_bsop_date)
-      .reverse(); // 오래된순 정렬
-    if (rows.length < 2) return null;
-
-    const first = rows[0];
-    const last  = rows[rows.length - 1];
-    const startValue = parseFloat(first.bstp_nmix_prpr);
-    const endValue    = parseFloat(last.bstp_nmix_prpr);
-    if (!(startValue > 0) || !(endValue > 0)) return null;
-
-    return {
-      startValue,
-      endValue,
-      changeRate: ((endValue - startValue) / startValue) * 100,
-      startDate: `${first.stck_bsop_date.slice(0,4)}-${first.stck_bsop_date.slice(4,6)}-${first.stck_bsop_date.slice(6,8)}`,
-      endDate:   `${last.stck_bsop_date.slice(0,4)}-${last.stck_bsop_date.slice(4,6)}-${last.stck_bsop_date.slice(6,8)}`,
-    };
   } catch (e) {
     console.error('[KIS] fetchIndexRangeChange 실패:', e);
     return null;
@@ -614,95 +711,115 @@ export const CURATED_TICKERS_MKT: [string, 'J' | 'Q' | 'X'][] = [
 const CURATED_TICKERS = CURATED_TICKERS_MKT.map(([t]) => t);
 
 export async function fetchCuratedMovers(count = 5): Promise<{ gainers: MoverStock[]; losers: MoverStock[] }> {
-  const token = await getAccessToken(); // 토큰 1회 발급 후 공유
+  // 토큰 조기 만료 감지가 없던 함수 — 배치 중간에 만료되면 남은 종목들이 전부
+  // Promise.allSettled에서 조용히 걸러져 에러 로그 하나 없이 급등락 목록만
+  // 부실해졌다(2026-07-10 코드 리뷰에서 발견). 이제 만료를 감지하면 즉시 상위
+  // withKisTokenRetry가 재발급 후 전체를 한 번 다시 시도한다.
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken(); // 토큰 1회 발급 후 공유
 
-  const fetchTicker = async (ticker: string): Promise<MoverStock> => {
-    for (const mktCode of ['J', 'Q']) {
-      const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
-      url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
-      url.searchParams.set('FID_INPUT_ISCD', ticker);
-      const res = await fetch(url.toString(), {
-        headers: headers(token, 'FHKST01010100'),
-        cache:   'no-store',
-        signal:  AbortSignal.timeout(10000),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data.rt_cd !== '0') continue;
-      const o = data.output;
-      return {
-        ticker,
-        name:       ((o.hts_kor_isnm || o.prdt_abrv_name || STOCK_NAMES[ticker] || ticker) as string).trim(),
-        price:      parseInt(o.stck_prpr, 10),
-        changeRate: signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
-      } satisfies MoverStock;
+    const fetchTicker = async (ticker: string): Promise<MoverStock> => {
+      for (const mktCode of ['J', 'Q']) {
+        const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
+        url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
+        url.searchParams.set('FID_INPUT_ISCD', ticker);
+        const res = await fetch(url.toString(), {
+          headers: headers(token, 'FHKST01010100'),
+          cache:   'no-store',
+          signal:  AbortSignal.timeout(10000),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        assertKisTokenValid(data, `fetchCuratedMovers(${ticker})`);
+        if (data.rt_cd !== '0') continue;
+        const o = data.output;
+        return {
+          ticker,
+          name:       ((o.hts_kor_isnm || o.prdt_abrv_name || STOCK_NAMES[ticker] || ticker) as string).trim(),
+          price:      parseInt(o.stck_prpr, 10),
+          changeRate: signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
+        } satisfies MoverStock;
+      }
+      throw new Error(`종목 정보를 찾을 수 없습니다: ${ticker}`);
+    };
+
+    // 10개씩 배치 처리 — KIS API 동시 요청 과부하 방지
+    const allSettled: PromiseSettledResult<MoverStock>[] = [];
+    for (let i = 0; i < CURATED_TICKERS.length; i += 10) {
+      const batch = CURATED_TICKERS.slice(i, i + 10);
+      const batchResults = await Promise.allSettled(batch.map(fetchTicker));
+      // 토큰 만료로 실패한 게 하나라도 있으면 나머지 배치를 계속 돌아봐야 똑같이
+      // 실패할 뿐이니, 여기서 바로 던져서 상위 withKisTokenRetry가 처리하게 한다.
+      const expired = batchResults.find(
+        (r): r is PromiseRejectedResult => r.status === 'rejected' && r.reason instanceof KisTokenExpiredError,
+      );
+      if (expired) throw expired.reason;
+      allSettled.push(...batchResults);
+      if (i + 10 < CURATED_TICKERS.length) await new Promise((r) => setTimeout(r, 300));
     }
-    throw new Error(`종목 정보를 찾을 수 없습니다: ${ticker}`);
-  };
 
-  // 10개씩 배치 처리 — KIS API 동시 요청 과부하 방지
-  const allSettled: PromiseSettledResult<MoverStock>[] = [];
-  for (let i = 0; i < CURATED_TICKERS.length; i += 10) {
-    const batch = CURATED_TICKERS.slice(i, i + 10);
-    const batchResults = await Promise.allSettled(batch.map(fetchTicker));
-    allSettled.push(...batchResults);
-    if (i + 10 < CURATED_TICKERS.length) await new Promise((r) => setTimeout(r, 300));
-  }
+    const stocks = allSettled
+      .filter((r): r is PromiseFulfilledResult<MoverStock> => r.status === 'fulfilled')
+      .map((r) => r.value)
+      .filter((s) => s.price > 0);
 
-  const stocks = allSettled
-    .filter((r): r is PromiseFulfilledResult<MoverStock> => r.status === 'fulfilled')
-    .map((r) => r.value)
-    .filter((s) => s.price > 0);
+    stocks.sort((a, b) => b.changeRate - a.changeRate);
 
-  stocks.sort((a, b) => b.changeRate - a.changeRate);
+    // 상승 종목만 gainers, 하락 종목만 losers (방향 반대 종목 제외)
+    const gainers = stocks.filter((s) => s.changeRate > 0).slice(0, count);
+    const losers  = stocks.filter((s) => s.changeRate < 0).reverse().slice(0, count);
 
-  // 상승 종목만 gainers, 하락 종목만 losers (방향 반대 종목 제외)
-  const gainers = stocks.filter((s) => s.changeRate > 0).slice(0, count);
-  const losers  = stocks.filter((s) => s.changeRate < 0).reverse().slice(0, count);
-
-  return { gainers, losers };
+    return { gainers, losers };
+  });
 }
 
 // 국내주식 급등/급락 순위 조회 (FHPST01700000)
 // direction: 'up' = 상승률 순, 'down' = 하락률 순
+// 참고: 2026-07-10 기준 app/api/market/ranking/route.ts가 동명의 로컬 함수를 따로
+// 두고 있어(이미 withKisTokenRetry로 감쌈) 이 export는 현재 실제로 호출되는 곳이
+// 없다. 그래도 토큰 만료 감지가 없는 채로 남겨두면 나중에 누가 그냥 갖다 쓸 때
+// 똑같은 문제가 재현되므로 함께 고쳐둔다(2026-07-10 코드 리뷰에서 발견).
 export async function fetchFluctuation(direction: 'up' | 'down', count = 5): Promise<MoverStock[]> {
-  const token = await getAccessToken();
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
 
-  const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/ranking/fluctuation`);
-  url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
-  url.searchParams.set('FID_COND_SCR_DIV_CODE', '170');
-  url.searchParams.set('FID_INPUT_ISCD', '0001');
-  url.searchParams.set('FID_RANK_SORT_CLS_CODE', direction === 'up' ? '0' : '1');
-  url.searchParams.set('FID_INPUT_CNT_1', '0');
-  url.searchParams.set('FID_TRGT_CLS_CODE', '111111111');
-  url.searchParams.set('FID_TRGT_EXLS_CLS_CODE', '000000');
-  url.searchParams.set('FID_DIV_CLS_CODE', '0');
-  url.searchParams.set('FID_INPUT_DATE_1', '');
-  url.searchParams.set('FID_INPUT_PRICE_1', '');
-  url.searchParams.set('FID_INPUT_PRICE_2', '');
-  url.searchParams.set('FID_VOL_CNT', '');
-  url.searchParams.set('FID_PRC_CLS_CODE', '0');
-  url.searchParams.set('FID_RSFL_RATE1', '');
-  url.searchParams.set('FID_RSFL_RATE2', '');
-  url.searchParams.set('FID_RST_CLB_CODE', '');
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/ranking/fluctuation`);
+    url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
+    url.searchParams.set('FID_COND_SCR_DIV_CODE', '170');
+    url.searchParams.set('FID_INPUT_ISCD', '0001');
+    url.searchParams.set('FID_RANK_SORT_CLS_CODE', direction === 'up' ? '0' : '1');
+    url.searchParams.set('FID_INPUT_CNT_1', '0');
+    url.searchParams.set('FID_TRGT_CLS_CODE', '111111111');
+    url.searchParams.set('FID_TRGT_EXLS_CLS_CODE', '000000');
+    url.searchParams.set('FID_DIV_CLS_CODE', '0');
+    url.searchParams.set('FID_INPUT_DATE_1', '');
+    url.searchParams.set('FID_INPUT_PRICE_1', '');
+    url.searchParams.set('FID_INPUT_PRICE_2', '');
+    url.searchParams.set('FID_VOL_CNT', '');
+    url.searchParams.set('FID_PRC_CLS_CODE', '0');
+    url.searchParams.set('FID_RSFL_RATE1', '');
+    url.searchParams.set('FID_RSFL_RATE2', '');
+    url.searchParams.set('FID_RST_CLB_CODE', '');
 
-  const res = await fetch(url.toString(), {
-    headers: headers(token, 'FHPST01700000'),
-    cache: 'no-store',
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'FHPST01700000'),
+      cache: 'no-store',
+    });
+
+    if (!res.ok) throw new Error(`급등락 조회 실패 [${res.status}]`);
+
+    const data = await res.json();
+    assertKisTokenValid(data, `fetchFluctuation(${direction})`);
+    if (data.rt_cd !== '0') throw new Error(`급등락 API 오류: ${data.msg1}`);
+
+    const output: any[] = data.output ?? [];
+    return output.slice(0, count).map((o) => ({
+      ticker: o.stck_shrn_iscd,
+      name:   o.hts_kor_isnm,
+      price:  parseInt(o.stck_prpr || '0', 10),
+      changeRate: signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
+    }));
   });
-
-  if (!res.ok) throw new Error(`급등락 조회 실패 [${res.status}]`);
-
-  const data = await res.json();
-  if (data.rt_cd !== '0') throw new Error(`급등락 API 오류: ${data.msg1}`);
-
-  const output: any[] = data.output ?? [];
-  return output.slice(0, count).map((o) => ({
-    ticker: o.stck_shrn_iscd,
-    name:   o.hts_kor_isnm,
-    price:  parseInt(o.stck_prpr || '0', 10),
-    changeRate: signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
-  }));
 }
 
 // 100개 주요 종목의 당일 52주 신고가/신저가 갱신 여부 확인 (배치 처리)
