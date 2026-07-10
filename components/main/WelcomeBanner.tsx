@@ -1,47 +1,30 @@
 'use client';
 
-// 가입 후 7일 이내이면서 /welcome을 아직 안 본 유저에게만 뜨는 안내 배너.
+// 신규 가입자(has_seen_welcome=false, 가입 7일 이내)에게만 뜨는 큰 안내 배너.
 // 강제 리다이렉트 대신 완전히 선택적으로 /welcome을 둘러볼 수 있게 하는 보조
-// 진입점 — has_seen_welcome 컬럼을 그대로 재활용한다. Hero의 AI 진단 카드
-// 바로 아래(스크롤 없이 보이는 영역)에 배치해 눈에 띄게 한다.
-// 닫기(×)를 누르면 app/api/welcome/route.ts를 그대로 호출해 has_seen_welcome을
-// true로 갱신하므로, /welcome 방문으로 닫히는 것과 동일하게 재노출되지 않는다.
+// 진입점. Hero의 AI 진단 카드 바로 아래(스크롤 없이 보이는 영역)에 배치해
+// 눈에 띄게 한다.
+//
+// 노출 여부 판단은 lib/useWelcomeExposure.ts를 components/WelcomeLink.tsx와
+// 공유한다 — 이 배너가 사라지는 순간(닫기 또는 7일 경과) 항상 챗봇 위 작은
+// 링크로 자연스럽게 이어지고, 완전히 사라지는 경우는 없다.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { X, Sparkles } from 'lucide-react';
-import { createClient } from '@/lib/supabase-browser';
-
-const VISIBLE_WINDOW_DAYS = 7;
+import { useWelcomeExposure, notifyWelcomeDismissed } from '@/lib/useWelcomeExposure';
 
 export default function WelcomeBanner() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from('users')
-        .select('has_seen_welcome, created_at')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (!data || data.has_seen_welcome) return;
-
-      const createdAt = data.created_at ? new Date(data.created_at).getTime() : 0;
-      const withinWindow = Date.now() - createdAt < VISIBLE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-      if (withinWindow) setVisible(true);
-    })();
-  }, []);
+  const exposure = useWelcomeExposure();
+  const [dismissed, setDismissed] = useState(false);
 
   const dismiss = () => {
-    setVisible(false);
+    setDismissed(true);
+    notifyWelcomeDismissed();
     fetch('/api/welcome', { method: 'POST' }).catch(() => {});
   };
 
-  if (!visible) return null;
+  if (exposure !== 'big' || dismissed) return null;
 
   return (
     <div className="max-w-2xl mx-auto mb-10">

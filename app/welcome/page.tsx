@@ -343,14 +343,13 @@ function WelcomeContent() {
 
   const [activeTab, setActiveTab] = useState<PlanType>('free');
 
+  // 비로그인 방문자도 볼 수 있다(챗봇 위 작은 링크로 누구나 들어올 수 있음) —
+  // 로그인 유저일 때만 "이미 봤음" 마커를 갱신한다.
   useEffect(() => {
     (async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        window.location.href = '/auth/login';
-        return;
-      }
+      if (!user) return;
       fetch('/api/welcome', { method: 'POST' }).catch(() => {});
     })();
   }, []);
