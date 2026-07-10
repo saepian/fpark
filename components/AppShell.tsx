@@ -3,7 +3,6 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import Hero from './main/Hero';
-import WelcomeBanner from './main/WelcomeBanner';
 import NewsFeed from './main/NewsFeed';
 import TopMovers from './main/TopMovers';
 import MarketSummary from './main/MarketSummary';
@@ -18,9 +17,6 @@ export default function AppShell() {
     <>
       {/* 풀 와이드 히어로 */}
       <Hero />
-
-      {/* 신규 유저 전용 웰컴 페이지 안내 배너 (선택적 진입, 강제 리다이렉트 아님) */}
-      <WelcomeBanner />
 
       {/* 콘텐츠 그리드 */}
       <div className="max-w-[1400px] mx-auto px-6 py-8">

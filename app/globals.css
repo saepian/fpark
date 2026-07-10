@@ -172,6 +172,19 @@ button, [role="button"], a {
   box-shadow: 0 0 28px rgba(168, 85, 247, 0.5);
 }
 
+/* 대시보드 웰컴 배너 — 히어로 카드(회전 테두리, hover 트리거)와는 다른 종류의
+   알림임을 구분하기 위해 항상 켜져 있는 은은한 맥동 글로우 + 인디고→스카이
+   색 조합(카드들의 인디고 단일/보라 단일 톤과 다르게) 사용 */
+@keyframes welcome-banner-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(129, 140, 248, 0.22); }
+  50%      { box-shadow: 0 0 20px rgba(56, 189, 248, 0.35); }
+}
+
+.welcome-banner-border {
+  background: linear-gradient(120deg, #4f46e5, #818cf8, #38bdf8, #818cf8, #4f46e5);
+  animation: welcome-banner-pulse 3.2s ease-in-out infinite;
+}
+
 /* Nav: 요금제 버튼 */
 @keyframes pricing-shimmer {
   0%   { background-position: 0% 50%; }

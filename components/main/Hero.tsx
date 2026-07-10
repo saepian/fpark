@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import SearchDropdown from '@/components/search/SearchDropdown';
 import HeroCanvasBackground from './HeroCanvasBackground';
+import WelcomeBanner from './WelcomeBanner';
 import type { SearchResult } from '@/lib/types';
 
 interface MarketData {
@@ -261,6 +262,9 @@ export default function Hero() {
             </div>
           </div>
         </div>
+
+        {/* 신규 유저 전용 웰컴 페이지 안내 배너 (선택적 진입, 강제 리다이렉트 아님) */}
+        <WelcomeBanner />
 
         {/* 시장 현황 */}
         {market && (
