@@ -15,19 +15,37 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // getAccessToken()이 실제 KIS 발급 엔드포인트(oauth2/tokenP)까지 가지 않고
 // 캐시 경로로 바로 빠지게 한다 — 이 테스트가 보려는 건 발급 로직이 아니라
 // "발급받은 토큰이 개별 조회 도중 조기 만료 판정났을 때의 재시도 동작"이다.
+//
+// mockState.tokenRow를 null로 바꾸면 "유효한 캐시 토큰 없음" 상황을,
+// mockState.lockHeld를 true로 바꾸면 "다른 프로세스가 발급 락을 쥐고 있음"
+// 상황을 시뮬레이션할 수 있다 (waitForLock:false 즉시 폴백 테스트용).
+const mockState = vi.hoisted(() => ({
+  tokenRow: null as { access_token: string; expired_at: string } | null,
+  lockHeld: false,
+}));
+
 vi.mock('@/lib/supabase-admin', () => {
-  const farFuture = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const chain: any = {
     select: () => chain,
     order: () => chain,
     limit: () => chain,
     gt: () => chain, // getAccessToken()이 발급 락 sentinel(id=-1)을 제외할 때 씀
     range: () => Promise.resolve({ data: [], error: null }),
-    single: () => Promise.resolve({ data: { access_token: 'FAKE_VALID_TOKEN', expired_at: farFuture }, error: null }),
-    maybeSingle: () => Promise.resolve({ data: null, error: null }),
+    single: () => Promise.resolve(
+      mockState.tokenRow
+        ? { data: mockState.tokenRow, error: null }
+        : { data: null, error: new Error('no rows') }
+    ),
+    maybeSingle: () => Promise.resolve(
+      mockState.lockHeld
+        ? { data: { expired_at: new Date(Date.now() + 8000).toISOString() }, error: null }
+        : { data: null, error: null }
+    ),
     delete: () => chain,
-    eq: () => Promise.resolve({ error: null }),
-    insert: () => Promise.resolve({ error: null }),
+    // acquireIssueLock()이 insert 실패 후 .select().eq().maybeSingle()로 체이닝하므로
+    // eq()는 (bare-await되는 delete().eq() 호출도 여전히 성립하도록) chain을 반환한다.
+    eq: () => chain,
+    insert: () => Promise.resolve(mockState.lockHeld ? { error: new Error('conflict') } : { error: null }),
   };
   return { adminClient: { from: () => chain } };
 });
@@ -36,9 +54,16 @@ import {
   assertKisTokenValid,
   withKisTokenRetry,
   KisTokenExpiredError,
+  KisTokenIssueError,
+  getAccessToken,
   fetchMarketIndex,
   fetchCuratedMovers,
 } from './kis-api';
+
+beforeEach(() => {
+  mockState.tokenRow = { access_token: 'FAKE_VALID_TOKEN', expired_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() };
+  mockState.lockHeld = false;
+});
 
 describe('assertKisTokenValid — 조기 만료 코드 분류', () => {
   it('EGW00123은 KisTokenExpiredError를 던진다', () => {
@@ -141,5 +166,23 @@ describe('fetchCuratedMovers — 배치 중간 만료 감지 (end-to-end)', () =
     const result = await fetchCuratedMovers(3);
     // 재시도 이후엔 전부 성공 응답이라 gainers가 채워져야 한다
     expect(result.gainers.length).toBeGreaterThan(0);
+  });
+});
+
+// 2026-07-10 락 대기 폴링(최대 약 9.6초)이 /api/market의 8초 타임아웃과 충돌해
+// 진행 중이던 발급 요청이 통째로 잘리던 문제 수정 검증. waitForLock:false로
+// 호출하면 락이 걸려 있을 때 대기 없이 즉시 실패해야, 호출부(캐시/야후 폴백 등)가
+// 자기 타임아웃 예산 안에서 빠르게 대체 경로로 넘어갈 수 있다.
+describe('getAccessToken — waitForLock:false 즉시 폴백', () => {
+  it('유효한 캐시 토큰이 없고 다른 프로세스가 발급 락을 쥐고 있으면, 대기하지 않고 즉시 KisTokenIssueError를 던진다', async () => {
+    vi.resetModules();
+    mockState.tokenRow = null; // Supabase에 재사용 가능한 캐시 토큰 없음 → 락 획득 시도로 진행
+    mockState.lockHeld = true; // 다른 프로세스가 이미 유효한 락을 쥐고 있음
+
+    const before = Date.now();
+    const fresh = await import('./kis-api');
+    await expect(fresh.getAccessToken({ waitForLock: false })).rejects.toThrow(fresh.KisTokenIssueError);
+    // 락 대기 폴링(최대 12회 * ~650~800ms ≈ 9.6초)을 타지 않고 즉시 실패해야 한다
+    expect(Date.now() - before).toBeLessThan(2000);
   });
 });

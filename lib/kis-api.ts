@@ -223,13 +223,19 @@ async function releaseIssueLock(): Promise<void> {
   }
 }
 
-export async function getAccessToken(): Promise<string> {
+export async function getAccessToken(opts?: { waitForLock?: boolean }): Promise<string> {
+  const waitForLock = opts?.waitForLock ?? true;
+
   // 1) 인메모리 캐시
   if (tokenCache && Date.now() < tokenCache.expiresAt) {
     return tokenCache.token;
   }
 
   // 2) 동시 발급 요청 중복 방지
+  // 주의: 이미 다른 호출이 발급을 진행 중이라면(락 대기 포함) 그 프로미스를 그대로
+  // 공유한다 — 이 호출이 waitForLock:false여도, 같은 인스턴스 안에서 이미 시작된
+  // 대기를 중간에 끊을 수는 없다. 실질적으로는 흔치 않은 동시 호출 케이스라
+  // 별도 처리하지 않는다.
   if (tokenFetchPromise) return tokenFetchPromise;
 
   // 2.5) 방금 발급을 시도했다가 실패했다면(주로 KIS "1분당 1회" 제한), 쿨다운이
@@ -282,6 +288,14 @@ export async function getAccessToken(): Promise<string> {
     // 토큰을 기다린다(최대 약 LOCK_TTL_MS만큼).
     const gotLock = await acquireIssueLock();
     if (!gotLock) {
+      // 짧은 타임아웃을 가진 라우트(waitForLock:false)는 최대 9.6초짜리 폴링을
+      // 기다리다가 자기 라우트의 타임아웃에 걸려 요청째로 잘리느니, 즉시 실패를
+      // 반환해 호출부가 캐시/폴백으로 바로 넘어가게 한다.
+      if (!waitForLock) {
+        console.log('[KIS] 다른 프로세스가 발급 중 — waitForLock:false라 즉시 폴백');
+        const err = new KisTokenIssueError('다른 프로세스가 토큰 발급 중 (대기하지 않음)');
+        throw err;
+      }
       console.log('[KIS] 다른 프로세스가 발급 중 — 대기 후 재확인');
       for (let attempt = 0; attempt < 12; attempt++) {
         await new Promise((r) => setTimeout(r, 500 + Math.random() * 300));
@@ -480,8 +494,8 @@ export async function withKisTokenRetry<T>(fn: () => Promise<T>): Promise<T> {
 
 // 국내주식 시세 조회 — FID_COND_MRKT_DIV_CODE는 KOSPI/KOSDAQ 무관하게 항상 'J' 고정
 // ('Q'는 KIS가 무조건 거부하는 값이라 재시도 낭비 방지 차원에서 제거)
-async function queryPrice(ticker: string, _retried = false): Promise<any> {
-  const token = await getAccessToken();
+async function queryPrice(ticker: string, _retried = false, opts?: { waitForLock?: boolean }): Promise<any> {
+  const token = await getAccessToken(opts);
 
   const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
   url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
@@ -500,7 +514,7 @@ async function queryPrice(ticker: string, _retried = false): Promise<any> {
     if (!_retried && msgCd && EXPIRED_TOKEN_CODES.has(msgCd)) {
       console.warn(`[KIS] ${ticker} 캐시 토큰 조기 만료 감지(${msgCd}), 토큰 재발급 후 재시도`);
       await invalidateAccessToken(token); // 방금 실패에 쓰인 토큰만 지정해서 지움(다른 프로세스의 최신 토큰 보호)
-      return queryPrice(ticker, true);
+      return queryPrice(ticker, true, opts);
     }
     // "종목이 없다"는 특정 원인 하나로 단정하지 않는다 — 토큰/레이트리밋 등 다른
     // 이유일 수 있어 msg_cd/msg1을 그대로 노출해야 나중에 원인 추적이 된다
@@ -511,8 +525,8 @@ async function queryPrice(ticker: string, _retried = false): Promise<any> {
   return data.output;
 }
 
-export async function fetchStockPrice(ticker: string): Promise<StockPrice> {
-  const o = await queryPrice(ticker);
+export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockPrice> {
+  const o = await queryPrice(ticker, false, opts);
   const name = await resolveStockName(ticker, o);
   // rprs_mrkt_kor_name 예시: "KOSPI200"(코스피), "KOSDAQ"/"KSQ150"(코스닥)
   const marketLabel = String(o.rprs_mrkt_kor_name ?? '');
@@ -604,11 +618,15 @@ export async function fetchDailyChart(
   });
 }
 
-export async function fetchMarketIndex(indexCode: string, signal?: AbortSignal): Promise<MarketIndexData> {
+export async function fetchMarketIndex(
+  indexCode: string,
+  signal?: AbortSignal,
+  opts?: { waitForLock?: boolean }
+): Promise<MarketIndexData> {
   // 토큰 조기 만료 감지가 없던 함수 — /api/market이 지수 14개를 매번 호출하는 만큼
   // 만료 임박 구간에 가장 자주 걸리던 지점이었다(2026-07-10 코드 리뷰에서 발견).
   return withKisTokenRetry(async () => {
-    const token = await getAccessToken();
+    const token = await getAccessToken(opts);
 
     const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-index-price`);
     url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
@@ -722,13 +740,16 @@ export const CURATED_TICKERS_MKT: [string, 'J' | 'Q' | 'X'][] = [
 // 하위 호환성을 위한 배열 (movers 등에서 사용)
 const CURATED_TICKERS = CURATED_TICKERS_MKT.map(([t]) => t);
 
-export async function fetchCuratedMovers(count = 5): Promise<{ gainers: MoverStock[]; losers: MoverStock[] }> {
+export async function fetchCuratedMovers(
+  count = 5,
+  opts?: { waitForLock?: boolean }
+): Promise<{ gainers: MoverStock[]; losers: MoverStock[] }> {
   // 토큰 조기 만료 감지가 없던 함수 — 배치 중간에 만료되면 남은 종목들이 전부
   // Promise.allSettled에서 조용히 걸러져 에러 로그 하나 없이 급등락 목록만
   // 부실해졌다(2026-07-10 코드 리뷰에서 발견). 이제 만료를 감지하면 즉시 상위
   // withKisTokenRetry가 재발급 후 전체를 한 번 다시 시도한다.
   return withKisTokenRetry(async () => {
-    const token = await getAccessToken(); // 토큰 1회 발급 후 공유
+    const token = await getAccessToken(opts); // 토큰 1회 발급 후 공유
 
     const fetchTicker = async (ticker: string): Promise<MoverStock> => {
       for (const mktCode of ['J', 'Q']) {

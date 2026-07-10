@@ -207,7 +207,7 @@ export async function GET() {
 
     // 3순위: curated 종목 등락률 정렬
     try {
-      const curated = await fetchCuratedMovers(20);
+      const curated = await fetchCuratedMovers(20, { waitForLock: false });
       if (curated.gainers.length > 0 || curated.losers.length > 0) {
         const result: MoversResponse = { gainers: curated.gainers, losers: curated.losers };
         saveCache(result).catch(() => {});
@@ -277,7 +277,7 @@ export async function GET() {
 
     // 4순위: curated 종목 등락률 정렬 (최후 수단)
     try {
-      const curated = await fetchCuratedMovers(20);
+      const curated = await fetchCuratedMovers(20, { waitForLock: false });
       if (curated.gainers.length > 0 || curated.losers.length > 0) {
         return NextResponse.json({ gainers: curated.gainers, losers: curated.losers, isCached: false, cachedAt: null, isPrevDay: true, prevDateLabel });
       }

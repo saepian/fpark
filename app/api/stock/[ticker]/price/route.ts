@@ -69,7 +69,7 @@ export async function GET(
 
   // 1순위: KIS API
   try {
-    const data = await fetchStockPrice(ticker);
+    const data = await fetchStockPrice(ticker, { waitForLock: false });
     saveCache(ticker, data);
     return NextResponse.json(data);
   } catch (err) {

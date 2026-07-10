@@ -187,8 +187,8 @@ async function fetchLive(): Promise<MarketResponse> {
       // KIS 실패 시 야후 폴백 (장외 시간 대비)
       kospiYahooResult, kosdaqYahooResult,
     ] = await Promise.allSettled([
-      fetchMarketIndex('0001', controller.signal),
-      fetchMarketIndex('1001', controller.signal),
+      fetchMarketIndex('0001', controller.signal, { waitForLock: false }),
+      fetchMarketIndex('1001', controller.signal, { waitForLock: false }),
       fetchUsdKrwWithFallback(),
       fetchYahooIndex('^IXIC'),
       fetchYahooIndex('^GSPC'),
