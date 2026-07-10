@@ -136,7 +136,8 @@ function AlertThumb() {
 
 // 실제 이메일은 app/api/cron/daily-alert-email/route.ts의 buildEmailHtml()이 만드는
 // HTML 문자열이라 React 컴포넌트로 직접 삽입 불가 — 실제 섹션 구성을 재현한 정적 예시.
-function EmailThumb() {
+// (이 크론은 평일 15:45 KST, 즉 장 마감 직후에 발송된다 — vercel.json 스케줄 참고)
+function ClosingReportThumb() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-700/40 bg-slate-800/40 shrink-0">
@@ -155,6 +156,37 @@ function EmailThumb() {
           <p className="text-[9.5px] text-slate-400 leading-snug line-clamp-2">
             오늘 관심종목 중 반도체 관련주가 외국인 순매수에 힘입어 강세를 보였습니다.
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 실제 이메일은 app/api/cron/morning-briefing/route.ts의 buildMorningEmailHtml()이
+// 만드는 HTML 문자열이라 마찬가지로 실제 섹션 구성을 재현한 정적 예시.
+// (평일 07:00 KST, 장 시작 전 발송 — vercel.json 스케줄 참고)
+function MorningBriefingThumb() {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-700/40 bg-slate-800/40 shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-red-400/70" />
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70" />
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/70" />
+        <p className="ml-1.5 text-[9px] text-slate-500 truncate">Finance Park · 장 시작 전 브리핑</p>
+      </div>
+      <div className="p-3 flex flex-col gap-2">
+        <div className="rounded-md border border-indigo-500/20 bg-indigo-500/[0.05] p-2">
+          <p className="text-[9.5px] font-bold text-slate-200 mb-1">
+            삼성전자 <span className="text-slate-500 font-normal">005930</span>
+          </p>
+          <p className="text-[8.5px] font-bold text-indigo-400 mb-0.5">AI 분석</p>
+          <p className="text-[9.5px] text-slate-400 leading-snug line-clamp-2">
+            신규 반도체 투자 발표 관련 뉴스가 확인됐습니다. 업황 개선 기대감이 반영된 것으로 보입니다.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 text-[9px] text-indigo-300/70">
+          <span className="w-1 h-1 rounded-full bg-indigo-400/60 shrink-0" />
+          관련 뉴스 원문 2건
         </div>
       </div>
     </div>
@@ -276,11 +308,19 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         isLive: false,
       },
       {
-        key: 'email',
-        title: '관심기업 일일 리포트 이메일',
+        key: 'email-morning',
+        title: '장 시작 전 뉴스 브리핑 이메일',
         badge: 'PRO',
-        desc: '매일 아침, 관심 등록한 종목들의 전날 등락 현황과 AI가 정리한 코멘트, 그날 발생한 알림 내역까지 한 번에 정리해서 이메일로 보내드려요. 앱을 따로 켜지 않아도 아침에 메일함만 확인하면 관심종목 상황을 파악할 수 있어요.',
-        preview: <EmailThumb />,
+        desc: '매일 아침 7시, 전날 장 마감 이후 관심 등록한 종목에 새로 나온 뉴스를 AI가 요약해서 보내드려요. 자고 일어났더니 보유 종목 관련 뉴스가 떴다면, 그게 어떤 의미인지 AI 코멘트와 함께 정리해드리니 출근길에 훑어보기 좋아요.',
+        preview: <MorningBriefingThumb />,
+        isLive: false,
+      },
+      {
+        key: 'email-close',
+        title: '장마감 리포트 이메일',
+        badge: 'PRO',
+        desc: '매일 장이 끝난 직후(오후 3시 45분경), 관심 등록한 종목들의 그날 등락 현황과 AI가 정리한 코멘트, 그날 발생한 알림 내역까지 한 번에 정리해서 이메일로 보내드려요. 하루가 끝난 뒤 앱을 따로 켜지 않아도 메일함에서 오늘 관심종목이 어떻게 움직였는지 파악할 수 있어요.',
+        preview: <ClosingReportThumb />,
         isLive: false,
       },
     ],
