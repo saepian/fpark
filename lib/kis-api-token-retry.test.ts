@@ -22,6 +22,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockState = vi.hoisted(() => ({
   tokenRow: null as { access_token: string; expired_at: string } | null,
   lockHeld: false,
+  saveTokenFails: false, // 2026-07-10 kis_tokens.id 시퀀스 미설정으로 실제 발생했던
+                          // "토큰 저장 insert 실패"를 재현하기 위한 스위치.
 }));
 
 vi.mock('@/lib/supabase-admin', () => {
@@ -45,7 +47,18 @@ vi.mock('@/lib/supabase-admin', () => {
     // acquireIssueLock()이 insert 실패 후 .select().eq().maybeSingle()로 체이닝하므로
     // eq()는 (bare-await되는 delete().eq() 호출도 여전히 성립하도록) chain을 반환한다.
     eq: () => chain,
-    insert: () => Promise.resolve(mockState.lockHeld ? { error: new Error('conflict') } : { error: null }),
+    // 락 sentinel(id=-1) insert는 lockHeld로, 새 토큰 저장 insert(id 미지정)는
+    // saveTokenFails로 각각 독립적으로 실패를 흉내낼 수 있도록 payload로 구분한다.
+    insert: (payload: any) => {
+      if (payload?.id === -1) {
+        return Promise.resolve(mockState.lockHeld ? { error: new Error('conflict') } : { error: null });
+      }
+      return Promise.resolve(
+        mockState.saveTokenFails
+          ? { error: { code: '23505', message: 'duplicate key value violates unique constraint "kis_tokens_pkey"' } }
+          : { error: null }
+      );
+    },
   };
   return { adminClient: { from: () => chain } };
 });
@@ -63,6 +76,7 @@ import {
 beforeEach(() => {
   mockState.tokenRow = { access_token: 'FAKE_VALID_TOKEN', expired_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() };
   mockState.lockHeld = false;
+  mockState.saveTokenFails = false;
 });
 
 describe('assertKisTokenValid — 조기 만료 코드 분류', () => {
@@ -184,5 +198,67 @@ describe('getAccessToken — waitForLock:false 즉시 폴백', () => {
     await expect(fresh.getAccessToken({ waitForLock: false })).rejects.toThrow(fresh.KisTokenIssueError);
     // 락 대기 폴링(최대 12회 * ~650~800ms ≈ 9.6초)을 타지 않고 즉시 실패해야 한다
     expect(Date.now() - before).toBeLessThan(2000);
+  });
+});
+
+// 2026-07-10 kis_tokens.id 시퀀스 미설정으로 새 토큰 저장 insert가 매번 PK 충돌로
+// 실패했는데도, insert()의 error 반환값을 확인하지 않아 "[KIS] 새 토큰 저장 완료"
+// 성공 로그가 계속 찍히던 버그의 수정을 검증한다 — 실패면 실패 로그만, 성공이면
+// 성공 로그만 찍혀야 하고 둘이 같은 경로에서 동시에 찍히면 안 된다.
+describe('getAccessToken — 토큰 저장 insert 실패 시 로그 정확성', () => {
+  it('insert가 실패하면 실패 로그만 남기고 성공 로그는 찍지 않는다 (그래도 발급 자체는 KIS에서 받은 토큰을 반환)', async () => {
+    vi.resetModules();
+    mockState.tokenRow = null; // 유효한 캐시 토큰 없음 → 새로 발급하는 경로로 진행
+    mockState.lockHeld = false; // 락은 정상 획득
+    mockState.saveTokenFails = true; // DB insert만 실패 시뮬레이션(PK 충돌 재현)
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ access_token: 'NEW_TOKEN_FROM_KIS', expires_in: 86400 }),
+    } as Response)));
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const fresh = await import('./kis-api');
+    const token = await fresh.getAccessToken();
+
+    // DB 저장은 실패해도 KIS에서 실제로 받은 토큰은 정상 반환된다(인메모리 캐시는 살아있음)
+    expect(token).toBe('NEW_TOKEN_FROM_KIS');
+
+    const allLogMessages = logSpy.mock.calls.map((c) => c[0]);
+    const allErrorMessages = errorSpy.mock.calls.map((c) => c[0]);
+    expect(allLogMessages).not.toContain('[KIS] 새 토큰 저장 완료, 만료:');
+    expect(allErrorMessages).toContain('[KIS] 토큰 저장 실패(insert 에러):');
+
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it('insert가 성공하면 성공 로그가 찍히고 실패 로그는 찍히지 않는다', async () => {
+    vi.resetModules();
+    mockState.tokenRow = null;
+    mockState.lockHeld = false;
+    mockState.saveTokenFails = false; // 정상 저장
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ access_token: 'NEW_TOKEN_FROM_KIS_2', expires_in: 86400 }),
+    } as Response)));
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const fresh = await import('./kis-api');
+    const token = await fresh.getAccessToken();
+    expect(token).toBe('NEW_TOKEN_FROM_KIS_2');
+
+    const allLogMessages = logSpy.mock.calls.map((c) => c[0]);
+    const allErrorMessages = errorSpy.mock.calls.map((c) => c[0]);
+    expect(allLogMessages).toContain('[KIS] 새 토큰 저장 완료, 만료:');
+    expect(allErrorMessages).not.toContain('[KIS] 토큰 저장 실패(insert 에러):');
+
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
   });
 });
