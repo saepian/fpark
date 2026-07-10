@@ -197,7 +197,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           </div>
         </div>
         <p className="text-[15px] font-semibold text-white leading-snug">
-          {data.summary}
+          {data.headline}
         </p>
         <p className="text-[11px] text-slate-500 mt-1.5">{timeLabel}</p>
       </div>
@@ -248,20 +248,31 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           </div>
         )}
 
-        {/* 섹션들 */}
-        {data.sections?.map((sec) => (
-          <div key={sec.title}>
-            <p className="text-[12px] font-bold text-slate-300 mb-2">{sec.title}</p>
-            <ul className="space-y-1.5">
-              {sec.points?.map((pt, i) => (
-                <li key={i} className="flex items-start gap-2 text-[13px] text-slate-400 leading-snug">
-                  <span className="shrink-0 mt-[2px] text-[8px] text-indigo-400">●</span>
-                  {pt}
-                </li>
-              ))}
-            </ul>
+        {/* 본문 */}
+        {data.mainAnalysis && (
+          <div>
+            <p className="text-[12px] font-bold text-slate-300 mb-2">
+              {data.reportType === 'news-driven' ? '📰 오늘의 분석' : '📊 오늘의 분석'}
+            </p>
+            <p className="text-[13px] text-slate-400 leading-relaxed">{data.mainAnalysis}</p>
           </div>
-        ))}
+        )}
+
+        {/* 어제 대비 */}
+        {data.yesterdayDelta && (
+          <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3">
+            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-1">🔄 어제 대비</p>
+            <p className="text-[13px] text-slate-300 leading-relaxed">{data.yesterdayDelta}</p>
+          </div>
+        )}
+
+        {/* 리스크 요인 */}
+        {data.riskFactor && (
+          <div>
+            <p className="text-[12px] font-bold text-slate-300 mb-2">⚠️ 리스크 요인</p>
+            <p className="text-[13px] text-slate-400 leading-relaxed">{data.riskFactor}</p>
+          </div>
+        )}
 
         {/* 태그 */}
         {data.tags?.length > 0 && (

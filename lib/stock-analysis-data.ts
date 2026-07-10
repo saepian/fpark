@@ -656,3 +656,10 @@ export function buildTradingValueBlock(t: TradingValueMultipleResult | null): st
   if (!t || !t.valid) return '데이터 없음';
   return `오늘 거래대금은 최근 20거래일 평균 대비 ${t.multiple}배`;
 }
+
+// computeRiskMetrics(MDD·변동성)의 프롬프트 주입용 텍스트 — 지금까지 portfolio-diagnosis
+// 에서만 쓰였고 종목 AI 리포트엔 안 붙어있던 지표를 여기서도 재사용한다.
+export function buildRiskMetricsBlock(r: { mdd: number; volatility: number } | null): string {
+  if (!r) return '데이터 없음';
+  return `최근 약 5개월 최대낙폭(MDD) ${r.mdd}%, 일별 변동성(표준편차) ${r.volatility}%`;
+}

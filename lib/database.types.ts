@@ -584,6 +584,66 @@ export type Database = {
         }
         Relationships: []
       }
+      stock_analysis_history: {
+        Row: {
+          created_at: string
+          current_price: number | null
+          disclaimer: string | null
+          headline: string
+          id: number
+          internal_metrics: Json
+          main_analysis: string
+          price_change_pct: number | null
+          reference_metrics: Json
+          report_date: string
+          report_type: string
+          risk_factor: string | null
+          sentiment: string | null
+          signal: string | null
+          tags: string[] | null
+          ticker: string
+          yesterday_delta: string | null
+        }
+        Insert: {
+          created_at?: string
+          current_price?: number | null
+          disclaimer?: string | null
+          headline: string
+          id?: number
+          internal_metrics?: Json
+          main_analysis: string
+          price_change_pct?: number | null
+          reference_metrics?: Json
+          report_date: string
+          report_type: string
+          risk_factor?: string | null
+          sentiment?: string | null
+          signal?: string | null
+          tags?: string[] | null
+          ticker: string
+          yesterday_delta?: string | null
+        }
+        Update: {
+          created_at?: string
+          current_price?: number | null
+          disclaimer?: string | null
+          headline?: string
+          id?: number
+          internal_metrics?: Json
+          main_analysis?: string
+          price_change_pct?: number | null
+          reference_metrics?: Json
+          report_date?: string
+          report_type?: string
+          risk_factor?: string | null
+          sentiment?: string | null
+          signal?: string | null
+          tags?: string[] | null
+          ticker?: string
+          yesterday_delta?: string | null
+        }
+        Relationships: []
+      }
       stock_diagnosis: {
         Row: {
           avg_price: number

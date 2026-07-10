@@ -5,8 +5,10 @@ import { fetchStockPrice, fetchStockInfo, fetchDailyChart } from '@/lib/kis-api'
 import {
   computeSurgeHistory,
   computeTradingValueMultiple,
+  computeRiskMetrics,
   buildSurgeHistoryBlock,
   buildTradingValueBlock,
+  buildRiskMetricsBlock,
   pickRelevantNews,
   buildNewsBlock,
 } from '@/lib/stock-analysis-data';
@@ -21,85 +23,121 @@ export const maxDuration = 60;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-// 매 요청마다 동일한 고정 지침 — 프롬프트 캐싱 대상 (system 블록, cache_control 적용)
-const STOCK_ANALYSIS_OUTPUT_INSTRUCTIONS = `## 출력 형식 (JSON만)
+export type ReportType = 'news-driven' | 'data-driven';
+
+// 2026-07-10 "리포트가 매일 똑같아 보인다"는 문제 제기로 재설계. 핵심 원칙:
+// 1) 뉴스 유무는 AI가 스스로 판단하지 않고 서버가 먼저 결정해서 프롬프트에 못박는다
+//    (아래 reportType — pickRelevantNews 결과 유무로 결정, AI는 echo만 함).
+// 2) 52주 고저가·PER 같은 정적 지표는 참고 정보로 격하하고 본문 근거로 못 쓰게 막는다.
+// 3) "어제와 달라진 점"을 직접 계산해서 프롬프트에 주입해 대조 기준을 준다.
+// 4) fpark 자체 계산 지표(급등이력/거래대금배수/MDD·변동성)를 최소 1개 강제 활용시킨다.
+const COMMON_INSTRUCTIONS = `## 출력 형식 (JSON만)
 {
-  "signal": "순유입 우위" | "중립·관망" | "차익실현 관찰" | "순유출 우위",
-  "summary": "관찰된 특징을 담은 한줄 (예: '외국인 자금 유입에 52주 고점 근접 위치까지 겹쳐 부담으로 풀이됨') — 종목명 제외, 35자 이내, 지시형 표현 금지",
-  "sections": [
-    {
-      "title": "📊 현재 시황",
-      "points": [
-        "주가 흐름과 맥락을 담은 문장 (예: '거래대금 X억원과 함께 기관·외인의 동반 자금 유입이 나타난 것으로 보임') — 50자 이내",
-        "52주 위치의 사실 서술 (예: '52주 고점 X원 대비 Y% 낮은 수준에 위치, 과거 이 구간에서 상승 흐름이 둔화된 이력이 있음') — 50자 이내",
-        "뉴스·이슈 반영 한줄 또는 생략 가능"
-      ]
-    },
-    {
-      "title": "🎯 관찰 포인트",
-      "points": [
-        "과거 급등/급락 이력 + 오늘 거래대금 배수를 함께 놓고, 이 둘이 같은 흐름의 연장인지 서로 모순되는 신호인지 판단해서 그 이유와 함께 제시 (예: 'X월 X일 +22% 급등 후 5일간 -8% 반납된 이력이 있는데, 오늘은 거래대금이 평균의 0.3배로 낮아 이번엔 그때와 달리 자금 유입이 약하다는 해석이 가능함') — 70자 이내, 이력 없으면 오늘 거래대금 배수만으로 판단",
-        "위 판단과 뉴스·밸류에이션 중 하나를 더 연결해 종합 (예: 관련 뉴스 부재가 그 판단에 어떤 의미를 더하는지) — 65자 이내, 연결할 추가 데이터 없으면 생략"
-      ]
-    },
-    {
-      "title": "⚠️ 리스크 요인",
-      "points": [
-        "리스크와 실제 영향까지 설명 (예: 'PER X배는 업종 평균 대비 Y배 수준으로, 실적 부진 시 밸류에이션 조정 압력으로 이어질 수 있음') — 60자 이내",
-        "매크로·업황 리스크 (예: '환율 상승이 지속될 경우 수입 원가 부담이 커질 수 있다는 점이 눈에 띔') — 60자 이내"
-      ]
-    },
-    {
-      "title": "📈 참고 지표",
-      "points": [
-        "52주 고가와 현재가의 위치 관계를 사실로 서술 (예: '52주 고점 X원은 현재가 대비 Y% 높은 수준으로, 과거 이 부근에서 상승세가 둔화된 이력이 있음') — 65자 이내, 저항선·매물대 같은 기술적 분석 용어 금지",
-        "52주 저가와 현재가의 위치 관계를 사실로 서술 (예: '52주 저점 X원은 현재가 대비 Y% 낮은 수준으로, 최근 가격 흐름은 이 구간과 거리를 두고 있음') — 65자 이내, 지지선·지지 시험 같은 기술적 분석 용어 금지"
-      ]
-    }
-  ],
-  "tags": ["3~4개 핵심 키워드 (업종·테마·이슈 위주)"]
+  "reportType": "news-driven" | "data-driven",
+  "headline": "오늘 리포트의 핵심을 담은 한 줄 제목 (매일 달라야 함) — 종목명 제외, 40자 이내, 지시형 표현 금지",
+  "mainAnalysis": "본문 — news-driven이면 뉴스 해석 중심, data-driven이면 내부지표/이례적 신호 중심. 52주 고가·저가·PER 같은 정적 지표는 여기 쓰지 말 것",
+  "yesterdayDelta": "[어제와의 차이]에 제공된 정보 중 최소 1개를 구체적 수치와 함께 반드시 언급 (예: '어제 대비 거래대금이 X배로 늘어남')",
+  "riskFactor": "오늘 상황에 특정된 리스크 1개 (일반론 금지)",
+  "tags": ["3~4개 핵심 키워드 (업종·테마·이슈 위주)"],
+  "signal": "순유입 우위" | "중립·관망" | "차익실현 관찰" | "순유출 우위"
 }
 
 규칙:
-- signal은 매매 지시가 아니라 수급·가격 패턴에 대한 관찰 결과입니다 — 외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도로 자금이 빠져나가는 흐름이 우위면 "순유출 우위", 단기 급등 후 차익실현 흐름이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요
-- "참고 지표" 섹션은 목표가·손절가·진입전략·저항선·지지선·매물대 같은 기술적 분석/지시형 문구를 쓰지 말고, 52주 고/저점 대비 현재가의 위치 관계를 사실로 서술하고 그 의미에 대한 판단으로 구성하세요
+- reportType은 위 [리포트 유형]에 이미 지정된 값을 그대로 옮겨 적으세요 — 직접 판단하지 마세요
+- signal은 매매 지시가 아니라 수급·가격 패턴에 대한 관찰 결과이며 화면에는 노출되지 않고 내부 집계에만 쓰입니다 — 외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도 우위면 "순유출 우위", 단기 급등 후 차익실현 흐름이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"
+- 52주 고가/저가, PER 같은 정적 지표는 mainAnalysis·yesterdayDelta·riskFactor 어디에서도 핵심 근거로 쓰지 마세요 — 이 숫자들은 매일 거의 안 바뀌므로 본문에 쓰면 리포트가 매일 똑같아 보입니다
+- [어제와의 차이]에 제공된 정보 중 최소 1개는 yesterdayDelta에서 구체적 수치와 함께 반드시 언급하고 "어제 대비"라는 표현을 쓰세요. [어제와의 차이]가 "첫 리포트"로 표시돼 있으면 그 사실을 그대로 yesterdayDelta에 적으세요
+- [fpark 내부 지표](급등이력·거래대금배수·MDD·변동성) 중 최소 1개는 mainAnalysis에서 반드시 활용하세요 — 증권사 앱에서 볼 수 없는 fpark 고유 계산값입니다
 - "정당화", "권고", "~하는 것이 좋습니다" 같은 결론형·권유형 단어를 쓰지 말고 관찰·해석형 문장을 사용하세요
-- "~관찰됨", "~특징이 있음", "~것으로 나타남" 같은 동일한 종결 표현을 이 리포트 안에서 2회 이상 쓰지 말고, 문장마다 종결을 다양하게 바꾸세요 ("~로 보임", "~때문임", "~로 풀이됨", "~라는 점이 눈에 띔", 서술형 종결 등)
-- 각 point는 실제 데이터(주가·PER·52주가·거래대금·과거 급등 이력 등)를 근거로 짧게 인용한 뒤, 반드시 그 다음 절에서 "그래서 무엇을 의미하는지" 판단을 이어가세요 — 근거만 있고 판단이 없는 문장은 출력하지 마세요
-- 특히 "🎯 관찰 포인트" 섹션은 과거 급등 이력과 오늘 거래대금 배수처럼 제공된 데이터 포인트를 최소 2개 이상 서로 연결해 하나의 해석으로 종합하고, 두 신호가 같은 방향인지 상충하는지 명시하세요
-- 데이터가 서로 다른 방향을 가리키면(예: 과거엔 반등했지만 오늘 거래대금은 낮음) 어느 신호에 더 비중을 두는지와 그 이유를 밝히세요
-- 위에 제공된 수치 외의 "관찰됨", "일반적으로 참고하는 지표" 같은 모호한 일반론 문장은 절대 생성하지 말 것
-- 제공되지 않은 데이터(섹터 비교, 동종업계 순위 등)에 대해서는 언급하지 말 것
+- 같은 종결 표현을 이 리포트 안에서 2회 이상 쓰지 말고 문장마다 종결을 다양하게 바꾸세요 ("~로 보임", "~때문임", "~로 풀이됨", "~라는 점이 눈에 띔" 등)
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
-- 본문에서 현재가·52주 고가·52주 저가를 언급할 때는 위 "종목 데이터"에 제시된 숫자를 한 글자도 다르지 않게 그대로 쓰세요 — 익숙한 가격대와 다르다는 이유로 자릿수를 줄이거나 늘리지 말 것
-- signal은 전체 분석과 일관성 있게 선택
+- 본문에서 현재가·52주 고가·52주 저가를 언급할 때는 "종목 데이터"에 제시된 숫자를 한 글자도 다르지 않게 그대로 쓰세요 — 익숙한 가격대와 다르다는 이유로 자릿수를 줄이거나 늘리지 말 것
 - tags에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말 것
 - JSON 키 순서 및 구조 변경 금지`;
+
+const NEWS_DRIVEN_INSTRUCTIONS = `## [리포트 유형] 뉴스가 있는 날 (news-driven)
+
+오늘은 이 종목과 직접 관련된 뉴스가 있습니다. 아래 [오늘의 관련 뉴스]를 mainAnalysis의 중심 소재로 삼으세요.
+
+작성 순서:
+1. 뉴스의 핵심 사실을 1~2문장으로 요약 — "누가/무엇을/왜"가 드러나야 하고, 기사 제목을 그대로 옮기지 말고 재구성
+2. 이 뉴스가 오늘 주가/거래대금 움직임과 실제로 연결되는지, 무관하게 따로 노는지 판단하고 이유를 서술 — 데이터가 뒷받침하지 않으면 "뉴스와 가격 움직임이 아직 명확히 연동되지 않고 있다"처럼 솔직하게 쓸 것, "뉴스 때문에 올랐다"고 무조건 단정하지 말 것
+3. 이 뉴스가 하루짜리 이슈인지 앞으로 며칠/몇 주 지켜봐야 할 이슈인지 판단해서 언급 (실적 발표는 후속 이슈, 단발성 공시는 하루짜리 등)
+
+금지: 기사 문장을 15단어 이상 그대로 인용하지 말 것(자체 요약·재구성만). 뉴스 요약이 mainAnalysis 절반을 넘지 않게, "왜 중요한지/어떻게 해석해야 하는지"에 더 많은 분량을 쓸 것`;
+
+const DATA_DRIVEN_INSTRUCTIONS = `## [리포트 유형] 뉴스가 없는 날 (data-driven)
+
+오늘은 이 종목과 직접 관련된 뉴스가 없습니다. 억지로 mainAnalysis를 길게 채우지 마세요. 뉴스가 없다는 사실 자체를 숨기지 말고 인정하되, 아래에 집중하세요:
+
+1. [fpark 내부 지표]에서 오늘 특이한 값(평소 대비 벗어난 값)이 있는지 확인하고, 있다면 그것을 mainAnalysis의 중심으로 삼으세요 (예: 거래대금이 20일 평균 대비 유의미하게 높거나 낮은 경우, 과거 급등/급락 이력과 오늘 상황이 겹치는 경우 등)
+2. 특이한 지표가 없다면 "오늘은 뉴스도 없고 지표도 평소 범위 안에 있다"고 짧게 정리하세요. 억지로 리스크 요인이나 관찰 포인트를 지어내지 마세요
+
+이런 날의 mainAnalysis는 뉴스가 있는 날보다 확연히 짧아야 합니다 (목표: 3~5문장 이내). 짧다는 것 자체가 "오늘은 특별한 게 없다"는 정직한 신호입니다.`;
 
 export type { Signal };
 
 export interface AnalysisResult {
-  signal: Signal; // 내부 로그/집계용 — 화면에는 방향성 배지로 노출하지 않음(Paddle 심사 대응)
-  summary: string;
-  sections: { title: string; points: string[] }[];
+  reportType: ReportType;
+  headline: string;
+  mainAnalysis: string;
+  yesterdayDelta: string;
+  riskFactor: string;
   tags: string[];
+  signal: Signal; // 내부 로그/집계용 — 화면에는 방향성 배지로 노출하지 않음(Paddle 심사 대응)
   current_price: number;
   resistance: number; // 52주 고가 — 서버에서 직접 계산 (AI가 지어내지 않음)
   support: number;     // 52주 저가 — 서버에서 직접 계산
   tradingValueMultiple: number | null; // 오늘 거래대금 / 최근 20거래일 평균 — 순수 데이터 지표
   hasRelevantNews: boolean; // false면 UI에서 "최근 관련 뉴스 반영: 없음" 배지 표시
+  isCached?: boolean;
   disclaimer: string;
   createdAt: string;
 }
 
+interface HistoryRow {
+  report_type: ReportType;
+  headline: string;
+  main_analysis: string;
+  yesterday_delta: string | null;
+  risk_factor: string | null;
+  tags: string[] | null;
+  signal: string | null;
+  current_price: number | null;
+  price_change_pct: number | null;
+  reference_metrics: { week52High?: number; week52Low?: number; per?: number; pbr?: number } | null;
+  internal_metrics: { tradingValueMultiple?: number | null; mdd?: number; volatility?: number } | null;
+  disclaimer: string | null;
+  created_at: string;
+}
+
+function mapRowToResult(row: HistoryRow): Omit<AnalysisResult, 'isCached'> {
+  return {
+    reportType: row.report_type,
+    headline: row.headline,
+    mainAnalysis: row.main_analysis,
+    yesterdayDelta: row.yesterday_delta ?? '',
+    riskFactor: row.risk_factor ?? '',
+    tags: row.tags ?? [],
+    signal: clampSignal(row.signal),
+    current_price: row.current_price ?? 0,
+    resistance: row.reference_metrics?.week52High ?? 0,
+    support: row.reference_metrics?.week52Low ?? 0,
+    tradingValueMultiple: row.internal_metrics?.tradingValueMultiple ?? null,
+    hasRelevantNews: row.report_type === 'news-driven',
+    disclaimer: row.disclaimer ?? INVESTMENT_DISCLAIMER,
+    createdAt: row.created_at,
+  };
+}
+
 // AI가 본문 서술에서 현재가·52주 고저가를 자기 기억 속 "익숙한" 가격대로 임의 보정해 쓰는 현상 방지.
 // 구조화된 필드(current_price/resistance/support)는 서버가 직접 넣으므로 항상 정확하지만,
-// 자유 텍스트(summary/points)는 AI 재량이라 유명 대형주에서 실측값과 다른 숫자를 쓰는 경우가 확인됨
-// (예: SK하이닉스 — 실제 2,987,000원을 "298,700원"으로 서술).
+// 자유 텍스트(headline/mainAnalysis/yesterdayDelta/riskFactor)는 AI 재량이라 유명 대형주에서
+// 실측값과 다른 숫자를 쓰는 경우가 확인됨(예: SK하이닉스 — 실제 2,987,000원을 "298,700원"으로 서술).
 function correctPriceMentions(
-  result: AnalysisResult,
+  result: Omit<AnalysisResult, 'isCached'>,
   ticker: string,
-): AnalysisResult {
+): Omit<AnalysisResult, 'isCached'> {
   const checks: { re: RegExp; truth: number; label: string }[] = [
     { re: /현재가\s*([\d,]+)\s*원/g, truth: result.current_price, label: '현재가' },
     { re: /52주\s*고[가점]\s*([\d,]+)\s*원/g, truth: result.resistance, label: '52주 고가' },
@@ -124,20 +162,62 @@ function correctPriceMentions(
 
   return {
     ...result,
-    summary: fixText(result.summary),
-    sections: result.sections.map((sec) => ({
-      ...sec,
-      points: sec.points.map(fixText),
-    })),
+    headline: fixText(result.headline),
+    mainAnalysis: fixText(result.mainAnalysis),
+    yesterdayDelta: fixText(result.yesterdayDelta),
+    riskFactor: fixText(result.riskFactor),
   };
 }
 
+function kstDateStr(): string {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return kst.toISOString().split('T')[0];
+}
+
+// 직전 리포트(오늘 이전 가장 최근 1건) 대비 "어제와의 차이"를 프롬프트에 주입할 텍스트로 변환.
+// 직전 리포트가 없으면(첫 리포트) null을 반환 — 호출부에서 "비교 대상 없음"으로 처리.
+function buildYesterdayComparisonBlock(
+  prev: HistoryRow & { report_date: string } | null,
+  todayChangeRate: number,
+  todayMultiple: number | null,
+): string {
+  if (!prev) return '첫 리포트라 비교 대상 없음';
+
+  const lines: string[] = [`- 직전 리포트: ${prev.report_date} (${prev.report_type === 'news-driven' ? '뉴스 있음' : '뉴스 없음'})`];
+  if (prev.price_change_pct !== null) {
+    lines.push(`- 등락률: 그날 ${prev.price_change_pct >= 0 ? '+' : ''}${prev.price_change_pct}% → 오늘 ${todayChangeRate >= 0 ? '+' : ''}${todayChangeRate}%`);
+  }
+  const prevMultiple = prev.internal_metrics?.tradingValueMultiple;
+  if (prevMultiple != null || todayMultiple != null) {
+    lines.push(`- 거래대금(20일 평균 대비 배수): 그날 ${prevMultiple != null ? `${prevMultiple}배` : '데이터 없음'} → 오늘 ${todayMultiple != null ? `${todayMultiple}배` : '데이터 없음'}`);
+  }
+  return lines.join('\n');
+}
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ ticker: string }> },
 ) {
   const { ticker } = await params;
+  const todayStr = kstDateStr();
+
+  // 0. 당일 캐시 확인 — 해외물 라우트(overseas/[ticker]/analysis)의 기존 패턴을 그대로 이식.
+  // 국내물은 지금까지 캐시가 없어 방문할 때마다 재생성됐는데, 그러면 "어제와의 비교"가
+  // 같은 날 안에서도 방문마다 달라져 의미가 없어진다 — 하루 1건을 테이블 unique 제약으로
+  // 보장하고, KIS/Claude 호출 자체를 캐시 히트 시 건너뛴다.
+  try {
+    const { data: cached } = await supabase
+      .from('stock_analysis_history')
+      .select('*')
+      .eq('ticker', ticker)
+      .eq('report_date', todayStr)
+      .maybeSingle();
+    if (cached) {
+      return NextResponse.json({ ...mapRowToResult(cached as HistoryRow), isCached: true });
+    }
+  } catch (e) {
+    console.warn('[ANALYSIS] 당일 캐시 조회 실패, 새로 생성:', e instanceof Error ? e.message : e);
+  }
 
   // 2. 종목 정보 조회
   let priceInfo: [
@@ -159,10 +239,6 @@ export async function GET(
 
   // 3. 관련 뉴스 — DB 캐시(articles) 조회는 유지하되, 중소형주는 DB에 거의 안 걸리므로
   // Naver 실시간 검색 결과를 보완적으로 병행하고 관련도 스코어링으로 상위 3건만 선별.
-  // 종목명 단독 검색만으로는 실적 발표처럼 특정 이슈를 짚어야 하는 날에 다른 기사에
-  // 밀려 못 잡는 경우가 있어(app/api/news/stock/[ticker]/route.ts와 동일한 원인으로
-  // 2026-07-08 삼성전자 2분기 잠정실적 오서술 문제 조사 중 확인), 실적 관련 보조
-  // 검색을 병행한다.
   const [{ data: dbNews }, ...naverResults] = await Promise.all([
     supabase
       .from('articles')
@@ -194,19 +270,46 @@ export async function GET(
   const relevantNews = pickRelevantNews(newsCandidates, price.name, price.sector, 3);
   const newsBlock = buildNewsBlock(relevantNews);
 
-  // 3-1. 일별 차트 (최근 최대 100거래일) — 과거 유사 급등 이력 + 거래대금 배수 계산용
+  // 이 종목과 직접 관련된 뉴스 유무로 리포트 유형을 서버가 먼저 결정한다 — AI가 스스로
+  // 판단하게 두지 않고 애초에 다른 지시문을 태운다(2026-07-10 리포트 재설계).
+  const reportType: ReportType = relevantNews.length > 0 ? 'news-driven' : 'data-driven';
+
+  // 3-1. 일별 차트 (최근 최대 100거래일) — 과거 유사 급등 이력 + 거래대금 배수 + MDD/변동성 계산용
   // 실패해도 분석 자체는 진행하고 해당 데이터 블록만 생략
   let chart: Awaited<ReturnType<typeof fetchDailyChart>> = [];
   try {
     chart = await fetchDailyChart(ticker, '1Y');
   } catch (e) {
-    console.warn('[ANALYSIS] 차트 조회 실패, 급등이력/거래대금배수 생략:', e instanceof Error ? e.message : e);
+    console.warn('[ANALYSIS] 차트 조회 실패, 급등이력/거래대금배수/리스크지표 생략:', e instanceof Error ? e.message : e);
   }
 
   const surgeHistory          = chart.length ? computeSurgeHistory(chart) : null;
   const tradingValueMultiple  = chart.length ? computeTradingValueMultiple(chart) : null;
+  const riskMetrics           = chart.length ? computeRiskMetrics(chart.map((d) => d.close)) : null;
   const surgeHistoryBlock     = buildSurgeHistoryBlock(surgeHistory);
   const tradingValueBlock     = buildTradingValueBlock(tradingValueMultiple);
+  const riskMetricsBlock      = buildRiskMetricsBlock(riskMetrics);
+
+  // 3-2. 직전 리포트(오늘 이전 가장 최근 1건) 조회 — "어제와의 차이" 계산용
+  let prevRow: (HistoryRow & { report_date: string }) | null = null;
+  try {
+    const { data } = await supabase
+      .from('stock_analysis_history')
+      .select('*')
+      .eq('ticker', ticker)
+      .lt('report_date', todayStr)
+      .order('report_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    prevRow = data as (HistoryRow & { report_date: string }) | null;
+  } catch (e) {
+    console.warn('[ANALYSIS] 직전 리포트 조회 실패, 비교 없이 진행:', e instanceof Error ? e.message : e);
+  }
+  const yesterdayComparisonBlock = buildYesterdayComparisonBlock(
+    prevRow,
+    price.changeRate,
+    tradingValueMultiple?.valid ? tradingValueMultiple.multiple : null,
+  );
 
   // 4. Claude 분석
   const w52pos = info.week52High > 0
@@ -218,6 +321,9 @@ export async function GET(
 ## 기준 시각
 현재 시각: ${nowKstString()}
 
+## [리포트 유형]
+${reportType} — 이 값을 그대로 reportType 필드에 옮겨 적으세요.
+
 ## 종목 데이터
 ※ 현재가·52주 고저가는 서버가 직접 실측한 값입니다. 본인이 알고 있는 시세감이나 관례적인 가격대와 다르더라도
 임의로 보정하거나 축소·확대해서 쓰지 말고, 아래 숫자를 본문에서도 그대로 인용하세요.
@@ -227,14 +333,16 @@ export async function GET(
 - 52주 고가: ${info.week52High.toLocaleString()}원 / 저가: ${info.week52Low.toLocaleString()}원${w52pos !== null ? ` (현재가 52주 레인지의 ${w52pos}% 위치)` : ''}
 - 시가총액: ${info.marketCap} / PER: ${info.per || 'N/A'} / PBR: ${info.pbr || 'N/A'}
 
-## 최근 뉴스 (${buildNewsFreshnessLine(relevantNews)})
+## 오늘의 관련 뉴스 (${buildNewsFreshnessLine(relevantNews)})
 ${newsBlock}
 
-## 과거 유사 급등/급락 이력 (최근 약 5개월, 서버 계산값)
-${surgeHistoryBlock}
+## 어제와의 차이
+${yesterdayComparisonBlock}
 
-## 거래대금 (서버 계산값)
-${tradingValueBlock}
+## fpark 내부 지표 (서버 계산값 — 증권사 앱에는 없는 fpark 고유 지표)
+- 과거 유사 급등/급락 이력(최근 약 5개월): ${surgeHistoryBlock}
+- 거래대금: ${tradingValueBlock}
+- 리스크 지표: ${riskMetricsBlock}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 형식과 규칙에 따라 정리하세요.`;
 
@@ -243,7 +351,7 @@ ${tradingValueBlock}
   try {
     type ParsedAnalysis = Omit<
       AnalysisResult,
-      'current_price' | 'resistance' | 'support' | 'tradingValueMultiple' | 'disclaimer' | 'createdAt'
+      'current_price' | 'resistance' | 'support' | 'tradingValueMultiple' | 'hasRelevantNews' | 'disclaimer' | 'createdAt' | 'isCached'
     >;
 
     const analysis = await withTemporalRetry<ParsedAnalysis>(
@@ -253,7 +361,12 @@ ${tradingValueBlock}
           max_tokens: 2000,
           system: [
             { type: 'text', text: COMPLIANCE_PRINCIPLE },
-            { type: 'text', text: STOCK_ANALYSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: COMMON_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+            {
+              type: 'text',
+              text: reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS,
+              cache_control: { type: 'ephemeral' },
+            },
           ],
           messages: [{ role: 'user', content: prompt }],
         });
@@ -261,15 +374,16 @@ ${tradingValueBlock}
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
         const parsed = JSON.parse(jsonMatch[0]) as ParsedAnalysis;
-        const reportText = [parsed.summary, ...parsed.sections.flatMap((s) => s.points)].join(' ');
+        const reportText = [parsed.headline, parsed.mainAnalysis, parsed.yesterdayDelta, parsed.riskFactor].join(' ');
         return { parsed, reportText };
       },
       newsText,
       '[ANALYSIS]',
     );
 
-    let result: AnalysisResult = {
+    let result: Omit<AnalysisResult, 'isCached'> = {
       ...analysis,
+      reportType, // 서버 결정값으로 덮어씀 — AI가 echo를 잘못했을 경우 대비
       signal: clampSignal(analysis.signal), // AI가 지시된 4개 값을 벗어날 경우 대비
       current_price: price.price,
       resistance: info.week52High, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
@@ -283,21 +397,32 @@ ${tradingValueBlock}
     // 4-1. 본문 서술 중 현재가/52주 고저가 불일치 교정 (저장 전에 적용)
     result = correctPriceMentions(result, ticker);
 
-    // 5. 히스토리/로그 목적으로 저장 (캐시로 재사용하지 않음 — 응답을 기다리지 않는 비동기 저장).
-    // 예전엔 await 없이 던져놓기만 해서, 응답이 나간 직후 서버리스 실행 컨텍스트가 얼어붙으며
-    // 이 fetch가 중간에 끊겨 "TypeError: fetch failed"가 간헐적으로 발생했다(Vercel 로그에서
-    // 다른 동시 요청의 로그 블록에 섞여 나타나 stock-alerts 크론 문제로 오인되기도 했음).
-    // after()로 등록하면 응답은 그대로 즉시 나가면서도, 런타임이 이 작업이 끝날 때까지
-    // 실행 컨텍스트를 유지해준다.
+    // 5. 히스토리 저장 — 하루 1건(ticker, report_date unique)만 남긴다. 응답을 기다리지
+    // 않는 비동기 저장(after()로 등록 — 응답 직후 실행 컨텍스트가 얼어붙어 fetch가
+    // 중간에 끊기는 문제 방지, 2026-07-10 이전 코드에서 겪은 문제와 동일한 이유).
     after(async () => {
       const { error } = await supabase
-        .from('stock_analysis')
-        .upsert({
+        .from('stock_analysis_history')
+        .insert({
           ticker,
-          summary: result.summary,
-          details: JSON.stringify(result),
-          keywords: result.tags,
+          report_date: todayStr,
+          report_type: result.reportType,
+          headline: result.headline,
+          main_analysis: result.mainAnalysis,
+          yesterday_delta: result.yesterdayDelta,
+          risk_factor: result.riskFactor,
+          tags: result.tags,
+          current_price: result.current_price,
+          price_change_pct: price.changeRate,
+          reference_metrics: { week52High: info.week52High, week52Low: info.week52Low, per: info.per, pbr: info.pbr },
+          internal_metrics: {
+            tradingValueMultiple: result.tradingValueMultiple,
+            mdd: riskMetrics?.mdd ?? null,
+            volatility: riskMetrics?.volatility ?? null,
+          },
+          signal: result.signal,
           sentiment: signalToSentiment(result.signal),
+          disclaimer: result.disclaimer,
           created_at: result.createdAt,
         });
       if (error) console.error('[ANALYSIS] 결과 저장 실패:', error.message);
