@@ -168,7 +168,13 @@ async function fetchYahooFX(symbol: string): Promise<MarketIndexData | null> {
 
 async function fetchLive(): Promise<MarketResponse> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  // 2026-07-10 진단: KIS 재발급이 이 8초 예산 안에 못 끝나고 중간에 끊기는지
+  // 확인하기 위한 명시적 로그 — "발급 요청" 다음에 성공/실패 로그 없이 끊기는
+  // 현상이 관찰됐는데, 이 8초 타임아웃이 원인인지 이 로그로 직접 확인한다.
+  const timeout = setTimeout(() => {
+    console.error('[MARKET] 8초 타임아웃 도달 — 진행 중인 KIS 요청을 중단합니다');
+    controller.abort();
+  }, 8000);
 
   try {
     const [
