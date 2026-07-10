@@ -356,20 +356,30 @@ export async function getAccessToken(opts?: { waitForLock?: boolean }): Promise<
       // 이제는 지우지 않고 계속 쌓되, 최근 50건만 남기고 오래된 건 정리한다 — 조회는
       // 여전히 created_at 최신 1건만 보므로 캐시 동작에는 영향 없음.
       try {
-        await supabaseAdmin.from('kis_tokens').insert({
+        // insert()의 반환값(error)을 확인하지 않고 무조건 "저장 완료"를 로그로
+        // 남기던 버그가 있었다 — Supabase-js는 DB 에러(예: PK 충돌)를 던지지
+        // 않고 { error }로만 알려주는데, 이걸 체크 안 하면 매번 저장이 실패해도
+        // 로그는 계속 성공이라고 거짓말을 한다(2026-07-10 kis_tokens.id 시퀀스
+        // 미설정으로 실제 이 버그가 발생해, 로그만 성공이고 DB엔 새 토큰이 단
+        // 한 번도 저장되지 않던 것을 발견).
+        const { error: insertError } = await supabaseAdmin.from('kis_tokens').insert({
           access_token: data.access_token,
           expired_at: expiresAt.toISOString(),
         });
-        console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
+        if (insertError) {
+          console.error('[KIS] 토큰 저장 실패(insert 에러):', insertError);
+        } else {
+          console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
 
-        const { data: history } = await supabaseAdmin
-          .from('kis_tokens')
-          .select('id')
-          .gt('id', 0)
-          .order('created_at', { ascending: false })
-          .range(50, 1000);
-        if (history && history.length > 0) {
-          await supabaseAdmin.from('kis_tokens').delete().in('id', history.map((r) => r.id));
+          const { data: history } = await supabaseAdmin
+            .from('kis_tokens')
+            .select('id')
+            .gt('id', 0)
+            .order('created_at', { ascending: false })
+            .range(50, 1000);
+          if (history && history.length > 0) {
+            await supabaseAdmin.from('kis_tokens').delete().in('id', history.map((r) => r.id));
+          }
         }
       } catch (e) {
         console.error('[KIS] 토큰 저장 실패:', e);
