@@ -1,19 +1,18 @@
 'use client';
 
-// 회원가입 직후 신규 유저에게 한 번만 보여주는 서비스 소개 페이지.
-// 노출 여부(users.has_seen_welcome)는 lib/post-auth-redirect.ts가 판단해서 여기로
-// 보낸다 — 이 페이지 자신은 방문 시점에 "이미 봤음" 마커만 갱신한다.
+// 서비스 소개 페이지. 큰 배너(components/main/WelcomeBanner.tsx) 또는 챗봇 위
+// 작은 링크(components/WelcomeLink.tsx)를 통해 선택적으로 들어온다 — 비로그인
+// 방문자도 볼 수 있고, 로그인 유저는 방문 시점에 "이미 봤음" 마커만 갱신한다
+// (lib/useWelcomeExposure.ts 참고).
 //
 // 탭(FREE/BASIC/PRO) = 그 플랜의 기능을 전부 담은 하나의 통합 소개 섹션.
 // 기업 분석 미리보기만 실제 components/diagnosis/DiagnosisReport를 샘플 데이터로
 // 축소 렌더링한 "실시간 화면"이고, 나머지는 실제 문구·구조를 재현한 예시(비실시간).
 
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
-import { sanitizeRedirect } from '@/lib/auth-redirect';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import DiagnosisReport, { type DiagnosisResult } from '@/components/diagnosis/DiagnosisReport';
 
@@ -337,10 +336,6 @@ function TabSection({ tab }: { tab: PlanType }) {
 // ── 메인 ────────────────────────────────────────────────────────────────────
 
 function WelcomeContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const next = sanitizeRedirect(searchParams.get('next'));
-
   const [activeTab, setActiveTab] = useState<PlanType>('free');
 
   // 비로그인 방문자도 볼 수 있다(챗봇 위 작은 링크로 누구나 들어올 수 있음) —
@@ -353,8 +348,6 @@ function WelcomeContent() {
       fetch('/api/welcome', { method: 'POST' }).catch(() => {});
     })();
   }, []);
-
-  const handleSkip = () => router.push(next);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-16">
@@ -402,17 +395,10 @@ function WelcomeContent() {
       </div>
 
       {/* CTA */}
-      <div className="text-center flex flex-col items-center gap-4">
+      <div className="text-center">
         <Link href="/pricing" className="text-[13px] text-indigo-400 hover:underline">
           요금제 자세히 보기 →
         </Link>
-        <button
-          onClick={handleSkip}
-          className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-bold text-[14px] text-white transition-all hover:opacity-90 cursor-pointer"
-          style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #0ea5e9 50%, #10b981 100%)' }}
-        >
-          건너뛰고 시작하기 →
-        </button>
       </div>
 
     </div>
@@ -420,9 +406,5 @@ function WelcomeContent() {
 }
 
 export default function WelcomePage() {
-  return (
-    <Suspense fallback={null}>
-      <WelcomeContent />
-    </Suspense>
-  );
+  return <WelcomeContent />;
 }
