@@ -36,7 +36,7 @@ const COMMON_INSTRUCTIONS = `## 출력 형식 (JSON만)
   "reportType": "news-driven" | "data-driven",
   "headline": "오늘 리포트의 핵심을 담은 한 줄 제목 (매일 달라야 함) — 종목명 제외, 40자 이내, 지시형 표현 금지",
   "mainAnalysis": "본문 — news-driven이면 뉴스 해석 중심, data-driven이면 내부지표/이례적 신호 중심. 52주 고가·저가·PER 같은 정적 지표는 여기 쓰지 말 것",
-  "yesterdayDelta": "[어제와의 차이]에 제공된 정보 중 최소 1개를 구체적 수치와 함께 반드시 언급 (예: '어제 대비 거래대금이 X배로 늘어남')",
+  "yesterdayDelta": "[직전 리포트와의 차이]에 제공된 정보를 아래 [직전 리포트와의 간격] 지시에 따른 표현으로 정리 (구체적 수치 포함)",
   "riskFactor": "오늘 상황에 특정된 리스크 1개 (일반론 금지)",
   "tags": ["3~4개 핵심 키워드 (업종·테마·이슈 위주)"],
   "signal": "순유입 우위" | "중립·관망" | "차익실현 관찰" | "순유출 우위"
@@ -46,7 +46,7 @@ const COMMON_INSTRUCTIONS = `## 출력 형식 (JSON만)
 - reportType은 위 [리포트 유형]에 이미 지정된 값을 그대로 옮겨 적으세요 — 직접 판단하지 마세요
 - signal은 매매 지시가 아니라 수급·가격 패턴에 대한 관찰 결과이며 화면에는 노출되지 않고 내부 집계에만 쓰입니다 — 외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도 우위면 "순유출 우위", 단기 급등 후 차익실현 흐름이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"
 - 52주 고가/저가, PER 같은 정적 지표는 mainAnalysis·yesterdayDelta·riskFactor 어디에서도 핵심 근거로 쓰지 마세요 — 이 숫자들은 매일 거의 안 바뀌므로 본문에 쓰면 리포트가 매일 똑같아 보입니다
-- [어제와의 차이]에 제공된 정보 중 최소 1개는 yesterdayDelta에서 구체적 수치와 함께 반드시 언급하고 "어제 대비"라는 표현을 쓰세요. [어제와의 차이]가 "첫 리포트"로 표시돼 있으면 그 사실을 그대로 yesterdayDelta에 적으세요
+- [직전 리포트와의 차이]에 제공된 정보 중 최소 1개는 yesterdayDelta에서 구체적 수치와 함께 반드시 언급하세요. 정확한 표현 방식(어제 대비 / N일 전 리포트 대비 / 위트 문구 등)은 아래 [직전 리포트와의 간격] 지시를 따르세요
 - [내부 계산 지표](급등이력·거래대금배수·MDD·변동성) 중 최소 1개는 mainAnalysis에서 반드시 활용하세요 — 증권사 앱에서 볼 수 없는 고유 계산값입니다. 이 지표를 언급할 때는 이미 당연히 알고 있는 사실인 것처럼 자연스럽게 서술하세요 — 출처를 밝히거나 어디서 가져온 값인지 표시하지 말 것
 - "정당화", "권고", "~하는 것이 좋습니다" 같은 결론형·권유형 단어를 쓰지 말고 관찰·해석형 문장을 사용하세요
 - 같은 종결 표현을 이 리포트 안에서 2회 이상 쓰지 말고 문장마다 종결을 다양하게 바꾸세요 ("~로 보임", "~때문임", "~로 풀이됨", "~라는 점이 눈에 띔" 등)
@@ -76,6 +76,33 @@ const DATA_DRIVEN_INSTRUCTIONS = `## [리포트 유형] 뉴스가 없는 날 (da
 2. 특이한 지표가 없다면 "오늘은 뉴스도 없고 지표도 평소 범위 안에 있다"고 짧게 정리하세요. 억지로 리스크 요인이나 관찰 포인트를 지어내지 마세요
 
 이런 날의 mainAnalysis는 뉴스가 있는 날보다 확연히 짧아야 합니다 (목표: 3~5문장 이내). 짧다는 것 자체가 "오늘은 특별한 게 없다"는 정직한 신호입니다.`;
+
+// 2026-07-10 "직전 리포트와의 간격"에 따라 어조를 분기. stock_analysis_history는
+// 종목 페이지 방문 시에만 새로 쌓이므로, 인기 종목은 매일이지만 비인기 종목은
+// 며칠~몇 주씩 공백이 생긴다 — 그런데도 프롬프트가 항상 "어제 대비"라고만
+// 지시하면 실제로는 며칠/몇 주 전인데 "어제"라고 잘못 서술하게 된다. 간격
+// 자체(daysSinceLastReport)를 프롬프트에 명시하고, 구간별로 다른 어조를 쓴다.
+const FIRST_REPORT_TONE = `## [직전 리포트와의 간격] 첫 리포트
+
+이 종목의 첫 리포트로, 비교할 과거 데이터가 없습니다. yesterdayDelta에는 "이 종목의 첫 리포트로 비교할 과거 데이터가 없다"는 사실을 짧게 한 문장으로만 언급하세요. 과장하거나 아쉬워하는 티를 내지 마세요.`;
+
+const ONE_DAY_GAP_TONE = `## [직전 리포트와의 간격] 1일 (어제)
+
+직전 리포트가 어제 것입니다. yesterdayDelta에서 자연스럽게 "어제 대비"라는 표현을 써서 [직전 리포트와의 차이]에 제공된 정보를 구체적 수치와 함께 비교하세요.`;
+
+const FEW_DAYS_GAP_TONE = `## [직전 리포트와의 간격] 2~6일
+
+직전 리포트가 며칠 전 것입니다. yesterdayDelta에서 "어제 대비"가 아니라 "N일 전 리포트 대비"라는 표현을 쓰고(N은 [직전 리포트와의 차이]에 제시된 실제 일수), 그 사이 무엇이 달라졌는지 [직전 리포트와의 차이]의 수치로 비교하세요. 간격이 왜 생겼는지 사과하거나 설명할 필요는 없습니다 — 이 정도는 흔한 일입니다.`;
+
+const LONG_GAP_TONE = `## [직전 리포트와의 간격] 7일 이상
+
+직전 리포트가 오래 전(7일 이상) 것입니다. yesterdayDelta 맨 앞에 "오랜만에 다시 조회된 종목"이라는 사실을 위트 있게 짧게 한 문장으로 짚으세요. 예시 톤(그대로 쓰지 말고 매번 다르게 표현할 것):
+- "이 종목은 최근 N일간 조회가 뜸했던 모양이다"
+- "N일 만에 다시 관심을 받은 종목이다"
+- "한동안 관심 밖이었다가 오늘 다시 소환된 종목"
+(N은 [직전 리포트와의 차이]에 제시된 실제 일수로 채우세요)
+
+이 문장은 비꼬거나 종목을 깎아내리는 톤이 아니라 가볍게 던지는 한 줄 유머여야 합니다. 절대로 "망한 종목", "관심 꺼진 종목" 같은 부정적 낙인 표현이나, "지금이 기회", "저평가" 같은 투자 유인성 표현을 쓰지 마세요 — 컴플라이언스 원칙(매수/매도·목표가 관련 금지 규칙)이 이 문장에도 동일하게 적용됩니다. 이 위트 문장 다음에는 곧바로 [직전 리포트와의 차이]의 실제 데이터(가격 변화, 거래대금 변화 등)로 자연스럽게 이어가세요. 위트 문장은 매번 표현을 다르게 써서 반복되지 않게 하세요(고정 문구 금지).`;
 
 export type { Signal };
 
@@ -176,16 +203,28 @@ function kstDateStr(): string {
   return kst.toISOString().split('T')[0];
 }
 
-// 직전 리포트(오늘 이전 가장 최근 1건) 대비 "어제와의 차이"를 프롬프트에 주입할 텍스트로 변환.
-// 직전 리포트가 없으면(첫 리포트) null을 반환 — 호출부에서 "비교 대상 없음"으로 처리.
+// 오늘 날짜 문자열과 직전 리포트 날짜 문자열(둘 다 YYYY-MM-DD, KST) 사이의 일수 차이.
+// 직전 리포트가 없으면 null — "첫 리포트"와 "정확히 1일 전"을 구분하기 위해 별도 타입 유지.
+function daysBetween(todayStr: string, prevDateStr: string): number {
+  return Math.round((new Date(todayStr).getTime() - new Date(prevDateStr).getTime()) / 86_400_000);
+}
+
+// 직전 리포트(오늘 이전 가장 최근 1건) 대비 차이를 프롬프트에 주입할 텍스트로 변환.
+// "정확히 어제"만 조회하지 않고 report_date < 오늘 중 가장 최근 1건을 이미 가져오므로
+// (인기 종목이 아니면 며칠~몇 주씩 공백이 생길 수 있음), 실제 간격(daysSinceLastReport)을
+// 명시해서 AI가 "어제 대비"라고 부정확하게 서술하지 않도록 한다.
 function buildYesterdayComparisonBlock(
   prev: HistoryRow & { report_date: string } | null,
   todayChangeRate: number,
   todayMultiple: number | null,
+  daysSinceLastReport: number | null,
 ): string {
-  if (!prev) return '첫 리포트라 비교 대상 없음';
+  if (!prev || daysSinceLastReport === null) return '첫 리포트라 비교 대상 없음';
 
-  const lines: string[] = [`- 직전 리포트: ${prev.report_date} (${prev.report_type === 'news-driven' ? '뉴스 있음' : '뉴스 없음'})`];
+  const lines: string[] = [
+    `- 직전 리포트와의 간격: ${daysSinceLastReport}일`,
+    `- 직전 리포트: ${prev.report_date} (${prev.report_type === 'news-driven' ? '뉴스 있음' : '뉴스 없음'})`,
+  ];
   if (prev.price_change_pct !== null) {
     lines.push(`- 등락률: 그날 ${prev.price_change_pct >= 0 ? '+' : ''}${prev.price_change_pct}% → 오늘 ${todayChangeRate >= 0 ? '+' : ''}${todayChangeRate}%`);
   }
@@ -307,11 +346,18 @@ export async function GET(
   } catch (e) {
     console.warn('[ANALYSIS] 직전 리포트 조회 실패, 비교 없이 진행:', e instanceof Error ? e.message : e);
   }
+  const daysSinceLastReport = prevRow ? daysBetween(todayStr, prevRow.report_date) : null;
   const yesterdayComparisonBlock = buildYesterdayComparisonBlock(
     prevRow,
     price.changeRate,
     tradingValueMultiple?.valid ? tradingValueMultiple.multiple : null,
+    daysSinceLastReport,
   );
+  const gapTone =
+    daysSinceLastReport === null ? FIRST_REPORT_TONE :
+    daysSinceLastReport === 1 ? ONE_DAY_GAP_TONE :
+    daysSinceLastReport <= 6 ? FEW_DAYS_GAP_TONE :
+    LONG_GAP_TONE;
 
   // 4. Claude 분석
   const w52pos = info.week52High > 0
@@ -338,7 +384,7 @@ ${reportType} — 이 값을 그대로 reportType 필드에 옮겨 적으세요.
 ## 오늘의 관련 뉴스 (${buildNewsFreshnessLine(relevantNews)})
 ${newsBlock}
 
-## 어제와의 차이
+## 직전 리포트와의 차이
 ${yesterdayComparisonBlock}
 
 ## 내부 계산 지표 (서버 계산값 — 증권사 앱에는 없는 고유 지표)
@@ -369,6 +415,7 @@ ${yesterdayComparisonBlock}
               text: reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS,
               cache_control: { type: 'ephemeral' },
             },
+            { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
           ],
           messages: [{ role: 'user', content: prompt }],
         });
