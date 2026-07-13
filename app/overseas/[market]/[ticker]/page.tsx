@@ -335,13 +335,25 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
             <Sparkles className="text-blue-400 w-4 h-4" />
             <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
           </div>
+          <div className="flex items-center gap-2">
+            {data.tradingValueMultiple !== null && (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-slate-700 text-slate-200">
+                거래대금 20일 평균 대비 {data.tradingValueMultiple}배
+              </span>
+            )}
+            {data.hasRelevantNews === false && (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-slate-800 text-slate-500">
+                최근 관련 뉴스 반영: 없음
+              </span>
+            )}
+          </div>
         </div>
-        <p className="text-[15px] font-semibold text-white leading-snug">{data.summary}</p>
+        <p className="text-[15px] font-semibold text-white leading-snug">{data.headline}</p>
         <p className="text-[11px] text-slate-500 mt-1.5">{timeLabel}</p>
       </div>
 
       <div className="px-6 py-4 space-y-5">
-        {/* 저항선 관찰(52주 고점 기준) / 지지선 관찰(52주 저점 기준) — 목표가·손절가 아님, AI가 지어낸 수치 아니고 서버가 실제 52주 데이터로 계산 */}
+        {/* 52주 최고가·최저가 — 목표가·손절가 아님, 서버가 실제 52주 데이터로 계산 */}
         {(data.resistance > 0 || data.support > 0) && (
           <div className="grid grid-cols-2 gap-3">
             {data.resistance > 0 && (
@@ -379,20 +391,31 @@ function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) 
           </div>
         )}
 
-        {/* 섹션 */}
-        {data.sections?.map(sec => (
-          <div key={sec.title}>
-            <p className="text-[12px] font-bold text-slate-300 mb-2">{sec.title}</p>
-            <ul className="space-y-1.5">
-              {sec.points?.map((pt, i) => (
-                <li key={i} className="flex items-start gap-2 text-[13px] text-slate-400 leading-snug">
-                  <span className="shrink-0 mt-[2px] text-[8px] text-indigo-400">●</span>
-                  {pt}
-                </li>
-              ))}
-            </ul>
+        {/* 본문 */}
+        {data.mainAnalysis && (
+          <div>
+            <p className="text-[12px] font-bold text-slate-300 mb-2">
+              {data.reportType === 'news-driven' ? '📰 오늘의 분석' : '📊 오늘의 분석'}
+            </p>
+            <p className="text-[13px] text-slate-400 leading-relaxed">{data.mainAnalysis}</p>
           </div>
-        ))}
+        )}
+
+        {/* 직전 리포트 대비 */}
+        {data.yesterdayDelta && (
+          <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3">
+            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-1">🔄 직전 리포트 대비</p>
+            <p className="text-[13px] text-slate-300 leading-relaxed">{data.yesterdayDelta}</p>
+          </div>
+        )}
+
+        {/* 리스크 요인 */}
+        {data.riskFactor && (
+          <div>
+            <p className="text-[12px] font-bold text-slate-300 mb-2">⚠️ 리스크 요인</p>
+            <p className="text-[13px] text-slate-400 leading-relaxed">{data.riskFactor}</p>
+          </div>
+        )}
 
         {/* 태그 */}
         {data.tags?.length > 0 && (
