@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import {
   Sparkles, Plus, Trash2, Search, ChevronLeft,
@@ -52,15 +53,22 @@ interface HoldingResult {
   news?:        { title: string; summary?: string; url?: string }[];
   mdd?:         number | null;
   volatility?:  number | null;
+  todayContribution?: number | null; // 오늘 손익 기여도(원)
   isCached?:    boolean; // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
   cachedAt?:    string;
 }
 
-interface NewsDigestItem {
-  title:   string;
-  summary?: string;
-  url?:    string;
-  stocks:  string[];
+interface HoldingPeriodEntry { ticker: string; name: string; holdDays: number; profitRate: number }
+
+interface PortfolioHistory {
+  daysSince: number | null; // null = 첫 포트폴리오 진단
+  prevDate?: string;
+  prevTotalProfitRate?: number | null;
+  prevTotalProfit?:     number | null;
+  compositionChanged: boolean;
+  addedTickers:   { ticker: string; name: string }[];
+  removedTickers: { ticker: string; name: string }[];
+  narrative: string;
 }
 
 interface PortfolioResult {
@@ -71,18 +79,30 @@ interface PortfolioResult {
   summary:          string;
   sectors:          Sector[];
   holdings:         HoldingResult[];
-  suggestions:      string[];
   riskFactors?:        string[];
   opportunityFactors?: string[];
   shortTermOutlook?:   string;
   midTermOutlook?:     string;
-  newsDigest?:         NewsDigestItem[];
   benchmark?: {
     portfolioProfitRate: number;
     kospiChangeRate: number;
     fromDate: string;
     toDate: string;
   } | null;
+  history: PortfolioHistory;
+  topContributors: {
+    n: number;
+    positive: { ticker: string; name: string; amount: number }[];
+    negative: { ticker: string; name: string; amount: number }[];
+  };
+  contributionNarrative: string;
+  coMovementText: string | null;
+  coMovementNarrative: string;
+  holdingPeriod: {
+    longest: HoldingPeriodEntry | null;
+    mostRecent: HoldingPeriodEntry | null;
+    narrative: string;
+  };
 }
 
 interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
@@ -133,6 +153,56 @@ function MetricCard({ label, value, sub, up, highlight }: {
         {value}
       </p>
       {sub && <p className="text-[11px] text-slate-500 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-slate-500">{label}</span>
+      <span className={`text-[13px] font-bold font-mono ${positive ? 'text-red-400' : 'text-blue-400'}`}>{value}</span>
+    </div>
+  );
+}
+
+// "직전 진단 대비" 카드 — components/diagnosis/DiagnosisReport.tsx의 HistoryCompareCard와
+// 동일한 시각 언어 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시.
+function PortfolioHistoryCard({ result }: { result: PortfolioResult }) {
+  const h = result.history;
+  const isFirst = h.daysSince === null;
+  const label = isFirst
+    ? '🔄 첫 포트폴리오 진단'
+    : h.daysSince === 1
+      ? '🔄 어제 대비'
+      : h.daysSince! <= 6
+        ? `🔄 ${h.daysSince}일 전 진단 대비`
+        : '🔄 오랜만에 재조회';
+
+  const rateDelta   = !isFirst && typeof h.prevTotalProfitRate === 'number' ? result.totalProfitRate - h.prevTotalProfitRate : null;
+  const amountDelta = !isFirst && !h.compositionChanged && typeof h.prevTotalProfit === 'number' ? result.totalProfit - h.prevTotalProfit : null;
+
+  return (
+    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
+      <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
+      {!isFirst && (
+        <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
+          {rateDelta !== null && (
+            <StatDelta label="총 수익률" value={`${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`} positive={rateDelta >= 0} />
+          )}
+          {amountDelta !== null && (
+            <StatDelta label="총 평가손익" value={`${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`} positive={amountDelta >= 0} />
+          )}
+          {h.compositionChanged && (
+            <span className="text-[11px] text-amber-500/80">
+              보유 종목 변경
+              {h.addedTickers.length > 0 && ` · 추가: ${h.addedTickers.map(t => t.name).join(', ')}`}
+              {h.removedTickers.length > 0 && ` · 제거: ${h.removedTickers.map(t => t.name).join(', ')}`}
+            </span>
+          )}
+        </div>
+      )}
+      <p className="text-[13px] text-slate-300 leading-relaxed">{h.narrative}</p>
     </div>
   );
 }
@@ -406,7 +476,7 @@ export default function PortfolioDiagnosisPage() {
               '최대 10개 기업 동시 분석',
               '섹터 편중도 자동 계산',
               '기업별 AI 관찰 리포트',
-              '참고할 만한 관찰 포인트',
+              '오늘 손익 기여도 분석',
               '월 20회 사용 가능',
             ].map(f => (
               <div key={f} className="flex items-center gap-2">
@@ -542,6 +612,9 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </div>
 
+          {/* 2-1행: 직전 진단 대비 (신설) */}
+          <PortfolioHistoryCard result={result} />
+
           {/* 3행: 벤치마크 비교 (사실 수치만, 판단 없음) */}
           {result.benchmark && (
             <Card title="벤치마크 비교 (참고용 수치)" className="mb-4">
@@ -600,6 +673,47 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
+          {/* 3-1행: 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
+          {((result.topContributors?.positive.length ?? 0) > 0 || (result.topContributors?.negative.length ?? 0) > 0 || result.coMovementText) && (
+            <div className={`grid grid-cols-1 ${result.coMovementText ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+              {((result.topContributors?.positive.length ?? 0) > 0 || (result.topContributors?.negative.length ?? 0) > 0) && (
+                <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                    오늘 손익 영향이 가장 큰 {result.topContributors.n}종목
+                  </p>
+                  <p className="text-[10px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
+                  {/* 금액은 서버 계산값을 그대로 표시(AI가 옮겨 적지 않음) — 아래 문장은 해석만 */}
+                  <div className="flex flex-col gap-1.5 mb-3">
+                    {result.topContributors.positive.map(c => (
+                      <div key={c.ticker} className="flex items-center justify-between">
+                        <span className="text-[12px] text-slate-400">{c.name}</span>
+                        <span className="text-[13px] font-bold font-mono text-red-400">{c.amount >= 0 ? '+' : ''}{fmt(c.amount)}원</span>
+                      </div>
+                    ))}
+                    {result.topContributors.negative.map(c => (
+                      <div key={c.ticker} className="flex items-center justify-between">
+                        <span className="text-[12px] text-slate-400">{c.name}</span>
+                        <span className="text-[13px] font-bold font-mono text-blue-400">{fmt(c.amount)}원</span>
+                      </div>
+                    ))}
+                  </div>
+                  {result.contributionNarrative && (
+                    <p className="text-[13px] text-slate-300 leading-relaxed">{result.contributionNarrative}</p>
+                  )}
+                </div>
+              )}
+              {result.coMovementText && (
+                <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">섹터 동조화 관찰</p>
+                  <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>
+                  {result.coMovementNarrative && (
+                    <p className="text-[13px] text-slate-300 leading-relaxed">{result.coMovementNarrative}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 4행: 기업별 관찰 지표 */}
           <Card title="기업별 관찰 지표" className="mb-4">
             <div className="flex flex-col divide-y divide-slate-700/40">
@@ -612,6 +726,9 @@ export default function PortfolioDiagnosisPage() {
                       <div className="w-full md:w-40 shrink-0">
                         <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
                         <p className="text-[11px] text-slate-500 font-mono">{h.ticker} · {h.sector}</p>
+                        <Link href={`/stock/${h.ticker}`} className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
+                          자세히 보기 →
+                        </Link>
                       </div>
                       {/* 수치 */}
                       <div className="flex gap-4 shrink-0 text-right md:text-left">
@@ -658,39 +775,43 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 4-1행: 포트폴리오 Risk/Opportunity Factors */}
+          {/* 4-1행: 포트폴리오 Risk Factors + Opportunity Factors (대칭 구조) */}
           {((result.riskFactors?.length ?? 0) > 0 || (result.opportunityFactors?.length ?? 0) > 0) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">
-                    Risk Factors
-                  </span>
+              {(result.riskFactors?.length ?? 0) > 0 && (
+                <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                      Risk Factors
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {(result.riskFactors ?? []).map((line, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                        <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-col gap-2">
-                  {(result.riskFactors ?? []).map((line, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                    </div>
-                  ))}
+              )}
+              {(result.opportunityFactors?.length ?? 0) > 0 && (
+                <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                      Opportunity Factors
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {(result.opportunityFactors ?? []).map((line, i) => (
+                      <div key={i} className="flex gap-2">
+                        <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                        <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                    참고 데이터 포인트
-                  </span>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {(result.opportunityFactors ?? []).map((line, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -720,58 +841,28 @@ export default function PortfolioDiagnosisPage() {
             </div>
           )}
 
-          {/* 4-3행: 뉴스 동향 (종목별 매칭 뉴스 집계, 중복 병합) */}
-          {(result.newsDigest?.length ?? 0) > 0 && (
-            <Card title="뉴스 동향" className="mb-4">
-              <div className="flex flex-col divide-y divide-slate-700/40">
-                {result.newsDigest!.map((n, i) => {
-                  const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
-                  return (
-                    <a
-                      key={i}
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="py-3.5 first:pt-0 last:pb-0 group cursor-pointer block"
-                    >
-                      <div className="flex gap-2.5">
-                        <span className="mt-1 text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                            {n.stocks.map(s => (
-                              <span key={s} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                                {s}
-                              </span>
-                            ))}
-                          </div>
-                          <p className="text-[13px] font-medium text-white leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
-                            {n.title}
-                          </p>
-                          {n.summary && (
-                            <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.summary}</p>
-                          )}
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
+          {/* 5행: 보유 기간별 관점 (신설, 매입일 데이터로 비교 가능할 때만) */}
+          {(result.holdingPeriod?.longest && result.holdingPeriod?.mostRecent) && (
+            <Card title="보유 기간별 관점" className="mb-4">
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[10px] text-slate-500 mb-1">가장 오래 보유 · {result.holdingPeriod.longest.name} ({result.holdingPeriod.longest.holdDays}일 전 매입)</p>
+                  <p className={`text-lg font-mono font-bold ${result.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.holdingPeriod.longest.profitRate)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[10px] text-slate-500 mb-1">가장 최근 편입 · {result.holdingPeriod.mostRecent.name} ({result.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
+                  <p className={`text-lg font-mono font-bold ${result.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.holdingPeriod.mostRecent.profitRate)}
+                  </p>
+                </div>
               </div>
+              {result.holdingPeriod.narrative && (
+                <p className="text-[13px] text-slate-300 leading-relaxed">{result.holdingPeriod.narrative}</p>
+              )}
             </Card>
           )}
-
-          {/* 5행: 참고할 만한 관찰 포인트 (전체 펼침) */}
-          <Card title="참고할 만한 관찰 포인트" className="mb-4" data-suggestions-section>
-            <div className="flex flex-col gap-3" data-suggestions-list>
-              {(result.suggestions ?? []).filter(Boolean).map((s, i) => (
-                <div key={i} data-suggestions-item className="flex gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
-                  <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{s}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
 
           {/* 면책 */}
           <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6 px-4">

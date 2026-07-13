@@ -56,6 +56,10 @@ const SAMPLE_DIAGNOSIS: DiagnosisResult = {
     { year: '2025', revenue: 3218789, operatingProfit: 389012, netIncome: 356210, roe: 8.1 },
   ],
   financialsNarrative: '2023년 대비 영업이익이 큰 폭으로 확대되며 2024·2025년 연속 개선 흐름을 이어가고 있습니다.',
+  disclosures: [
+    { title: '자기주식처분결정', date: '2026-07-10', url: 'https://dart.fss.or.kr', filer: '삼성전자' },
+  ],
+  disclosureNarrative: '7월 10일 자기주식 처분을 공시했으며, 이는 유동성 확보 목적으로 풀이됩니다.',
   history: {
     daysSince: 1,
     prevProfitRate: 8.1,

@@ -33,6 +33,13 @@ interface AnnualFinancialRow {
   roe: number | null;
 }
 
+interface DartDisclosure {
+  title: string;
+  date: string;
+  url: string;
+  filer: string;
+}
+
 interface DiagnosisData {
   stockName: string;
   ticker: string;
@@ -66,6 +73,8 @@ interface DiagnosisData {
   sectorNarrative?: string;
   annualFinancials?: AnnualFinancialRow[];
   financialsNarrative?: string;
+  disclosures?: DartDisclosure[];
+  disclosureNarrative?: string;
 }
 
 interface HoldingResult {
@@ -81,6 +90,9 @@ interface HoldingResult {
   signal: '순유입 우위' | '중립·관망' | '차익실현 관찰' | '순유출 우위';
   reason: string;
   sector: string;
+  mdd?: number | null;
+  volatility?: number | null;
+  todayContribution?: number | null;
 }
 
 interface Sector {
@@ -88,6 +100,19 @@ interface Sector {
   tickers: string[];
   weight: number;
   warning: boolean;
+}
+
+interface HoldingPeriodEntry { ticker: string; name: string; holdDays: number; profitRate: number }
+
+interface PortfolioHistory {
+  daysSince: number | null;
+  prevDate?: string;
+  prevTotalProfitRate?: number | null;
+  prevTotalProfit?: number | null;
+  compositionChanged: boolean;
+  addedTickers: { ticker: string; name: string }[];
+  removedTickers: { ticker: string; name: string }[];
+  narrative: string;
 }
 
 interface PortfolioData {
@@ -99,7 +124,31 @@ interface PortfolioData {
   summary: string;
   sectors: Sector[];
   holdings: HoldingResult[];
-  suggestions: string[];
+  riskFactors?: string[];
+  opportunityFactors?: string[];
+  shortTermOutlook?: string;
+  midTermOutlook?: string;
+  benchmark?: {
+    portfolioProfitRate: number;
+    kospiChangeRate: number;
+    fromDate: string;
+    toDate: string;
+  } | null;
+  // 2026-07-13 신설 — 이전에 저장된 공유 리포트에는 없을 수 있어 optional로 둠
+  history?: PortfolioHistory;
+  topContributors?: {
+    n: number;
+    positive: { ticker: string; name: string; amount: number }[];
+    negative: { ticker: string; name: string; amount: number }[];
+  };
+  contributionNarrative?: string;
+  coMovementText?: string | null;
+  coMovementNarrative?: string;
+  holdingPeriod?: {
+    longest: HoldingPeriodEntry | null;
+    mostRecent: HoldingPeriodEntry | null;
+    narrative: string;
+  };
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -241,6 +290,47 @@ function FinancialsTrendCard({ rows, narrative }: { rows: AnnualFinancialRow[]; 
   );
 }
 
+// app/portfolio-diagnosis/page.tsx의 PortfolioHistoryCard와 동일 로직 — 손복제 구조라 함께 갱신.
+function PortfolioHistoryCard({ d }: { d: PortfolioData }) {
+  const h = d.history;
+  if (!h) return null;
+  const isFirst = h.daysSince === null;
+  const label = isFirst
+    ? '🔄 첫 포트폴리오 진단'
+    : h.daysSince === 1
+      ? '🔄 어제 대비'
+      : h.daysSince! <= 6
+        ? `🔄 ${h.daysSince}일 전 진단 대비`
+        : '🔄 오랜만에 재조회';
+
+  const rateDelta   = !isFirst && typeof h.prevTotalProfitRate === 'number' ? d.totalProfitRate - h.prevTotalProfitRate : null;
+  const amountDelta = !isFirst && !h.compositionChanged && typeof h.prevTotalProfit === 'number' ? d.totalProfit - h.prevTotalProfit : null;
+
+  return (
+    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
+      <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
+      {!isFirst && (
+        <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
+          {rateDelta !== null && (
+            <StatDelta label="총 수익률" value={`${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`} positive={rateDelta >= 0} />
+          )}
+          {amountDelta !== null && (
+            <StatDelta label="총 평가손익" value={`${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`} positive={amountDelta >= 0} />
+          )}
+          {h.compositionChanged && (
+            <span className="text-[11px] text-amber-500/80">
+              보유 종목 변경
+              {h.addedTickers.length > 0 && ` · 추가: ${h.addedTickers.map(t => t.name).join(', ')}`}
+              {h.removedTickers.length > 0 && ` · 제거: ${h.removedTickers.map(t => t.name).join(', ')}`}
+            </span>
+          )}
+        </div>
+      )}
+      <p className="text-[13px] text-slate-300 leading-relaxed">{h.narrative}</p>
+    </div>
+  );
+}
+
 function ShareBanner({ message }: { message: string }) {
   return (
     <div className="bg-gradient-to-r from-indigo-600/20 to-violet-600/20 border border-indigo-500/30 rounded-2xl px-5 py-3 mb-6 flex items-center gap-3">
@@ -376,6 +466,33 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
 
         {/* 2행: 직전 기업분석 대비 (신설) */}
         <HistoryCompareCard d={d} />
+
+        {/* 2-1행: 주요 공시 (DART, 있을 때만 — 눈에 띄게 강조) */}
+        {(d.disclosures?.length ?? 0) > 0 && (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">주요 공시 (DART)</span>
+            </div>
+            <div className="flex flex-col gap-2 mb-3">
+              {d.disclosures!.map((disc, i) => (
+                <a
+                  key={i}
+                  href={disc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between gap-3 rounded-lg bg-slate-900/30 px-3 py-2 hover:bg-slate-900/50 transition-colors group"
+                >
+                  <span className="text-[13px] text-amber-100/90 group-hover:text-amber-200 group-hover:underline leading-snug">{disc.title}</span>
+                  <span className="text-[11px] text-amber-400/70 font-mono shrink-0">{disc.date}</span>
+                </a>
+              ))}
+            </div>
+            {d.disclosureNarrative && (
+              <p className="text-[13px] text-slate-300 leading-relaxed">{d.disclosureNarrative}</p>
+            )}
+          </div>
+        )}
 
         {/* 3행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님, 참고용 수치 카드) */}
         <div className="grid grid-cols-2 gap-4 mb-4">
@@ -582,6 +699,33 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           </div>
         </div>
 
+        {/* 직전 진단 대비 (신설) */}
+        <PortfolioHistoryCard d={d} />
+
+        {/* 벤치마크 비교 (사실 수치만, 판단 없음) */}
+        {d.benchmark && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">벤치마크 비교 (참고용 수치)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[10px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
+                <p className={`text-lg font-mono font-bold ${d.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.benchmark.portfolioProfitRate)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[10px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
+                <p className={`text-lg font-mono font-bold ${d.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.benchmark.kospiChangeRate)}
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-3">
+              비교 기간: {d.benchmark.fromDate} ~ {d.benchmark.toDate} (편입 기업 평균 매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
+            </p>
+          </div>
+        )}
+
         {/* 섹터 편중도 */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">섹터 편중도 분석</p>
@@ -607,6 +751,46 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           </div>
         </div>
 
+        {/* 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
+        {(((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) || d.coMovementText) && (
+          <div className={`grid grid-cols-1 ${d.coMovementText ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+            {((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) && (
+              <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                  오늘 손익 영향이 가장 큰 {d.topContributors!.n}종목
+                </p>
+                <p className="text-[10px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
+                <div className="flex flex-col gap-1.5 mb-3">
+                  {d.topContributors!.positive.map(c => (
+                    <div key={c.ticker} className="flex items-center justify-between">
+                      <span className="text-[12px] text-slate-400">{c.name}</span>
+                      <span className="text-[13px] font-bold font-mono text-red-400">{c.amount >= 0 ? '+' : ''}{fmt(c.amount)}원</span>
+                    </div>
+                  ))}
+                  {d.topContributors!.negative.map(c => (
+                    <div key={c.ticker} className="flex items-center justify-between">
+                      <span className="text-[12px] text-slate-400">{c.name}</span>
+                      <span className="text-[13px] font-bold font-mono text-blue-400">{fmt(c.amount)}원</span>
+                    </div>
+                  ))}
+                </div>
+                {d.contributionNarrative && (
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{d.contributionNarrative}</p>
+                )}
+              </div>
+            )}
+            {d.coMovementText && (
+              <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">섹터 동조화 관찰</p>
+                <p className="text-[11px] text-slate-500 mb-2">{d.coMovementText}</p>
+                {d.coMovementNarrative && (
+                  <p className="text-[13px] text-slate-300 leading-relaxed">{d.coMovementNarrative}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 종목별 관찰 지표 (절대 금액 제외) */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">기업별 관찰 지표</p>
@@ -619,6 +803,9 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                     <div className="w-full md:w-40 shrink-0">
                       <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
                       <p className="text-[11px] text-slate-500 font-mono">{h.ticker} · {h.sector}</p>
+                      <Link href={`/stock/${h.ticker}`} className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
+                        자세히 보기 →
+                      </Link>
                     </div>
                     <div className="flex gap-4 shrink-0">
                       <div>
@@ -642,18 +829,87 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           </div>
         </div>
 
-        {/* 참고할 만한 관찰 포인트 (전체 펼침) */}
-        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">참고할 만한 관찰 포인트</p>
-          <div className="flex flex-col gap-3">
-            {(d.suggestions ?? []).map((s, i) => (
-              <div key={i} className="flex items-start gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
-                <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">{String(i + 1).padStart(2, '0')}</span>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{s}</p>
+        {/* Risk Factors + Opportunity Factors (대칭 구조) */}
+        {((d.riskFactors?.length ?? 0) > 0 || (d.opportunityFactors?.length ?? 0) > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {(d.riskFactors?.length ?? 0) > 0 && (
+              <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {(d.riskFactors ?? []).map((line, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            )}
+            {(d.opportunityFactors?.length ?? 0) > 0 && (
+              <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Opportunity Factors</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {(d.opportunityFactors ?? []).map((line, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* 단기/중기 전망 */}
+        {(d.shortTermOutlook || d.midTermOutlook) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {d.shortTermOutlook && (
+              <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
+                </div>
+                <p className="text-[13px] text-slate-300 leading-relaxed">{d.shortTermOutlook}</p>
+              </div>
+            )}
+            {d.midTermOutlook && (
+              <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
+                </div>
+                <p className="text-[13px] text-slate-300 leading-relaxed">{d.midTermOutlook}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 보유 기간별 관점 (신설, 매입일 데이터로 비교 가능할 때만) */}
+        {(d.holdingPeriod?.longest && d.holdingPeriod?.mostRecent) && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">보유 기간별 관점</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[10px] text-slate-500 mb-1">가장 오래 보유 · {d.holdingPeriod.longest.name} ({d.holdingPeriod.longest.holdDays}일 전 매입)</p>
+                <p className={`text-lg font-mono font-bold ${d.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.holdingPeriod.longest.profitRate)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[10px] text-slate-500 mb-1">가장 최근 편입 · {d.holdingPeriod.mostRecent.name} ({d.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
+                <p className={`text-lg font-mono font-bold ${d.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.holdingPeriod.mostRecent.profitRate)}
+                </p>
+              </div>
+            </div>
+            {d.holdingPeriod.narrative && (
+              <p className="text-[13px] text-slate-300 leading-relaxed">{d.holdingPeriod.narrative}</p>
+            )}
+          </div>
+        )}
 
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-4 px-4">
           {INVESTMENT_DISCLAIMER}

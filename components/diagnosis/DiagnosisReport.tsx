@@ -30,6 +30,13 @@ export interface AnnualFinancialRow {
   roe: number | null;
 }
 
+export interface DartDisclosure {
+  title: string;
+  date: string;
+  url: string;
+  filer: string;
+}
+
 export interface DiagnosisResult {
   mainAnalysis: string; // 현재 상태·밸류에이션·수급·뉴스 해석을 하나로 합친 서술형 본문
   currentPrice: number;
@@ -46,6 +53,8 @@ export interface DiagnosisResult {
   sectorNarrative: string;   // 업종 대비 해석 (1~3문장), 데이터 없으면 빈 문자열
   annualFinancials: AnnualFinancialRow[]; // 최근 3개년 확정 연간 실적, 없으면 빈 배열 — 카드 생략
   financialsNarrative: string; // 실적 추이 해석, 데이터 없으면 빈 문자열
+  disclosures: DartDisclosure[]; // DART 최근 14일 주요 공시, 없으면 빈 배열 — 카드 생략
+  disclosureNarrative: string; // 공시 해석, 데이터 없으면 빈 문자열
   resistance: number; // 52주 고점 기준 저항선 관찰 (목표가 아님)
   support: number;    // 52주 저가 기준 지지선 관찰 (손절가 아님)
   benchmark?: {
@@ -371,6 +380,33 @@ export default function DiagnosisReport({
 
         {/* ── 2행: 직전 기업분석 대비 (신설) ── */}
         <HistoryCompareCard result={result} />
+
+        {/* ── 2-1행: 주요 공시 (DART, 있을 때만 — 눈에 띄게 강조) ── */}
+        {result.disclosures.length > 0 && (
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">주요 공시 (DART)</span>
+            </div>
+            <div className="flex flex-col gap-2 mb-3">
+              {result.disclosures.map((d, i) => (
+                <a
+                  key={i}
+                  href={d.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between gap-3 rounded-lg bg-slate-900/30 px-3 py-2 hover:bg-slate-900/50 transition-colors group"
+                >
+                  <span className="text-[13px] text-amber-100/90 group-hover:text-amber-200 group-hover:underline leading-snug">{d.title}</span>
+                  <span className="text-[11px] text-amber-400/70 font-mono shrink-0">{d.date}</span>
+                </a>
+              ))}
+            </div>
+            {result.disclosureNarrative && (
+              <p className="text-[13px] text-slate-300 leading-relaxed">{result.disclosureNarrative}</p>
+            )}
+          </div>
+        )}
 
         {/* ── 3행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님, 참고용 수치 카드) ── */}
         <div className="grid grid-cols-2 gap-4 mb-4">

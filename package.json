@@ -18,6 +18,7 @@
     "@portone/browser-sdk": "^0.1.9",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
+    "adm-zip": "^0.6.0",
     "cheerio": "^1.2.0",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^0.546.0",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^22.14.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
