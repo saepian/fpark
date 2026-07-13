@@ -5,8 +5,33 @@ import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 
+export interface DiagnosisHistory {
+  daysSince: number | null; // null = 첫 기업분석(비교 대상 없음)
+  prevDate?: string;
+  prevProfitRate?: number | null;
+  prevProfitAmount?: number | null;
+  prevCurrentPrice?: number | null;
+  prevFlowType?: 'BUY' | 'SELL' | 'NEUTRAL' | null;
+  prevFlowPercentage?: number | null;
+  holdingsChanged?: boolean; // 매입평균가/보유수량이 직전 진단과 달라짐 — 손익 금액 비교 제외
+  narrative: string; // AI가 해석한 "직전 진단 대비" 서술
+}
+
+export interface SectorComparison {
+  peerAvgChangeRate: number;
+  deltaVsPeer: number;
+}
+
+export interface AnnualFinancialRow {
+  year: string;
+  revenue: number | null;
+  operatingProfit: number | null;
+  netIncome: number | null;
+  roe: number | null;
+}
+
 export interface DiagnosisResult {
-  summary: string;
+  mainAnalysis: string; // 현재 상태·밸류에이션·수급·뉴스 해석을 하나로 합친 서술형 본문
   currentPrice: number;
   avgPrice: number;
   quantity: number;
@@ -14,10 +39,13 @@ export interface DiagnosisResult {
   profitAmount: number;
   news: { title: string; description: string; url?: string }[];
   newsBasis?: 'news' | 'estimated';
-  institutionalFlow: string;
-  foreignFlow: string;
-  reasons: string[];
-  technicalAnalysis: string[];
+  institutionalFlow: string; // 도넛 옆 한 줄 캡션
+  foreignFlow: string;       // 도넛 옆 한 줄 캡션
+  riskFactors: string[];
+  sectorComparison: SectorComparison | null; // 동종업계 peer 없으면 null — 카드 자체 생략
+  sectorNarrative: string;   // 업종 대비 해석 (1~3문장), 데이터 없으면 빈 문자열
+  annualFinancials: AnnualFinancialRow[]; // 최근 3개년 확정 연간 실적, 없으면 빈 배열 — 카드 생략
+  financialsNarrative: string; // 실적 추이 해석, 데이터 없으면 빈 문자열
   resistance: number; // 52주 고점 기준 저항선 관찰 (목표가 아님)
   support: number;    // 52주 저가 기준 지지선 관찰 (손절가 아님)
   benchmark?: {
@@ -27,14 +55,13 @@ export interface DiagnosisResult {
     fromDate: string;
     toDate: string;
   } | null;
-  riskFactors: string[];
-  opportunityFactors: string[];
   flowType?: 'BUY' | 'SELL' | 'NEUTRAL';
   flowPercentage?: number;
   shortTermOutlook?: string;
   midTermOutlook?: string;
   isCached?: boolean; // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
   cachedAt?: string;
+  history: DiagnosisHistory;
 }
 
 function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
@@ -74,6 +101,123 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
 function fmt(n: number) { return n.toLocaleString(); }
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
+function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-slate-500">{label}</span>
+      <span className={`text-[13px] font-bold font-mono ${positive ? 'text-red-400' : 'text-blue-400'}`}>{value}</span>
+    </div>
+  );
+}
+
+// "직전 기업분석 대비" 카드 — 종목 리포트(components/stock/AiAnalysis.tsx)의 "🔄 어제 대비"
+// 카드와 동일한 시각 언어를 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시하고
+// (AI가 지어낸 숫자가 아님), narrative만 AI 해석 문장이다.
+function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
+  const h = result.history;
+  const isFirst = h.daysSince === null;
+  const label = isFirst
+    ? '🔄 첫 기업분석'
+    : h.daysSince === 1
+      ? '🔄 어제 대비'
+      : h.daysSince! <= 6
+        ? `🔄 ${h.daysSince}일 전 진단 대비`
+        : '🔄 오랜만에 재조회';
+
+  const rateDelta   = !isFirst && typeof h.prevProfitRate === 'number' ? result.profitRate - h.prevProfitRate : null;
+  const amountDelta = !isFirst && !h.holdingsChanged && typeof h.prevProfitAmount === 'number' ? result.profitAmount - h.prevProfitAmount : null;
+  const priceDelta  = !isFirst && typeof h.prevCurrentPrice === 'number' ? result.currentPrice - h.prevCurrentPrice : null;
+
+  return (
+    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
+      <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
+      {!isFirst && (
+        <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
+          {rateDelta !== null && (
+            <StatDelta label="수익률" value={`${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`} positive={rateDelta >= 0} />
+          )}
+          {amountDelta !== null && (
+            <StatDelta label="평가손익" value={`${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`} positive={amountDelta >= 0} />
+          )}
+          {priceDelta !== null && (
+            <StatDelta label="주가" value={`${priceDelta >= 0 ? '+' : ''}${fmt(Math.round(priceDelta))}원`} positive={priceDelta >= 0} />
+          )}
+          {h.holdingsChanged && (
+            <span className="text-[11px] text-amber-500/80">보유정보 변경으로 손익 금액 비교 제외</span>
+          )}
+        </div>
+      )}
+      <p className="text-[13px] text-slate-300 leading-relaxed">{h.narrative}</p>
+    </div>
+  );
+}
+
+// 매출(항상 양수, 크기 비교 — 순차형 단일 색상 바)과 영업이익(부호가 바뀔 수 있음 —
+// 0 기준선 중심의 발산형 바)을 연도별로 한눈에 비교할 수 있게 표시. 2026-07-13
+// "숫자를 읽어야만 알 수 있다"는 피드백으로, 텍스트 나열에서 막대 시각화로 전환.
+// 색상은 페이지 전체가 이미 쓰고 있는 관례(상승/이익=red, 하락/손실=blue)를 그대로 따름.
+function FinancialsTrendCard({ result }: { result: DiagnosisResult }) {
+  const rows = result.annualFinancials;
+  const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue ?? 0));
+  const maxAbsOpProfit = Math.max(1, ...rows.map((r) => Math.abs(r.operatingProfit ?? 0)));
+
+  return (
+    <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5 mb-4">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
+          실적 추이 (연간 확정치)
+        </span>
+      </div>
+      <div className="flex flex-col gap-3.5 mb-3">
+        {rows.map((r) => (
+          <div key={r.year}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-bold text-slate-400">{r.year}년</span>
+              {r.roe !== null && <span className="text-[10px] text-slate-500 font-mono">ROE {r.roe}%</span>}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {/* 매출 — 순차형(단일 색) 바, 0 기준 좌측 정렬 */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-600 w-14 shrink-0">매출</span>
+                <div className="flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
+                  {r.revenue !== null && (
+                    <div className="h-full rounded-full bg-indigo-400/70" style={{ width: `${Math.max(2, (r.revenue / maxRevenue) * 100)}%` }} />
+                  )}
+                </div>
+                <span className="text-[11px] font-mono text-slate-300 tabular-nums w-20 text-right shrink-0">
+                  {r.revenue !== null ? `${fmt(r.revenue)}억` : '-'}
+                </span>
+              </div>
+              {/* 영업이익 — 발산형 바(0 기준선 중심), 흑자=red/적자=blue (페이지 전체 관례) */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-600 w-14 shrink-0">영업이익</span>
+                <div className="relative flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
+                  <div className="absolute inset-y-0 left-1/2 w-px bg-slate-600/80" />
+                  {r.operatingProfit !== null && (
+                    r.operatingProfit >= 0 ? (
+                      <div className="absolute inset-y-0 left-1/2 rounded-r-full bg-red-400/80" style={{ width: `${Math.max(2, (r.operatingProfit / maxAbsOpProfit) * 50)}%` }} />
+                    ) : (
+                      <div className="absolute inset-y-0 right-1/2 rounded-l-full bg-blue-400/80" style={{ width: `${Math.max(2, (Math.abs(r.operatingProfit) / maxAbsOpProfit) * 50)}%` }} />
+                    )
+                  )}
+                </div>
+                <span className={`text-[11px] font-mono tabular-nums w-20 text-right shrink-0 ${
+                  r.operatingProfit === null ? 'text-slate-300' : r.operatingProfit >= 0 ? 'text-red-400' : 'text-blue-400'
+                }`}>
+                  {r.operatingProfit !== null ? `${r.operatingProfit >= 0 ? '+' : ''}${fmt(r.operatingProfit)}억` : '-'}
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {result.financialsNarrative && (
+        <p className="text-[13px] text-slate-300 leading-relaxed">{result.financialsNarrative}</p>
+      )}
+    </div>
+  );
+}
+
 interface DiagnosisReportProps {
   result: DiagnosisResult;
   stockName: string;
@@ -87,15 +231,13 @@ interface DiagnosisReportProps {
 // app/diagnosis/page.tsx의 결과 리포트 뷰를 그대로 추출한 컴포넌트.
 // 실제 종목진단 페이지와 랜딩페이지(ai-portfolio) 예시 카드가 이 컴포넌트를 공유하므로
 // 리포트 UI가 바뀌면 두 곳 모두 자동으로 최신 상태를 유지한다.
+// (app/share/[id]/page.tsx의 DiagnosisView는 별도로 손복제돼 있어 이 파일과 함께 갱신할 것)
 export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
 }: DiagnosisReportProps) {
   const isProfit = result.profitRate >= 0;
   const resistanceUpRate = result.resistance > 0 ? ((result.resistance - result.currentPrice) / result.currentPrice * 100) : 0;
   const supportDownRate  = result.support    > 0 ? ((result.support    - result.currentPrice) / result.currentPrice * 100) : 0;
-
-  const reasonBullets   = result.reasons          ?? [];
-  const technicalLines  = result.technicalAnalysis ?? [];
 
   return (
     <div className="pb-8">
@@ -116,7 +258,7 @@ export default function DiagnosisReport({
             <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
               <ShareDropdown
                 title={`AI 기업 분석 - ${stockName}`}
-                description={`수익률 ${result.profitRate >= 0 ? '+' : ''}${result.profitRate.toFixed(2)}% | ${result.summary?.slice(0, 80) ?? ''}`}
+                description={`수익률 ${result.profitRate >= 0 ? '+' : ''}${result.profitRate.toFixed(2)}% | ${result.mainAnalysis?.slice(0, 80) ?? ''}`}
                 hashtags="fpark,기업분석,AI분석"
                 reportType="diagnosis"
                 reportData={{ ...result, stockName, ticker, generatedAt }}
@@ -138,10 +280,10 @@ export default function DiagnosisReport({
           <p className="text-[12px] text-amber-200/90 leading-relaxed">{INVESTMENT_DISCLAIMER}</p>
         </div>
 
-        {/* ── 1행: 현재 상태 요약 (65%) + PERFORMANCE SNAPSHOT (35%) ── */}
+        {/* ── 1행: 오늘의 기업 분석 (65%) + PERFORMANCE SNAPSHOT (35%) ── */}
         <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-4">
 
-          {/* 현재 상태 요약 (관찰형, 매수/매도/홀딩 의견 아님) */}
+          {/* 오늘의 기업 분석 (서술형, 매수/매도/홀딩 의견 아님) */}
           <div className="rounded-2xl border border-slate-700/50 overflow-hidden" style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
             <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
             <div className="p-6">
@@ -150,10 +292,10 @@ export default function DiagnosisReport({
                   <Sparkles className="w-4 h-4 text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">현재 상태 요약</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">오늘의 기업 분석</p>
                 </div>
               </div>
-              <p className="text-[13px] text-slate-300 leading-relaxed">{result.summary}</p>
+              <p className="text-[13px] text-slate-300 leading-relaxed">{result.mainAnalysis}</p>
             </div>
           </div>
 
@@ -227,7 +369,10 @@ export default function DiagnosisReport({
           </div>
         </div>
 
-        {/* ── 2행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님) ── */}
+        {/* ── 2행: 직전 기업분석 대비 (신설) ── */}
+        <HistoryCompareCard result={result} />
+
+        {/* ── 3행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님, 참고용 수치 카드) ── */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           {/* 저항선 관찰 */}
           <div className="rounded-2xl border border-slate-700/50 overflow-hidden bg-slate-800/40">
@@ -274,38 +419,10 @@ export default function DiagnosisReport({
           </div>
         </div>
 
-        {/* ── 3행: 주요 관찰 데이터 ── */}
-        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">주요 관찰 데이터</p>
-          <div className="flex flex-col gap-2.5">
-            {reasonBullets.map((line, i) => (
-              <div key={i} className="flex gap-3">
-                <span className="mt-1 w-4 h-4 rounded-full bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center shrink-0">
-                  <svg className="w-2 h-2 text-indigo-400" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="2"/></svg>
-                </span>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{line}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── 4행: 가격 위치 데이터 ── */}
-        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">가격 위치 데이터</p>
-          <div className="flex flex-col gap-3">
-            {technicalLines.map((line, i) => (
-              <div key={i} className="flex gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
-                <span className="text-indigo-400 text-[10px] mt-0.5 shrink-0 font-bold">{String(i + 1).padStart(2, '0')}</span>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{line}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── 5행: 기관/외국인 동향 + 리스크 + 기회 ── */}
+        {/* ── 4행: 기관/외국인 동향 도넛 + 업종 대비 + 리스크 요인 ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
 
-          {/* 기관/외국인 동향 — 도넛 차트 */}
+          {/* 기관/외국인 동향 — 도넛 차트 (설명 텍스트는 본문에 흡수, 여기는 캡션 한 줄만) */}
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
               <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
@@ -322,11 +439,40 @@ export default function DiagnosisReport({
               />
             </div>
 
-            {/* 요약 텍스트 */}
-            <p className="text-center text-[12px] text-slate-400 mt-3 leading-relaxed">
-              {result.foreignFlow?.split(/(?<=[.。])\s+/)[0]?.trim() ?? ''}
-            </p>
+            {/* 캡션 (기관/외국인 각 한 줄) */}
+            <div className="flex flex-col gap-1.5 mt-3">
+              {result.institutionalFlow && (
+                <p className="text-center text-[12px] text-slate-400 leading-relaxed">{result.institutionalFlow}</p>
+              )}
+              {result.foreignFlow && (
+                <p className="text-center text-[12px] text-slate-400 leading-relaxed">{result.foreignFlow}</p>
+              )}
+            </div>
           </div>
+
+          {/* 업종 대비 (동종업계 peer 없으면 카드 자체 생략) */}
+          {result.sectorComparison && (
+            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">업종 대비</p>
+              </div>
+              <div className="flex flex-col divide-y divide-slate-700/40 mb-3">
+                <div className="flex items-center justify-between py-2 first:pt-0">
+                  <span className="text-[12px] text-slate-400">업종 평균 등락률</span>
+                  <span className="text-[13px] font-bold font-mono text-slate-300">{fmtRate(result.sectorComparison.peerAvgChangeRate)}</span>
+                </div>
+                <div className="flex items-center justify-between py-2 last:pb-0">
+                  <span className="text-[12px] text-slate-400">업종 대비 차이</span>
+                  <span className={`text-[13px] font-bold font-mono ${result.sectorComparison.deltaVsPeer >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {result.sectorComparison.deltaVsPeer >= 0 ? '+' : ''}{result.sectorComparison.deltaVsPeer.toFixed(2)}%p
+                  </span>
+                </div>
+              </div>
+              {result.sectorNarrative && (
+                <p className="text-[12px] text-slate-400 leading-relaxed">{result.sectorNarrative}</p>
+              )}
+            </div>
+          )}
 
           {/* 리스크 요인 */}
           <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
@@ -344,52 +490,9 @@ export default function DiagnosisReport({
               ))}
             </div>
           </div>
-
-          {/* 기회 요인 */}
-          <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
-                참고 데이터 포인트
-              </span>
-            </div>
-            <div className="flex flex-col gap-2">
-              {(result.opportunityFactors ?? []).map((line, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* ── 6행: 기관 / 외국인 상세 ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">기관 동향</p>
-            <div className="flex flex-col gap-2">
-              {(result.institutionalFlow?.split(/\n|(?<=다\.) /).filter(Boolean) ?? []).map((line, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-violet-400/60 text-[10px] mt-1 shrink-0">▶</span>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">외국인 동향</p>
-            <div className="flex flex-col gap-2">
-              {(result.foreignFlow?.split(/\n|(?<=다\.) /).filter(Boolean) ?? []).map((line, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-sky-400/60 text-[10px] mt-1 shrink-0">▶</span>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">{line.replace(/^[-·•]\s*/, '').trim()}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* ── 7행: 단기/중기 관찰 변수 ── */}
+        {/* ── 5행: 단기/중기 관찰 변수 ── */}
         {(result.shortTermOutlook || result.midTermOutlook) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             {result.shortTermOutlook && (
@@ -415,10 +518,13 @@ export default function DiagnosisReport({
           </div>
         )}
 
-        {/* ── 8행: 뉴스 / 분석 근거 구분 ── */}
+        {/* ── 5-1행: 실적 추이 (최근 3개년 확정 연간, 데이터 없으면 카드 생략) ── */}
+        {result.annualFinancials.length > 0 && <FinancialsTrendCard result={result} />}
+
+        {/* ── 6행: 참고 기사 (본문에서 이미 해석했으므로 출처 링크만) ── */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
           <div className="flex items-center gap-2 mb-4">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">뉴스 동향</p>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">참고 기사</p>
             {result.newsBasis === 'news' ? (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
                 📰 뉴스 기반 분석
@@ -439,19 +545,12 @@ export default function DiagnosisReport({
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="py-3.5 first:pt-0 last:pb-0 group cursor-pointer block"
+                    className="py-2.5 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
                   >
-                    <div className="flex gap-2.5">
-                      <span className="mt-1 text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                      <div>
-                        <p className="text-[13px] font-medium text-white leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
-                          {n.title}
-                        </p>
-                        {n.description && (
-                          <p className="text-[12px] text-slate-500 mt-1 leading-relaxed line-clamp-2">{n.description}</p>
-                        )}
-                      </div>
-                    </div>
+                    <span className="text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                    <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
+                      {n.title}
+                    </p>
                   </a>
                 );
               })}

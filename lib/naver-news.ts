@@ -1,3 +1,19 @@
+// Naver 검색 API는 title/description에 검색어 강조용 <b> 태그와 함께 HTML 엔티티
+// (&quot; &amp; &lt; &gt; &#39; 등)를 인코딩된 채로 내려준다. 태그만 벗기고 엔티티는
+// 디코딩하지 않으면 "&quot;삼성전자&quot; 목표가 상향" 같은 문자열이 화면에 그대로
+// 노출된다(2026-07-13 기업분석 페이지에서 발견). 이 함수를 쓰는 모든 소비자
+// (diagnosis/morning-briefing/stock 분석/daily-pick/news)에 공통 적용.
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&amp;/g, '&'); // &amp;lt; 같은 이중 인코딩 방지 위해 마지막에 처리
+}
+
 export interface NaverNewsItem {
   title: string;
   description: string;
@@ -47,8 +63,8 @@ export async function fetchNaverNews(
     const data = await res.json();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: NaverNewsItem[] = (data.items ?? []).map((item: any) => ({
-      title:       String(item.title ?? '').replace(/<[^>]*>/g, ''),
-      description: String(item.description ?? '').replace(/<[^>]*>/g, ''),
+      title:       decodeHtmlEntities(String(item.title ?? '').replace(/<[^>]*>/g, '')),
+      description: decodeHtmlEntities(String(item.description ?? '').replace(/<[^>]*>/g, '')),
       url:         String(item.originallink || item.link || ''),
       pubDate:     String(item.pubDate ?? ''),
     }));

@@ -7,6 +7,18 @@
 // 새 AI 리포트/인사이트 엔드포인트를 추가할 때도 이 파일의 함수들을 재사용할 것 — 각 파일에서
 // 따로 비슷한 문구를 정의하면 문구가 흩어져 다음 종목/이벤트에서 같은 버그가 반복되기 쉽다.
 
+// KST 기준 오늘 날짜 문자열(YYYY-MM-DD). "직전 리포트/진단과의 간격" 계산처럼
+// 날짜 단위로만 비교하면 되는 곳(시각까지는 불필요)에 report_date 컬럼과 짝을 맞춰 쓴다.
+export function kstDateStr(d: Date = new Date()): string {
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return kst.toISOString().split('T')[0];
+}
+
+// 두 KST 날짜 문자열(YYYY-MM-DD) 사이의 일수 차이.
+export function daysBetween(todayStr: string, prevDateStr: string): number {
+  return Math.round((new Date(todayStr).getTime() - new Date(prevDateStr).getTime()) / 86_400_000);
+}
+
 export function nowKstString(): string {
   const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
   const yyyy = kst.getFullYear();

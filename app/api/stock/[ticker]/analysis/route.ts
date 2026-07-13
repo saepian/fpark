@@ -14,7 +14,7 @@ import {
 } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
-import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry } from '@/lib/ai-grounding';
+import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
 
 export const dynamic = 'force-dynamic';
 // 캐시 없이 매 요청마다 KIS + Claude를 호출 — 관측된 응답 시간이 16~21초로
@@ -198,11 +198,6 @@ function correctPriceMentions(
   };
 }
 
-function kstDateStr(): string {
-  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  return kst.toISOString().split('T')[0];
-}
-
 // 2026-07-10 발견: fetchStockPrice/fetchStockInfo(KIS inquire-price)와
 // fetchDailyChart(KIS inquire-daily-itemchartprice)의 "오늘" 행은 정규장 마감(15:30 KST)
 // 전까지는 장중 누적/실시간 값이고, 마감 후에야 그날의 최종 확정치가 된다. 그런데 당일
@@ -220,12 +215,6 @@ function isIntradayCacheStale(cachedCreatedAt: string): boolean {
   const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedCreatedAt)) < MARKET_CLOSE_MINUTES_KST;
   const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= MARKET_CLOSE_MINUTES_KST;
   return generatedBeforeClose && nowIsAfterClose;
-}
-
-// 오늘 날짜 문자열과 직전 리포트 날짜 문자열(둘 다 YYYY-MM-DD, KST) 사이의 일수 차이.
-// 직전 리포트가 없으면 null — "첫 리포트"와 "정확히 1일 전"을 구분하기 위해 별도 타입 유지.
-function daysBetween(todayStr: string, prevDateStr: string): number {
-  return Math.round((new Date(todayStr).getTime() - new Date(prevDateStr).getTime()) / 86_400_000);
 }
 
 // 직전 리포트(오늘 이전 가장 최근 1건) 대비 차이를 프롬프트에 주입할 텍스트로 변환.

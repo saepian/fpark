@@ -652,6 +652,7 @@ export type Database = {
           id: string
           name: string
           quantity: number
+          report_date: string | null
           result: Json | null
           ticker: string
           user_id: string | null
@@ -663,6 +664,7 @@ export type Database = {
           id?: string
           name: string
           quantity: number
+          report_date?: string | null
           result?: Json | null
           ticker: string
           user_id?: string | null
@@ -674,6 +676,7 @@ export type Database = {
           id?: string
           name?: string
           quantity?: number
+          report_date?: string | null
           result?: Json | null
           ticker?: string
           user_id?: string | null

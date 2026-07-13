@@ -27,7 +27,7 @@ const TABS: { type: PlanType; label: string }[] = [
 // ── 미리보기 컴포넌트들 ──────────────────────────────────────────────────────
 
 const SAMPLE_DIAGNOSIS: DiagnosisResult = {
-  summary: '최근 한 달간 외국인·기관의 순매수가 이어지며 주가가 상승 흐름을 보이고 있습니다. 반도체 업황 개선 기대감이 반영된 뉴스가 다수 확인됩니다.',
+  mainAnalysis: '최근 한 달간 외국인·기관의 순매수가 이어지며 주가가 20일 이동평균선을 상회하는 상승 흐름을 보이고 있습니다. 반도체 업황 개선 기대감이 반영된 뉴스가 다수 확인되는 가운데, 삼성전자가 차세대 메모리 신규 라인 투자 계획을 발표했고 외국인은 이 소식 전후로 3거래일 연속 순매수를 기록했습니다. 거래량도 20일 평균 대비 확대된 상태로, 뉴스와 수급 흐름이 같은 방향을 가리키고 있습니다.',
   currentPrice: 75000,
   avgPrice: 68000,
   quantity: 10,
@@ -40,27 +40,32 @@ const SAMPLE_DIAGNOSIS: DiagnosisResult = {
   newsBasis: 'news',
   institutionalFlow: '최근 5거래일간 기관은 순매수 기조를 유지하고 있습니다.',
   foreignFlow: '외국인은 최근 3거래일 연속 순매수를 기록했습니다.',
-  reasons: [
-    '반도체 업황 개선 기대감으로 관련 뉴스 노출 증가',
-    '외국인·기관 동반 순매수 흐름 관찰',
-    '거래량이 20일 평균 대비 확대',
-  ],
-  technicalAnalysis: [
-    '20일 이동평균선을 상회하며 단기 상승 흐름 유지 중',
-    'RSI 지표는 과열권 진입 전 구간에 위치',
-  ],
   resistance: 82000,
   support: 61000,
   riskFactors: [
     '글로벌 반도체 수요 둔화 시 변동성 확대 가능',
     '단기 급등에 따른 차익 실현 매물 관찰 필요',
   ],
-  opportunityFactors: [
-    '반도체 업황 회복 사이클 초입 관측',
-    '외국인 수급 개선 흐름 지속 중',
-  ],
   flowType: 'BUY',
   flowPercentage: 68,
+  sectorComparison: { peerAvgChangeRate: 0.81, deltaVsPeer: 1.42 },
+  sectorNarrative: '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 +2.23%로 업종 내에서도 두드러진 강세를 보였습니다.',
+  annualFinancials: [
+    { year: '2023', revenue: 2589355, operatingProfit: 65670, netIncome: 154871, roe: 3.6 },
+    { year: '2024', revenue: 3008709, operatingProfit: 328712, netIncome: 341337, roe: 7.6 },
+    { year: '2025', revenue: 3218789, operatingProfit: 389012, netIncome: 356210, roe: 8.1 },
+  ],
+  financialsNarrative: '2023년 대비 영업이익이 큰 폭으로 확대되며 2024·2025년 연속 개선 흐름을 이어가고 있습니다.',
+  history: {
+    daysSince: 1,
+    prevProfitRate: 8.1,
+    prevProfitAmount: 55000,
+    prevCurrentPrice: 73500,
+    prevFlowType: 'BUY',
+    prevFlowPercentage: 60,
+    holdingsChanged: false,
+    narrative: '어제 대비 외국인 매수 강도가 더 강해졌고, 수익률도 소폭 개선됐습니다.',
+  },
 };
 
 // 실제 리포트 컴포넌트를 그대로 축소 렌더링(썸네일 용도라 세부 수치는 작게 보임) —

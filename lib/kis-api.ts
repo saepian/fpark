@@ -1020,3 +1020,78 @@ export async function fetchWatch52w(
     return { highAlerts, lowAlerts };
   });
 }
+
+// ── 연간 확정 재무제표 (기업분석 페이지 실적 추이용, 2026-07-13) ──────────────────
+// app/api/stock/[ticker]/finance/route.ts에 있던 로직을 재사용 가능한 함수로 추출.
+// 의도적으로 "최근 3개 연도의 확정 연간 실적"만 반환한다 — 분기 실적이나 "잠정실적"
+// (장 마감 후 공시되는 속보성 실적, DART/거래소 공시 기반)은 다루지 않는다. KIS의
+// financial-ratio/balance-sheet TR 자체가 정식 재무제표 기준이라 잠정실적 공시와는
+// 별개의 파이프라인이고(2026-07-08 삼성전자 2분기 잠정실적 미반영 문의로 확인: 이
+// 시점 KIS 데이터의 최신 분기 행도 202603(1분기)까지만 존재), 분기 데이터를
+// 노출하려면 완전히 다른 데이터 소스(DART 공시 API 등) 연동이 필요하다.
+// type(아닌 interface)으로 선언 — diagnosis route가 이 배열을 stock_diagnosis.result(jsonb)에
+// 그대로 저장하는데, TS의 Json 타입 검사는 named interface를 index signature에 대입하는 걸
+// 허용하지 않는다(선언 병합 가능성 때문에 "닫힌 타입"으로 보지 않음). type alias는 통과함.
+export type AnnualFinancialRow = {
+  year:            string;
+  revenue:         number | null;
+  operatingProfit: number | null;
+  netIncome:       number | null;
+  roe:             number | null;
+};
+
+async function fetchFinanceApi(token: string, trId: string, endpoint: string, ticker: string) {
+  const params = new URLSearchParams({
+    FID_COND_MRKT_DIV_CODE: 'J',
+    FID_INPUT_ISCD: ticker,
+    FID_DIV_CLS_CODE: '0', // 연간
+  });
+  const res = await fetch(`${KIS_BASE}/uapi/domestic-stock/v1/finance/${endpoint}?${params}`, {
+    headers: headers(token, trId),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`${trId} HTTP ${res.status}`);
+  const d = await res.json();
+  if (d.rt_cd !== '0') throw new Error(d.msg1);
+  return (d.output ?? []) as Record<string, string>[];
+}
+
+export async function fetchAnnualFinancials(ticker: string): Promise<AnnualFinancialRow[]> {
+  const token = await getAccessToken();
+
+  const [ratioRows, bsRows] = await Promise.all([
+    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker),
+    fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker),
+  ]);
+
+  // ROE 값을 stac_yymm 기준으로 매핑
+  const roeMap = new Map<string, number>();
+  for (const r of bsRows) {
+    const v = parseFloat(r.roe_val);
+    if (!isNaN(v) && v !== 99.99) roeMap.set(r.stac_yymm, v);
+  }
+
+  // FID_DIV_CLS_CODE='0'은 연간 + 진행 중인 부분연도 행을 함께 준다.
+  // 연간 행은 12개월 간격이므로, 가장 흔한 "연말 월"을 찾아 그 행들만 채택한다.
+  const months = ratioRows.slice(1).map((r) => r.stac_yymm.slice(4));
+  const monthCount: Record<string, number> = {};
+  for (const m of months) monthCount[m] = (monthCount[m] ?? 0) + 1;
+  const yearEndMonth = Object.entries(monthCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '12';
+
+  const annualRows = ratioRows
+    .filter((r) => r.stac_yymm.slice(4) === yearEndMonth)
+    .slice(0, 3);
+
+  return annualRows.map((r) => {
+    const revenue = parseFloat(r.sale_account);
+    const opProfit = parseFloat(r.bsop_prti);
+    const netIncome = parseFloat(r.thtr_ntin);
+    return {
+      year:            r.stac_yymm.slice(0, 4),
+      revenue:         isNaN(revenue) || revenue === 99.99 ? null : Math.round(revenue),
+      operatingProfit: isNaN(opProfit) || opProfit === 99.99 ? null : Math.round(opProfit),
+      netIncome:       isNaN(netIncome) || netIncome === 99.99 ? null : Math.round(netIncome),
+      roe:             roeMap.get(r.stac_yymm) ?? null,
+    };
+  });
+}
