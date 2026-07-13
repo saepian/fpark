@@ -26,7 +26,13 @@ import {
 import type { Database } from '@/lib/database.types';
 
 export const dynamic     = 'force-dynamic';
-export const maxDuration = 60;
+// 2026-07-13 프로덕션 조사: Stage 2(포트폴리오 종합 분석) 단일 호출만 실측 43~46초
+// (3차 고도화로 요구 필드가 7개로 늘며 출력이 길어진 영향) — Stage 0(최대 15초) + 벤치마크
+// (순차, 최대 8초) + Stage 1(병렬, 실측 최대 ~8초) + Stage 2(~46초)를 합치면 최악 케이스
+// 약 76~89초로 기존 60초를 구조적으로 초과해 Vercel이 함수를 강제 종료했다(로컬은 이
+// 제약이 없어 항상 성공, "로컬은 되는데 프로덕션은 안 되는" 증상과 일치). 실측치 대비
+// 30~40초 여유를 두고 120으로 상향.
+export const maxDuration = 120;
 
 const claude        = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 const MAX_HOLDINGS        = 10;

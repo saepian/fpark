@@ -377,6 +377,11 @@ export default function PortfolioDiagnosisPage() {
       const reader  = res.body!.getReader();
       const decoder = new TextDecoder();
       let   buffer  = '';
+      // 2026-07-13 프로덕션 조사: Vercel이 함수 실행시간 초과로 강제 종료하면 SSE가
+      // 명시적 error 프레임 없이 그냥 끊기고, reader.read()는 done:true를 정상 종료처럼
+      // 반환한다 — result/error 이벤트를 한 번도 못 받고 루프가 끝나면 사용자는 아무
+      // 안내 없이 그냥 이전 화면으로 돌아가는 것처럼 보였다(catch 블록도 안 타서 놓침).
+      let receivedTerminalEvent = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -393,15 +398,21 @@ export default function PortfolioDiagnosisPage() {
             if (event.type === 'progress') {
               setLoadingLabel(event.label);
             } else if (event.type === 'result') {
+              receivedTerminalEvent = true;
               setResult(event.data);
               setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
               setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
             } else if (event.type === 'error') {
+              receivedTerminalEvent = true;
               if (event.message === 'PRO_REQUIRED') setShowUpgradeModal(true);
               else setError(event.message || '분석 실패');
             }
           } catch { /* malformed SSE line 무시 */ }
         }
+      }
+
+      if (!receivedTerminalEvent) {
+        setError('분석 중 연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.');
       }
     } catch {
       setError('네트워크 오류가 발생했습니다.');
