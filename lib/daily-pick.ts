@@ -9,8 +9,27 @@ import type { Database } from '@/lib/database.types';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
-// "대량 순매수"로 볼 단일 거래일 순매수 금액 기준 (억원)
-const LARGE_NET_BUY_THRESHOLD_AUK = 100;
+// 2026-07-13 재설계 — 기존엔 당일 절대금액(100억원)만 봐서 시가총액이 큰 종목(삼성전자·
+// SK하이닉스 등)이 "평범한 하루"에도 항상 조건을 통과, 메인페이지가 매일 같은 종목으로
+// 고정되는 문제가 있었다(실측: 최근 8거래일 중 삼성전자 2회, 나머지는 매일 다른 종목).
+// 절대금액 대신 "최근 20거래일 평균 흐름 대비 오늘이 몇 배인지"로 전환한다(종목 리포트의
+// computeTradingValueMultiple과 동일 원칙). 아래 두 기준은 순수 배수만으로 걸러지는
+// 노이즈(예: 평소 0.1억→오늘 0.5억 = "5배"지만 사실상 무의미한 금액)를 막는 하한선이다.
+const MIN_ABS_TODAY_AUK = 20;       // 오늘 순매수 절대금액이 이 정도는 돼야 "이례적"으로 취급
+const MIN_BASELINE_AUK = 5;         // 20일 평균 흐름 자체가 이보다 작으면 배수를 신뢰하지 않음(분모 과소 방지)
+const MIN_BASELINE_DAYS = 15;       // 신규상장 등으로 과거 데이터가 부족하면 배수 계산 보류
+const UNUSUAL_MULTIPLE_THRESHOLD = 2.5; // 오늘 순매수가 평소 흐름의 이 배수 이상이면 "이례적"
+
+// 일별 순매수(부호 있음) 배열 → 최근 20거래일 평균 "흐름 강도"(절대값 평균) 대비 오늘의 배수.
+// 절대값으로 평균을 잡는 이유: 매수/매도가 번갈아 나오는 종목은 부호 있는 값을 그대로
+// 평균내면 서로 상쇄돼 분모가 비정상적으로 작아진다 — computeRiskMetrics의 변동성(표준편차)
+// 계산과 같은 이유로 "평소 얼마나 크게 움직이는 종목인가"를 절대값 기준으로 잡는다.
+function computeFlowMultiple(todayAmount: number, priorAmounts: number[]): { avg: number; multiple: number | null } {
+  if (priorAmounts.length < MIN_BASELINE_DAYS) return { avg: 0, multiple: null };
+  const avg = priorAmounts.reduce((s, v) => s + Math.abs(v), 0) / priorAmounts.length;
+  if (avg < MIN_BASELINE_AUK) return { avg, multiple: null };
+  return { avg, multiple: parseFloat((todayAmount / avg).toFixed(2)) };
+}
 
 export function getDailyPickSupabase() {
   return createClient<Database>(
@@ -68,8 +87,10 @@ interface FlowCandidate {
   institutionNetBuyAuk: number;      // 최근 거래일 기관 순매수(억원)
   foreignCumulative5dAuk: number;    // 최근 5거래일 누적 외국인 순매수(억원)
   institutionCumulative5dAuk: number;
-  foreignConsecutiveDays: number;    // 외국인 연속 순매수 일수(최대 5)
+  foreignConsecutiveDays: number;    // 외국인 연속 순매수 일수
   institutionConsecutiveDays: number;
+  foreignMultiple: number | null;      // 오늘 외국인 순매수 / 최근 20거래일 평균 흐름 강도
+  institutionMultiple: number | null;  // 오늘 기관 순매수 / 최근 20거래일 평균 흐름 강도
 }
 
 function countConsecutivePositive(amounts: number[]): number {
@@ -82,16 +103,22 @@ function countConsecutivePositive(amounts: number[]): number {
 }
 
 function classifyPickReason(c: FlowCandidate): string | null {
-  const bigForeign     = c.foreignNetBuyAuk >= LARGE_NET_BUY_THRESHOLD_AUK;
-  const bigInstitution = c.institutionNetBuyAuk >= LARGE_NET_BUY_THRESHOLD_AUK;
+  const bigForeign =
+    c.foreignMultiple !== null &&
+    c.foreignNetBuyAuk >= MIN_ABS_TODAY_AUK &&
+    c.foreignMultiple >= UNUSUAL_MULTIPLE_THRESHOLD;
+  const bigInstitution =
+    c.institutionMultiple !== null &&
+    c.institutionNetBuyAuk >= MIN_ABS_TODAY_AUK &&
+    c.institutionMultiple >= UNUSUAL_MULTIPLE_THRESHOLD;
   const streak5Foreign     = c.foreignConsecutiveDays >= 5;
   const streak5Institution = c.institutionConsecutiveDays >= 5;
 
   if ((bigForeign || streak5Foreign) && (bigInstitution || streak5Institution)) return '외국인·기관 동반 자금 유입';
   if (streak5Foreign) return '외국인 5일 연속 자금 유입';
   if (streak5Institution) return '기관 5일 연속 자금 유입';
-  if (bigForeign) return '외국인 대량 자금 유입';
-  if (bigInstitution) return '기관 대량 자금 유입';
+  if (bigForeign) return '외국인 평소 대비 이례적 자금 유입';
+  if (bigInstitution) return '기관 평소 대비 이례적 자금 유입';
   return null;
 }
 
@@ -106,9 +133,15 @@ async function scanFlowCandidates(): Promise<{ candidates: FlowCandidate[]; apiE
     const chunk = tickers.slice(i, i + 5);
     const settled = await Promise.allSettled(
       chunk.map(async (ticker): Promise<{ candidate: FlowCandidate | null; apiError: boolean }> => {
-        const { latest, trend, apiError } = await fetchInvestorTrend(ticker);
+        // days=21 — trend[0]이 오늘(latest와 동일 거래일), trend[1..]이 20일 평균 베이스라인용.
+        const { latest, trend, apiError } = await fetchInvestorTrend(ticker, 21);
         if (apiError) return { candidate: null, apiError: true };
         if (!latest || trend.length === 0) return { candidate: null, apiError: false };
+
+        const priorForeign     = trend.slice(1).map((d) => d.foreign);
+        const priorInstitution = trend.slice(1).map((d) => d.institution);
+        const { multiple: foreignMultiple }     = computeFlowMultiple(latest.foreign.amount, priorForeign);
+        const { multiple: institutionMultiple } = computeFlowMultiple(latest.institution.amount, priorInstitution);
 
         return {
           candidate: {
@@ -116,10 +149,14 @@ async function scanFlowCandidates(): Promise<{ candidates: FlowCandidate[]; apiE
             name: STOCK_NAMES[ticker] ?? ticker,
             foreignNetBuyAuk:     latest.foreign.amount,
             institutionNetBuyAuk: latest.institution.amount,
-            foreignCumulative5dAuk:     trend.reduce((s, d) => s + d.foreign, 0),
-            institutionCumulative5dAuk: trend.reduce((s, d) => s + d.institution, 0),
+            // 누적/연속일수는 "최근 5거래일"이라는 기존 의미를 유지 — trend가 21일로 늘어났어도
+            // 이 두 필드는 항상 앞 5개만 사용한다(프롬프트에 "최근 5거래일 누적"으로 노출됨).
+            foreignCumulative5dAuk:     trend.slice(0, 5).reduce((s, d) => s + d.foreign, 0),
+            institutionCumulative5dAuk: trend.slice(0, 5).reduce((s, d) => s + d.institution, 0),
             foreignConsecutiveDays:     countConsecutivePositive(trend.map((d) => d.foreign)),
             institutionConsecutiveDays: countConsecutivePositive(trend.map((d) => d.institution)),
+            foreignMultiple,
+            institutionMultiple,
           },
           apiError: false,
         };
@@ -221,12 +258,13 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
     return null;
   }
 
-  // 우선순위: 동반 자금 유입 > 순매수 규모(외국인+기관 합산)
+  // 우선순위: 동반 자금 유입 > 이례성 배수(절대금액이 아니라 "평소 대비 얼마나 튀는지") 합산.
+  // 절대금액으로 정렬하면 시가총액 큰 종목이 항상 이기므로(재설계 이전 문제), 배수 기준으로 바꾼다.
   classified.sort((a, b) => {
-    const aBonus = a.reason === '외국인·기관 동반 자금 유입' ? 100000 : 0;
-    const bBonus = b.reason === '외국인·기관 동반 자금 유입' ? 100000 : 0;
-    const aScore = aBonus + a.foreignNetBuyAuk + a.institutionNetBuyAuk;
-    const bScore = bBonus + b.foreignNetBuyAuk + b.institutionNetBuyAuk;
+    const aBonus = a.reason === '외국인·기관 동반 자금 유입' ? 1000 : 0;
+    const bBonus = b.reason === '외국인·기관 동반 자금 유입' ? 1000 : 0;
+    const aScore = aBonus + Math.max(a.foreignMultiple ?? 0, 0) + Math.max(a.institutionMultiple ?? 0, 0);
+    const bScore = bBonus + Math.max(b.foreignMultiple ?? 0, 0) + Math.max(b.institutionMultiple ?? 0, 0);
     return bScore - aScore;
   });
   const selected = classified[0];
@@ -276,8 +314,8 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
 - 종목명: ${selected.name} (${selected.ticker})
 - 현재가: ${currentPrice.toLocaleString()}원 (오늘 등락률 ${changeRate}%)
 - 선정 사유: ${selected.reason}
-- 전일 외국인 자금 유입: ${selected.foreignNetBuyAuk}억원 / 최근 5거래일 누적: ${selected.foreignCumulative5dAuk}억원 (연속 ${selected.foreignConsecutiveDays}일 유입)
-- 전일 기관 자금 유입: ${selected.institutionNetBuyAuk}억원 / 최근 5거래일 누적: ${selected.institutionCumulative5dAuk}억원 (연속 ${selected.institutionConsecutiveDays}일 유입)
+- 전일 외국인 자금 유입: ${selected.foreignNetBuyAuk}억원${selected.foreignMultiple !== null ? ` (최근 20거래일 평균 흐름 대비 ${selected.foreignMultiple}배)` : ''} / 최근 5거래일 누적: ${selected.foreignCumulative5dAuk}억원 (연속 ${selected.foreignConsecutiveDays}일 유입)
+- 전일 기관 자금 유입: ${selected.institutionNetBuyAuk}억원${selected.institutionMultiple !== null ? ` (최근 20거래일 평균 흐름 대비 ${selected.institutionMultiple}배)` : ''} / 최근 5거래일 누적: ${selected.institutionCumulative5dAuk}억원 (연속 ${selected.institutionConsecutiveDays}일 유입)
 - 52주 최고가: ${detail?.week52High?.toLocaleString() ?? '-'}원 / 최저가: ${detail?.week52Low?.toLocaleString() ?? '-'}원
 - 시가총액: ${detail?.marketCap ?? '-'} | PER: ${detail?.per ?? '-'}배 | PBR: ${detail?.pbr ?? '-'}배
 

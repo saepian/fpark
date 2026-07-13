@@ -153,7 +153,11 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisP
 }
 
 // apiError: true = KIS 호출 자체가 실패(네트워크/타임아웃/HTTP 오류) — "조건 미충족"과 구분해야 함
-export async function fetchInvestorTrend(ticker: string): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[]; apiError: boolean }> {
+// days: trend에 담을 최대 거래일 수(기본 5, 기존 호출부 전부 동일 동작 유지).
+// 2026-07-13 daily-pick 조사 중 실측 확인 — KIS inquire-investor는 실제로 30거래일치를
+// 한 번에 돌려주는데 항상 5일로 잘라 썼음. 20일 평균 베이스라인이 필요한 daily-pick만
+// days=21로 호출해 추가 API 비용 없이 더 긴 이력을 활용한다(lib/daily-pick.ts).
+export async function fetchInvestorTrend(ticker: string, days = 5): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[]; apiError: boolean }> {
   try {
     console.log('[ANALYSIS] fetchInvestorTrend 시작', ticker);
     const token    = await getAccessToken();
@@ -185,7 +189,7 @@ export async function fetchInvestorTrend(ticker: string): Promise<{ latest: Inve
         institution: { qty: Number(today.orgn_ntby_qty || 0), amount: toAuk(today.orgn_ntby_tr_pbmn) },
         individual:  { qty: Number(today.prsn_ntby_qty || 0), amount: toAuk(today.prsn_ntby_tr_pbmn) },
       },
-      trend: valid.slice(0, 5).map(d => ({
+      trend: valid.slice(0, days).map(d => ({
         date:        `${d.stck_bsop_date.slice(0,4)}-${d.stck_bsop_date.slice(4,6)}-${d.stck_bsop_date.slice(6,8)}`,
         foreign:     toAuk(d.frgn_ntby_tr_pbmn),
         institution: toAuk(d.orgn_ntby_tr_pbmn),
