@@ -163,35 +163,52 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 섹션 구조와 작성 규칙에 따라 정리해주세요.`;
 
-  try {
-    const message = await Promise.race([
-      anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2500,
-        system: [
-          { type: 'text', text: COMPLIANCE_PRINCIPLE },
-          { type: 'text', text: DAILY_EMAIL_SYSTEM_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-        ],
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
-    ]);
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-    if (!text) return '오늘 시장 데이터를 분석 중입니다.';
-
-    // 시간적 사실관계 사후 검증 — 유저 수만큼 반복 호출되는 배치라 재생성은 붙이지 않고 로그만 남긴다.
-    const newsTextForCheck = [...newsMap.values()].flat().concat(marketNews)
-      .map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
-    const check = checkTemporalConsistency(text, newsTextForCheck);
-    if (check.flagged) {
-      console.warn(`[DAILY-EMAIL] ${userName} 시간적 사실관계 불일치 감지 (재생성 없음):`, check);
+  // 2026-07-13 조사: 15초 고정 타임아웃이 관심종목이 많은 유저(하락 종목별로 근거를
+  // 전부 서술해야 해서 출력이 길어짐)에게는 종종 부족해 placeholder로 조용히 폴백되는
+  // 문제를 실제 발송 로그(15종목 유저만 그날 실패)로 확인 — 30초로 상향하고, 실패 시
+  // 조용히 넘기지 않고 1회 재시도한다(유저별 독립 호출이라 재시도해도 다른 유저 발송에
+  // 영향 없음, 전체 크론 maxDuration=300이라 여유 충분).
+  const attempt = async (): Promise<string | null> => {
+    try {
+      const message = await Promise.race([
+        anthropic.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 2500,
+          system: [
+            { type: 'text', text: COMPLIANCE_PRINCIPLE },
+            { type: 'text', text: DAILY_EMAIL_SYSTEM_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+          ],
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
+      ]);
+      const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
+      return text || null;
+    } catch (e) {
+      console.warn(`[DAILY-EMAIL] ${userName} AI 코멘트 생성 시도 실패:`, e instanceof Error ? e.message : e);
+      return null;
     }
+  };
 
-    return text;
-  } catch (e) {
-    console.warn('[DAILY-EMAIL] AI 코멘트 생성 실패:', e instanceof Error ? e.message : e);
-    return '오늘 시장 데이터를 분석 중입니다.';
+  let text = await attempt();
+  if (!text) {
+    console.warn(`[DAILY-EMAIL] ${userName} 1차 시도 실패 — 재시도`);
+    text = await attempt();
   }
+  if (!text) {
+    console.error(`[DAILY-EMAIL] ${userName} AI 코멘트 생성 최종 실패 (재시도 포함 2회 모두 실패) — placeholder로 발송`);
+    return '오늘의 AI 분석을 생성하지 못했습니다. 위 관심종목 등락 현황을 참고해 주세요.';
+  }
+
+  // 시간적 사실관계 사후 검증 — 유저 수만큼 반복 호출되는 배치라 재생성은 붙이지 않고 로그만 남긴다.
+  const newsTextForCheck = [...newsMap.values()].flat().concat(marketNews)
+    .map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+  const check = checkTemporalConsistency(text, newsTextForCheck);
+  if (check.flagged) {
+    console.warn(`[DAILY-EMAIL] ${userName} 시간적 사실관계 불일치 감지 (재생성 없음):`, check);
+  }
+
+  return text;
 }
 
 // Claude 응답 등 외부 텍스트를 HTML에 삽입할 때 특수문자 이스케이프
@@ -481,9 +498,12 @@ export async function GET(request: NextRequest) {
   for (let i = 0; i < userCtxList.length; i++) {
     const ctx       = userCtxList[i];
     const aiResult  = aiResults[i];
+    if (aiResult.status === 'rejected') {
+      console.error(`[DAILY-EMAIL] ${ctx.email} generateAiComment 예상 밖 예외:`, aiResult.reason);
+    }
     const aiComment = aiResult.status === 'fulfilled'
       ? aiResult.value
-      : '오늘 시장 데이터를 분석 중입니다.';
+      : '오늘의 AI 분석을 생성하지 못했습니다. 위 관심종목 등락 현황을 참고해 주세요.';
     const html = buildEmailHtml({
       userName:      ctx.userName,
       dateStr,
