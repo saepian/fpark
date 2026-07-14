@@ -23,7 +23,8 @@ export const PLAN_FEATURES: Record<PlanType, PlanFeatureSet> = {
     name: 'FREE',
     description: '기업 데이터 분석을 처음 시작하는 분들을 위한 플랜',
     features: [
-      { text: `기업 분석 매일 ${PLAN_USAGE_LIMITS.free.diagnosis}회`, included: true },
+      { text: `종목 분석 월 ${PLAN_USAGE_LIMITS.free.stockAnalysis}회`, included: true },
+      { text: `기업 분석 월 ${PLAN_USAGE_LIMITS.free.diagnosis}회`, included: true },
       { text: portfolioText(PLAN_USAGE_LIMITS.free.portfolio), included: PLAN_USAGE_LIMITS.free.portfolio > 0 },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
@@ -36,7 +37,8 @@ export const PLAN_FEATURES: Record<PlanType, PlanFeatureSet> = {
     name: 'BASIC',
     description: '더 많은 분석이 필요한 이용자를 위한 플랜',
     features: [
-      { text: `기업 분석 매일 ${PLAN_USAGE_LIMITS.basic.diagnosis}회`, included: true },
+      { text: `종목 분석 월 ${PLAN_USAGE_LIMITS.basic.stockAnalysis}회`, included: true },
+      { text: `기업 분석 월 ${PLAN_USAGE_LIMITS.basic.diagnosis}회`, included: true },
       { text: portfolioText(PLAN_USAGE_LIMITS.basic.portfolio), included: PLAN_USAGE_LIMITS.basic.portfolio > 0 },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
@@ -49,7 +51,8 @@ export const PLAN_FEATURES: Record<PlanType, PlanFeatureSet> = {
     name: 'PRO',
     description: '전문적인 포트폴리오 관리가 필요한 이용자',
     features: [
-      { text: `기업 분석 매일 ${PLAN_USAGE_LIMITS.pro.diagnosis}회`, included: true },
+      { text: `종목 분석 월 ${PLAN_USAGE_LIMITS.pro.stockAnalysis}회`, included: true },
+      { text: `기업 분석 월 ${PLAN_USAGE_LIMITS.pro.diagnosis}회`, included: true },
       { text: portfolioText(PLAN_USAGE_LIMITS.pro.portfolio), included: PLAN_USAGE_LIMITS.pro.portfolio > 0 },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },

@@ -25,11 +25,12 @@ interface UserRow {
   stock_credits:      number;
   portfolio_credits:  number;
   last_sign_in_at:    string | null;
-  diagnosis_used_today: number;
   diagnosis_used_month: number;
   diagnosis_limit:    number;
   portfolio_used:     number;
   portfolio_limit:    number;
+  stock_analysis_used: number;
+  stock_analysis_limit: number;
 }
 
 interface PaymentHistoryItem {
@@ -333,15 +334,21 @@ export default function AdminUsersPage() {
                     <SortHeader label="다음 결제일" k="next_billed_at" />
                     <th
                       className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
-                      title="일일 한도라 오늘 이용 건수 / 일일한도로 표시. 이번 달 누적은 참고용"
+                      title="월간 한도라 이번 결제 사이클(무료 유저는 매월 1일 기준) 누적 이용 건수 / 월간한도로 표시"
                     >
-                      종목진단
+                      기업분석
                     </th>
                     <th
                       className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
                       title="월간 한도라 이번 결제 사이클(무료 유저는 매월 1일 기준) 누적 이용 건수 / 월간한도로 표시"
                     >
                       포트폴리오
+                    </th>
+                    <th
+                      className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+                      title="월간 한도라 이번 결제 사이클(무료 유저는 매월 1일 기준) 누적 이용 건수 / 월간한도로 표시"
+                    >
+                      종목분석
                     </th>
                     <SortHeader label="종목크레딧(1회권)" k="stock_credits" />
                     <SortHeader label="포트폴리오크레딧(1회권)" k="portfolio_credits" />
@@ -374,14 +381,14 @@ export default function AdminUsersPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">{formatDate(u.next_billed_at)}</td>
-                          <td className="px-4 py-3 text-[13px] text-slate-300 whitespace-nowrap">
-                            <div className="flex flex-col gap-1">
-                              <span className="tabular-nums font-medium text-slate-200">{u.diagnosis_used_today}/{u.diagnosis_limit}</span>
-                              <span className="text-[11px] text-slate-600">이번달 누적 {u.diagnosis_used_month}회</span>
-                            </div>
+                          <td className="px-4 py-3 text-[13px] whitespace-nowrap">
+                            <span className={`tabular-nums font-medium ${usageColorClass(u.diagnosis_used_month, u.diagnosis_limit)}`}>{u.diagnosis_used_month}/{u.diagnosis_limit}</span>
                           </td>
                           <td className="px-4 py-3 text-[13px] whitespace-nowrap">
                             <span className={`tabular-nums font-medium ${usageColorClass(u.portfolio_used, u.portfolio_limit)}`}>{u.portfolio_used}/{u.portfolio_limit}</span>
+                          </td>
+                          <td className="px-4 py-3 text-[13px] whitespace-nowrap">
+                            <span className={`tabular-nums font-medium ${usageColorClass(u.stock_analysis_used, u.stock_analysis_limit)}`}>{u.stock_analysis_used}/{u.stock_analysis_limit}</span>
                           </td>
                           <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.stock_credits}</td>
                           <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.portfolio_credits}</td>
@@ -444,15 +451,16 @@ export default function AdminUsersPage() {
                     <p className="text-[13px] font-semibold text-white truncate mb-1.5">{u.email ?? '-'}</p>
                     <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
                       <span>
-                        오늘 종목 <span className="font-medium text-slate-200">{u.diagnosis_used_today}/{u.diagnosis_limit}</span>
+                        기업분석 <span className={usageColorClass(u.diagnosis_used_month, u.diagnosis_limit)}>{u.diagnosis_used_month}/{u.diagnosis_limit}</span>
                         {' · 포트폴리오 '}
                         <span className={usageColorClass(u.portfolio_used, u.portfolio_limit)}>{u.portfolio_used}/{u.portfolio_limit}</span>
+                        {' · 종목분석 '}
+                        <span className={usageColorClass(u.stock_analysis_used, u.stock_analysis_limit)}>{u.stock_analysis_used}/{u.stock_analysis_limit}</span>
                       </span>
                       <span>다음결제 {formatDate(u.next_billed_at)}</span>
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
                       <span>1회권 잔여 종목 {u.stock_credits} · 포트폴리오 {u.portfolio_credits}</span>
-                      <span className="text-slate-600">이번달 종목 누적 {u.diagnosis_used_month}회</span>
                     </div>
                     <div className="flex items-center justify-between mb-2.5">
                       <span className="text-[11px] text-slate-500">최근 로그인 {formatDateTime(u.last_sign_in_at)}</span>

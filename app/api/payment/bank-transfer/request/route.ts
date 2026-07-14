@@ -17,6 +17,7 @@ import { adminClient } from '@/lib/supabase-admin';
 import { PLAN_ALLOWED_AMOUNTS, PLAN_AMOUNTS } from '@/lib/payment-constants';
 import { computeDepositorName } from '@/lib/bank-transfer';
 import { calculateUpgradeChargeAmount } from '@/lib/upgrade-credit';
+import { getUsageCycleStart } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
 function makeSupabase() {
@@ -37,13 +38,13 @@ function makeSupabase() {
 
 type UpgradeQuote =
   | {
-      isUpgrade:           true;
-      chargeAmount:        number;
-      creditAmount:        number;
-      remainingDays:       number;
-      currentPlanMonthly:  number;
-      targetPlanMonthly:   number;
-      refundWindowExpired: boolean; // true면 결제 후 7일이 지나 크레딧이 0원으로 확정됨
+      isUpgrade:          true;
+      chargeAmount:       number;
+      creditAmount:       number;
+      remainingDays:      number;
+      currentPlanMonthly: number;
+      targetPlanMonthly:  number;
+      usageCapped:        boolean; // true면 이번 사이클 이용률이 높아 크레딧이 이용률 상한에 걸림
     }
   | {
       isUpgrade:      false;
@@ -81,40 +82,46 @@ async function computeUpgradeQuote(
     return { isUpgrade: false, chargeAmount: standardAmount, blockedReason: null };
   }
 
-  // 크레딧 상한(calculateRefund) 계산에 필요한 이용실적 — "지금 취소하면 얼마 돌려받는지"와
-  // 동일한 기준을 쓰기 위해 app/api/subscription/cancel과 같은 방식으로 집계한다.
-  const [{ count: diagnosisCount }, { count: portfolioCount }] = await Promise.all([
+  // 크레딧 이용률 상한(calculateUsageRatio) 계산에 필요한 이용실적 — 원 가입일 이후
+  // 평생 누적이 아니라 "이번 결제 사이클" 이용 건수여야 한다(lib/upgrade-credit.ts 주석 참고).
+  const { cycleStart } = getUsageCycleStart(userRow.subscription_start_date, new Date());
+  const [{ count: diagnosisCount }, { count: portfolioCount }, { count: stockAnalysisCount }] = await Promise.all([
     adminClient
       .from('stock_diagnosis')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .gte('created_at', userRow.subscription_start_date),
+      .gte('created_at', cycleStart.toISOString()),
     adminClient
       .from('portfolio_diagnosis')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .gte('created_at', userRow.subscription_start_date),
+      .gte('created_at', cycleStart.toISOString()),
+    adminClient
+      .from('stock_analysis_usage')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('usage_date', cycleStart.toISOString().split('T')[0]),
   ]);
 
   const { credit, chargeAmount } = calculateUpgradeChargeAmount({
-    currentPlanMonthly:    PLAN_AMOUNTS.basic.monthly,
-    targetPlanMonthly:     PLAN_AMOUNTS.pro.monthly,
-    nextBilledAt:          new Date(userRow.next_billed_at),
-    now:                   new Date(),
-    subscriptionStartDate: new Date(userRow.subscription_start_date),
-    currentPlan:           'basic',
-    diagnosisCount:        diagnosisCount ?? 0,
-    portfolioCount:        portfolioCount ?? 0,
+    currentPlanMonthly: PLAN_AMOUNTS.basic.monthly,
+    targetPlanMonthly:  PLAN_AMOUNTS.pro.monthly,
+    nextBilledAt:       new Date(userRow.next_billed_at),
+    now:                new Date(),
+    currentPlan:        'basic',
+    diagnosisCount:     diagnosisCount ?? 0,
+    portfolioCount:     portfolioCount ?? 0,
+    stockAnalysisCount: stockAnalysisCount ?? 0,
   });
 
   return {
-    isUpgrade:           true,
+    isUpgrade:          true,
     chargeAmount,
-    creditAmount:        credit.creditAmount,
-    remainingDays:       credit.remainingDays,
-    currentPlanMonthly:  PLAN_AMOUNTS.basic.monthly,
-    targetPlanMonthly:   PLAN_AMOUNTS.pro.monthly,
-    refundWindowExpired: credit.refundWindowExpired,
+    creditAmount:       credit.creditAmount,
+    remainingDays:      credit.remainingDays,
+    currentPlanMonthly: PLAN_AMOUNTS.basic.monthly,
+    targetPlanMonthly:  PLAN_AMOUNTS.pro.monthly,
+    usageCapped:        credit.cappedByUsage,
   };
 }
 

@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
-import { checkPlan, resolveDiagnosisLimit } from '@/lib/plan';
+import { checkPlan, resolveDiagnosisLimit, getUsageCycleStart } from '@/lib/plan';
 import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchAnnualFinancials, type AnnualFinancialRow } from '@/lib/kis-api';
 import {
   collectStockAnalysisData,
@@ -161,21 +161,40 @@ function makeSupabase() {
   );
 }
 
+// 기업분석 이번 달(결제 사이클) 이용 건수 — 2026-07-14까지는 KST 당일(하루) 기준이었으나
+// 요금제 재구성으로 월간 전환. app/api/portfolio-diagnosis/route.ts의 getMonthlyCount와
+// 동일 패턴(subscription_start_date 기준 사이클, lib/plan.ts의 getUsageCycleStart 공용).
+async function getMonthlyDiagnosisCount(
+  supabase: ReturnType<typeof makeSupabase>,
+  userId: string,
+): Promise<number> {
+  try {
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('subscription_start_date')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const { cycleStart } = getUsageCycleStart(userRow?.subscription_start_date ?? null, new Date());
+
+    const { count } = await supabase
+      .from('stock_diagnosis')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', cycleStart.toISOString());
+    return count ?? 0;
+  } catch { return 0; }
+}
+
 export async function GET() {
   const supabase = makeSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const { count } = await supabase
-    .from('stock_diagnosis')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .gte('created_at', `${todayKst}T00:00:00+09:00`);
-
+  const count = await getMonthlyDiagnosisCount(supabase, user.id);
   const plan  = await checkPlan(supabase, user.id, user.email);
   const limit = resolveDiagnosisLimit(plan);
-  return NextResponse.json({ count: count ?? 0, remaining: Math.max(0, limit - (count ?? 0)) });
+  return NextResponse.json({ count, remaining: Math.max(0, limit - count) });
 }
 
 export async function POST(request: NextRequest) {
@@ -185,19 +204,15 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const todayKst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const { count } = await supabase
-      .from('stock_diagnosis')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .gte('created_at', `${todayKst}T00:00:00+09:00`);
+    const count = await getMonthlyDiagnosisCount(supabase, user.id);
 
-    // 2026-07-08까지는 관리자 제외 전원이 하루 1회로 하드코딩돼 pricing 광고
+    // 2026-07-08~2026-07-14까지는 관리자 제외 전원이 하루 1회로 하드코딩돼 pricing 광고
     // (Free 1회/Basic 6회/Pro 11회)와 어긋나 있었음 — 실제 플랜별 한도로 교체.
+    // 2026-07-14 요금제 재구성: 일일→월간 한도 전환(Free 5/Basic 30/Pro 50).
     const plan  = await checkPlan(supabase, user.id, user.email);
     const limit = resolveDiagnosisLimit(plan);
     let usedCredit = false;
-    if ((count ?? 0) >= limit) {
+    if (count >= limit) {
       // 기본 한도 초과 시 1회권 크레딧 원자적 차감(레이스 컨디션 방지) —
       // 분석 성공 여부와 무관하게 사용 처리
       const result = await deductCredit(user.id, 'stock');
@@ -205,7 +220,10 @@ export async function POST(request: NextRequest) {
         if (result.reason === 'error') {
           return NextResponse.json({ error: '크레딧 확인 중 오류가 발생했습니다.' }, { status: 500 });
         }
-        return NextResponse.json({ error: '오늘 무료 진단을 이미 사용했습니다.' }, { status: 429 });
+        const message = plan === 'free'
+          ? '이번 달 무료 이용 횟수를 모두 사용했습니다. 베이직/프로로 업그레이드하면 더 많이 이용하실 수 있습니다.'
+          : '이번 달 이용 한도를 모두 사용했습니다. 다음 결제일에 초기화됩니다.';
+        return NextResponse.json({ error: message }, { status: 429 });
       }
       usedCredit = true;
     }
@@ -523,6 +541,13 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysis에서 판단 없이 사실 
     });
 
     console.log('[DIAGNOSIS] 5. Claude 응답 수신');
+    console.log('[TOKEN_USAGE]', {
+      route: 'diagnosis', ticker, hasRelevantNews, disclosureCount: disclosures.length,
+      input_tokens: message.usage.input_tokens,
+      output_tokens: message.usage.output_tokens,
+      cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
+      cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
+    });
 
     const rawText = message.content[0].type === 'text' ? message.content[0].text : '';
     // 마크다운 코드펜스 제거 후 JSON 추출

@@ -19,7 +19,7 @@ interface MyPageData {
   emailAlertEnabled: boolean;
   morningBriefingEnabled: boolean;
   depositorRealName: string | null;
-  usage: { diagnosisToday: number; portfolioMonth: number; nextResetDate: string };
+  usage: { diagnosisMonth: number; portfolioMonth: number; stockAnalysisMonth: number; nextResetDate: string };
   payments: { id: string; created_at: string; plan: string; amount: number; status: string }[];
   subscription: {
     status:        string;
@@ -43,18 +43,21 @@ interface CancelPreviewBase {
 }
 
 interface CancelPreviewMonthly extends CancelPreviewBase {
-  isAnnual:        false;
-  elapsedRatio:    number;
-  diagnosisCount:  number;
-  diagnosisLimit:  number;
-  diagnosisRatio:  number;
-  portfolioCount:  number;
-  portfolioLimit:  number;
-  portfolioRatio:  number;
-  usageRatio:      number;
-  finalRatio:      number;
-  decidingFactor:  'usage' | 'elapsed' | 'none';
-  deductionAmount: number;
+  isAnnual:           false;
+  elapsedRatio:       number;
+  diagnosisCount:     number;
+  diagnosisLimit:     number;
+  diagnosisRatio:     number;
+  portfolioCount:     number;
+  portfolioLimit:     number;
+  portfolioRatio:     number;
+  stockAnalysisCount: number;
+  stockAnalysisLimit: number;
+  stockAnalysisRatio: number;
+  usageRatio:         number;
+  finalRatio:         number;
+  decidingFactor:     'usage' | 'elapsed' | 'none';
+  deductionAmount:    number;
 }
 
 interface CancelPreviewAnnual extends CancelPreviewBase {
@@ -65,6 +68,7 @@ interface CancelPreviewAnnual extends CancelPreviewBase {
   fullRefundException:  boolean;
   diagnosisCount:       number;
   portfolioCount:       number;
+  stockAnalysisCount:   number;
 }
 
 type CancelPreview = CancelPreviewMonthly | CancelPreviewAnnual;
@@ -281,7 +285,6 @@ function RefundBreakdown({ preview }: { preview: CancelPreview }) {
   // preview.isAnnual === false로 이미 확정됐지만, 이 프로젝트 tsconfig(strict:false)에서는
   // 판별 유니온이 여기서 자동으로 안 좁혀져(직접 확인) 명시적으로 단언한다.
   const m = preview as CancelPreviewMonthly;
-  const diagnosisDenom = m.diagnosisLimit * 30;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -290,9 +293,12 @@ function RefundBreakdown({ preview }: { preview: CancelPreview }) {
       <p className={lineCls + ' mt-1'}>이용 실적</p>
       <p className={subCls}>· {portfolioLine(m.portfolioCount, m.portfolioLimit, m.portfolioRatio)}</p>
       <p className={subCls}>
-        · 기업분석 진단 {m.diagnosisCount}/{diagnosisDenom}회 사용 → {pct(m.diagnosisRatio)}
+        · 기업분석 진단 {m.diagnosisCount}/{m.diagnosisLimit}회 사용 → {pct(m.diagnosisRatio)}
       </p>
-      <p className={subCls}>→ 이용 실적 차감 비율: {pct(m.usageRatio)} (둘 중 더 큰 값)</p>
+      <p className={subCls}>
+        · 종목분석 조회 {m.stockAnalysisCount}/{m.stockAnalysisLimit}회 사용 → {pct(m.stockAnalysisRatio)}
+      </p>
+      <p className={subCls}>→ 이용 실적 차감 비율: {pct(m.usageRatio)} (셋 중 가장 큰 값)</p>
 
       <p className={lineCls + ' mt-1'}>경과일</p>
       <p className={subCls}>· 결제 후 {m.elapsedDays}일 경과 (30일 기준) → {pct(m.elapsedRatio)}</p>
@@ -744,18 +750,49 @@ export default function MyPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-[24px] font-bold text-white leading-none font-mono">
-                    {data.usage.diagnosisToday}
+                    {data.usage.diagnosisMonth}
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">/ {limits.diagnosis}회</p>
                 </div>
               </div>
               <ProgressBar
-                value={data.usage.diagnosisToday}
+                value={data.usage.diagnosisMonth}
                 max={limits.diagnosis}
                 gradient="linear-gradient(90deg, #6366f1, #a855f7)"
                 glowColor="rgba(99,102,241,0.5)"
               />
-              <p className="text-[10px] text-slate-600 mt-2.5">매일 자정(KST) 초기화</p>
+              <p className="text-[10px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
+            </div>
+
+            {/* 종목 분석 */}
+            <div
+              className="p-5 rounded-xl"
+              style={{ background: 'rgba(20,24,38,0.7)', border: '1px solid rgba(51,65,85,0.35)' }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0"
+                    style={{ background: 'rgba(52,211,153,0.18)', border: '1px solid rgba(52,211,153,0.3)' }}
+                  >
+                    📈
+                  </div>
+                  <p className="text-[14px] font-semibold text-slate-200">종목 분석</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[24px] font-bold text-white leading-none font-mono">
+                    {data.usage.stockAnalysisMonth}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">/ {limits.stockAnalysis}회</p>
+                </div>
+              </div>
+              <ProgressBar
+                value={data.usage.stockAnalysisMonth}
+                max={limits.stockAnalysis}
+                gradient="linear-gradient(90deg, #34d399, #10b981)"
+                glowColor="rgba(52,211,153,0.4)"
+              />
+              <p className="text-[10px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
             </div>
 
             {/* 포트폴리오 진단 */}

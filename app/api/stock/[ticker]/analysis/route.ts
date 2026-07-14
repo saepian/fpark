@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { supabase } from '@/lib/supabase';
 import { fetchStockPrice, fetchStockInfo, fetchDailyChart } from '@/lib/kis-api';
 import {
@@ -15,6 +17,8 @@ import {
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
+import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart } from '@/lib/plan';
+import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
 // 캐시 없이 매 요청마다 KIS + Claude를 호출 — 관측된 응답 시간이 16~21초로
@@ -243,6 +247,43 @@ function buildYesterdayComparisonBlock(
   return lines.join('\n');
 }
 
+function makeAuthSupabase() {
+  const cookieStore = cookies();
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.then(s => s.getAll()),
+        setAll: (pairs) => cookieStore.then(s => {
+          pairs.forEach(({ name, value, options }) => s.set(name, value, options));
+        }),
+      },
+    },
+  );
+}
+
+// 이번 달(결제 사이클) 종목분석 조회 건수 — app/api/diagnosis, app/api/portfolio-diagnosis와
+// 동일 패턴(lib/plan.ts의 getUsageCycleStart 공용).
+async function getMonthlyStockAnalysisCount(
+  authedSupabase: ReturnType<typeof makeAuthSupabase>,
+  userId: string,
+): Promise<number> {
+  const { data: userRow } = await authedSupabase
+    .from('users')
+    .select('subscription_start_date')
+    .eq('id', userId)
+    .maybeSingle();
+  const { cycleStart } = getUsageCycleStart(userRow?.subscription_start_date ?? null, new Date());
+
+  const { count } = await authedSupabase
+    .from('stock_analysis_usage')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('usage_date', cycleStart.toISOString().split('T')[0]);
+  return count ?? 0;
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ ticker: string }> },
@@ -250,7 +291,51 @@ export async function GET(
   const { ticker } = await params;
   const todayStr = kstDateStr();
 
-  // 0. 당일 캐시 확인 — 해외물 라우트(overseas/[ticker]/analysis)의 기존 패턴을 그대로 이식.
+  // 0. 인증 — 2026-07-14까지 완전 비인증(누구나 호출 가능)이었으나, 요금제 재구성으로
+  // 월간 이용 한도를 걸기 위해 로그인 필수로 전환.
+  const authedSupabase = makeAuthSupabase();
+  const { data: { user } } = await authedSupabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // 0-1. 월간 한도 체크 — 이 라우트는 (ticker, report_date) 단위로 전 사용자가 콘텐츠
+  // 캐시를 공유하므로, 캐시 히트/미스와 무관하게 "이 사용자가 오늘 이 종목을 이미
+  // 조회했는지"로 카운트한다(같은 종목 재조회는 추가 차감 없음, stock_analysis_usage
+  // unique(user_id, ticker, usage_date) 제약이 이를 보장).
+  const { data: existingUsage } = await authedSupabase
+    .from('stock_analysis_usage')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('ticker', ticker)
+    .eq('usage_date', todayStr)
+    .maybeSingle();
+
+  if (!existingUsage) {
+    const plan  = await checkPlan(authedSupabase, user.id, user.email);
+    const limit = resolveStockAnalysisLimit(plan);
+    const count = await getMonthlyStockAnalysisCount(authedSupabase, user.id);
+    if (count >= limit) {
+      const message = plan === 'free'
+        ? '이번 달 무료 이용 횟수를 모두 사용했습니다. 베이직/프로로 업그레이드하면 더 많이 이용하실 수 있습니다.'
+        : '이번 달 이용 한도를 모두 사용했습니다. 다음 결제일에 초기화됩니다.';
+      return NextResponse.json({ error: message }, { status: 429 });
+    }
+  }
+
+  // 이번 조회를 이용 기록으로 남긴다 — 캐시 히트/신규 생성 응답 모두에서 호출(아래).
+  // upsert + ignoreDuplicates로 같은 (user_id, ticker, usage_date) 재기록은 무시.
+  const recordUsage = () => {
+    after(async () => {
+      const { error } = await authedSupabase
+        .from('stock_analysis_usage')
+        .upsert(
+          { user_id: user.id, ticker, usage_date: todayStr },
+          { onConflict: 'user_id,ticker,usage_date', ignoreDuplicates: true },
+        );
+      if (error) console.error('[ANALYSIS] 이용 기록 저장 실패:', error.message);
+    });
+  };
+
+  // 0-2. 당일 캐시 확인 — 해외물 라우트(overseas/[ticker]/analysis)의 기존 패턴을 그대로 이식.
   // 국내물은 지금까지 캐시가 없어 방문할 때마다 재생성됐는데, 그러면 "어제와의 비교"가
   // 같은 날 안에서도 방문마다 달라져 의미가 없어진다 — 하루 1건을 테이블 unique 제약으로
   // 보장하고, KIS/Claude 호출 자체를 캐시 히트 시 건너뛴다.
@@ -265,6 +350,7 @@ export async function GET(
       if (isIntradayCacheStale(cached.created_at)) {
         console.log(`[ANALYSIS] ${ticker} 장중 생성 캐시(${cached.created_at}) 감지 — 장마감 후 첫 조회라 재생성`);
       } else {
+        recordUsage();
         return NextResponse.json({ ...mapRowToResult(cached as HistoryRow), isCached: true });
       }
     }
@@ -431,6 +517,13 @@ ${yesterdayComparisonBlock}
           ],
           messages: [{ role: 'user', content: prompt }],
         });
+        console.log('[TOKEN_USAGE]', {
+          route: 'stock-analysis', ticker, reportType,
+          input_tokens: message.usage.input_tokens,
+          output_tokens: message.usage.output_tokens,
+          cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
+          cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
+        });
         const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
@@ -490,6 +583,7 @@ ${yesterdayComparisonBlock}
         }, { onConflict: 'ticker,report_date' });
       if (error) console.error('[ANALYSIS] 결과 저장 실패:', error.message);
     });
+    recordUsage();
 
     return NextResponse.json(result);
   } catch (e) {

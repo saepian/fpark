@@ -49,7 +49,7 @@ async function loadCancellableUser(userId: string) {
 
   const plan = userRow.plan as 'basic' | 'pro';
 
-  const [{ count: stockCount }, { count: portfolioCount }, { data: lastApproved }] = await Promise.all([
+  const [{ count: stockCount }, { count: portfolioCount }, { count: stockAnalysisCount }, { data: lastApproved }] = await Promise.all([
     adminClient
       .from('stock_diagnosis')
       .select('*', { count: 'exact', head: true })
@@ -60,6 +60,11 @@ async function loadCancellableUser(userId: string) {
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .gte('created_at', userRow.subscription_start_date),
+    adminClient
+      .from('stock_analysis_usage')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('usage_date', userRow.subscription_start_date.split('T')[0]),
     adminClient
       .from('bank_transfer_requests')
       .select('amount, is_annual')
@@ -84,6 +89,7 @@ async function loadCancellableUser(userId: string) {
     plan,
     diagnosisCount: stockCount ?? 0,
     portfolioCount: portfolioCount ?? 0,
+    stockAnalysisCount: stockAnalysisCount ?? 0,
   };
   const calc = isAnnual ? calculateAnnualRefund(calcParams) : calculateRefund(calcParams);
 
@@ -116,20 +122,24 @@ export async function GET() {
         fullRefundException: calc.fullRefundException,
         diagnosisCount:      calc.diagnosisCount,
         portfolioCount:      calc.portfolioCount,
+        stockAnalysisCount:  calc.stockAnalysisCount,
       }
     : {
-        isAnnual:        false as const,
-        elapsedRatio:    calc.elapsedRatio,
-        diagnosisCount:  calc.diagnosisCount,
-        diagnosisLimit:  calc.diagnosisLimit,
-        diagnosisRatio:  calc.diagnosisRatio,
-        portfolioCount:  calc.portfolioCount,
-        portfolioLimit:  calc.portfolioLimit,
-        portfolioRatio:  calc.portfolioRatio,
-        usageRatio:      calc.usageRatio,
-        finalRatio:      calc.finalRatio,
-        decidingFactor:  calc.decidingFactor,
-        deductionAmount: calc.deductionAmount,
+        isAnnual:           false as const,
+        elapsedRatio:       calc.elapsedRatio,
+        diagnosisCount:     calc.diagnosisCount,
+        diagnosisLimit:     calc.diagnosisLimit,
+        diagnosisRatio:     calc.diagnosisRatio,
+        portfolioCount:     calc.portfolioCount,
+        portfolioLimit:     calc.portfolioLimit,
+        portfolioRatio:     calc.portfolioRatio,
+        stockAnalysisCount: calc.stockAnalysisCount,
+        stockAnalysisLimit: calc.stockAnalysisLimit,
+        stockAnalysisRatio: calc.stockAnalysisRatio,
+        usageRatio:         calc.usageRatio,
+        finalRatio:         calc.finalRatio,
+        decidingFactor:     calc.decidingFactor,
+        deductionAmount:    calc.deductionAmount,
       };
 
   return NextResponse.json({
@@ -183,6 +193,7 @@ export async function POST(request: NextRequest) {
     usage_detected:           calc.usageDetected,
     diagnosis_count:          calc.diagnosisCount,
     portfolio_count:          calc.portfolioCount,
+    stock_analysis_count:     calc.stockAnalysisCount,
     usage_ratio:              ratioFields.usage_ratio,
     elapsed_ratio:            ratioFields.elapsed_ratio,
     final_ratio:              ratioFields.final_ratio,
@@ -260,7 +271,7 @@ export async function POST(request: NextRequest) {
 
   console.log(
     `[subscription/cancel] userId:${user.id} plan:${plan} isAnnual:${isAnnual} elapsedDays:${calc.elapsedDays} ` +
-    `diagnosisCount:${calc.diagnosisCount} portfolioCount:${calc.portfolioCount} ` +
+    `diagnosisCount:${calc.diagnosisCount} portfolioCount:${calc.portfolioCount} stockAnalysisCount:${calc.stockAnalysisCount} ` +
     `finalRatio:${ratioFields.final_ratio} refundAmount:${calc.refundAmount} eligible:${calc.refundEligible}`,
   );
 

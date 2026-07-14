@@ -24,13 +24,13 @@ interface Plan {
 // 서버가 계산한 값만 신뢰(클라이언트에서 직접 차액 계산 안 함).
 type UpgradeQuote =
   | {
-      isUpgrade:           true;
-      chargeAmount:        number;
-      creditAmount:        number;
-      remainingDays:       number;
-      currentPlanMonthly:  number;
-      targetPlanMonthly:   number;
-      refundWindowExpired: boolean; // true면 결제 후 7일이 지나 크레딧이 0원으로 확정됨
+      isUpgrade:          true;
+      chargeAmount:       number;
+      creditAmount:       number;
+      remainingDays:      number;
+      currentPlanMonthly: number;
+      targetPlanMonthly:  number;
+      usageCapped:        boolean; // true면 이번 사이클 이용률이 높아 크레딧이 이용률 상한에 걸림
     }
   | {
       isUpgrade:     false;
@@ -117,8 +117,9 @@ const FAQ_ITEMS = [
 
 ① 경과일수 기준: 결제일로부터 환불 신청일까지 경과한 일수 ÷ 30일
 
-② 이용실적 기준
-- 기업 분석: 이용 건수 ÷ (플랜별 일일 이용 한도 × 30일)
+② 이용실적 기준 (세 콘텐츠 중 가장 큰 비율을 적용)
+- 종목 분석: 이용 건수 ÷ 플랜별 월간 이용 한도
+- 기업 분석: 이용 건수 ÷ 플랜별 월간 이용 한도
 - 포트폴리오 분석: 이용 건수 ÷ 플랜별 월간 이용 한도 (1회 이용 시에는 완화된 기준 적용)
 
 예시
@@ -142,7 +143,7 @@ const FAQ_ITEMS = [
   {
     id: 'plan-diff',
     q: '무료 플랜과 유료 플랜의 차이는?',
-    a: '무료 플랜은 기업 분석을 매일 1회 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, 관심기업 알림 등 고급 기능을 이용하실 수 있습니다.',
+    a: '무료 플랜은 종목 분석 월 30회, 기업 분석 월 5회를 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, 관심기업 알림 등 고급 기능을 이용하실 수 있습니다.',
   },
 ];
 
@@ -243,9 +244,11 @@ function CardContent({
         {isFree ? (
           <p className="text-[11px] text-slate-600 mt-1">영원히 무료</p>
         ) : upgrade ? (
-          upgrade.refundWindowExpired ? (
+          upgrade.creditAmount <= 0 ? (
             <p className="text-[10.5px] text-slate-500 mt-1 leading-snug">
-              결제 후 7일이 지나면 업그레이드 시 크레딧이 적용되지 않습니다.
+              {upgrade.usageCapped
+                ? '이번 달 이용 실적이 많아 업그레이드 크레딧이 적용되지 않습니다.'
+                : '결제 주기 잔여일이 없어 업그레이드 크레딧이 적용되지 않습니다.'}
             </p>
           ) : (
             <p className="text-[11px] text-emerald-400 mt-1">

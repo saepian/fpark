@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Sparkles, AlertCircle, TrendingUp, TrendingDown } from 'lucide-react';
 import type { AnalysisResult } from '@/app/api/stock/[ticker]/analysis/route';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
+import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 
 const ANALYSIS_STEPS = [
   '📊 시장 데이터 수집 중...',
@@ -102,10 +103,11 @@ function priceDiff(current: number, target: number) {
 }
 
 export default function AiAnalysis({ ticker }: { ticker: string }) {
-  const [data, setData]       = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-  const [toast, setToast]     = useState(false);
+  const [data, setData]           = useState<AnalysisResult | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
+  const [toast, setToast]         = useState(false);
 
   const showToast = () => {
     setToast(true);
@@ -116,6 +118,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setNeedsLogin(false);
     setData(null);
 
     const load = async () => {
@@ -124,6 +127,17 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           // 서버 maxDuration(60s)보다 살짝 여유를 둬서, 정상 응답은 끝까지 기다리되
           // 서버가 죽어 응답이 영영 안 오는 경우엔 무한 대기하지 않도록 함
           const res = await fetch(`/api/stock/${ticker}/analysis`, { signal: AbortSignal.timeout(65000) });
+          // 401(로그인 필요)/429(월간 한도 초과)는 재시도해도 결과가 바뀌지 않으므로
+          // 즉시 확정 처리 — 2026-07-14 요금제 재구성으로 종목분석에 로그인·월간 한도가 신설됨.
+          if (res.status === 401) {
+            if (!cancelled) setNeedsLogin(true);
+            return;
+          }
+          if (res.status === 429) {
+            const body = await res.json().catch(() => null) as { error?: string } | null;
+            if (!cancelled) setError(body?.error ?? '이번 달 이용 한도를 초과했습니다.');
+            return;
+          }
           if (!res.ok) throw new Error(`${res.status}`);
           const json = await res.json() as AnalysisResult;
           if (!cancelled) setData(json);
@@ -141,6 +155,25 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
   // ── 로딩
   if (loading) return <AiLoadingScreen />;
+
+  // ── 로그인 필요
+  if (needsLogin) {
+    return (
+      <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles className="text-blue-400 w-5 h-5" />
+          <h3 className="text-lg font-bold text-gray-100">FPARK AI 종목 분석</h3>
+        </div>
+        <p className="text-sm text-gray-500 mb-3">로그인하면 AI 종목 분석을 이용하실 수 있습니다.</p>
+        <a
+          href={loginUrlWithRedirect(typeof window !== 'undefined' ? window.location.pathname : '/')}
+          className="inline-block px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors"
+        >
+          로그인하기
+        </a>
+      </div>
+    );
+  }
 
   // ── 에러
   if (error || !data) {

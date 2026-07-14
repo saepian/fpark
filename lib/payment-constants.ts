@@ -21,10 +21,12 @@ export const BANK_TRANSFER_ACCOUNT = {
   accountHolder: process.env.NEXT_PUBLIC_BANK_TRANSFER_ACCOUNT_HOLDER ?? '',
 };
 
-// mypage 사용량 표시 + lib/refund.ts 환불 계산에서 공용으로 쓰는 플랜별 한도
-// (기업분석: 일일한도, 포트폴리오분석: 월간한도)
+// mypage 사용량 표시 + lib/refund.ts 환불 계산에서 공용으로 쓰는 플랜별 한도.
+// 2026-07-14 요금제 재구성: 종목분석 신규 한도 추가, 기업분석 일일→월간 전환,
+// 포트폴리오 숫자 갱신 — 세 콘텐츠 전부 월간 한도로 통일(subscription_start_date
+// 기준 결제 사이클월, lib/plan.ts의 getUsageCycleStart 참고).
 export const PLAN_USAGE_LIMITS = {
-  free:  { diagnosis: 1,  portfolio: 0  },
-  basic: { diagnosis: 6,  portfolio: 1  },
-  pro:   { diagnosis: 11, portfolio: 20 },
+  free:  { stockAnalysis: 30,  diagnosis: 5,  portfolio: 0  },
+  basic: { stockAnalysis: 50,  diagnosis: 30, portfolio: 5  },
+  pro:   { stockAnalysis: 100, diagnosis: 50, portfolio: 20 },
 } as const;

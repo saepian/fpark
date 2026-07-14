@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
-import { checkPlan, resolvePortfolioLimit } from '@/lib/plan';
+import { checkPlan, resolvePortfolioLimit, getUsageCycleStart } from '@/lib/plan';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -120,37 +120,20 @@ function makeSupabase() {
   );
 }
 
-// subscription_start_date 기준 현재 사이클 시작일 계산 (null이면 매월 1일 폴백)
-function getBillingCycleStart(subscriptionStartDate: string | null, now: Date): Date {
-  if (!subscriptionStartDate) {
-    return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-  }
-  const startDay = new Date(subscriptionStartDate).getDate();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  // 말일 클램핑 (e.g., 1월 31일 → 2월 28일)
-  const lastDay = (yr: number, mo: number) => new Date(yr, mo + 1, 0).getDate();
-  const thisMonthStart = new Date(y, m, Math.min(startDay, lastDay(y, m)), 0, 0, 0, 0);
-  if (thisMonthStart <= now) return thisMonthStart;
-  return new Date(y, m - 1, Math.min(startDay, lastDay(y, m - 1)), 0, 0, 0, 0);
-}
-
+// subscription_start_date 기준 이번 달 이용 건수 — 사이클 계산은 lib/plan.ts의
+// getUsageCycleStart로 공용화(2026-07-14, app/api/mypage/route.ts와 중복이던 로직 통합).
 async function getMonthlyCount(
   supabase: ReturnType<typeof makeSupabase>,
   userId: string,
 ): Promise<number> {
   try {
-    // subscription_start_date 조회 후 사이클 시작일 계산
     const { data: userRow } = await supabase
       .from('users')
       .select('subscription_start_date')
       .eq('id', userId)
       .maybeSingle();
 
-    const cycleStart = getBillingCycleStart(
-      userRow?.subscription_start_date ?? null,
-      new Date(),
-    );
+    const { cycleStart } = getUsageCycleStart(userRow?.subscription_start_date ?? null, new Date());
 
     const { count } = await supabase
       .from('portfolio_diagnosis')
@@ -279,6 +262,13 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
         { type: 'text', text: STOCK_SIGNAL_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
       ],
       messages: [{ role: 'user', content: prompt }],
+    });
+    console.log('[TOKEN_USAGE]', {
+      route: 'portfolio-diagnosis-stage1', ticker: h.ticker, hasNews: h.relevantNews.length > 0,
+      input_tokens: msg.usage.input_tokens,
+      output_tokens: msg.usage.output_tokens,
+      cache_creation_input_tokens: msg.usage.cache_creation_input_tokens ?? 0,
+      cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
     });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
     const parsed = parseAiJson<Omit<StockAiResult, 'newsBasis'>>(text, { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '' });
@@ -434,6 +424,13 @@ async function analyzePortfolioSummary(
       ],
       messages: [{ role: 'user', content: prompt }],
     });
+    console.log('[TOKEN_USAGE]', {
+      route: 'portfolio-diagnosis-stage2', holdingCount,
+      input_tokens: msg.usage.input_tokens,
+      output_tokens: msg.usage.output_tokens,
+      cache_creation_input_tokens: msg.usage.cache_creation_input_tokens ?? 0,
+      cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
+    });
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
     const parsed = parseAiJson(text, {
       summary: '', sectors: [],
@@ -546,7 +543,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '크레딧 확인 중 오류가 발생했습니다.' }, { status: 500 });
       }
       return NextResponse.json(
-        { error: `이번 달 사용 한도(${limit}회)를 초과했습니다.` },
+        { error: `이번 달 이용 한도(${limit}회)를 모두 사용했습니다. 다음 결제일에 초기화됩니다.` },
         { status: 429 },
       );
     }

@@ -481,6 +481,7 @@ export type Database = {
           refund_reason: string | null
           refund_status: string
           requested_at: string
+          stock_analysis_count: number
           subscription_start_date: string
           usage_detected: boolean
           usage_ratio: number
@@ -505,6 +506,7 @@ export type Database = {
           refund_reason?: string | null
           refund_status?: string
           requested_at?: string
+          stock_analysis_count?: number
           subscription_start_date: string
           usage_detected: boolean
           usage_ratio?: number
@@ -529,6 +531,7 @@ export type Database = {
           refund_reason?: string | null
           refund_status?: string
           requested_at?: string
+          stock_analysis_count?: number
           subscription_start_date?: string
           usage_detected?: boolean
           usage_ratio?: number
@@ -644,6 +647,30 @@ export type Database = {
           tags?: string[] | null
           ticker?: string
           yesterday_delta?: string | null
+        }
+        Relationships: []
+      }
+      stock_analysis_usage: {
+        Row: {
+          created_at: string | null
+          id: string
+          ticker: string
+          usage_date: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          ticker: string
+          usage_date: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          ticker?: string
+          usage_date?: string
+          user_id?: string | null
         }
         Relationships: []
       }

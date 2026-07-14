@@ -99,8 +99,8 @@ export async function POST(request: NextRequest) {
     nextBilledAt.setMonth(nextBilledAt.getMonth() + (isAnnual ? 12 : 1));
 
     // subscription_start_date는 최초 구독 시작일에만 고정 — 월간 사용량 한도 계산의
-    // 청구 주기 기준일이므로(getBillingCycleStart), 갱신·플랜 변경 시 매번 갱신되면
-    // 기준일이 흔들려 한도 계산이 부정확해진다. 이미 값이 있으면 건드리지 않는다.
+    // 청구 주기 기준일이므로(lib/plan.ts의 getUsageCycleStart), 갱신·플랜 변경 시 매번
+    // 갱신되면 기준일이 흔들려 한도 계산이 부정확해진다. 이미 값이 있으면 건드리지 않는다.
     const { data: existingRow } = await adminClient
       .from('users')
       .select('subscription_start_date')

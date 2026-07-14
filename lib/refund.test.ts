@@ -3,9 +3,10 @@
 // 버그가 있었다(73b26d3 하이브리드 계산 도입 전 "결제 당일 전액환불" 허점,
 // b862c90 이전 연간결제가 월간 비율식을 잘못 재사용하던 문제) — 같은 종류의
 // 버그가 재발하지 않도록 그 시나리오를 명시적으로 커버한다.
+// 2026-07-14: 기업분석 일일→월간 전환(×30 제거), 종목분석 신규 추가 회귀 테스트.
 
 import { describe, it, expect } from 'vitest';
-import { calculateRefund, calculateAnnualRefund, SINGLE_PORTFOLIO_USE_RATIO } from './refund';
+import { calculateRefund, calculateAnnualRefund, calculateUsageRatio, SINGLE_PORTFOLIO_USE_RATIO } from './refund';
 
 const DAY_MS = 86_400_000;
 
@@ -22,6 +23,7 @@ describe('calculateRefund (월간결제)', () => {
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     expect(result.refundEligible).toBe(true);
     expect(result.refundAmount).toBe(19900);
@@ -37,6 +39,7 @@ describe('calculateRefund (월간결제)', () => {
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     // elapsedRatio = 5/30 ≈ 16.67% > usageRatio(0%)
     expect(result.refundAmount).toBe(16583); // 19900 - round(19900 * 5/30)
@@ -54,6 +57,7 @@ describe('calculateRefund (월간결제)', () => {
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 2,
+      stockAnalysisCount: 0,
     });
     expect(result.refundAmount).toBeLessThan(19900);
     expect(result.refundAmount).toBe(17910); // 19900 - round(19900 * 0.1)
@@ -72,6 +76,7 @@ describe('calculateRefund (월간결제)', () => {
       plan: 'basic',
       diagnosisCount: 0,
       portfolioCount: 1,
+      stockAnalysisCount: 0,
     });
     expect(result.portfolioRatio).toBe(SINGLE_PORTFOLIO_USE_RATIO);
     expect(result.finalRatio).toBe(SINGLE_PORTFOLIO_USE_RATIO);
@@ -88,6 +93,7 @@ describe('calculateRefund (월간결제)', () => {
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     expect(result.refundEligible).toBe(false);
     expect(result.refundAmount).toBe(0);
@@ -101,6 +107,7 @@ describe('calculateRefund (월간결제)', () => {
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 100, // 월간 한도(20)를 5배 초과
+      stockAnalysisCount: 0,
     });
     expect(result.refundAmount).toBe(0);
     expect(result.refundAmount).toBeGreaterThanOrEqual(0);
@@ -114,9 +121,65 @@ describe('calculateRefund (월간결제)', () => {
       plan: 'basic',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     // elapsedRatio = 3/30 = 10%
     expect(result.refundAmount).toBe(8910); // 9900 - round(9900 * 0.1)
+  });
+
+  it('기업분석 이용실적 비율 = 건수/월간한도 그대로(×30 없음) — 2026-07-14 일→월 전환 회귀 방지', () => {
+    // pro 월간한도 50회, 25건 사용 → 50%. 예전 로직(×30)이었다면 25/(50*30)=1.67%로
+    // 사실상 절대 차감되지 않는 값이 나왔을 것 — 그 버그의 회귀 테스트.
+    const result = calculateRefund({
+      paidAmount: 19900,
+      subscriptionStartDate: daysAgo(0),
+      cancelAt: new Date(),
+      plan: 'pro',
+      diagnosisCount: 25,
+      portfolioCount: 0,
+      stockAnalysisCount: 0,
+    });
+    expect(result.diagnosisRatio).toBe(0.5);
+    expect(result.decidingFactor).toBe('usage');
+    expect(result.refundAmount).toBe(9950); // 19900 - round(19900 * 0.5)
+  });
+
+  it('종목분석 이용실적이 가장 커도 usageRatio에 반영됨(2026-07-14 신규 콘텐츠)', () => {
+    const result = calculateRefund({
+      paidAmount: 19900,
+      subscriptionStartDate: daysAgo(0),
+      cancelAt: new Date(),
+      plan: 'pro',
+      diagnosisCount: 0,
+      portfolioCount: 0,
+      stockAnalysisCount: 50, // pro 월간한도 100회의 50%
+    });
+    expect(result.stockAnalysisRatio).toBe(0.5);
+    expect(result.usageRatio).toBe(0.5);
+    expect(result.decidingFactor).toBe('usage');
+    expect(result.refundAmount).toBe(9950);
+  });
+});
+
+describe('calculateUsageRatio (calculateRefund·업그레이드 크레딧 공용 이용률 계산)', () => {
+  it('세 콘텐츠 중 가장 큰 비율을 반환', () => {
+    const result = calculateUsageRatio({
+      plan: 'basic',
+      diagnosisCount: 3,   // 3/30 = 10%
+      portfolioCount: 0,
+      stockAnalysisCount: 25, // 25/50 = 50% ← 최댓값
+    });
+    expect(result.usageRatio).toBe(0.5);
+  });
+
+  it('세 콘텐츠 모두 0건이면 이용률 0%', () => {
+    const result = calculateUsageRatio({
+      plan: 'pro',
+      diagnosisCount: 0,
+      portfolioCount: 0,
+      stockAnalysisCount: 0,
+    });
+    expect(result.usageRatio).toBe(0);
   });
 });
 
@@ -132,6 +195,7 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     expect(result.refundEligible).toBe(true);
     expect(result.refundAmount).toBe(PAID);
@@ -148,6 +212,7 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 1, // 7일 이내라도 사용했으므로 미사용 전액환불 예외 대상 아님
+      stockAnalysisCount: 0,
     });
     expect(result.monthsUsed).toBe(1);
     expect(result.retroactiveCost).toBe(MONTHLY_FULL);
@@ -163,6 +228,7 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     expect(result.monthsUsed).toBe(6);
     expect(result.retroactiveCost).toBe(6 * MONTHLY_FULL); // 119,400원
@@ -177,6 +243,7 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     expect(result.monthsUsed).toBe(11);
     expect(result.retroactiveCost).toBe(11 * MONTHLY_FULL); // 218,900원 — 이미 결제액(191,040) 초과
@@ -192,6 +259,7 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     expect(result.monthsUsed).toBe(12);
     expect(result.retroactiveCost).toBe(12 * MONTHLY_FULL);
@@ -208,6 +276,7 @@ describe('calculateAnnualRefund (연간결제 — 정가 소급 재계산)', () 
       plan: 'pro',
       diagnosisCount: 0,
       portfolioCount: 0,
+      stockAnalysisCount: 0,
     });
     expect(result.refundEligible).toBe(true);
     expect(result.refundAmount).toBe(PAID - MONTHLY_FULL); // 0원이 아니라 1개월분만 차감

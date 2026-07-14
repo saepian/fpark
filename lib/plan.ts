@@ -24,7 +24,8 @@ export async function checkPlan(
   } catch { return 'free'; }
 }
 
-// 기업분석(AI 종목 진단) 일일 한도 — admin은 무제한, 나머지는 PLAN_USAGE_LIMITS 그대로.
+// 기업분석(AI 종목 진단) 월간 한도 — admin은 무제한, 나머지는 PLAN_USAGE_LIMITS 그대로.
+// 2026-07-14까지는 일일 한도였으나 요금제 재구성으로 월간 전환(getUsageCycleStart 참고).
 // 순수 함수로 분리해 DB 접근 없이 유닛 테스트 가능하게 함(lib/plan.test.ts).
 export function resolveDiagnosisLimit(plan: Plan): number {
   if (plan === 'admin') return 999;
@@ -38,4 +39,40 @@ export function resolveDiagnosisLimit(plan: Plan): number {
 export function resolvePortfolioLimit(plan: Plan): number {
   if (plan === 'admin') return 999;
   return PLAN_USAGE_LIMITS[plan].portfolio;
+}
+
+// 종목분석 월간 한도 — 2026-07-14 신설(기존에는 제한 자체가 없었음).
+export function resolveStockAnalysisLimit(plan: Plan): number {
+  if (plan === 'admin') return 999;
+  return PLAN_USAGE_LIMITS[plan].stockAnalysis;
+}
+
+// 월간 사용량 카운트의 "이번 사이클" 시작/다음 초기화 시점 계산 — 원래
+// app/api/portfolio-diagnosis/route.ts(getBillingCycleStart)와 app/api/mypage/route.ts
+// (getBillingCycle)에 거의 동일한 로직이 중복 정의돼 있던 것을 공용화(2026-07-14).
+// subscription_start_date 기준으로 매달 같은 날짜에 리셋되고(말일은 클램핑), 구독이
+// 없는 무료 회원 등 null인 경우는 캘린더월(매월 1일 KST 00:00)로 폴백한다.
+export function getUsageCycleStart(
+  subscriptionStartDate: string | null,
+  now: Date,
+): { cycleStart: Date; nextCycleStart: Date } {
+  if (!subscriptionStartDate) {
+    return {
+      cycleStart:     new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
+      nextCycleStart: new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0),
+    };
+  }
+  const startDay = new Date(subscriptionStartDate).getDate();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  // 말일 클램핑 (e.g., 1월 31일 → 2월 28일)
+  const monthDay = (yr: number, mo: number) => {
+    const lastDay = new Date(yr, mo + 1, 0).getDate();
+    return new Date(yr, mo, Math.min(startDay, lastDay), 0, 0, 0, 0);
+  };
+  const thisMonthStart = monthDay(y, m);
+  if (thisMonthStart <= now) {
+    return { cycleStart: thisMonthStart, nextCycleStart: monthDay(y, m + 1) };
+  }
+  return { cycleStart: monthDay(y, m - 1), nextCycleStart: thisMonthStart };
 }
