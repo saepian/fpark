@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { TrendingUp, TrendingDown, Sparkles, AlertCircle } from 'lucide-react';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
+import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -345,7 +346,7 @@ function ShareCTA() {
     <div className="mt-8 bg-gradient-to-r from-indigo-600/15 to-violet-600/15 border border-indigo-500/30 rounded-2xl p-6 text-center">
       <p className="text-[10px] font-bold tracking-[0.2em] text-indigo-400 uppercase mb-2">AI 기업 분석 서비스</p>
       <p className="text-white font-bold text-lg mb-1">나도 AI 기업 분석 받기</p>
-      <p className="text-slate-400 text-[13px] mb-4">하루 1회 무료 · AI가 내 기업을 실시간으로 분석해드립니다</p>
+      <p className="text-slate-400 text-[13px] mb-4">월 {PLAN_USAGE_LIMITS.free.diagnosis}회 무료 · AI가 내 기업을 실시간으로 분석해드립니다</p>
       <Link
         href="/auth/login"
         className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-[14px] text-white transition-all hover:opacity-90"

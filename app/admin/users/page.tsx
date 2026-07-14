@@ -68,7 +68,7 @@ type PlanFilter = 'all' | Plan;
 type StatusFilter = 'all' | StatusBucket;
 type SortKey = 'email' | 'created_at' | 'plan' | 'next_billed_at' | 'stock_credits' | 'portfolio_credits' | 'last_sign_in_at';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 15;
 
 function normalizeStatus(u: UserRow): StatusBucket {
   if (u.plan === 'free' || !u.subscription_status) return 'free';

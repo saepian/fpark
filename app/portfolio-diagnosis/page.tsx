@@ -12,6 +12,7 @@ import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
+import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -488,7 +489,7 @@ export default function PortfolioDiagnosisPage() {
               '섹터 편중도 자동 계산',
               '기업별 AI 관찰 리포트',
               '오늘 손익 기여도 분석',
-              '월 20회 사용 가능',
+              `월 최대 ${PLAN_USAGE_LIMITS.pro.portfolio}회 사용 가능`,
             ].map(f => (
               <div key={f} className="flex items-center gap-2">
                 <span className="text-emerald-400 text-xs">✓</span>
@@ -505,7 +506,7 @@ export default function PortfolioDiagnosisPage() {
           >
             요금제 보기 →
           </button>
-          <p className="text-[11px] text-slate-500">Basic 월 1회 · Pro 월 20회</p>
+          <p className="text-[11px] text-slate-500">Basic 월 {PLAN_USAGE_LIMITS.basic.portfolio}회 · Pro 월 {PLAN_USAGE_LIMITS.pro.portfolio}회</p>
           <button
             onClick={() => setShowUpgradeModal(false)}
             className="text-[12px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
@@ -1103,8 +1104,8 @@ export default function PortfolioDiagnosisPage() {
           {(!isPro && !isBasic)
             ? 'Basic 또는 Pro 플랜으로 업그레이드하면 포트폴리오 전체 분석을 이용할 수 있습니다.'
             : isPro
-              ? `월 20회 · 이번 달 ${remaining ?? 0}회 남음`
-              : `월 1회 · 이번 달 ${remaining ?? 0}회 남음`}
+              ? `월 ${PLAN_USAGE_LIMITS.pro.portfolio}회 · 이번 달 ${remaining ?? 0}회 남음`
+              : `월 ${PLAN_USAGE_LIMITS.basic.portfolio}회 · 이번 달 ${remaining ?? 0}회 남음`}
         </p>
         </div>{/* ← 좌측 컬럼 닫기 */}
 

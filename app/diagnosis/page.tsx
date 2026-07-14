@@ -392,8 +392,8 @@ export default function DiagnosisPage() {
 
               <p className="text-center text-[11px] text-slate-600 mt-2">
                 {isDisabled
-                  ? '오늘 무료 분석을 이미 사용했습니다. 내일 다시 이용해주세요.'
-                  : '하루 1회 무료 · 매일 자정 초기화'}
+                  ? '이번 달 이용 한도를 모두 사용했습니다. 다음 달에 초기화됩니다.'
+                  : '이번 달 남은 이용 횟수 내에서 무료 · 매달 초기화'}
               </p>
             </div>
           </form>

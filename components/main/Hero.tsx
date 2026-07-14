@@ -6,6 +6,7 @@ import SearchDropdown from '@/components/search/SearchDropdown';
 import HeroCanvasBackground from './HeroCanvasBackground';
 import WelcomeBanner from './WelcomeBanner';
 import type { SearchResult } from '@/lib/types';
+import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
 interface MarketData {
   KOSPI: { value: number; changeRate: number };
@@ -215,7 +216,7 @@ export default function Hero() {
                     className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap mt-0.5"
                     style={{ background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.35)' }}
                   >
-                    무료 하루 1회
+                    무료 월 {PLAN_USAGE_LIMITS.free.diagnosis}회
                   </span>
                 </div>
                 <div

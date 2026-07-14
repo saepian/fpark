@@ -251,28 +251,28 @@ interface TabCopy {
 
 const TAB_COPY: Record<PlanType, TabCopy> = {
   free: {
-    intro: 'FREE 플랜은 가볍게 시장을 훑어보고, 관심 가는 종목을 한두 개 가볍게 확인해보고 싶은 분께 맞는 구성이에요. 매일 정해진 만큼 기업 분석을 무료로 체험해보실 수 있어요.',
+    intro: 'FREE 플랜은 가볍게 시장을 훑어보고, 관심 가는 종목을 한두 개 가볍게 확인해보고 싶은 분께 맞는 구성이에요. 매달 정해진 만큼 기업 분석을 무료로 체험해보실 수 있어요.',
     features: [
       {
         key: 'diagnosis',
         title: '기업 분석',
         desc: '궁금한 종목명이나 종목코드를 검색하면, AI가 최근 뉴스 흐름과 주가 등락, 외국인·기관의 매매 동향을 한 번에 정리해서 리포트로 보여드려요. 예를 들어 삼성전자를 검색하면 최근 한 달간 어떤 뉴스가 있었는지, 외국인이 사고 있는지 팔고 있는지, 주가가 왜 이렇게 움직였는지를 하나하나 따로 찾아보지 않아도 한 화면에서 파악할 수 있어요.',
-        caption: `FREE는 하루 ${PLAN_USAGE_LIMITS.free.diagnosis}회까지 무료로 이용할 수 있어요`,
+        caption: `FREE는 월 ${PLAN_USAGE_LIMITS.free.diagnosis}회까지 무료로 이용할 수 있어요`,
         preview: <DiagnosisThumb />,
         isLive: true,
       },
     ],
     closingNote: '이 외에도 뉴스·시장 데이터는 무제한으로 보실 수 있고, 관심종목은 워치리스트에 자유롭게 등록해두실 수 있어요.',
-    transition: '매일 여러 종목을 살펴보고, 보유 종목 전체를 한 번에 점검해보고 싶으시다면 BASIC 플랜부터는 하루 이용 횟수가 늘어나고 포트폴리오 분석도 가능해져요.',
+    transition: '매달 여러 종목을 살펴보고, 보유 종목 전체를 한 번에 점검해보고 싶으시다면 BASIC 플랜부터는 월 이용 횟수가 늘어나고 포트폴리오 분석도 가능해져요.',
   },
   basic: {
-    intro: 'BASIC 플랜은 매일 몇 개 종목을 꾸준히 살펴보고, 보유한 여러 종목을 포트폴리오 관점에서 점검해보고 싶은 분께 맞는 구성이에요.',
+    intro: 'BASIC 플랜은 매달 여러 종목을 꾸준히 살펴보고, 보유한 여러 종목을 포트폴리오 관점에서 점검해보고 싶은 분께 맞는 구성이에요.',
     features: [
       {
         key: 'diagnosis',
         title: '기업 분석',
-        desc: 'FREE와 같은 방식으로, 궁금한 종목을 검색하면 AI가 뉴스·수급·주가 흐름을 종합해 리포트로 정리해드려요. BASIC 플랜에서는 하루 6개 종목까지 분석해볼 수 있어서, 관심 있는 여러 종목을 매일 꾸준히 확인하기에 넉넉해요.',
-        caption: `하루 ${PLAN_USAGE_LIMITS.basic.diagnosis}회`,
+        desc: `FREE와 같은 방식으로, 궁금한 종목을 검색하면 AI가 뉴스·수급·주가 흐름을 종합해 리포트로 정리해드려요. BASIC 플랜에서는 월 ${PLAN_USAGE_LIMITS.basic.diagnosis}개 종목까지 분석해볼 수 있어서, 관심 있는 여러 종목을 매달 꾸준히 확인하기에 넉넉해요.`,
+        caption: `월 ${PLAN_USAGE_LIMITS.basic.diagnosis}회`,
         preview: <DiagnosisThumb />,
         isLive: true,
       },
@@ -286,7 +286,7 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         isLive: false,
       },
     ],
-    transition: '매일 더 많은 종목을 분석하고 포트폴리오도 더 자주 점검하고 싶다면, 그리고 중요한 변화를 직접 확인하지 않아도 자동으로 받아보고 싶다면 PRO 플랜이 잘 맞아요. PRO부터는 이용 횟수가 크게 늘어나고, 알림과 이메일 리포트까지 함께 이용할 수 있어요.',
+    transition: '매달 더 많은 종목을 분석하고 포트폴리오도 더 자주 점검하고 싶다면, 그리고 중요한 변화를 직접 확인하지 않아도 자동으로 받아보고 싶다면 PRO 플랜이 잘 맞아요. PRO부터는 이용 횟수가 크게 늘어나고, 알림과 이메일 리포트까지 함께 이용할 수 있어요.',
   },
   pro: {
     intro: 'PRO 플랜은 여러 종목을 포트폴리오 단위로 꾸준히 관리하면서, 중요한 변화를 놓치지 않고 싶은 분께 맞는 구성이에요. 기업 분석과 포트폴리오 분석을 가장 넓은 횟수로 이용할 수 있고, 여기에 알림과 이메일 리포트까지 더해집니다. 그래서 매번 직접 앱을 열어 확인하지 않아도, 중요한 변화가 생기면 자동으로 소식을 받아보실 수 있어요.',
@@ -294,8 +294,8 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
       {
         key: 'diagnosis',
         title: '기업 분석',
-        desc: 'PRO 플랜에서는 하루 11개 종목까지 분석할 수 있어서, 관심 있는 종목을 폭넓게 다뤄볼 수 있어요.',
-        caption: `하루 ${PLAN_USAGE_LIMITS.pro.diagnosis}회`,
+        desc: `PRO 플랜에서는 월 ${PLAN_USAGE_LIMITS.pro.diagnosis}개 종목까지 분석할 수 있어서, 관심 있는 종목을 폭넓게 다뤄볼 수 있어요.`,
+        caption: `월 ${PLAN_USAGE_LIMITS.pro.diagnosis}회`,
         preview: <DiagnosisThumb />,
         isLive: true,
       },
@@ -303,7 +303,7 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         key: 'portfolio',
         title: '포트폴리오 분석',
         badge: 'BASIC',
-        desc: '월 20회까지 이용할 수 있어서, 포트폴리오 구성이 바뀔 때마다 부담 없이 다시 점검해볼 수 있어요.',
+        desc: `월 ${PLAN_USAGE_LIMITS.pro.portfolio}회까지 이용할 수 있어서, 포트폴리오 구성이 바뀔 때마다 부담 없이 다시 점검해볼 수 있어요.`,
         caption: `월 ${PLAN_USAGE_LIMITS.pro.portfolio}회`,
         preview: <PortfolioThumb />,
         isLive: false,

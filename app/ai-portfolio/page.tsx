@@ -7,7 +7,7 @@ import {
   Search, PieChart, Trophy, BellRing, Mail, Sunrise,
   Database, Cpu, Send, ArrowRight, Check,
 } from 'lucide-react';
-import { PLAN_AMOUNTS } from '@/lib/payment-constants';
+import { PLAN_AMOUNTS, PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
 // 랜딩페이지 전용 화려한 배경(오로라 블롭 + 파티클 + 슈팅스타) — 대시보드와는 분리해서
 // 마케팅 임팩트를 더 크게. 캔버스 애니메이션이라 초기 렌더링에서 제외 (lazy)
@@ -150,13 +150,23 @@ const LANDING_PLANS = [
   {
     type: 'basic' as const, name: 'BASIC', price: PLAN_AMOUNTS.basic.monthly,
     desc: '더 많은 분석이 필요한 이용자를 위한 플랜',
-    features: ['기업 분석 매일 6회', '포트폴리오 분석 월 1회', '워치리스트', '뉴스/시장 데이터 무제한'],
+    features: [
+      `종목 분석 월 ${PLAN_USAGE_LIMITS.basic.stockAnalysis}회`,
+      `기업 분석 월 ${PLAN_USAGE_LIMITS.basic.diagnosis}회`,
+      `포트폴리오 분석 월 ${PLAN_USAGE_LIMITS.basic.portfolio}회`,
+      '워치리스트', '뉴스/시장 데이터 무제한',
+    ],
     highlight: false,
   },
   {
     type: 'pro' as const, name: 'PRO', price: PLAN_AMOUNTS.pro.monthly,
     desc: '전문적인 포트폴리오 관리가 필요한 이용자',
-    features: ['기업 분석 매일 11회', '포트폴리오 분석 월 20회', '관심기업 주가·수급 알림', '관심기업 일일 리포트 이메일'],
+    features: [
+      `종목 분석 월 ${PLAN_USAGE_LIMITS.pro.stockAnalysis}회`,
+      `기업 분석 월 ${PLAN_USAGE_LIMITS.pro.diagnosis}회`,
+      `포트폴리오 분석 월 ${PLAN_USAGE_LIMITS.pro.portfolio}회`,
+      '관심기업 주가·수급 알림', '관심기업 일일 리포트 이메일',
+    ],
     highlight: true,
   },
 ];
@@ -369,7 +379,7 @@ export default function AiPortfolioLandingPage() {
           ))}
         </div>
         <p className="text-center text-[12px] text-[#8B92A8] mt-6 leading-relaxed">
-          회원가입 자체는 무료이며, 가입 후 무료 플랜으로 기업 분석을 매일 이용할 수 있습니다.<br className="hidden md:block" />
+          회원가입 자체는 무료이며, 가입 후 무료 플랜으로 기업 분석을 매달 이용할 수 있습니다.<br className="hidden md:block" />
           Basic·Pro는 별도 무료 체험 기간 없이 결제 즉시 이용이 시작되며 매월 자동 결제됩니다 ·{' '}
           <Link href="/pricing" className="text-[#3ECF8E] hover:underline">전체 요금제 비교 보기</Link>
         </p>
