@@ -41,10 +41,19 @@ export function resolvePortfolioLimit(plan: Plan): number {
   return PLAN_USAGE_LIMITS[plan].portfolio;
 }
 
-// 종목분석 월간 한도 — 2026-07-14 신설(기존에는 제한 자체가 없었음).
+// 종목분석 한도 — 2026-07-14 신설(기존에는 제한 자체가 없었음). admin은 무제한,
+// 나머지는 PLAN_USAGE_LIMITS 그대로(단, free는 일간·basic/pro는 월간 — isStockAnalysisDaily 참고).
 export function resolveStockAnalysisLimit(plan: Plan): number {
   if (plan === 'admin') return 999;
   return PLAN_USAGE_LIMITS[plan].stockAnalysis;
+}
+
+// 종목분석 한도 주기 — 무료만 유일하게 "일간"(하루 1회), 베이직/프로/관리자는 월간.
+// 2026-07-15 정정: 애초에 무료도 월간(30회)으로 설계했으나, 월간 한도로 두면 무료
+// 회원이 하루에 몰아 써버릴 수 있어 "매일 최소 1회는 체험 가능"이라는 무료 취지에
+// 맞게 free만 예외적으로 일간 카운트로 바꿨다.
+export function isStockAnalysisDaily(plan: Plan): boolean {
+  return plan === 'free';
 }
 
 // 월간 사용량 카운트의 "이번 사이클" 시작/다음 초기화 시점 계산 — 원래

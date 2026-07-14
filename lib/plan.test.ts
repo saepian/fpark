@@ -5,7 +5,7 @@
 // 2026-07-14 요금제 재구성: 기업분석 일일→월간 전환, 숫자 갱신(Free 5/Basic 30/Pro 50).
 
 import { describe, it, expect } from 'vitest';
-import { resolveDiagnosisLimit, resolvePortfolioLimit, resolveStockAnalysisLimit, getUsageCycleStart } from './plan';
+import { resolveDiagnosisLimit, resolvePortfolioLimit, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from './plan';
 
 describe('resolveDiagnosisLimit', () => {
   it('free는 월 5회', () => {
@@ -46,9 +46,11 @@ describe('resolvePortfolioLimit', () => {
 });
 
 // 2026-07-14 신설 — 종목분석은 이전까지 한도 자체가 없었다.
+// 2026-07-15 정정: free는 애초에 월 30회로 설계했으나, 무료 회원이 하루에 몰아 쓸 수
+// 있다는 문제로 "일 1회"로 변경(basic/pro는 그대로 월간 50/100).
 describe('resolveStockAnalysisLimit', () => {
-  it('free는 월 30회', () => {
-    expect(resolveStockAnalysisLimit('free')).toBe(30);
+  it('free는 일 1회', () => {
+    expect(resolveStockAnalysisLimit('free')).toBe(1);
   });
 
   it('basic은 월 50회', () => {
@@ -61,6 +63,18 @@ describe('resolveStockAnalysisLimit', () => {
 
   it('admin은 사실상 무제한(999)', () => {
     expect(resolveStockAnalysisLimit('admin')).toBe(999);
+  });
+});
+
+describe('isStockAnalysisDaily', () => {
+  it('free만 일간 한도', () => {
+    expect(isStockAnalysisDaily('free')).toBe(true);
+  });
+
+  it('basic/pro/admin은 월간 한도', () => {
+    expect(isStockAnalysisDaily('basic')).toBe(false);
+    expect(isStockAnalysisDaily('pro')).toBe(false);
+    expect(isStockAnalysisDaily('admin')).toBe(false);
   });
 });
 

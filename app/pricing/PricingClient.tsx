@@ -6,7 +6,7 @@ import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import PageBackground from '@/components/layout/PageBackground';
 import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
-import { PLAN_AMOUNTS } from '@/lib/payment-constants';
+import { PLAN_AMOUNTS, PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { PLAN_FEATURES, type PlanType, type PlanFeature } from '@/lib/plan-features';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ const FAQ_ITEMS = [
   {
     id: 'plan-diff',
     q: '무료 플랜과 유료 플랜의 차이는?',
-    a: '무료 플랜은 종목 분석 월 30회, 기업 분석 월 5회를 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, 관심기업 알림 등 고급 기능을 이용하실 수 있습니다.',
+    a: `무료 플랜은 종목 분석 일 ${PLAN_USAGE_LIMITS.free.stockAnalysis}회, 기업 분석 월 ${PLAN_USAGE_LIMITS.free.diagnosis}회를 무료로 제공합니다. 유료 플랜에서는 더 많은 분석 횟수, 포트폴리오 분석, 관심기업 알림 등 고급 기능을 이용하실 수 있습니다.`,
   },
 ];
 

@@ -17,7 +17,7 @@ import {
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
-import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart } from '@/lib/plan';
+import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -264,7 +264,7 @@ function makeAuthSupabase() {
 }
 
 // 이번 달(결제 사이클) 종목분석 조회 건수 — app/api/diagnosis, app/api/portfolio-diagnosis와
-// 동일 패턴(lib/plan.ts의 getUsageCycleStart 공용).
+// 동일 패턴(lib/plan.ts의 getUsageCycleStart 공용). basic/pro에서만 사용(free는 일간).
 async function getMonthlyStockAnalysisCount(
   authedSupabase: ReturnType<typeof makeAuthSupabase>,
   userId: string,
@@ -281,6 +281,21 @@ async function getMonthlyStockAnalysisCount(
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
     .gte('usage_date', cycleStart.toISOString().split('T')[0]);
+  return count ?? 0;
+}
+
+// 오늘(KST) 종목분석 조회 건수(전체 티커 합산) — 무료 등급 전용(lib/plan.ts의
+// isStockAnalysisDaily 참고, 2026-07-15 정정: 무료만 예외적으로 일간 한도).
+async function getDailyStockAnalysisCount(
+  authedSupabase: ReturnType<typeof makeAuthSupabase>,
+  userId: string,
+  todayStr: string,
+): Promise<number> {
+  const { count } = await authedSupabase
+    .from('stock_analysis_usage')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('usage_date', todayStr);
   return count ?? 0;
 }
 
@@ -312,10 +327,12 @@ export async function GET(
   if (!existingUsage) {
     const plan  = await checkPlan(authedSupabase, user.id, user.email);
     const limit = resolveStockAnalysisLimit(plan);
-    const count = await getMonthlyStockAnalysisCount(authedSupabase, user.id);
+    const count = isStockAnalysisDaily(plan)
+      ? await getDailyStockAnalysisCount(authedSupabase, user.id, todayStr)
+      : await getMonthlyStockAnalysisCount(authedSupabase, user.id);
     if (count >= limit) {
-      const message = plan === 'free'
-        ? '이번 달 무료 이용 횟수를 모두 사용했습니다. 베이직/프로로 업그레이드하면 더 많이 이용하실 수 있습니다.'
+      const message = isStockAnalysisDaily(plan)
+        ? '오늘 무료 이용 횟수를 모두 사용했습니다. 베이직/프로로 업그레이드하면 월 단위로 더 많이 이용하실 수 있습니다.'
         : '이번 달 이용 한도를 모두 사용했습니다. 다음 결제일에 초기화됩니다.';
       return NextResponse.json({ error: message }, { status: 429 });
     }

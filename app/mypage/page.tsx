@@ -792,7 +792,11 @@ export default function MyPage() {
                 gradient="linear-gradient(90deg, #34d399, #10b981)"
                 glowColor="rgba(52,211,153,0.4)"
               />
-              <p className="text-[10px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
+              {/* 2026-07-15 정정: 종목분석은 무료 등급만 예외적으로 일간 한도라
+                  (lib/plan.ts의 isStockAnalysisDaily), 무료는 "오늘" 기준 문구를 쓴다. */}
+              <p className="text-[10px] text-slate-600 mt-2.5">
+                {data.plan === 'free' ? '매일 자정(KST) 초기화' : `결제일 기준 매월 초기화 · ${nextResetLabel}`}
+              </p>
             </div>
 
             {/* 포트폴리오 진단 */}

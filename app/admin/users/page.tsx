@@ -31,6 +31,7 @@ interface UserRow {
   portfolio_limit:    number;
   stock_analysis_used: number;
   stock_analysis_limit: number;
+  stock_analysis_daily: boolean;
 }
 
 interface PaymentHistoryItem {
@@ -346,7 +347,7 @@ export default function AdminUsersPage() {
                     </th>
                     <th
                       className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
-                      title="월간 한도라 이번 결제 사이클(무료 유저는 매월 1일 기준) 누적 이용 건수 / 월간한도로 표시"
+                      title="무료 회원은 일간 한도(오늘 건수/1), 베이직·프로는 월간 한도(이번 사이클 누적/한도)로 표시"
                     >
                       종목분석
                     </th>
@@ -389,6 +390,7 @@ export default function AdminUsersPage() {
                           </td>
                           <td className="px-4 py-3 text-[13px] whitespace-nowrap">
                             <span className={`tabular-nums font-medium ${usageColorClass(u.stock_analysis_used, u.stock_analysis_limit)}`}>{u.stock_analysis_used}/{u.stock_analysis_limit}</span>
+                            {u.stock_analysis_daily && <span className="text-[10px] text-slate-600 ml-1">(오늘)</span>}
                           </td>
                           <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.stock_credits}</td>
                           <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.portfolio_credits}</td>
@@ -455,7 +457,7 @@ export default function AdminUsersPage() {
                         {' · 포트폴리오 '}
                         <span className={usageColorClass(u.portfolio_used, u.portfolio_limit)}>{u.portfolio_used}/{u.portfolio_limit}</span>
                         {' · 종목분석 '}
-                        <span className={usageColorClass(u.stock_analysis_used, u.stock_analysis_limit)}>{u.stock_analysis_used}/{u.stock_analysis_limit}</span>
+                        <span className={usageColorClass(u.stock_analysis_used, u.stock_analysis_limit)}>{u.stock_analysis_used}/{u.stock_analysis_limit}{u.stock_analysis_daily ? '(오늘)' : ''}</span>
                       </span>
                       <span>다음결제 {formatDate(u.next_billed_at)}</span>
                     </div>

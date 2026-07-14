@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 import { adminClient } from '@/lib/supabase-admin';
 import { isAdminEmail } from '@/lib/admin-auth';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
-import { getUsageCycleStart } from '@/lib/plan';
+import { getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
 function makeSupabase() {
@@ -53,21 +53,28 @@ export async function GET() {
   }
 
   const now = new Date();
+  const todayKst = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // 2026-07-14 요금제 재구성으로 기업분석도 월간 한도로 전환 — 포트폴리오와 동일하게
   // 이번 결제 사이클 누적치만 집계하면 된다(예전엔 "일일" 한도라 오늘 자정 기준 별도
   // 집계가 필요했으나 더 이상 아님). 종목분석 이용 현황도 함께 집계.
+  // 2026-07-15 정정: 종목분석은 무료 등급만 예외적으로 일간 한도라(lib/plan.ts의
+  // isStockAnalysisDaily), 무료 회원은 오늘(KST) 건수, 그 외엔 이번 사이클 누적을 센다.
   const users = await Promise.all((usersRes.data ?? []).map(async (u) => {
+    const plan = (u.plan as 'free' | 'basic' | 'pro') ?? 'free';
     const { cycleStart } = getUsageCycleStart(u.subscription_start_date, now);
     const [{ count: diagnosisMonth }, { count: portfolioUsed }, { count: stockAnalysisUsed }] = await Promise.all([
       adminClient.from('stock_diagnosis').select('*', { count: 'exact', head: true })
         .eq('user_id', u.id).gte('created_at', cycleStart.toISOString()),
       adminClient.from('portfolio_diagnosis').select('*', { count: 'exact', head: true })
         .eq('user_id', u.id).gte('created_at', cycleStart.toISOString()),
-      adminClient.from('stock_analysis_usage').select('*', { count: 'exact', head: true })
-        .eq('user_id', u.id).gte('usage_date', cycleStart.toISOString().split('T')[0]),
+      isStockAnalysisDaily(plan)
+        ? adminClient.from('stock_analysis_usage').select('*', { count: 'exact', head: true })
+            .eq('user_id', u.id).eq('usage_date', todayKst)
+        : adminClient.from('stock_analysis_usage').select('*', { count: 'exact', head: true })
+            .eq('user_id', u.id).gte('usage_date', cycleStart.toISOString().split('T')[0]),
     ]);
-    const limits = PLAN_USAGE_LIMITS[u.plan as 'free' | 'basic' | 'pro'] ?? PLAN_USAGE_LIMITS.free;
+    const limits = PLAN_USAGE_LIMITS[plan] ?? PLAN_USAGE_LIMITS.free;
 
     return {
       ...u,
@@ -78,6 +85,7 @@ export async function GET() {
       portfolio_limit:        limits.portfolio,
       stock_analysis_used:    stockAnalysisUsed ?? 0,
       stock_analysis_limit:   limits.stockAnalysis,
+      stock_analysis_daily:   isStockAnalysisDaily(plan),
     };
   }));
 

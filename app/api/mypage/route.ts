@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { adminClient } from '@/lib/supabase-admin';
 import { cookies } from 'next/headers';
-import { getUsageCycleStart } from '@/lib/plan';
+import { getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -60,12 +60,20 @@ export async function GET() {
       .gte('created_at', cycleStart.toISOString())
       .then(r => r.count ?? 0),
 
-    adminClient
-      .from('stock_analysis_usage')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .gte('usage_date', cycleStart.toISOString().split('T')[0])
-      .then(r => r.count ?? 0),
+    // 2026-07-15 정정: 종목분석은 무료 등급만 예외적으로 일간 한도라(lib/plan.ts의
+    // isStockAnalysisDaily), 무료면 오늘(KST) 건수만, 그 외엔 이번 사이클 누적을 센다.
+    (isStockAnalysisDaily(plan)
+      ? adminClient
+          .from('stock_analysis_usage')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('usage_date', new Date(Date.now() + 9 * 3600_000).toISOString().split('T')[0])
+      : adminClient
+          .from('stock_analysis_usage')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('usage_date', cycleStart.toISOString().split('T')[0])
+    ).then(r => r.count ?? 0),
 
     (async () => {
       try {

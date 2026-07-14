@@ -23,10 +23,15 @@ export const BANK_TRANSFER_ACCOUNT = {
 
 // mypage 사용량 표시 + lib/refund.ts 환불 계산에서 공용으로 쓰는 플랜별 한도.
 // 2026-07-14 요금제 재구성: 종목분석 신규 한도 추가, 기업분석 일일→월간 전환,
-// 포트폴리오 숫자 갱신 — 세 콘텐츠 전부 월간 한도로 통일(subscription_start_date
-// 기준 결제 사이클월, lib/plan.ts의 getUsageCycleStart 참고).
+// 포트폴리오 숫자 갱신 — 기업분석·포트폴리오·종목분석(베이직/프로)은 월간 한도로 통일
+// (subscription_start_date 기준 결제 사이클월, lib/plan.ts의 getUsageCycleStart 참고).
+//
+// 2026-07-15 정정: 종목분석의 무료 등급만 예외적으로 "일간" 한도(하루 1회)다 — 월간
+// 한도로 두면 무료 회원이 하루에 몰아 써버릴 수 있어, "매일 최소 1회는 체험 가능"이라는
+// 무료 취지에 맞게 free.stockAnalysis만 일간 카운트로 계산한다(lib/plan.ts의
+// isStockAnalysisDaily 참고 — 베이직 50/프로 100은 그대로 월간).
 export const PLAN_USAGE_LIMITS = {
-  free:  { stockAnalysis: 30,  diagnosis: 5,  portfolio: 0  },
+  free:  { stockAnalysis: 1,   diagnosis: 5,  portfolio: 0  },
   basic: { stockAnalysis: 50,  diagnosis: 30, portfolio: 5  },
   pro:   { stockAnalysis: 100, diagnosis: 50, portfolio: 20 },
 } as const;
