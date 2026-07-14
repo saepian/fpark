@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { kstYearMonthDay, kstMidnight } from '@/lib/ai-grounding';
 
 export type Plan = 'admin' | 'pro' | 'basic' | 'free';
 
@@ -61,27 +62,39 @@ export function isStockAnalysisDaily(plan: Plan): boolean {
 // (getBillingCycle)에 거의 동일한 로직이 중복 정의돼 있던 것을 공용화(2026-07-14).
 // subscription_start_date 기준으로 매달 같은 날짜에 리셋되고(말일은 클램핑), 구독이
 // 없는 무료 회원 등 null인 경우는 캘린더월(매월 1일 KST 00:00)로 폴백한다.
+//
+// 2026-07-15 타임존 보정: 이전에는 .getDate()/.getMonth() 같은 서버 런타임 로컬
+// 타임존(Vercel은 기본 UTC) 메서드로 날짜를 추출해, KST 00:00~08:59 사이에 가입한
+// 사용자는 리셋일이 실제 KST 날짜와 최대 하루 어긋날 수 있었다. kstDateStr()과 동일한
+// +9h 보정 방식(lib/ai-grounding.ts의 kstYearMonthDay/kstMidnight)으로 통일했다.
 export function getUsageCycleStart(
   subscriptionStartDate: string | null,
   now: Date,
 ): { cycleStart: Date; nextCycleStart: Date } {
+  const { year: ny, month: nm } = kstYearMonthDay(now);
+
   if (!subscriptionStartDate) {
     return {
-      cycleStart:     new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
-      nextCycleStart: new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0),
+      cycleStart:     kstMidnight(ny, nm, 1),
+      nextCycleStart: kstMidnight(ny, nm + 1, 1),
     };
   }
-  const startDay = new Date(subscriptionStartDate).getDate();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  // 말일 클램핑 (e.g., 1월 31일 → 2월 28일)
-  const monthDay = (yr: number, mo: number) => {
-    const lastDay = new Date(yr, mo + 1, 0).getDate();
-    return new Date(yr, mo, Math.min(startDay, lastDay), 0, 0, 0, 0);
-  };
-  const thisMonthStart = monthDay(y, m);
+
+  const { day: startDay } = kstYearMonthDay(new Date(subscriptionStartDate));
+
+  // 말일 클램핑 (e.g., 1월 31일 → 2월 28일) — 그 달의 일수 자체는 타임존과 무관한
+  // 순수 달력 사실이라 UTC 기준으로 계산해도 결과가 같다.
+  const lastDayOfMonth = (yr: number, mo: number) => new Date(Date.UTC(yr, mo + 1, 0)).getUTCDate();
+
+  const thisMonthStart = kstMidnight(ny, nm, Math.min(startDay, lastDayOfMonth(ny, nm)));
   if (thisMonthStart <= now) {
-    return { cycleStart: thisMonthStart, nextCycleStart: monthDay(y, m + 1) };
+    return {
+      cycleStart:     thisMonthStart,
+      nextCycleStart: kstMidnight(ny, nm + 1, Math.min(startDay, lastDayOfMonth(ny, nm + 1))),
+    };
   }
-  return { cycleStart: monthDay(y, m - 1), nextCycleStart: thisMonthStart };
+  return {
+    cycleStart:     kstMidnight(ny, nm - 1, Math.min(startDay, lastDayOfMonth(ny, nm - 1))),
+    nextCycleStart: thisMonthStart,
+  };
 }

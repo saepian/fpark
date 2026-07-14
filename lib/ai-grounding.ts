@@ -14,6 +14,23 @@ export function kstDateStr(d: Date = new Date()): string {
   return kst.toISOString().split('T')[0];
 }
 
+// 2026-07-15: getUsageCycleStart()(lib/plan.ts)가 .getDate()/.getMonth() 같은 서버 런타임
+// 로컬 타임존(Vercel은 기본 UTC) 메서드로 날짜를 추출하다가, KST 00:00~08:59 가입자의
+// 결제 사이클 리셋일이 최대 하루 어긋나던 문제의 회귀 방지 — kstDateStr()과 동일한 +9h
+// 보정 방식으로 "KST 기준 연/월/일"을 뽑는 공용 유틸. 월간 사이클처럼 날짜 단위 구성이
+// 필요한 곳은 전부 이 함수를 거치도록 통일한다.
+export function kstYearMonthDay(d: Date): { year: number; month: number; day: number } {
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return { year: kst.getUTCFullYear(), month: kst.getUTCMonth(), day: kst.getUTCDate() };
+}
+
+// KST 기준 year년 month월(0-indexed) day일 00:00:00에 해당하는 실제 시각(Date) 생성.
+// KST 00:00은 UTC 전날 15:00이므로, UTC로 구성한 뒤 9시간을 뺀다 — 서버 런타임 타임존과
+// 무관하게 항상 같은 결과를 낸다.
+export function kstMidnight(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month, day, 0, 0, 0, 0) - 9 * 60 * 60 * 1000);
+}
+
 // 두 KST 날짜 문자열(YYYY-MM-DD) 사이의 일수 차이.
 export function daysBetween(todayStr: string, prevDateStr: string): number {
   return Math.round((new Date(todayStr).getTime() - new Date(prevDateStr).getTime()) / 86_400_000);

@@ -80,32 +80,59 @@ describe('isStockAnalysisDaily', () => {
 
 // app/api/portfolio-diagnosis/route.ts와 app/api/mypage/route.ts에 거의 동일하게
 // 중복 정의돼 있던 사이클 계산을 공용화하면서 추가한 회귀 테스트(2026-07-14).
+//
+// 2026-07-15 타임존 보정: 기대값을 new Date(y,m,d) 같은 "테스트 실행 머신의 로컬
+// 타임존" 생성자로 만들면, 이 함수가 서버 런타임 로컬 타임존을 쓰던 옛 버그를 그대로
+// 재현해도 테스트가 우연히 통과해버린다(이 저장소의 dev 머신 로컬 TZ가 마침 Asia/Seoul
+// 이라 그랬음 — 정작 배포되는 Vercel은 기본 UTC라 실제로는 어긋났었다). 그래서 기대값도
+// 실행 머신 타임존과 무관한 KST 명시 오프셋(UTC+09:00) ISO 문자열로 직접 구성한다.
+function kst(y: number, m1: number, d: number): Date {
+  // m1은 1-indexed 월(가독성을 위해) — 예: kst(2026, 7, 14) = 2026-07-14 00:00 KST
+  const mm = String(m1).padStart(2, '0');
+  const dd = String(d).padStart(2, '0');
+  return new Date(`${y}-${mm}-${dd}T00:00:00+09:00`);
+}
+
 describe('getUsageCycleStart', () => {
   it('subscriptionStartDate가 null이면 캘린더월(매월 1일)로 폴백', () => {
-    const now = new Date(2026, 6, 14); // 2026-07-14
+    const now = kst(2026, 7, 14);
     const { cycleStart, nextCycleStart } = getUsageCycleStart(null, now);
-    expect(cycleStart).toEqual(new Date(2026, 6, 1));
-    expect(nextCycleStart).toEqual(new Date(2026, 7, 1));
+    expect(cycleStart).toEqual(kst(2026, 7, 1));
+    expect(nextCycleStart).toEqual(kst(2026, 8, 1));
   });
 
   it('결제일이 이번 달에 이미 지났으면 이번 달 결제일이 사이클 시작', () => {
-    const now = new Date(2026, 6, 14); // 2026-07-14
+    const now = kst(2026, 7, 14);
     const { cycleStart, nextCycleStart } = getUsageCycleStart('2026-05-10T00:00:00+09:00', now);
-    expect(cycleStart).toEqual(new Date(2026, 6, 10));
-    expect(nextCycleStart).toEqual(new Date(2026, 7, 10));
+    expect(cycleStart).toEqual(kst(2026, 7, 10));
+    expect(nextCycleStart).toEqual(kst(2026, 8, 10));
   });
 
   it('결제일이 이번 달에 아직 안 지났으면 지난달 결제일이 사이클 시작', () => {
-    const now = new Date(2026, 6, 5); // 2026-07-05
+    const now = kst(2026, 7, 5);
     const { cycleStart, nextCycleStart } = getUsageCycleStart('2026-05-20T00:00:00+09:00', now);
-    expect(cycleStart).toEqual(new Date(2026, 5, 20));
-    expect(nextCycleStart).toEqual(new Date(2026, 6, 20));
+    expect(cycleStart).toEqual(kst(2026, 6, 20));
+    expect(nextCycleStart).toEqual(kst(2026, 7, 20));
   });
 
   it('말일 결제일은 짧은 달로 클램핑 (1/31 가입 → 2월 사이클은 28일 시작, 2026은 평년)', () => {
-    const now = new Date(2026, 1, 28); // 2026-02-28
+    const now = kst(2026, 2, 28);
     const { cycleStart, nextCycleStart } = getUsageCycleStart('2026-01-31T00:00:00+09:00', now);
-    expect(cycleStart).toEqual(new Date(2026, 1, 28));
-    expect(nextCycleStart).toEqual(new Date(2026, 2, 31));
+    expect(cycleStart).toEqual(kst(2026, 2, 28));
+    expect(nextCycleStart).toEqual(kst(2026, 3, 31));
+  });
+
+  // 2026-07-15 타임존 보정 회귀 테스트 — KST 00:00~08:59(=UTC 전날 15:00~23:59)
+  // 사이에 가입한 경우, 서버 런타임 로컬 타임존이 UTC라면 예전 버그(.getDate() 등
+  // 로컬 메서드 사용)는 가입일을 하루 전으로 잘못 인식했다. 예: 2026-06-11 03:00
+  // KST(=2026-06-10 18:00Z)에 가입 → 옛 로직은 UTC 로컬 기준 getDate()가 10을
+  // 반환해 사이클 시작일을 "10일"로 잘못 고정했을 것(실제로는 11일이어야 함).
+  it('KST 00:00~08:59 가입자도 KST 날짜 기준으로 정확한 사이클 시작일을 계산한다', () => {
+    const signupAtKst0300 = '2026-06-11T03:00:00+09:00'; // KST로는 6/11 새벽, UTC로는 6/10 18:00
+    const now = kst(2026, 7, 14);
+    const { cycleStart, nextCycleStart } = getUsageCycleStart(signupAtKst0300, now);
+    // 가입일의 "일(day)"은 KST 기준 11일이어야 한다 — UTC 기준이면 10일로 잘못 나옴.
+    expect(cycleStart).toEqual(kst(2026, 7, 11));
+    expect(nextCycleStart).toEqual(kst(2026, 8, 11));
   });
 });
