@@ -601,6 +601,7 @@ export type Database = {
           main_analysis: string
           price_change_pct: number | null
           reference_metrics: Json
+          regen_count: number
           report_date: string
           report_type: string
           risk_factor: string | null
@@ -620,6 +621,7 @@ export type Database = {
           main_analysis: string
           price_change_pct?: number | null
           reference_metrics?: Json
+          regen_count?: number
           report_date: string
           report_type: string
           risk_factor?: string | null
@@ -639,6 +641,7 @@ export type Database = {
           main_analysis?: string
           price_change_pct?: number | null
           reference_metrics?: Json
+          regen_count?: number
           report_date?: string
           report_type?: string
           risk_factor?: string | null

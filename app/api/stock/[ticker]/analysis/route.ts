@@ -143,6 +143,7 @@ interface HistoryRow {
   internal_metrics: { tradingValueMultiple?: number | null; mdd?: number; volatility?: number } | null;
   disclaimer: string | null;
   created_at: string;
+  regen_count: number | null;
 }
 
 function mapRowToResult(row: HistoryRow): Omit<AnalysisResult, 'isCached'> {
@@ -208,7 +209,9 @@ function correctPriceMentions(
 // 전까지는 장중 누적/실시간 값이고, 마감 후에야 그날의 최종 확정치가 된다. 그런데 당일
 // 캐시는 report_date만 보고 무조건 재사용해서, 장중에 생성된 리포트가 마감 후 재방문에도
 // 그대로 남아 "장중 스냅샷을 오늘자 최종 리포트인 것처럼" 계속 보여주는 문제가 있었다.
-// 장 마감 후 첫 방문 때만, 캐시가 장중에 생성된 것이면 무시하고 재생성한다(하루 최대 2건).
+// 장 마감 후 첫 방문 때만, 캐시가 장중에 생성된 것이면 무시하고 재생성한다(일일 재생성
+// 상한 MAX_DAILY_REGENS 적용 — 아래 장중 신선도 로직과 공유).
+const MARKET_OPEN_MINUTES_KST = 9 * 60; // 09:00
 const MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30; // 15:30
 
 function kstMinutesSinceMidnight(d: Date): number {
@@ -220,6 +223,44 @@ function isIntradayCacheStale(cachedCreatedAt: string): boolean {
   const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedCreatedAt)) < MARKET_CLOSE_MINUTES_KST;
   const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= MARKET_CLOSE_MINUTES_KST;
   return generatedBeforeClose && nowIsAfterClose;
+}
+
+// 2026-07-15 "장중 캐시 신선도" 개선: 위 장마감 무효화만으로는 아침에 생성된
+// 리포트가 장마감 전까지 하루 종일 그대로 유지되는 문제가 있었다(가격이 크게
+// 움직이거나 새 뉴스가 나와도 아침 리포트가 그대로 노출됨). 장중에도 "일정 시간
+// 경과 AND 가격이 유의미하게 변동"했을 때만 재생성한다 — 시간만 보면(고정 주기)
+// 안 움직인 날도 기계적으로 비용이 발생하고, 가격만 보면 생성 직후 정상 변동폭
+// 에도 바로 재트리거(thrashing)되므로 AND로 묶어 둘 다 회피한다. 가격 조회 자체가
+// KIS 호출 1회를 유발하므로 시간 조건을 먼저 걸러, 최소 시간 미경과 시엔 가격
+// 조회조차 하지 않는다(캐시 히트 시 대부분 KIS 호출 0회를 유지).
+const INTRADAY_MIN_HOURS_ELAPSED = 2;
+const INTRADAY_PRICE_MOVE_THRESHOLD = 0.025; // ±2.5%
+// 하루 재생성 총 상한(초기 생성 포함) — 변동이 잦은 종목이 무한정 비용을 늘리지
+// 않도록 하는 안전장치. 장마감 강제 재생성도 이 상한을 넘기지 않는다.
+const MAX_DAILY_REGENS = 4;
+
+async function isIntradayRefreshDue(
+  cachedCreatedAt: string,
+  storedPrice: number | null,
+  ticker: string,
+): Promise<{ due: boolean; reason?: string }> {
+  const now = new Date();
+  const nowMinutes = kstMinutesSinceMidnight(now);
+  if (nowMinutes < MARKET_OPEN_MINUTES_KST || nowMinutes >= MARKET_CLOSE_MINUTES_KST) return { due: false };
+
+  const hoursSinceCreated = (now.getTime() - new Date(cachedCreatedAt).getTime()) / (60 * 60 * 1000);
+  if (hoursSinceCreated < INTRADAY_MIN_HOURS_ELAPSED) return { due: false };
+  if (!storedPrice) return { due: false };
+
+  try {
+    const price = await fetchStockPrice(ticker);
+    const movePct = Math.abs(price.price - storedPrice) / storedPrice;
+    if (movePct < INTRADAY_PRICE_MOVE_THRESHOLD) return { due: false };
+    return { due: true, reason: `${hoursSinceCreated.toFixed(1)}h 경과·가격 ${(movePct * 100).toFixed(1)}% 변동` };
+  } catch (e) {
+    console.warn('[ANALYSIS] 장중 신선도 가격 조회 실패, 기존 캐시 유지:', ticker, e instanceof Error ? e.message : e);
+    return { due: false };
+  }
 }
 
 // 직전 리포트(오늘 이전 가장 최근 1건) 대비 차이를 프롬프트에 주입할 텍스트로 변환.
@@ -357,6 +398,7 @@ export async function GET(
   // 국내물은 지금까지 캐시가 없어 방문할 때마다 재생성됐는데, 그러면 "어제와의 비교"가
   // 같은 날 안에서도 방문마다 달라져 의미가 없어진다 — 하루 1건을 테이블 unique 제약으로
   // 보장하고, KIS/Claude 호출 자체를 캐시 히트 시 건너뛴다.
+  let cachedRegenCount = 0; // 오늘 이미 재생성된 누적 횟수(없으면 0 = 첫 생성) — 저장 시 +1
   try {
     const { data: cached } = await supabase
       .from('stock_analysis_history')
@@ -365,11 +407,26 @@ export async function GET(
       .eq('report_date', todayStr)
       .maybeSingle();
     if (cached) {
-      if (isIntradayCacheStale(cached.created_at)) {
-        console.log(`[ANALYSIS] ${ticker} 장중 생성 캐시(${cached.created_at}) 감지 — 장마감 후 첫 조회라 재생성`);
+      const row = cached as HistoryRow;
+      const regenCount = row.regen_count ?? 1;
+      const overDailyCap = regenCount >= MAX_DAILY_REGENS;
+      const closeStale = !overDailyCap && isIntradayCacheStale(row.created_at);
+      const intradayCheck = !overDailyCap && !closeStale
+        ? await isIntradayRefreshDue(row.created_at, row.current_price, ticker)
+        : { due: false };
+
+      if (closeStale) {
+        console.log(`[ANALYSIS] ${ticker} 장중 생성 캐시(${row.created_at}) 감지 — 장마감 후 첫 조회라 재생성 (누적 ${regenCount}회)`);
+        cachedRegenCount = regenCount;
+      } else if (intradayCheck.due) {
+        console.log(`[ANALYSIS] ${ticker} 장중 신선도 트리거 재생성: ${intradayCheck.reason} (누적 ${regenCount}회)`);
+        cachedRegenCount = regenCount;
       } else {
+        if (overDailyCap) {
+          console.log(`[ANALYSIS] ${ticker} 일일 재생성 상한(${MAX_DAILY_REGENS}) 도달 — 캐시 유지`);
+        }
         recordUsage();
-        return NextResponse.json({ ...mapRowToResult(cached as HistoryRow), isCached: true });
+        return NextResponse.json({ ...mapRowToResult(row), isCached: true });
       }
     }
   } catch (e) {
@@ -598,6 +655,7 @@ ${yesterdayComparisonBlock}
           sentiment: signalToSentiment(result.signal),
           disclaimer: result.disclaimer,
           created_at: result.createdAt,
+          regen_count: cachedRegenCount + 1,
         }, { onConflict: 'ticker,report_date' });
       if (error) console.error('[ANALYSIS] 결과 저장 실패:', error.message);
     });
