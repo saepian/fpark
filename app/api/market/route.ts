@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { fetchMarketIndex } from '../../../lib/kis-api';
 import { supabase } from '../../../lib/supabase';
 import { isKoreanMarketOpen, getLastTradingDate } from '../../../lib/market-utils';
@@ -257,38 +257,70 @@ async function getCache(): Promise<MarketResponse | null> {
   }
 }
 
+// 2026-07-15: 국내증시 페이지 5분 자동 새로고침 도입 후, 이 라우트가 매 요청마다
+// KIS/Yahoo를 라이브 호출해서 동시 접속자 수에 부하가 선형 비례하는 문제 확인 —
+// popular 라우트와 동일한 TTL 캐시 패턴 추가. 장중엔 가격이 자주 바뀌므로 짧게,
+// 장 마감 후엔 어차피 값이 안 바뀌므로 길게 잡아 불필요한 호출을 더 줄인다.
+const CACHE_TTL_MS_OPEN   = 30_000;      // 장중 30초
+const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
+
 export async function GET() {
   const marketOpen  = isKoreanMarketOpen();
   const prevDate    = marketOpen ? null : getLastTradingDate();
   const isPrevDay   = !marketOpen;
   const prevDateLabel = prevDate?.label;
 
+  // TTL 이내면 라이브 호출 없이 캐시 재사용
+  const ttlMs = marketOpen ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', CACHE_KEY)
+      .single();
+    if (cache) {
+      const age = Date.now() - new Date(cache.updated_at).getTime();
+      if (age < ttlMs) {
+        console.log(`[MARKET] TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s) — 라이브 호출 생략`);
+        return NextResponse.json({ ...(cache.data as MarketResponse), isCached: true, cachedAt: cache.updated_at, isPrevDay, prevDateLabel });
+      }
+    }
+  } catch (e) {
+    console.warn('[MARKET] TTL 캐시 조회 실패, 라이브로 진행:', e instanceof Error ? e.message : e);
+  }
+
   try {
     const live = await fetchLive();
     const hasAnyData = live.KOSPI || live.SP500 || live.NASDAQ || live.DOW || live.NIKKEI;
     if (!hasAnyData) throw new Error('모든 지수 조회 실패');
 
-    void supabase.from('market_cache').upsert({
-      key: CACHE_KEY,
-      data: {
-        KOSPI:    live.KOSPI,
-        KOSDAQ:   live.KOSDAQ,
-        USD_KRW:  live.USD_KRW,
-        NASDAQ:   live.NASDAQ,
-        SP500:    live.SP500,
-        DOW:      live.DOW,
-        NIKKEI:   live.NIKKEI,
-        HANGSENG: live.HANGSENG,
-        SHANGHAI: live.SHANGHAI,
-        SHENZHEN: live.SHENZHEN,
-        USDJPY:   live.USDJPY,
-        EURJPY:   live.EURJPY,
-        USDHKD:   live.USDHKD,
-        CNYHKD:   live.CNYHKD,
-        USDCNY:   live.USDCNY,
-        BOND_3Y:  live.BOND_3Y,
-      },
-      updated_at: new Date().toISOString(),
+    // await 없이 던지면 응답 직후 실행 컨텍스트가 얼어붙어 저장이 중간에 끊길 수 있어
+    // after()로 등록 — 이번에 TTL 캐시를 추가하면서 실측으로 확인된 문제(2026-07-15,
+    // stock/[ticker]/price 라우트와 동일한 이유).
+    after(async () => {
+      const { error } = await supabase.from('market_cache').upsert({
+        key: CACHE_KEY,
+        data: {
+          KOSPI:    live.KOSPI,
+          KOSDAQ:   live.KOSDAQ,
+          USD_KRW:  live.USD_KRW,
+          NASDAQ:   live.NASDAQ,
+          SP500:    live.SP500,
+          DOW:      live.DOW,
+          NIKKEI:   live.NIKKEI,
+          HANGSENG: live.HANGSENG,
+          SHANGHAI: live.SHANGHAI,
+          SHENZHEN: live.SHENZHEN,
+          USDJPY:   live.USDJPY,
+          EURJPY:   live.EURJPY,
+          USDHKD:   live.USDHKD,
+          CNYHKD:   live.CNYHKD,
+          USDCNY:   live.USDCNY,
+          BOND_3Y:  live.BOND_3Y,
+        },
+        updated_at: new Date().toISOString(),
+      });
+      if (error) console.warn('[MARKET] 캐시 저장 실패:', error.message);
     });
     return NextResponse.json({ ...live, isCached: false, cachedAt: null, isPrevDay, prevDateLabel });
   } catch (e) {

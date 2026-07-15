@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import WatchlistSection from '../../../components/main/WatchlistSection';
+import { isKoreanMarketOpen } from '../../../lib/market-utils';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -289,66 +290,77 @@ export default function DomesticMarketPage() {
   const [loading, setLoading]             = useState(true);
   const [popularStocks, setPopularStocks] = useState<PopularStock[]>([]);
   const [news, setNews]                   = useState<NewsItem[]>([]);
+  const [lastUpdated, setLastUpdated]     = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing]   = useState(false);
+  const [refreshTick, setRefreshTick]     = useState(0);
 
   const rightPanelRef                     = useRef<HTMLDivElement>(null);
   const canvasRef                          = useRef<HTMLCanvasElement>(null);
+  const activeTabRef                       = useRef<Tab>(activeTab);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
 
-  useEffect(() => {
-    // 지수 카드
-    fetch('/api/market')
-      .then(r => r.json())
-      .then(d => {
-        setIndices({
-          KOSPI:   d.KOSPI   ?? null,
-          KOSDAQ:  d.KOSDAQ  ?? null,
-          USD_KRW: d.USD_KRW ?? null,
-          BOND_3Y: d.BOND_3Y ?? null,
-        });
-      })
-      .catch(() => {});
+  // 지수/차트/인기종목/뉴스 — 최초 로드와 5분 자동 새로고침이 공유하는 로직.
+  // 값이 갱신될 때만 state가 바뀌므로(기존 값을 지우고 스켈레톤으로 되돌리지 않음)
+  // 백그라운드 재조회에도 화면이 깜빡이거나 스크롤 위치가 흔들리지 않는다.
+  const loadAll = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([
+      fetch('/api/market')
+        .then(r => r.json())
+        .then(d => {
+          setIndices({
+            KOSPI:   d.KOSPI   ?? null,
+            KOSDAQ:  d.KOSDAQ  ?? null,
+            USD_KRW: d.USD_KRW ?? null,
+            BOND_3Y: d.BOND_3Y ?? null,
+          });
+        })
+        .catch(() => {}),
 
-    // 차트 데이터
-    Promise.allSettled(
-      CHART_SYMBOLS.map(s =>
-        fetch(`/api/market/chart?symbol=${s}`).then(r => r.json()) as Promise<number[]>
-      )
-    ).then(results => {
-      const map: Record<string, number[]> = {};
-      results.forEach((r, i) => { map[CHART_SYMBOLS[i]] = r.status === 'fulfilled' ? r.value : []; });
-      setChartData(map);
-    });
+      Promise.allSettled(
+        CHART_SYMBOLS.map(s =>
+          fetch(`/api/market/chart?symbol=${s}`).then(r => r.json()) as Promise<number[]>
+        )
+      ).then(results => {
+        const map: Record<string, number[]> = {};
+        results.forEach((r, i) => { map[CHART_SYMBOLS[i]] = r.status === 'fulfilled' ? r.value : []; });
+        setChartData(map);
+      }),
 
-    // 인기종목 + live price 보강
-    fetch('/api/market/popular')
-      .then(r => r.json())
-      .then(async (data: PopularStock[]) => {
-        if (!Array.isArray(data) || data.length === 0) return;
-        setPopularStocks(data);
+      fetch('/api/market/popular')
+        .then(r => r.json())
+        .then(async (data: PopularStock[]) => {
+          if (!Array.isArray(data) || data.length === 0) return;
+          setPopularStocks(data);
 
-        const results = await Promise.allSettled(
-          data.map(item =>
-            fetch(`/api/stock/${item.ticker}/price`).then(r => r.json())
-          )
-        );
-        const enriched = data.map((item, i) => {
-          const r = results[i];
-          if (r.status === 'fulfilled' && r.value?.price) {
-            return { ...item, price: r.value.price, changeRate: r.value.changeRate, change: r.value.change };
-          }
-          return item;
-        });
-        setPopularStocks(enriched);
-      })
-      .catch(() => {});
+          const results = await Promise.allSettled(
+            data.map(item =>
+              fetch(`/api/stock/${item.ticker}/price`).then(r => r.json())
+            )
+          );
+          const enriched = data.map((item, i) => {
+            const r = results[i];
+            if (r.status === 'fulfilled' && r.value?.price) {
+              return { ...item, price: r.value.price, changeRate: r.value.changeRate, change: r.value.change };
+            }
+            return item;
+          });
+          setPopularStocks(enriched);
+        })
+        .catch(() => {}),
 
-    // 뉴스 (국내 카테고리만)
-    fetch('/api/news?limit=5&category=domestic')
-      .then(r => r.json())
-      .then(d => { if (Array.isArray(d.news)) setNews(d.news); })
-      .catch(() => {});
+      fetch('/api/news?limit=5&category=domestic')
+        .then(r => r.json())
+        .then(d => { if (Array.isArray(d.news)) setNews(d.news); })
+        .catch(() => {}),
+    ]);
+    setLastUpdated(new Date());
+    setIsRefreshing(false);
   }, []);
 
-  // 탭 전환 시 랭킹 재조회
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  // 탭 전환 시 랭킹 재조회 (스켈레톤 노출 — 사용자가 직접 누른 액션이라 로딩을 보여줘도 무방)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -359,6 +371,30 @@ export default function DomesticMarketPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [activeTab]);
+
+  // 5분 자동 새로고침 — refreshTick 증가가 곧 "갱신 신호". 장중(09:00~15:30 KST)이면서
+  // 탭이 활성 상태일 때만 실제로 데이터를 다시 받아온다(장마감 후엔 가격이 안 바뀌므로
+  // 불필요한 API 호출 차단, 백그라운드 탭에서도 불필요한 호출 차단).
+  useEffect(() => {
+    const POLL_MS = 5 * 60 * 1000;
+    const id = setInterval(() => {
+      if (!isKoreanMarketOpen()) return;
+      if (document.visibilityState !== 'visible') return;
+      setRefreshTick(t => t + 1);
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  // refreshTick 신호 발생 시 조용히 갱신 — 랭킹 테이블은 setLoading(true)를 타지 않는
+  // 별도 경로로 갱신해 탭 전환 때와 달리 스켈레톤으로 리스트가 사라지지 않게 한다.
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    loadAll();
+    fetch(`/api/market/ranking?tab=${encodeURIComponent(activeTabRef.current)}`)
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setStocks(data); })
+      .catch(() => {});
+  }, [refreshTick, loadAll]);
 
   // ── Canvas 파티클 배경 ──────────────────────────────────────────
   useEffect(() => {
@@ -524,9 +560,17 @@ export default function DomesticMarketPage() {
     <div className="max-w-[1200px] mx-auto px-5 py-7">
 
       <h1 className="text-[18px] font-bold text-white mb-1 tracking-tight">국내증시</h1>
-      <p className="text-sm text-slate-500 mt-1 mb-5 leading-relaxed">
+      <p className="text-sm text-slate-500 mt-1 mb-1 leading-relaxed">
         KIS API 기반 실시간 국내 증시 정보 · 급등/급락 기업은 ETF·ETN 제외 · 데이터 참고용으로만 활용하세요
       </p>
+      {lastUpdated && (
+        <p className="text-[11px] text-slate-600 mb-5 flex items-center gap-1.5">
+          {isRefreshing && (
+            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-slate-600 border-t-indigo-400 animate-spin" />
+          )}
+          마지막 업데이트 {lastUpdated.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Seoul' })}
+        </p>
+      )}
 
       {/* 지수 카드 4개 — 모바일 2x2 그리드, md 이상은 기존 가로 배치 */}
       <div className="grid grid-cols-2 gap-3 mb-6 md:flex">

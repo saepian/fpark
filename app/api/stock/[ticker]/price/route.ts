@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { fetchStockPrice } from '../../../../../lib/kis-api';
 import { supabase } from '../../../../../lib/supabase';
+import { isKoreanMarketOpen } from '../../../../../lib/market-utils';
 import type { StockPrice } from '../../../../../lib/types';
 
 export const dynamic = 'force-dynamic';
 
 // app/api/stock/[ticker]/info/route.ts와 동일한 market_cache 패턴 재사용
 const cacheKey = (ticker: string) => `stock_price_${ticker}`;
+
+// 2026-07-15: 이 라우트가 매 요청마다 KIS를 라이브 호출해서 국내증시 페이지 5분
+// 자동 새로고침 도입 후 부하 문제 확인 — TTL 캐시 추가. 종목분석 장중 신선도
+// 로직(app/api/stock/[ticker]/analysis/route.ts)은 이 라우트를 거치지 않고
+// fetchStockPrice()를 직접 호출하므로 이 캐시의 영향을 받지 않는다(격리 확인됨).
+// 국내증시 5분 새로고침보다는 훨씬 짧아야 새로고침이 무의미해지지 않는다.
+const CACHE_TTL_MS_OPEN   = 30_000;      // 장중 30초
+const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
 
 async function loadCache(ticker: string): Promise<{ data: StockPrice; updatedAt: string } | null> {
   try {
@@ -66,6 +75,13 @@ export async function GET(
   { params }: { params: Promise<{ ticker: string }> }
 ) {
   const { ticker } = await params;
+
+  // TTL 이내면 라이브 호출 없이 캐시 재사용
+  const ttlMs = isKoreanMarketOpen() ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
+  const fresh = await loadCache(ticker);
+  if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs) {
+    return NextResponse.json({ ...fresh.data, isCached: true, cachedAt: fresh.updatedAt });
+  }
 
   // 1순위: KIS API
   try {

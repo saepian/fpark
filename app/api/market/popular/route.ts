@@ -1,3 +1,4 @@
+import { after } from 'next/server';
 import { getAccessToken } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 
@@ -82,10 +83,16 @@ export async function GET() {
   try {
     const stocks = await fetchFromKIS();
     if (stocks.length > 0) {
-      void supabase.from('market_cache').upsert({
-        key: CACHE_KEY,
-        data: stocks,
-        updated_at: new Date().toISOString(),
+      // after()로 등록 — void로 던지면 응답 직후 실행 컨텍스트가 끊겨 저장이 누락될 수
+      // 있음(2026-07-15 실측 확인: 이 캐시가 "이미 동작 중"으로 알려져 있었지만 실제로는
+      // 한 번도 저장된 적이 없었음 — market_cache에 popular_stocks 키 자체가 없었다).
+      after(async () => {
+        const { error } = await supabase.from('market_cache').upsert({
+          key: CACHE_KEY,
+          data: stocks,
+          updated_at: new Date().toISOString(),
+        });
+        if (error) console.warn('[popular] 캐시 저장 실패:', error.message);
       });
       return Response.json(stocks);
     }

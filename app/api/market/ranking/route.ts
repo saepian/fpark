@@ -1,3 +1,4 @@
+import { after } from 'next/server';
 import { getAccessToken, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 import { isKoreanMarketOpen, getLastTradingDate } from '@/lib/market-utils';
@@ -5,7 +6,12 @@ import { isKoreanMarketOpen, getLastTradingDate } from '@/lib/market-utils';
 export const dynamic = 'force-dynamic';
 
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
-const CACHE_TTL_MS = 15 * 60 * 1000;
+// 2026-07-15: 이 상수가 정의만 되고 실제 TTL 게이팅에 쓰이지 않던 죽은 코드였음(캐시는
+// KIS/네이버 실패 시 폴백으로만 쓰였고, 매 요청이 항상 라이브 호출이었다) — 국내증시
+// 페이지 5분 자동 새로고침 도입 후 부하 문제로 실제 TTL 캐시로 전환.
+const CACHE_TTL_MS_OPEN   = 60_000;      // 장중 1분 — 순위는 급격히 안 바뀜
+const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
+const cacheKeyFor = (tab: string) => `ranking_${tab}`;
 
 const EXCLUDE_PATTERN = /ETN|ETF|ELW|인버스|레버리지|선물|PLUS|KODEX|TIGER|KBSTAR|ARIRANG|HANARO|ACE|SOL\s/;
 
@@ -144,7 +150,7 @@ async function getCachedRanking(tab: string): Promise<StockRow[] | null> {
     const { data: cache } = await supabase
       .from('market_cache')
       .select('data, updated_at')
-      .eq('key', `ranking_${tab}`)
+      .eq('key', cacheKeyFor(tab))
       .single();
     if (!cache?.data) return null;
     return cache.data as StockRow[];
@@ -157,6 +163,25 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const tab = searchParams.get('tab') || '거래대금순';
 
+  // TTL 이내면 라이브 호출(및 KIS 인증) 없이 캐시 재사용
+  const ttlMs = isKoreanMarketOpen() ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', cacheKeyFor(tab))
+      .single();
+    if (cache) {
+      const age = Date.now() - new Date(cache.updated_at).getTime();
+      if (age < ttlMs) {
+        console.log(`[ranking] ${tab} TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s) — 라이브 호출 생략`);
+        return Response.json(cache.data as StockRow[]);
+      }
+    }
+  } catch (e) {
+    console.warn(`[ranking] ${tab} TTL 캐시 조회 실패, 라이브로 진행:`, e instanceof Error ? e.message : e);
+  }
+
   try {
     await getAccessToken();
   } catch {
@@ -166,23 +191,47 @@ export async function GET(request: Request) {
   try {
     // ── 거래대금순 ────────────────────────────────────────────────
     if (tab === '거래대금순') {
-      const data = await fetchFluctuation('0');
-      const rows: any[] = data.output ?? [];
-      rows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
-      return Response.json(rows.slice(0, 50).map(mapRow));
+      try {
+        const data = await fetchFluctuation('0');
+        const rows: any[] = data.output ?? [];
+        rows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
+        const result = rows.slice(0, 50).map(mapRow);
+        after(async () => {
+          const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result, updated_at: new Date().toISOString() });
+          if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
+        });
+        return Response.json(result);
+      } catch (e) {
+        console.warn(`[ranking] ${tab} KIS 실패, 캐시 폴백 시도:`, e instanceof Error ? e.message : e);
+        const cached = await getCachedRanking(tab);
+        if (cached) return Response.json(cached);
+        throw e;
+      }
     }
 
     // ── 거래량순 ──────────────────────────────────────────────────
     if (tab === '거래량순') {
-      const data = await fetchFluctuation('1');
-      const rows: any[] = data.output ?? [];
-      rows.sort((a, b) => Number(b.acml_vol) - Number(a.acml_vol));
-      return Response.json(rows.slice(0, 50).map(mapRow));
+      try {
+        const data = await fetchFluctuation('1');
+        const rows: any[] = data.output ?? [];
+        rows.sort((a, b) => Number(b.acml_vol) - Number(a.acml_vol));
+        const result = rows.slice(0, 50).map(mapRow);
+        after(async () => {
+          const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result, updated_at: new Date().toISOString() });
+          if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
+        });
+        return Response.json(result);
+      } catch (e) {
+        console.warn(`[ranking] ${tab} KIS 실패, 캐시 폴백 시도:`, e instanceof Error ? e.message : e);
+        const cached = await getCachedRanking(tab);
+        if (cached) return Response.json(cached);
+        throw e;
+      }
     }
 
     // ── 급등 / 급락 ──────────────────────────────────────────────
     if (tab === '급등' || tab === '급락') {
-      const cacheKey = `ranking_${tab}`;
+      const cacheKey = cacheKeyFor(tab);
       const marketOpen = isKoreanMarketOpen();
       // 장 외 시간에는 최근 거래일 데이터를 조회 (장 시작 전 "전날꺼" 표시 요구사항)
       const inputDate = marketOpen ? '' : getLastTradingDate().yyyymmdd;
@@ -229,7 +278,10 @@ export async function GET(request: Request) {
           );
           const filtered = rows.filter(item => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? ''));
           const result = filtered.slice(0, 50).map(mapRow);
-          void supabase.from('market_cache').upsert({ key: cacheKey, data: result, updated_at: new Date().toISOString() });
+          after(async () => {
+            const { error } = await supabase.from('market_cache').upsert({ key: cacheKey, data: result, updated_at: new Date().toISOString() });
+            if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
+          });
           return Response.json(result);
         }
         // rows.length === 0: 장 마감
@@ -242,7 +294,10 @@ export async function GET(request: Request) {
       try {
         const naverRows = await fetchNaverRanking(tab as '급등' | '급락');
         if (naverRows.length > 0) {
-          void supabase.from('market_cache').upsert({ key: cacheKey, data: naverRows, updated_at: new Date().toISOString() });
+          after(async () => {
+            const { error } = await supabase.from('market_cache').upsert({ key: cacheKey, data: naverRows, updated_at: new Date().toISOString() });
+            if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
+          });
           return Response.json(naverRows);
         }
       } catch (e) {

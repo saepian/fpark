@@ -1,8 +1,18 @@
+import { after } from 'next/server';
 import { getAccessToken } from '@/lib/kis-api';
+import { supabase } from '@/lib/supabase';
+import { isKoreanMarketOpen } from '@/lib/market-utils';
 
 export const dynamic = 'force-dynamic';
 
 const KIS = 'https://openapi.koreainvestment.com:9443';
+
+// 2026-07-15: 국내증시 페이지 5분 자동 새로고침 도입 후 이 라우트에 TTL 캐시가
+// 전혀 없다는 게 확인돼 popular 라우트와 동일한 패턴 추가. 일봉/시간봉 데이터라
+// 지수보다 갱신 주기를 길게 잡아도 체감 차이가 거의 없다.
+const CACHE_TTL_MS_OPEN   = 120_000;     // 장중 2분
+const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
+const cacheKey = (symbol: string) => `chart_${symbol}`;
 
 function kisHeaders(token: string, trId: string) {
   return {
@@ -100,6 +110,26 @@ const YAHOO_FX_MAP: Record<string, string> = {
 
 export async function GET(request: Request) {
   const symbol = new URL(request.url).searchParams.get('symbol') ?? 'KOSPI';
+  const key    = cacheKey(symbol);
+  const ttlMs  = isKoreanMarketOpen() ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
+
+  // TTL 이내면 라이브 호출 없이 캐시 재사용
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', key)
+      .single();
+    if (cache) {
+      const age = Date.now() - new Date(cache.updated_at).getTime();
+      if (age < ttlMs) {
+        console.log(`[market/chart] ${symbol} TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s)`);
+        return Response.json(cache.data as number[]);
+      }
+    }
+  } catch (e) {
+    console.warn(`[market/chart] ${symbol} TTL 캐시 조회 실패, 라이브로 진행:`, e instanceof Error ? e.message : e);
+  }
 
   try {
     let closes: number[];
@@ -109,9 +139,22 @@ export async function GET(request: Request) {
     else if (YAHOO_SYMBOL_MAP[symbol]) closes = await fetchYahooChart(YAHOO_SYMBOL_MAP[symbol]);
     else return Response.json({ error: '알 수 없는 symbol' }, { status: 400 });
 
+    // after()로 등록 — void로 던지면 응답 직후 실행 컨텍스트가 끊겨 저장이 누락될 수 있음
+    // (2026-07-15 실측으로 확인, stock/[ticker]/price 라우트와 동일한 이유).
+    after(async () => {
+      const { error } = await supabase.from('market_cache').upsert({ key, data: closes, updated_at: new Date().toISOString() });
+      if (error) console.warn(`[market/chart] ${symbol} 캐시 저장 실패:`, error.message);
+    });
     return Response.json(closes);
   } catch (err) {
     console.error(`[market/chart] ${symbol}:`, err);
+
+    // 라이브 호출 실패 시 만료된 캐시라도 빈 배열보다 낫다
+    try {
+      const { data: stale } = await supabase.from('market_cache').select('data').eq('key', key).single();
+      if (stale?.data) return Response.json(stale.data);
+    } catch {}
+
     return Response.json([], { status: 200 }); // 빈 배열로 graceful fallback
   }
 }
