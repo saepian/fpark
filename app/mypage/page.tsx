@@ -344,6 +344,9 @@ export default function MyPage() {
   const [refundAccountNumber, setRefundAccountNumber] = useState('');
   const [refundAccountHolder, setRefundAccountHolder] = useState('');
 
+  // Dodo(카드결제) 유저는 결제한 카드로 자동 환불되므로 계좌 정보 입력이 필요 없음.
+  const isDodo = data?.subscription.paymentMethod === 'DODO';
+
   const loadMypage = () => {
     return fetch('/api/mypage')
       .then(async r => {
@@ -455,7 +458,7 @@ export default function MyPage() {
 
   const handleSubmitCancel = async () => {
     if (!cancelPreview) return;
-    if (cancelPreview.refundAmount > 0 && (!refundBank || !refundAccountNumber || !refundAccountHolder)) {
+    if (!isDodo && cancelPreview.refundAmount > 0 && (!refundBank || !refundAccountNumber || !refundAccountHolder)) {
       alert('환불받을 계좌 정보를 모두 입력해주세요.');
       return;
     }
@@ -474,11 +477,11 @@ export default function MyPage() {
       if (!res.ok || !json.ok) throw new Error(json.error ?? '취소 처리 중 오류가 발생했습니다.');
       setShowCancelModal(false);
       await loadMypage();
-      alert(
+      alert(json.message ?? (
         json.refundEligible
           ? `구독이 해지되었습니다.${json.refundAmount > 0 ? ` 환불 예정액 ${json.refundAmount.toLocaleString()}원은 확인 후 입력하신 계좌로 송금됩니다.` : ''}`
-          : '해지가 예약되었습니다. 다음 결제일까지는 계속 이용하실 수 있습니다.',
-      );
+          : '해지가 예약되었습니다. 다음 결제일까지는 계속 이용하실 수 있습니다.'
+      ));
     } catch (e) {
       alert(e instanceof Error ? e.message : '취소 처리 중 오류가 발생했습니다.');
     } finally {
@@ -1104,30 +1107,36 @@ export default function MyPage() {
 
                 {cancelPreview.refundEligible ? (
                   cancelPreview.refundAmount > 0 && (
-                    <div className="flex flex-col gap-2 mb-1">
-                      <p className="text-[11.5px] text-slate-500 mb-0.5">환불받을 계좌 정보를 입력해주세요</p>
-                      <input
-                        value={refundBank}
-                        onChange={(e) => setRefundBank(e.target.value)}
-                        placeholder="은행명 (예: KB국민은행)"
-                        className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
-                        style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
-                      />
-                      <input
-                        value={refundAccountNumber}
-                        onChange={(e) => setRefundAccountNumber(e.target.value)}
-                        placeholder="계좌번호"
-                        className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
-                        style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
-                      />
-                      <input
-                        value={refundAccountHolder}
-                        onChange={(e) => setRefundAccountHolder(e.target.value)}
-                        placeholder="예금주명"
-                        className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
-                        style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
-                      />
-                    </div>
+                    isDodo ? (
+                      <p className="text-[11.5px] text-slate-500 text-center mb-1">
+                        결제하신 카드로 자동 환불됩니다.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-2 mb-1">
+                        <p className="text-[11.5px] text-slate-500 mb-0.5">환불받을 계좌 정보를 입력해주세요</p>
+                        <input
+                          value={refundBank}
+                          onChange={(e) => setRefundBank(e.target.value)}
+                          placeholder="은행명 (예: KB국민은행)"
+                          className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+                          style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+                        />
+                        <input
+                          value={refundAccountNumber}
+                          onChange={(e) => setRefundAccountNumber(e.target.value)}
+                          placeholder="계좌번호"
+                          className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+                          style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+                        />
+                        <input
+                          value={refundAccountHolder}
+                          onChange={(e) => setRefundAccountHolder(e.target.value)}
+                          placeholder="예금주명"
+                          className="px-3 py-2.5 rounded-lg text-[13px] text-white placeholder-slate-600 outline-none"
+                          style={{ background: '#1a1f2e', border: '1px solid rgba(51,65,85,0.6)' }}
+                        />
+                      </div>
+                    )
                   )
                 ) : (
                   <p className="text-[11.5px] text-slate-500 text-center">
