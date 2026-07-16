@@ -13,6 +13,7 @@ export interface ActivateDodoPaymentParams {
   sessionId:      string;         // payments.payment_id 자리에 임시로 들어있던 값
   paymentId:      string;         // Dodo의 실제 payment_id
   subscriptionId: string | null;
+  totalAmount:    number;         // Dodo가 실제로 청구한 총액(VAT 포함) — payments.amount를 이 값으로 덮어씀
 }
 
 export interface ActivateDodoPaymentResult {
@@ -22,7 +23,7 @@ export interface ActivateDodoPaymentResult {
 }
 
 export async function activateDodoPayment(params: ActivateDodoPaymentParams): Promise<ActivateDodoPaymentResult> {
-  const { sessionId, paymentId, subscriptionId } = params;
+  const { sessionId, paymentId, subscriptionId, totalAmount } = params;
 
   const { data: pending, error: fetchError } = await adminClient
     .from('payments')
@@ -80,9 +81,13 @@ export async function activateDodoPayment(params: ActivateDodoPaymentParams): Pr
     }
   }
 
+  // amount도 실제 청구액(totalAmount, VAT 포함)으로 덮어쓴다 — 체크아웃 시점엔 정가(VAT
+  // 제외)만 알 수 있어 그 값을 임시로 넣어뒀었다(3단계). 이 값을 그대로 두면 환불 계산·
+  // 이메일·mypage 미리보기가 전부 VAT 제외 금액 기준으로 표시되어 실제 청구·환불 총액과
+  // 어긋난다(9단계 QA에서 발견).
   const { error: paymentsUpdateError } = await adminClient
     .from('payments')
-    .update({ payment_id: paymentId, status: 'paid' })
+    .update({ payment_id: paymentId, status: 'paid', amount: totalAmount })
     .eq('id', pending.id);
   if (paymentsUpdateError) {
     console.error('[dodo-payment-approval] payments 업데이트 실패(구독은 이미 활성화됨):', paymentsUpdateError);

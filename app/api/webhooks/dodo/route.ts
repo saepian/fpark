@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
           sessionId:      payment.checkout_session_id,
           paymentId:      payment.payment_id,
           subscriptionId: payment.subscription_id ?? null,
+          totalAmount:    payment.total_amount,
         });
         if (!result.ok) {
           console.error('[webhooks/dodo] 활성화 실패:', result.error);
