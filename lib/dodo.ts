@@ -130,10 +130,17 @@ export async function cancelSubscription(subscriptionId: string, mode: CancelMod
 // retrieveLineItems()로 별도 조회해야 함(우리 체크아웃은 상품 1개뿐이라 첫 라인아이템을
 // 그대로 씀). 환불은 비동기일 수 있어(Refund.status: pending/review/succeeded/failed)
 // 이 함수의 성공 == 환불 완료가 아니다 — 실제 완료는 refund.succeeded 웹훅으로 확인한다.
+//
+// refundRatio(0~1)를 받는 이유 — 절대금액(KRW)을 직접 넘기면 안 된다: Dodo는 상품이
+// 어떤 통화로 가격 책정됐든 정산통화(비즈니스 계정 레벨 설정, 우리 계정은 USD — 상품을
+// KRW로 만들어도 안 바뀜, 실측 확인됨) 기준으로만 refundable_amount를 관리한다. 우리가
+// 직접 환율을 계산하는 대신, retrieveLineItems()가 알려주는 정산통화 기준
+// refundable_amount에 우리 비율만 곱해서 넘기면 어떤 정산통화든 안전하게 동작한다.
+// refundRatio가 1(또는 생략)이면 items 없이 전액환불 API를 호출해 통화 문제 자체를 피한다.
 
-export async function refundPayment(paymentId: string, amount?: number, reason?: string) {
+export async function refundPayment(paymentId: string, refundRatio?: number, reason?: string) {
   try {
-    if (amount == null) {
+    if (refundRatio == null || refundRatio >= 1) {
       return await client().refunds.create({ payment_id: paymentId, reason });
     }
 
@@ -142,6 +149,7 @@ export async function refundPayment(paymentId: string, amount?: number, reason?:
     if (!item) {
       throw new Error(`환불 대상 라인아이템 없음 (paymentId: ${paymentId})`);
     }
+    const amount = Math.round(item.refundable_amount * refundRatio);
     return await client().refunds.create({
       payment_id: paymentId,
       items:      [{ item_id: item.items_id, amount }],

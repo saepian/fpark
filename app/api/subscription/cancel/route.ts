@@ -224,9 +224,18 @@ export async function POST(request: NextRequest) {
       if (!dodoPaymentId) {
         console.error('[subscription/cancel] dodo payment_id 없음(구독은 취소됨) — userId:', user.id);
         refundApiFailed = true;
+      } else if (paidAmount <= 0) {
+        // paidAmount가 0 이하면 비율 계산이 불가능(0으로 나누기) — 정상 흐름에서는
+        // paidAmount가 항상 PLAN_AMOUNTS 기반 양수라 발생하지 않아야 하지만 방어적으로 처리.
+        console.error('[subscription/cancel] paidAmount 비정상(<=0) — 환불 비율 계산 불가, userId:', user.id, 'paidAmount:', paidAmount);
+        refundApiFailed = true;
       } else {
         try {
-          const refund = await refundDodoPayment(dodoPaymentId, calc.refundAmount, calc.reasonText);
+          // Dodo는 상품 가격통화와 무관하게 정산통화(계정 레벨 설정) 기준으로만 환불
+          // 가능액을 관리한다 — 절대금액(KRW) 대신 비율을 넘겨 refundPayment()가 실제
+          // 정산통화 기준 refundable_amount에 이 비율을 곱하도록 한다.
+          const refundRatio = Math.min(1, calc.refundAmount / paidAmount);
+          const refund = await refundDodoPayment(dodoPaymentId, refundRatio, calc.reasonText);
           dodoRefundId = refund?.refund_id ?? null;
         } catch (error) {
           console.error('[subscription/cancel] Dodo 환불 API 실패(구독은 이미 취소됨):', error);
