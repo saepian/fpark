@@ -8,17 +8,10 @@ let _client: DodoPayments | null = null;
 
 function client(): DodoPayments {
   if (!_client) {
-    const bearerToken = process.env.DODO_PAYMENTS_API_KEY;
-    const environment = process.env.DODO_PAYMENTS_ENVIRONMENT === 'live_mode' ? 'live_mode' : 'test_mode';
-    // TEMP DIAGNOSTIC (9단계 QA 422 원인 확인용) — 완료 후 제거할 것.
-    console.log(
-      `[dodo][TEMP DIAGNOSTIC] bearerToken prefix: ${bearerToken ? bearerToken.slice(0, 8) : '(unset)'}... ` +
-      `len:${bearerToken?.length ?? 0} environment:${environment} rawEnvVar:${process.env.DODO_PAYMENTS_ENVIRONMENT ?? '(unset)'}`,
-    );
     _client = new DodoPayments({
-      bearerToken,
-      webhookKey: process.env.DODO_PAYMENTS_WEBHOOK_KEY,
-      environment,
+      bearerToken: process.env.DODO_PAYMENTS_API_KEY,
+      webhookKey:  process.env.DODO_PAYMENTS_WEBHOOK_KEY,
+      environment: process.env.DODO_PAYMENTS_ENVIRONMENT === 'live_mode' ? 'live_mode' : 'test_mode',
     });
   }
   return _client;
