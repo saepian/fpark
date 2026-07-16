@@ -82,7 +82,7 @@ export async function activateDodoPayment(params: ActivateDodoPaymentParams): Pr
 
   const { error: paymentsUpdateError } = await adminClient
     .from('payments')
-    .update({ payment_id: paymentId, status: 'completed' })
+    .update({ payment_id: paymentId, status: 'paid' })
     .eq('id', pending.id);
   if (paymentsUpdateError) {
     console.error('[dodo-payment-approval] payments 업데이트 실패(구독은 이미 활성화됨):', paymentsUpdateError);

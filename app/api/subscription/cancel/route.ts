@@ -83,7 +83,7 @@ async function loadCancellableUser(userId: string) {
       .select('amount, is_annual, payment_id')
       .eq('user_id', userId)
       .eq('payment_method', 'DODO')
-      .eq('status', 'completed')
+      .eq('status', 'paid')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
