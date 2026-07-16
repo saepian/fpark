@@ -256,21 +256,26 @@ export function buildRefundRequestAdminEmailHtml(params: {
     </div>`);
 }
 
-export function buildRefundCompletedEmailHtml(refundAmount: number): string {
+// paymentMethod 인자는 선택값이고 기본값이 기존 계좌이체 문구라 기존 호출부(인자 없이
+// 호출)는 동작이 완전히 그대로다 — Dodo 호출부만 'DODO'를 넘겨 문구를 바꾼다.
+export function buildRefundCompletedEmailHtml(refundAmount: number, paymentMethod: 'BANK_TRANSFER' | 'DODO' = 'BANK_TRANSFER'): string {
+  const bodyHtml = paymentMethod === 'DODO'
+    ? `신청하신 환불금 ${refundAmount.toLocaleString()}원이 결제하신 카드로 환불되었습니다.<br />
+       카드사 정책에 따라 실제 반영까지 며칠 걸릴 수 있습니다.`
+    : `신청하신 환불금 ${refundAmount.toLocaleString()}원이 안내주신 계좌로 송금되었습니다.<br />
+       입금까지 은행 사정에 따라 다소 시간이 걸릴 수 있습니다.`;
   return emailShell(`
     <div style="background:#0d1117;border:1px solid #1e2537;border-radius:14px;padding:28px 24px;text-align:center">
       <p style="font-size:32px;margin:0 0 12px">💸</p>
       <p style="margin:0 0 8px;color:#e2e8f0;font-size:16px;font-weight:700">환불이 완료되었습니다</p>
-      <p style="margin:0;color:#94a3b8;font-size:13.5px;line-height:1.7">
-        신청하신 환불금 ${refundAmount.toLocaleString()}원이 안내주신 계좌로 송금되었습니다.<br />
-        입금까지 은행 사정에 따라 다소 시간이 걸릴 수 있습니다.
-      </p>
+      <p style="margin:0;color:#94a3b8;font-size:13.5px;line-height:1.7">${bodyHtml}</p>
     </div>`);
 }
 
 // ── 유저용 취소 확인 메일 (취소 접수 시점, 관리자 알림과 별도로 발송) ────────────
 
-export function buildCancelRefundRequestedEmailHtml(refundAmount: number): string {
+export function buildCancelRefundRequestedEmailHtml(refundAmount: number, paymentMethod: 'BANK_TRANSFER' | 'DODO' = 'BANK_TRANSFER'): string {
+  const refundMethodText = paymentMethod === 'DODO' ? '결제하신 카드로 자동 환불됩니다' : '안내주신 계좌로 입금됩니다';
   return emailShell(`
     <div style="background:#0d1117;border:1px solid #1e2537;border-radius:14px;padding:28px 24px;text-align:center">
       <p style="font-size:32px;margin:0 0 12px">✅</p>
@@ -278,7 +283,7 @@ export function buildCancelRefundRequestedEmailHtml(refundAmount: number): strin
       <p style="margin:0;color:#94a3b8;font-size:13.5px;line-height:1.7">
         환불 예정 금액 <strong style="color:#fbbf24">${refundAmount.toLocaleString()}원</strong>이 계산되어<br />
         확인 후 처리될 예정입니다. 환불 승인 후 영업일 기준 3~7일 이내<br />
-        안내주신 계좌로 입금됩니다.
+        ${refundMethodText}.
       </p>
     </div>`);
 }

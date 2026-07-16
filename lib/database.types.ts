@@ -465,6 +465,7 @@ export type Database = {
         Row: {
           created_at: string
           diagnosis_count: number
+          dodo_refund_id: string | null
           elapsed_days: number
           elapsed_ratio: number
           final_ratio: number
@@ -490,6 +491,7 @@ export type Database = {
         Insert: {
           created_at?: string
           diagnosis_count?: number
+          dodo_refund_id?: string | null
           elapsed_days: number
           elapsed_ratio?: number
           final_ratio?: number
@@ -515,6 +517,7 @@ export type Database = {
         Update: {
           created_at?: string
           diagnosis_count?: number
+          dodo_refund_id?: string | null
           elapsed_days?: number
           elapsed_ratio?: number
           final_ratio?: number
@@ -721,6 +724,7 @@ export type Database = {
           billing_key: string | null
           created_at: string | null
           depositor_real_name: string | null
+          dodo_subscription_id: string | null
           email: string | null
           email_alert_enabled: boolean
           has_seen_welcome: boolean
@@ -744,6 +748,7 @@ export type Database = {
           billing_key?: string | null
           created_at?: string | null
           depositor_real_name?: string | null
+          dodo_subscription_id?: string | null
           email?: string | null
           email_alert_enabled?: boolean
           has_seen_welcome?: boolean
@@ -767,6 +772,7 @@ export type Database = {
           billing_key?: string | null
           created_at?: string | null
           depositor_real_name?: string | null
+          dodo_subscription_id?: string | null
           email?: string | null
           email_alert_enabled?: boolean
           has_seen_welcome?: boolean

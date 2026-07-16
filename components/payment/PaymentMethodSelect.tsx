@@ -2,25 +2,27 @@
 
 // 결제수단 선택 화면
 //
-// 상태 (2026-07-07 기준):
+// 상태 (2026-07-16 기준):
 // - 계좌이체: PG(PortOne 가상계좌) 자동 승인이 계속 불확실해, PG와 무관한 대안으로
 //   회사 고정 계좌 + 입금자명 매칭 + 관리자 수동 승인(/admin/payments) 방식을 사용.
 //   ManualBankTransferForm이 담당 — 기존 PG 가상계좌 코드(VirtualAccountForm,
 //   api/payment/virtual-account/issue)는 삭제하지 않고 보존만 함(PG 승인 시 재전환 대비).
 // - CMS 자동이체: 사용자 심리적 거부감(자동 출금에 대한 불편함)을 고려해 미채택.
 // - 해외 카드결제(Paddle): 연동 완전 제거함.
-// - 기존 이니시스 카드결제(PortoneCheckout)는 삭제하지 않고 보존만 함
-//   (특정 카드사가 향후 승인할 가능성 대비). CARD_ENABLED로 재노출 가능.
+// - 기존 이니시스 카드결제(PortoneCheckout)는 삭제하지 않고 보존만 함(카드사 승인 거부로
+//   막혔던 코드) — 이 슬롯은 이제 Dodo Payments(DodoCheckout)가 대체해서 씀.
+// - 카드결제(Dodo)는 신규가입 전용 — 업그레이드(upgradeInfo가 있는 컨텍스트)는 아직
+//   지원하지 않아 그 상황에서는 버튼 자체를 숨긴다(계좌이체의 프로레이션 크레딧 계산만 지원).
 //
 // 자세한 배경은 DEPLOYMENT.md "결제수단" 섹션 참고.
 
 import { useState } from 'react';
 import { Landmark, CreditCard } from 'lucide-react';
 import ManualBankTransferForm from './ManualBankTransferForm';
-import PortoneCheckout from './PortoneCheckout';
+import DodoCheckout from './DodoCheckout';
 
-const VA_ENABLED   = true;  // 계좌이체(수동 승인) — PG 승인 여부와 무관하게 항상 사용 가능
-const CARD_ENABLED = false; // 이니시스 카드결제 재노출 시 true
+const VA_ENABLED   = true; // 계좌이체(수동 승인) — PG 승인 여부와 무관하게 항상 사용 가능
+const CARD_ENABLED = true; // Dodo Payments 카드결제
 
 export interface UpgradeInfo {
   creditAmount:       number;
@@ -50,15 +52,14 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
 
   const planLabel = `${PLAN_NAMES[plan]} ${isAnnual ? '연간' : '월간'} 구독`;
 
-  // 카드결제(이니시스)를 그대로 재사용 — 선택 단계를 건너뛰고 기존 모달 위임
+  // 카드결제(Dodo Payments) — 선택 단계를 건너뛰고 기존 모달 위임
   if (step === 'card' && CARD_ENABLED) {
     return (
-      <PortoneCheckout
+      <DodoCheckout
         plan={plan}
         amount={amount}
-        isAnnual={isAnnual}
+        billingCycle={isAnnual ? 'annual' : 'monthly'}
         onClose={onClose}
-        onSuccess={onSuccess}
       />
     );
   }
@@ -109,7 +110,7 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
                 </p>
               </button>
 
-              {CARD_ENABLED && (
+              {CARD_ENABLED && !upgradeInfo && (
                 <button
                   onClick={() => setStep('card')}
                   className="text-left rounded-2xl p-4 cursor-pointer transition-all hover:border-indigo-500/60"

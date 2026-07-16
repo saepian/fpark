@@ -9,6 +9,7 @@
 import { adminClient } from '@/lib/supabase-admin';
 import { PLAN_AMOUNTS } from '@/lib/payment-constants';
 import { computeNextBilledAt, buildApprovalEmailHtml, sendBankTransferEmail } from '@/lib/bank-transfer';
+import { activateSubscription } from '@/lib/subscription-activation';
 
 export type BankTransferApprovalAction = 'approve' | 'reactivate';
 
@@ -69,18 +70,17 @@ export async function approveBankTransferRequest(
   // 두 앵커를 함께 오늘로 리셋한다.
   const shouldSetStartDate = !existingUserRow?.subscription_start_date || reqRow.request_type === 'upgrade';
 
-  const { error: updateError } = await adminClient.from('users').update({
+  const activation = await activateSubscription({
+    userId:        reqRow.user_id,
     plan,
-    subscription_plan:   plan,
-    subscription_status: 'active',
-    payment_method:      'BANK_TRANSFER',
-    next_billed_at:      nextBilledAt.toISOString(),
-    is_annual:           reqRow.is_annual,
-    ...(shouldSetStartDate ? { subscription_start_date: new Date().toISOString() } : {}),
-  }).eq('id', reqRow.user_id);
+    isAnnual:      reqRow.is_annual,
+    paymentMethod: 'BANK_TRANSFER',
+    nextBilledAt,
+    setStartDate:  shouldSetStartDate,
+  });
 
-  if (updateError) {
-    console.error('[bank-transfer-approval] users 업데이트 실패:', updateError);
+  if (!activation.ok) {
+    console.error('[bank-transfer-approval] users 업데이트 실패:', activation.error);
     return { ok: false, error: '구독 활성화 실패', status: 500 };
   }
 
