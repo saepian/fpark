@@ -236,7 +236,13 @@ function isIntradayCacheStale(cachedCreatedAt: string): boolean {
 const INTRADAY_MIN_HOURS_ELAPSED = 2;
 const INTRADAY_PRICE_MOVE_THRESHOLD = 0.025; // ±2.5%
 // 하루 재생성 총 상한(초기 생성 포함) — 변동이 잦은 종목이 무한정 비용을 늘리지
-// 않도록 하는 안전장치. 장마감 강제 재생성도 이 상한을 넘기지 않는다.
+// 않도록 하는 안전장치. 단, 장마감 강제 재생성(isIntradayCacheStale)은 이 상한과
+// 무관하게 항상 보장한다 — "그날의 최종 확정 데이터"라는 점에서 인트라데이 노이즈성
+// 재생성과 성격이 다르고, 장중에 변동성이 커서 이미 상한을 다 쓴 종목일수록 오히려
+// 장마감 후 정확한 최종 스냅샷이 더 중요하기 때문(2026-07-20 발견 — 상한에 걸리면
+// 장마감 후에도 낡은 장중 스냅샷이 그대로 남아, 애초에 이 로직이 막으려던 문제를
+// 재현하는 모순이 있었음). regen_count는 이 경우에도 정상적으로 +1 기록되어
+// 4를 넘을 수 있다(모니터링용 — 별도 상한으로 작동하지 않음).
 const MAX_DAILY_REGENS = 4;
 
 async function isIntradayRefreshDue(
@@ -410,7 +416,8 @@ export async function GET(
       const row = cached as HistoryRow;
       const regenCount = row.regen_count ?? 1;
       const overDailyCap = regenCount >= MAX_DAILY_REGENS;
-      const closeStale = !overDailyCap && isIntradayCacheStale(row.created_at);
+      // 장마감 확정 재생성은 일일 캡과 무관하게 항상 보장(위 MAX_DAILY_REGENS 주석 참고).
+      const closeStale = isIntradayCacheStale(row.created_at);
       const intradayCheck = !overDailyCap && !closeStale
         ? await isIntradayRefreshDue(row.created_at, row.current_price, ticker)
         : { due: false };
