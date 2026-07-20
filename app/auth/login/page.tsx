@@ -57,12 +57,20 @@ function LoginForm() {
       }
       setLoading(false);
     } else {
+      // 트리거/앱 레벨 기록 누락 등으로 terms_agreed_at이 없는 기존 계정이 있을 수
+      // 있다(2026-07-20 실측으로 확인) — OAuth 로그인과 동일하게 최소 한 번은
+      // 약관동의 화면을 거치게 한다. 이미 동의했으면 /api/auth/agree-terms가
+      // agreed:true를 반환해 아래에서 바로 redirectTo로 넘어간다.
+      const agreedRes = await fetch('/api/auth/agree-terms').then(r => r.json()).catch(() => ({ agreed: true }));
+      const destination = agreedRes.agreed
+        ? redirectTo
+        : `/auth/agree-terms?next=${encodeURIComponent(redirectTo)}`;
       // router.push + router.refresh는 클라이언트 Router Cache에 남아있던
       // 로그인 전 "/" 응답(미들웨어가 비로그인으로 rewrite한 버전)을 재사용해
       // 로그인 직후에도 화면이 안 바뀐 것처럼 보일 수 있다 — 세션 쿠키가 확실히
       // 반영된 상태로 서버에 새로 요청하도록 하드 네비게이션으로 이동한다.
-      console.log('[LOGIN] 로그인 성공 — 리다이렉트:', redirectTo);
-      window.location.href = redirectTo;
+      console.log('[LOGIN] 로그인 성공 — 리다이렉트:', destination);
+      window.location.href = destination;
     }
   };
 

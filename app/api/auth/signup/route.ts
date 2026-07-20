@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   );
 
   const agreedAt = new Date().toISOString();
-  const { error } = await anon.auth.signUp({
+  const { data, error } = await anon.auth.signUp({
     email,
     password,
     options: {
@@ -77,6 +77,21 @@ export async function POST(request: NextRequest) {
     }
     console.error('[auth/signup] signUp 실패:', error.message);
     return NextResponse.json({ error: 'signup_failed' }, { status: 500 });
+  }
+
+  // public.users row는 auth.users INSERT 트리거(handle_new_user)가 만들지만, 그 트리거가
+  // user_metadata의 terms_agreed_at/privacy_agreed_at을 옮겨 담는지는 DB 쪽 상태에 달려있어
+  // 신뢰할 수 없다(2026-07-20 실측: 메타데이터는 정상 도착하는데 트리거가 반영 안 하는 것을
+  // 확인 — 마이그레이션 파일과 실제 라이브 함수가 어긋난 것으로 추정). 동의 시각 기록은
+  // 트리거에 맡기지 않고 여기서 명시적으로 한 번 더 확정한다.
+  if (data.user?.id) {
+    const { error: termsError } = await adminClient
+      .from('users')
+      .update({ terms_agreed_at: agreedAt, privacy_agreed_at: agreedAt })
+      .eq('id', data.user.id);
+    if (termsError) {
+      console.error('[auth/signup] terms_agreed_at 기록 실패(계정은 생성됨):', termsError.message, 'userId:', data.user.id);
+    }
   }
 
   return NextResponse.json({ ok: true });

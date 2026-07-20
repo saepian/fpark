@@ -33,7 +33,10 @@ export async function GET(request: Request) {
     const { data, error } = await supabase.auth.verifyOtp({ token_hash, type });
     if (!error) {
       const userId = data.user?.id;
-      const finalNext = userId
+      // 비밀번호 재설정(recovery)은 이미 가입 시 약관에 동의한 기존 유저의 계정 복구
+      // 절차일 뿐이라 약관동의 게이트를 타면 안 된다 — resolvePostAuthRedirect를
+      // 건너뛰고 곧장 next(reset-password)로 보낸다.
+      const finalNext = (userId && type !== 'recovery')
         ? await resolvePostAuthRedirect(userId, next, {
             email: data.user?.email,
             // 네이버 가입(app/api/auth/naver/callback)은 이 경로(매직링크)로 들어오고
