@@ -5,7 +5,7 @@
 // 주석 참고) — 탭을 닫으면 사라진다.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { MessageCircle, X, Send } from 'lucide-react';
+import { MessageCircle, X, Send, Maximize2, Minimize2 } from 'lucide-react';
 import { CHATBOT_MAX_HISTORY_MESSAGES, CHATBOT_MAX_MESSAGE_LENGTH } from '@/lib/chatbot-constants';
 import { useSession } from '@/lib/useSession';
 import { shouldResetChatbotHistory, CHATBOT_HISTORY_ANONYMOUS_OWNER } from '@/lib/chatbot-history-owner';
@@ -16,6 +16,8 @@ interface ChatMessage {
 }
 
 const STORAGE_KEY = 'fpark-chatbot-history';
+// 확장(넓은 창) 상태 — 메시지 히스토리와 동일하게 세션 동안(새로고침 포함) 유지.
+const EXPANDED_KEY = 'fpark-chatbot-expanded';
 // 이 히스토리를 마지막으로 저장한 계정 식별자 — 로그아웃/계정 전환 감지용.
 // 로그인 안 한 상태는 'anonymous' sentinel로 저장(비로그인 방문자의 대화는 PII가 아니라서
 // 로그인 전환 시에는 굳이 지우지 않음 — 아래 useEffect 주석 참고).
@@ -30,6 +32,7 @@ const WELCOME_MESSAGE: ChatMessage = {
 export default function ChatWidget() {
   const { user, loading: sessionLoading } = useSession();
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -97,9 +100,27 @@ export default function ChatWidget() {
     }
   }, [messages, ownerResolved]);
 
+  // 확장 상태 복원(마운트 1회) — 새로고침해도 직전 확장 여부를 그대로 유지.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(EXPANDED_KEY) === 'true') setExpanded(true);
+    } catch {
+      // sessionStorage 접근 실패 시 기본값(축소) 유지
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(EXPANDED_KEY, String(expanded));
+    } catch {
+      // 저장 실패해도 이번 세션 내 토글 자체는 계속 가능하므로 무시
+    }
+  }, [expanded]);
+
+  // expanded도 의존성에 포함 — 확장/축소 직후에도 최신 메시지가 보이도록 재스크롤.
   useEffect(() => {
     if (open) listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, open]);
+  }, [messages, open, expanded]);
 
   // textarea 높이를 입력 내용에 맞춰 자동 조절 — rows={1} 고정 높이에 여러 줄을 입력하면
   // 내부 스크롤이 바로 생겨 "스크롤이 이상하다"는 문제로 이어졌다(2026-07-09). 내용이 늘면
@@ -162,19 +183,36 @@ export default function ChatWidget() {
   return (
     <>
       {open && (
-        <div className="fixed bottom-24 right-4 sm:right-6 z-[9999] w-[calc(100vw-2rem)] sm:w-[380px] h-[70vh] sm:h-[520px] max-h-[600px] flex flex-col rounded-2xl border border-[#1e2537] bg-[#0d1117] shadow-2xl animate-fade-in overflow-hidden">
+        <div
+          className={[
+            'fixed bottom-24 right-4 sm:right-6 z-[9999] flex flex-col rounded-2xl border border-[#1e2537]',
+            'bg-[#0d1117] shadow-2xl animate-fade-in overflow-hidden transition-[width,height] duration-200',
+            expanded
+              ? 'w-[calc(100vw-2rem)] sm:w-[480px] h-[90vh] sm:h-[80vh] max-h-[800px]'
+              : 'w-[calc(100vw-2rem)] sm:w-[380px] h-[70vh] sm:h-[520px] max-h-[600px]',
+          ].join(' ')}
+        >
           <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#1e2537] bg-[#0f1320]">
             <div>
               <p className="text-sm font-bold text-[#e2e8f0]">Finance Park 고객상담</p>
               <p className="text-[11px] text-[#64748b]">보통 몇 초 안에 답변해요</p>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              aria-label="닫기"
-              className="p-1.5 rounded-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1e2537] transition-colors"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                aria-label={expanded ? '창 축소' : '창 확장'}
+                className="p-1.5 rounded-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1e2537] transition-colors"
+              >
+                {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="닫기"
+                className="p-1.5 rounded-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-[#1e2537] transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-3">
