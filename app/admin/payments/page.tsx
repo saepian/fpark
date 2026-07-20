@@ -46,6 +46,7 @@ interface RefundItem {
   requested_at:           string;
   processed_at:           string | null;
   processed_by:           string | null;
+  payment_method:         'DODO' | 'BANK_TRANSFER';
 }
 
 const PLAN_LABEL: Record<'basic' | 'pro', string> = { basic: 'Basic', pro: 'Pro' };
@@ -263,6 +264,21 @@ export default function AdminPaymentsPage() {
 
   function RefundActionButtons({ r, compact }: { r: RefundItem; compact?: boolean }) {
     const isBusy = refundBusyId === r.id;
+
+    // Dodo는 카드로 자동환불되는 대상이라 "송금 완료"(계좌이체 수동 송금 확인용) 액션이
+    // 성립하지 않는다 — 누르면 실제 카드 환불 재시도 없이 DB만 completed로 바뀌어버려,
+    // 고객은 환불을 못 받았는데 처리 완료로 잘못 기록되는 사고로 이어진다(2026-07-20
+    // 라이브 전환 첫날 Dodo 지갑 잔액 부족으로 환불 API가 실패한 건에서 실제 확인).
+    if (r.payment_method === 'DODO') {
+      return (
+        <div
+          className={`flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-semibold ${compact ? 'w-full py-3 px-3 text-[12.5px] justify-center text-center' : 'px-3 py-2 text-[11.5px] whitespace-nowrap'}`}
+        >
+          카드 자동환불 대기 중 (Dodo 지갑 잔액 부족으로 실패, 수동 재시도 필요)
+        </div>
+      );
+    }
+
     return (
       <div className="flex gap-2">
         <button

@@ -55,6 +55,15 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    refunds: (refunds ?? []).map(r => ({ ...r, email: emailByUserId.get(r.user_id) ?? '(이메일 조회 실패)' })),
+    refunds: (refunds ?? []).map(r => ({
+      ...r,
+      email: emailByUserId.get(r.user_id) ?? '(이메일 조회 실패)',
+      // refund_requests엔 payment_method 컬럼이 없다 — 계좌이체는 refund_status='requested'가
+      // 되려면 계좌 정보 입력이 필수(app/api/subscription/cancel/route.ts 196-201줄)라
+      // refund_account_bank가 항상 채워져 있고, Dodo는 카드로 자동환불되므로 항상 null이다
+      // (환불 API가 지갑 잔액 부족 등으로 실패해 dodo_refund_id가 안 채워진 경우도 포함).
+      // 따라서 refund_account_bank 유무로 안전하게 구분 가능.
+      payment_method: r.refund_account_bank === null ? 'DODO' as const : 'BANK_TRANSFER' as const,
+    })),
   });
 }

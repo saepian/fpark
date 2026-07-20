@@ -47,7 +47,7 @@ export async function PATCH(
 
   const { data: reqRow, error: fetchError } = await adminClient
     .from('refund_requests')
-    .select('id, user_id, refund_amount, refund_status')
+    .select('id, user_id, refund_amount, refund_status, refund_account_bank')
     .eq('id', id)
     .maybeSingle();
 
@@ -73,6 +73,18 @@ export async function PATCH(
   }
 
   // ── 송금 완료 처리 ────────────────────────────────────────────────────────
+  // Dodo 건(refund_account_bank가 없음 — 위 payment_method 판별과 동일 근거)은 카드로
+  // 자동환불되는 대상이라 "송금 완료" 수동 처리 자체가 성립하지 않는다. 프론트에서
+  // 버튼을 숨기지만 API를 직접 호출해 우회할 수 있으니 서버에서도 막는다 — 이 액션은
+  // DB 상태만 completed로 바꿀 뿐 실제 카드 환불을 재시도하지 않으므로, 그대로 통과시키면
+  // 고객은 환불을 못 받았는데 처리 완료로 잘못 기록되는 사고로 이어진다.
+  if (reqRow.refund_account_bank === null) {
+    return NextResponse.json(
+      { error: 'Dodo 카드결제 환불 건은 이 액션으로 처리할 수 없습니다. Dodo 쪽에서 직접 재시도가 필요합니다.' },
+      { status: 400 },
+    );
+  }
+
   if (reqRow.refund_status !== 'requested') {
     return NextResponse.json({ error: `이미 처리된 신청입니다 (상태: ${reqRow.refund_status})` }, { status: 409 });
   }
