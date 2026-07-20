@@ -301,8 +301,8 @@ export default function Hero() {
         <div className="flex items-center justify-center gap-8 mt-8">
           {[
             { label: '분석 기업', value: '2,500+' },
-            { label: '실시간 뉴스', value: '24/7' },
-            { label: 'AI 분석', value: 'GPT-4급' },
+            { label: '뉴스 브리핑', value: '매일' },
+            { label: 'AI 분석', value: 'Claude' },
           ].map((stat, i) => (
             <div key={i} className="text-center">
               <p className="text-lg font-bold text-white">{stat.value}</p>
