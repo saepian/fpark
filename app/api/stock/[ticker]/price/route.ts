@@ -17,6 +17,24 @@ const cacheKey = (ticker: string) => `stock_price_${ticker}`;
 const CACHE_TTL_MS_OPEN   = 30_000;      // 장중 30초
 const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
 
+// 2026-07-20: 장마감 동시호가(15:20~15:30) 도중 찍힌 캐시가 장외 TTL(30분) 동안
+// 그대로 재사용돼, 마감 후 헤더가 확정 종가보다 오래된 값을 보여주는 문제 확인
+// (daily 라우트는 캐시가 없어 항상 확정 종가라 헤더와 표가 서로 달라 보였음).
+// 종목분석 라우트(app/api/stock/[ticker]/analysis/route.ts)의 isIntradayCacheStale과
+// 동일한 패턴 — 캐시가 마감 전에 생성됐고 지금이 마감 후면, TTL과 무관하게 1회 무효화.
+const MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30; // 15:30
+
+function kstMinutesSinceMidnight(d: Date): number {
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return kst.getUTCHours() * 60 + kst.getUTCMinutes();
+}
+
+function isPriceCacheStale(cachedUpdatedAt: string): boolean {
+  const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedUpdatedAt)) < MARKET_CLOSE_MINUTES_KST;
+  const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= MARKET_CLOSE_MINUTES_KST;
+  return generatedBeforeClose && nowIsAfterClose;
+}
+
 async function loadCache(ticker: string): Promise<{ data: StockPrice; updatedAt: string } | null> {
   try {
     const { data: cache } = await supabase
@@ -76,10 +94,11 @@ export async function GET(
 ) {
   const { ticker } = await params;
 
-  // TTL 이내면 라이브 호출 없이 캐시 재사용
+  // TTL 이내면 라이브 호출 없이 캐시 재사용 — 단, 마감 전에 생성된 캐시를 마감 후
+  // 처음 조회하는 경우는 TTL과 무관하게 무효화(위 isPriceCacheStale 주석 참고).
   const ttlMs = isKoreanMarketOpen() ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
   const fresh = await loadCache(ticker);
-  if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs) {
+  if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs && !isPriceCacheStale(fresh.updatedAt)) {
     return NextResponse.json({ ...fresh.data, isCached: true, cachedAt: fresh.updatedAt });
   }
 
