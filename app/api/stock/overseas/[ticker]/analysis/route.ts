@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { supabase } from '@/lib/supabase';
 import YahooFinanceClass from 'yahoo-finance2';
 import { fetchOverseasChart } from '@/lib/yahoo-finance';
@@ -17,6 +19,8 @@ import { overseasSearchName } from '@/lib/overseas-korean-names';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
+import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
+import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -285,6 +289,60 @@ async function fetchQuote(ticker: string): Promise<QuoteSnapshot | null> {
   }
 }
 
+// 2026-07-20 국내물(app/api/stock/[ticker]/analysis)과 동일한 인증/한도 로직 이식 —
+// 이 라우트는 인증도 사용량 제한도 없이 방치돼 있어 비로그인 상태로도 Claude API를
+// 무제한 호출할 수 있는 취약점이 있었다. stock_analysis_usage 테이블은 국내/해외
+// 구분 컬럼이 없는 단일 테이블(20260714_stock_analysis_usage.sql)이라 종목분석
+// 한도는 애초에 국내+해외 합산 공유로 설계돼 있다 — ticker 문자열만 다를 뿐
+// user_id+usage_date 기준으로 그대로 합산되므로, 별도 처리 없이 그대로 재사용.
+function makeAuthSupabase() {
+  const cookieStore = cookies();
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.then(s => s.getAll()),
+        setAll: (pairs) => cookieStore.then(s => {
+          pairs.forEach(({ name, value, options }) => s.set(name, value, options));
+        }),
+      },
+    },
+  );
+}
+
+async function getMonthlyStockAnalysisCount(
+  authedSupabase: ReturnType<typeof makeAuthSupabase>,
+  userId: string,
+): Promise<number> {
+  const { data: userRow } = await authedSupabase
+    .from('users')
+    .select('subscription_start_date')
+    .eq('id', userId)
+    .maybeSingle();
+  const { cycleStart } = getUsageCycleStart(userRow?.subscription_start_date ?? null, new Date());
+
+  const { count } = await authedSupabase
+    .from('stock_analysis_usage')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('usage_date', cycleStart.toISOString().split('T')[0]);
+  return count ?? 0;
+}
+
+async function getDailyStockAnalysisCount(
+  authedSupabase: ReturnType<typeof makeAuthSupabase>,
+  userId: string,
+  todayStr: string,
+): Promise<number> {
+  const { count } = await authedSupabase
+    .from('stock_analysis_usage')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('usage_date', todayStr);
+  return count ?? 0;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ ticker: string }> },
@@ -294,6 +352,48 @@ export async function GET(
   const market = req.nextUrl.searchParams.get('market') ?? 'us';
   const cacheKey = `overseas_${ticker}`;
   const todayStr = kstDateStr();
+
+  // 0. 인증 — 국내물(359-361행)과 동일 패턴.
+  const authedSupabase = makeAuthSupabase();
+  const { data: { user } } = await authedSupabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // 0-1. 월간/일간 한도 체크 — 국내물과 동일 패턴. usage_date 테이블은 ticker 문자열만
+  // 저장하므로 해외 티커("AAPL" 등)도 그대로 같은 카운터에 합산된다(위 주석 참고).
+  const { data: existingUsage } = await authedSupabase
+    .from('stock_analysis_usage')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('ticker', ticker)
+    .eq('usage_date', todayStr)
+    .maybeSingle();
+
+  if (!existingUsage) {
+    const plan  = await checkPlan(authedSupabase, user.id, user.email);
+    const limit = resolveStockAnalysisLimit(plan);
+    const count = isStockAnalysisDaily(plan)
+      ? await getDailyStockAnalysisCount(authedSupabase, user.id, todayStr)
+      : await getMonthlyStockAnalysisCount(authedSupabase, user.id);
+    if (count >= limit) {
+      const message = isStockAnalysisDaily(plan)
+        ? '오늘 무료 이용 횟수를 모두 사용했습니다. 베이직/프로로 업그레이드하면 월 단위로 더 많이 이용하실 수 있습니다.'
+        : '이번 달 이용 한도를 모두 사용했습니다. 다음 결제일에 초기화됩니다.';
+      return NextResponse.json({ error: message }, { status: 429 });
+    }
+  }
+
+  // 이번 조회를 이용 기록으로 남긴다 — 캐시 히트/신규 생성 응답 모두에서 호출(아래).
+  const recordUsage = () => {
+    after(async () => {
+      const { error } = await authedSupabase
+        .from('stock_analysis_usage')
+        .upsert(
+          { user_id: user.id, ticker, usage_date: todayStr },
+          { onConflict: 'user_id,ticker,usage_date', ignoreDuplicates: true },
+        );
+      if (error) console.error('[OVERSEAS ANALYSIS] 이용 기록 저장 실패:', error.message);
+    });
+  };
 
   // 1. 시세 조회 — 캐시 유효성 판단(marketState)에도 필요하고, 캐시 미스 시 프롬프트
   // 데이터로도 그대로 쓰이므로 항상 먼저 가져온다. Claude 호출(느림)과 달리 가벼운 호출이라
@@ -322,6 +422,7 @@ export async function GET(
       if (isMarketSessionStale(genState, quote.marketState)) {
         console.log(`[OVERSEAS ANALYSIS] ${ticker} 정규장 상태 변화 감지(${genState} → ${quote.marketState}) — 캐시 무시하고 재생성`);
       } else {
+        recordUsage();
         return NextResponse.json({ ...mapRowToResult(row), isCached: true });
       }
     }
@@ -534,6 +635,7 @@ ${yesterdayComparisonBlock}
         }, { onConflict: 'ticker,report_date' });
       if (error) console.error('[OVERSEAS ANALYSIS] 결과 저장 실패:', error.message);
     });
+    recordUsage();
 
     return NextResponse.json(result);
   } catch (e) {
