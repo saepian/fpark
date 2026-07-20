@@ -32,11 +32,12 @@ export function emailShell(bodyHtml: string): string {
 </html>`;
 }
 
-export function buildApprovalEmailHtml(planName: string): string {
+export function buildApprovalEmailHtml(planName: string, paymentMethod: 'BANK_TRANSFER' | 'DODO' = 'BANK_TRANSFER'): string {
+  const headline = paymentMethod === 'DODO' ? '카드 결제가 확인되었습니다' : '입금 확인이 완료되었습니다';
   return emailShell(`
     <div style="background:#0d1117;border:1px solid #1e2537;border-radius:14px;padding:28px 24px;text-align:center">
       <p style="font-size:32px;margin:0 0 12px">✅</p>
-      <p style="margin:0 0 8px;color:#e2e8f0;font-size:16px;font-weight:700">입금 확인이 완료되었습니다</p>
+      <p style="margin:0 0 8px;color:#e2e8f0;font-size:16px;font-weight:700">${headline}</p>
       <p style="margin:0;color:#94a3b8;font-size:13.5px;line-height:1.7">
         ${planName} 구독이 정상적으로 활성화되었습니다.<br />
         지금 바로 fpark.com에서 이용해보세요.

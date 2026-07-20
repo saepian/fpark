@@ -8,6 +8,8 @@
 import { adminClient } from '@/lib/supabase-admin';
 import { activateSubscription } from '@/lib/subscription-activation';
 import { getSubscription } from '@/lib/dodo';
+import { sendBankTransferEmail, buildApprovalEmailHtml } from '@/lib/bank-transfer';
+import { PLAN_AMOUNTS } from '@/lib/payment-constants';
 
 export interface ActivateDodoPaymentParams {
   sessionId:      string;         // payments.payment_id 자리에 임시로 들어있던 값
@@ -54,7 +56,7 @@ export async function activateDodoPayment(params: ActivateDodoPaymentParams): Pr
 
   const { data: userRow } = await adminClient
     .from('users')
-    .select('subscription_start_date')
+    .select('subscription_start_date, email')
     .eq('id', pending.user_id)
     .maybeSingle();
 
@@ -91,6 +93,18 @@ export async function activateDodoPayment(params: ActivateDodoPaymentParams): Pr
     .eq('id', pending.id);
   if (paymentsUpdateError) {
     console.error('[dodo-payment-approval] payments 업데이트 실패(구독은 이미 활성화됨):', paymentsUpdateError);
+  }
+
+  // 활성화 확인 이메일 — 계좌이체 승인(lib/bank-transfer-approval.ts)과 동일한 템플릿을
+  // paymentMethod만 다르게 써서 재사용. 실패해도 활성화 자체는 유지(메일은 부가 기능,
+  // sendBankTransferEmail 내부가 실패를 삼킴).
+  if (userRow?.email) {
+    await sendBankTransferEmail({
+      to:      userRow.email,
+      subject: '[fpark] 결제 확인 완료 — 구독이 활성화되었습니다',
+      html:    buildApprovalEmailHtml(PLAN_AMOUNTS[plan].name, 'DODO'),
+      logTag:  'dodo-payment-approval',
+    });
   }
 
   console.log(
