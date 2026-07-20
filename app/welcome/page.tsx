@@ -6,8 +6,8 @@
 // (lib/useWelcomeExposure.ts 참고).
 //
 // 탭(FREE/BASIC/PRO) = 그 플랜의 기능을 전부 담은 하나의 통합 소개 섹션.
-// 기업 분석 미리보기만 실제 components/diagnosis/DiagnosisReport를 샘플 데이터로
-// 축소 렌더링한 "실시간 화면"이고, 나머지는 실제 문구·구조를 재현한 예시(비실시간).
+// 모든 미리보기(기업 분석 포함)는 실제 데이터가 아닌 예시(SAMPLE_DIAGNOSIS 등 허구 데이터,
+// 종목명도 "예시전자"류 가상명) — PreviewThumb이 전부 "예시 화면" 배지를 노출한다.
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
@@ -27,19 +27,19 @@ const TABS: { type: PlanType; label: string }[] = [
 // ── 미리보기 컴포넌트들 ──────────────────────────────────────────────────────
 
 const SAMPLE_DIAGNOSIS: DiagnosisResult = {
-  mainAnalysis: '최근 한 달간 외국인·기관의 순매수가 이어지며 주가가 20일 이동평균선을 상회하는 상승 흐름을 보이고 있습니다. 반도체 업황 개선 기대감이 반영된 뉴스가 다수 확인되는 가운데, 삼성전자가 차세대 메모리 신규 라인 투자 계획을 발표했고 외국인은 이 소식 전후로 3거래일 연속 순매수를 기록했습니다. 거래량도 20일 평균 대비 확대된 상태로, 뉴스와 수급 흐름이 같은 방향을 가리키고 있습니다.',
+  mainAnalysis: '최근 한 달간 외국인·기관의 자금 유입이 이어지며 거래량도 확대된 상태입니다. 반도체 업황 개선 기대감이 반영된 뉴스가 다수 확인되는 가운데, 예시전자가 차세대 메모리 신규 라인 투자 계획을 발표했고 외국인은 이 소식 전후로 3거래일 연속 자금을 유입시켰습니다. 뉴스와 수급 흐름이 같은 방향을 가리키고 있습니다.',
   currentPrice: 75000,
   avgPrice: 68000,
   quantity: 10,
   profitRate: 10.29,
   profitAmount: 70000,
   news: [
-    { title: '삼성전자, 차세대 메모리 신규 라인 투자 발표', description: '반도체 업황 회복 기대감이 커지는 가운데 대규모 설비 투자 계획이 공개됐다.' },
-    { title: '외국인 3거래일 연속 순매수, 반도체株 강세', description: '외국인 투자자들의 자금 유입이 이어지며 관련주 전반이 강세를 보였다.' },
+    { title: '예시전자, 차세대 메모리 신규 라인 투자 발표', description: '반도체 업황 회복 기대감이 커지는 가운데 대규모 설비 투자 계획이 공개됐다.' },
+    { title: '외국인 3거래일 연속 자금 유입, 반도체 관련주 동반 상승', description: '외국인 투자자들의 자금 유입이 이어지며 관련주 전반이 함께 움직였다.' },
   ],
   newsBasis: 'news',
-  institutionalFlow: '최근 5거래일간 기관은 순매수 기조를 유지하고 있습니다.',
-  foreignFlow: '외국인은 최근 3거래일 연속 순매수를 기록했습니다.',
+  institutionalFlow: '최근 5거래일간 기관은 자금 유입 기조를 유지하고 있습니다.',
+  foreignFlow: '외국인은 최근 3거래일 연속 자금을 유입시켰습니다.',
   resistance: 82000,
   support: 61000,
   riskFactors: [
@@ -57,7 +57,7 @@ const SAMPLE_DIAGNOSIS: DiagnosisResult = {
   ],
   financialsNarrative: '2023년 대비 영업이익이 큰 폭으로 확대되며 2024·2025년 연속 개선 흐름을 이어가고 있습니다.',
   disclosures: [
-    { title: '자기주식처분결정', date: '2026-07-10', url: 'https://dart.fss.or.kr', filer: '삼성전자' },
+    { title: '자기주식처분결정', date: '2026-07-10', url: 'https://dart.fss.or.kr', filer: '예시전자' },
   ],
   disclosureNarrative: '7월 10일 자기주식 처분을 공시했으며, 이는 유동성 확보 목적으로 풀이됩니다.',
   history: {
@@ -68,19 +68,20 @@ const SAMPLE_DIAGNOSIS: DiagnosisResult = {
     prevFlowType: 'BUY',
     prevFlowPercentage: 60,
     holdingsChanged: false,
-    narrative: '어제 대비 외국인 매수 강도가 더 강해졌고, 수익률도 소폭 개선됐습니다.',
+    narrative: '어제 대비 외국인 자금 유입 강도가 더 강해졌고, 수익률도 소폭 개선됐습니다.',
   },
 };
 
-// 실제 리포트 컴포넌트를 그대로 축소 렌더링(썸네일 용도라 세부 수치는 작게 보임) —
-// 진짜 실시간 화면이라는 게 핵심이라 "예시 화면" 캡션을 붙이지 않는다.
+// 실제 리포트 컴포넌트를 그대로 축소 렌더링(썸네일 용도라 세부 수치는 작게 보임)하되,
+// 데이터 자체는 허구의 예시(SAMPLE_DIAGNOSIS)다 — 다른 미리보기(Alert/Portfolio/Email)와
+// 동일하게 "예시 화면" 배지를 노출한다(FeatureCopy.isLive: false).
 function DiagnosisThumb() {
   return (
     <div className="pointer-events-none origin-top-left" style={{ transform: 'scale(0.4)', width: '250%' }}>
       <DiagnosisReport
         result={SAMPLE_DIAGNOSIS}
-        stockName="삼성전자"
-        ticker="005930"
+        stockName="예시전자"
+        ticker="000000"
         generatedAt="2026-07-10 09:00"
         actions={false}
         showBackground={false}
@@ -93,8 +94,8 @@ function DiagnosisThumb() {
 // 재사용이 불가능함 — 앱 톤에 맞춘 정적 예시.
 function PortfolioThumb() {
   const holdings = [
-    { name: '삼성전자', weight: 42 },
-    { name: 'SK하이닉스', weight: 31 },
+    { name: '예시전자', weight: 42 },
+    { name: '예시반도체', weight: 31 },
   ];
   return (
     <div className="p-3.5 flex flex-col gap-2.5 h-full">
@@ -124,8 +125,8 @@ function PortfolioThumb() {
 // app/api/cron/stock-alerts/route.ts의 실제 알림 메시지 형식을 그대로 따른 정적 예시.
 function AlertThumb() {
   const items = [
-    { icon: '▲', color: 'text-red-400', text: '[삼성전자] +10% 상승', sub: '현재가 75,000원' },
-    { icon: '●', color: 'text-sky-400', text: '[SK하이닉스] 수급 알림', sub: '외국인 자금 1,200억 유입' },
+    { icon: '▲', color: 'text-red-400', text: '[예시전자] +10% 상승', sub: '현재가 75,000원' },
+    { icon: '●', color: 'text-sky-400', text: '[예시반도체] 수급 알림', sub: '외국인 자금 1,200억 유입' },
   ];
   return (
     <div className="p-3.5 flex flex-col gap-2 h-full">
@@ -163,7 +164,7 @@ function ClosingReportThumb() {
         <div className="rounded-md border border-indigo-500/20 bg-indigo-500/[0.05] p-2">
           <p className="text-[9px] font-bold text-indigo-400 mb-0.5">AI 분석</p>
           <p className="text-[9.5px] text-slate-400 leading-snug line-clamp-2">
-            오늘 관심종목 중 반도체 관련주가 외국인 순매수에 힘입어 강세를 보였습니다.
+            오늘 관심종목 중 반도체 관련주에 외국인 자금이 유입되며 상승세를 보였습니다.
           </p>
         </div>
       </div>
@@ -186,7 +187,7 @@ function MorningBriefingThumb() {
       <div className="p-3 flex flex-col gap-2">
         <div className="rounded-md border border-indigo-500/20 bg-indigo-500/[0.05] p-2">
           <p className="text-[9.5px] font-bold text-slate-200 mb-1">
-            삼성전자 <span className="text-slate-500 font-normal">005930</span>
+            예시전자 <span className="text-slate-500 font-normal">000000</span>
           </p>
           <p className="text-[8.5px] font-bold text-indigo-400 mb-0.5">AI 분석</p>
           <p className="text-[9.5px] text-slate-400 leading-snug line-clamp-2">
@@ -256,10 +257,10 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
       {
         key: 'diagnosis',
         title: '기업 분석',
-        desc: '궁금한 종목명이나 종목코드를 검색하면, AI가 최근 뉴스 흐름과 주가 등락, 외국인·기관의 매매 동향을 한 번에 정리해서 리포트로 보여드려요. 예를 들어 삼성전자를 검색하면 최근 한 달간 어떤 뉴스가 있었는지, 외국인이 사고 있는지 팔고 있는지, 주가가 왜 이렇게 움직였는지를 하나하나 따로 찾아보지 않아도 한 화면에서 파악할 수 있어요.',
+        desc: '궁금한 종목명이나 종목코드를 검색하면, AI가 최근 뉴스 흐름과 주가 등락, 외국인·기관의 매매 동향을 한 번에 정리해서 리포트로 보여드려요. 예를 들어 예시전자를 검색하면 최근 한 달간 어떤 뉴스가 있었는지, 외국인·기관의 자금이 유입되고 있는지 유출되고 있는지, 주가가 왜 이렇게 움직였는지를 하나하나 따로 찾아보지 않아도 한 화면에서 파악할 수 있어요.',
         caption: `FREE는 월 ${PLAN_USAGE_LIMITS.free.diagnosis}회까지 무료로 이용할 수 있어요`,
         preview: <DiagnosisThumb />,
-        isLive: true,
+        isLive: false,
       },
     ],
     closingNote: '이 외에도 뉴스·시장 데이터는 무제한으로 보실 수 있고, 관심종목은 워치리스트에 자유롭게 등록해두실 수 있어요.',
@@ -274,7 +275,7 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         desc: `FREE와 같은 방식으로, 궁금한 종목을 검색하면 AI가 뉴스·수급·주가 흐름을 종합해 리포트로 정리해드려요. BASIC 플랜에서는 월 ${PLAN_USAGE_LIMITS.basic.diagnosis}개 종목까지 분석해볼 수 있어서, 관심 있는 여러 종목을 매달 꾸준히 확인하기에 넉넉해요.`,
         caption: `월 ${PLAN_USAGE_LIMITS.basic.diagnosis}회`,
         preview: <DiagnosisThumb />,
-        isLive: true,
+        isLive: false,
       },
       {
         key: 'portfolio',
@@ -297,7 +298,7 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         desc: `PRO 플랜에서는 월 ${PLAN_USAGE_LIMITS.pro.diagnosis}개 종목까지 분석할 수 있어서, 관심 있는 종목을 폭넓게 다뤄볼 수 있어요.`,
         caption: `월 ${PLAN_USAGE_LIMITS.pro.diagnosis}회`,
         preview: <DiagnosisThumb />,
-        isLive: true,
+        isLive: false,
       },
       {
         key: 'portfolio',
