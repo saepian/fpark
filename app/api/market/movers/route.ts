@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAccessToken, fetchCuratedMovers, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
-import { isKoreanMarketOpen, getLastTradingDate } from '@/lib/market-utils';
+import { isKoreanMarketOpen, getTradingDateCandidates, findFirstNonEmptyByDate } from '@/lib/market-utils';
 import type { MoversResponse, MoverStock } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -221,37 +221,45 @@ export async function GET() {
     const cached = await loadCache();
     if (cached) return NextResponse.json({ ...cached, isPrevDay: false });
   } else {
-    // 장 외: 최근 거래일 기준 데이터 조회
-    const { yyyymmdd: prevDate, label: prevDateLabel } = getLastTradingDate();
-    console.log(`[MOVERS] 장외 — 최근 거래일: ${prevDate}`);
+    // 장 외: "실제 데이터가 존재하는" 가장 최근 거래일을 순차 탐색 (공휴일 캘린더 없이
+    // KIS 응답이 비어있으면 하루씩 물러나며 재시도)
+    const dateCandidates = getTradingDateCandidates();
+    const prevDateLabel = dateCandidates[0]?.label ?? '';
+    console.log(`[MOVERS] 장외 — 후보 거래일: ${dateCandidates.map(c => c.yyyymmdd).join(', ')}`);
 
-    // 1순위: KIS 급등락 순위 API — 최근 거래일 날짜 지정
+    // 1순위: KIS 급등락 순위 API — 후보 날짜를 순서대로 시도
     try {
-      const [kospiGainers, kosdaqGainers, kospiLosers, kosdaqLosers] = await Promise.all([
-        fetchMovers('0', 'J', prevDate),
-        fetchMovers('0', 'Q', prevDate),
-        fetchMovers('1', 'J', prevDate),
-        fetchMovers('1', 'Q', prevDate),
-      ]);
+      const fetchMoversForDate = async (prevDate: string): Promise<{ gainers: MoverStock[]; losers: MoverStock[] }[]> => {
+        const [kospiGainers, kosdaqGainers, kospiLosers, kosdaqLosers] = await Promise.all([
+          fetchMovers('0', 'J', prevDate),
+          fetchMovers('0', 'Q', prevDate),
+          fetchMovers('1', 'J', prevDate),
+          fetchMovers('1', 'Q', prevDate),
+        ]);
 
-      const gainers = [...kospiGainers, ...kosdaqGainers]
-        .filter((s) => s.price > 0 && s.name)
-        .sort((a, b) => b.changeRate - a.changeRate)
-        .slice(0, 20);
+        const gainers = [...kospiGainers, ...kosdaqGainers]
+          .filter((s) => s.price > 0 && s.name)
+          .sort((a, b) => b.changeRate - a.changeRate)
+          .slice(0, 20);
 
-      const losers = [...kospiLosers, ...kosdaqLosers]
-        .filter((s) => s.price > 0 && s.name)
-        .sort((a, b) => a.changeRate - b.changeRate)
-        .slice(0, 20);
+        const losers = [...kospiLosers, ...kosdaqLosers]
+          .filter((s) => s.price > 0 && s.name)
+          .sort((a, b) => a.changeRate - b.changeRate)
+          .slice(0, 20);
 
-      console.log(`[MOVERS] KIS 장외(${prevDate}) — 급등:${gainers.length}개 급락:${losers.length}개`);
+        console.log(`[MOVERS] KIS 장외(${prevDate}) — 급등:${gainers.length}개 급락:${losers.length}개`);
 
-      if (gainers.length >= 3 || losers.length >= 3) {
-        const result: MoversResponse = { gainers, losers };
+        if (gainers.length >= 3 || losers.length >= 3) return [{ gainers, losers }];
+        return [];
+      };
+
+      const picked = await findFirstNonEmptyByDate(dateCandidates, fetchMoversForDate);
+      if (picked) {
+        const result: MoversResponse = picked.rows[0];
         saveCache(result).catch(() => {});
-        return NextResponse.json({ ...result, isCached: false, cachedAt: new Date().toISOString(), isPrevDay: true, prevDateLabel });
+        return NextResponse.json({ ...result, isCached: false, cachedAt: new Date().toISOString(), isPrevDay: true, prevDateLabel: picked.label });
       }
-      console.log('[MOVERS] KIS 장외 output empty, falling back to Naver');
+      console.log('[MOVERS] KIS 장외 모든 후보 날짜 실패/공백, Naver 폴백');
     } catch (e) {
       console.error('[MOVERS] KIS 장외 오류:', e instanceof Error ? e.message : e);
     }

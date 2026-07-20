@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { getAccessToken, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
-import { isKoreanMarketOpen, getLastTradingDate } from '@/lib/market-utils';
+import { isKoreanMarketOpen, getTradingDateCandidates, findFirstNonEmptyByDate } from '@/lib/market-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -233,11 +233,12 @@ export async function GET(request: Request) {
     if (tab === '급등' || tab === '급락') {
       const cacheKey = cacheKeyFor(tab);
       const marketOpen = isKoreanMarketOpen();
-      // 장 외 시간에는 최근 거래일 데이터를 조회 (장 시작 전 "전날꺼" 표시 요구사항)
-      const inputDate = marketOpen ? '' : getLastTradingDate().yyyymmdd;
+      // 장 외 시간에는 "실제 데이터가 존재하는" 가장 최근 거래일을 순차 탐색한다 —
+      // 공휴일 캘린더 없이 KIS 응답이 비어있으면 하루씩 물러나며 재시도 (장 시작 전
+      // "전날꺼" 표시 요구사항 + 공휴일 폴백 견고화).
+      const dateCandidates = marketOpen ? [{ yyyymmdd: '', label: '' }] : getTradingDateCandidates();
 
-      // 1순위: KIS 실시간 (장 외에는 최근 거래일 지정)
-      try {
+      const fetchAndMap = async (inputDate: string): Promise<StockRow[]> => {
         const data = await withKisTokenRetry(async () => {
           const token = await getAccessToken();
           const params = new URLSearchParams({
@@ -270,22 +271,28 @@ export async function GET(request: Request) {
         });
 
         const rows: any[] = data.output ?? [];
-        if (rows.length > 0) {
-          rows.sort((a, b) =>
-            tab === '급등'
-              ? Number(b.prdy_ctrt) - Number(a.prdy_ctrt)
-              : Number(a.prdy_ctrt) - Number(b.prdy_ctrt),
-          );
-          const filtered = rows.filter(item => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? ''));
-          const result = filtered.slice(0, 50).map(mapRow);
+        if (rows.length === 0) return [];
+        rows.sort((a, b) =>
+          tab === '급등'
+            ? Number(b.prdy_ctrt) - Number(a.prdy_ctrt)
+            : Number(a.prdy_ctrt) - Number(b.prdy_ctrt),
+        );
+        const filtered = rows.filter(item => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? ''));
+        return filtered.slice(0, 50).map(mapRow);
+      };
+
+      // 1순위: KIS 실시간 — 후보 날짜를 순서대로 시도, 응답이 비어있지 않은 첫 날짜 채택
+      try {
+        const picked = await findFirstNonEmptyByDate(dateCandidates, fetchAndMap);
+        if (picked) {
+          const result = picked.rows;
           after(async () => {
             const { error } = await supabase.from('market_cache').upsert({ key: cacheKey, data: result, updated_at: new Date().toISOString() });
             if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
           });
           return Response.json(result);
         }
-        // rows.length === 0: 장 마감
-        console.log(`[ranking] KIS ${tab}: 0행 (장 마감), 네이버 폴백`);
+        console.log(`[ranking] KIS ${tab}: 모든 후보 날짜 0행/실패 (장 마감), 네이버 폴백`);
       } catch (e) {
         console.warn(`[ranking] KIS ${tab} 실패:`, e instanceof Error ? e.message : e);
       }
