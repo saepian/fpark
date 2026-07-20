@@ -42,8 +42,14 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
     else router.push(`/stock/${ticker}`);
   };
 
-  const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href);
+  // 종목 상세 페이지(/stock/..., /overseas/...)는 각각 국내증시/해외증시 목록과
+  // 다른 최상위 경로라 startsWith(href) 매칭이 실패한다 — 예외로 별도 매핑.
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/';
+    if (href === '/market/domestic' && pathname.startsWith('/stock/')) return true;
+    if (href === '/market/global' && pathname.startsWith('/overseas/')) return true;
+    return pathname.startsWith(href);
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#0f1117] border-b border-[#2d313e]">
