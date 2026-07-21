@@ -35,6 +35,14 @@ interface StockRow {
   tradingValue: number;
 }
 
+// KIS가 간헐적으로 이름/가격이 빈 stub row를 섞어 보내는 경우가 있어(2026-07-21 장중
+// 관측), 네이버 폴백 경로(fetchNaverRanking)와 동일한 유효성 기준으로 걸러낸다.
+function isValidStockItem(item: any): boolean {
+  const name = String(item.hts_kor_isnm ?? '').trim();
+  const price = Number(item.stck_prpr);
+  return name.length > 0 && price > 0;
+}
+
 function mapRow(item: any, i: number): StockRow {
   return {
     rank: i + 1,
@@ -194,8 +202,13 @@ export async function GET(request: Request) {
       try {
         const data = await fetchFluctuation('0');
         const rows: any[] = data.output ?? [];
-        rows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
-        const result = rows.slice(0, 50).map(mapRow);
+        const validRows = rows.filter(isValidStockItem);
+        if (validRows.length < rows.length) {
+          console.warn(`[ranking] ${tab}: 유효성 필터로 ${rows.length - validRows.length}행 제외 (${rows.length}행 → ${validRows.length}행)`);
+        }
+        if (validRows.length === 0) throw new Error(`${tab}: 유효 행 0개 (원본 ${rows.length}행 모두 불량)`);
+        validRows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
+        const result = validRows.slice(0, 50).map(mapRow);
         after(async () => {
           const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result, updated_at: new Date().toISOString() });
           if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
@@ -214,8 +227,13 @@ export async function GET(request: Request) {
       try {
         const data = await fetchFluctuation('1');
         const rows: any[] = data.output ?? [];
-        rows.sort((a, b) => Number(b.acml_vol) - Number(a.acml_vol));
-        const result = rows.slice(0, 50).map(mapRow);
+        const validRows = rows.filter(isValidStockItem);
+        if (validRows.length < rows.length) {
+          console.warn(`[ranking] ${tab}: 유효성 필터로 ${rows.length - validRows.length}행 제외 (${rows.length}행 → ${validRows.length}행)`);
+        }
+        if (validRows.length === 0) throw new Error(`${tab}: 유효 행 0개 (원본 ${rows.length}행 모두 불량)`);
+        validRows.sort((a, b) => Number(b.acml_vol) - Number(a.acml_vol));
+        const result = validRows.slice(0, 50).map(mapRow);
         after(async () => {
           const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result, updated_at: new Date().toISOString() });
           if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
@@ -277,7 +295,10 @@ export async function GET(request: Request) {
             ? Number(b.prdy_ctrt) - Number(a.prdy_ctrt)
             : Number(a.prdy_ctrt) - Number(b.prdy_ctrt),
         );
-        const filtered = rows.filter(item => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? ''));
+        const filtered = rows.filter(item => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? '') && isValidStockItem(item));
+        if (filtered.length < rows.length) {
+          console.warn(`[ranking] KIS ${tab} (${inputDate || '실시간'}): 유효성/제외 필터로 ${rows.length - filtered.length}행 제외 (${rows.length}행 → ${filtered.length}행)`);
+        }
         return filtered.slice(0, 50).map(mapRow);
       };
 
@@ -292,7 +313,7 @@ export async function GET(request: Request) {
           });
           return Response.json(result);
         }
-        console.log(`[ranking] KIS ${tab}: 모든 후보 날짜 0행/실패 (장 마감), 네이버 폴백`);
+        console.log(`[ranking] KIS ${tab}: 모든 후보 날짜(${dateCandidates.map(c => c.yyyymmdd || '실시간').join(',')}) 0행/실패 (marketOpen=${marketOpen}), 네이버 폴백`);
       } catch (e) {
         console.warn(`[ranking] KIS ${tab} 실패:`, e instanceof Error ? e.message : e);
       }
@@ -315,6 +336,7 @@ export async function GET(request: Request) {
       const cached = await getCachedRanking(tab);
       if (cached) return Response.json(cached);
 
+      console.warn(`[ranking] ${tab}: KIS/네이버/캐시 모두 사용 불가 (marketOpen=${marketOpen}), 빈 배열 반환`);
       return Response.json([]);
     }
 
