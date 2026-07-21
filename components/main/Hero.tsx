@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { Building2, Newspaper, Sparkles, type LucideIcon } from 'lucide-react';
 import SearchDropdown from '@/components/search/SearchDropdown';
 import HeroCanvasBackground from './HeroCanvasBackground';
 import WelcomeBanner from './WelcomeBanner';
@@ -21,6 +22,52 @@ const POPULAR = [
   { name: '현대차', ticker: '005380' },
   { name: '셀트리온', ticker: '068270' },
 ];
+
+interface StatItem {
+  icon: LucideIcon;
+  value: string;
+  label: string;
+  color: string;
+  bg: string;
+  countTo?: number;
+}
+
+const STATS: StatItem[] = [
+  { icon: Building2, value: '2,500+', label: '전 종목 커버', color: '#818cf8', bg: 'rgba(99,102,241,0.16)', countTo: 2500 },
+  { icon: Newspaper, value: 'Daily', label: '실시간 브리핑', color: '#a78bfa', bg: 'rgba(139,92,246,0.16)' },
+  { icon: Sparkles, value: 'Anthropic Claude', label: '정밀 AI 분석 엔진', color: '#f472b6', bg: 'rgba(236,72,153,0.16)' },
+];
+
+// 뷰포트 진입 시 1회만 재생, prefers-reduced-motion이면 최종값 즉시 표시
+function CountUp({ target }: { target: number }) {
+  const [value, setValue] = useState(0);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setValue(target);
+      return;
+    }
+    const io = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      io.disconnect();
+      const start = performance.now();
+      const tick = (now: number) => {
+        const progress = Math.min((now - start) / 900, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setValue(Math.round(target * eased));
+        if (progress < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, { threshold: 0.5 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [target]);
+
+  return <span ref={ref}>{value.toLocaleString()}+</span>;
+}
 
 export default function Hero() {
   const [query, setQuery] = useState('');
@@ -298,17 +345,31 @@ export default function Hero() {
         )}
 
         {/* 통계 수치 */}
-        <div className="flex items-center justify-center gap-8 mt-8">
-          {[
-            { label: '분석 기업', value: '2,500+' },
-            { label: '뉴스 브리핑', value: '매일' },
-            { label: 'AI 분석', value: 'Claude' },
-          ].map((stat, i) => (
-            <div key={i} className="text-center">
-              <p className="text-lg font-bold text-white">{stat.value}</p>
-              <p className="text-[11px] text-slate-500">{stat.label}</p>
-            </div>
-          ))}
+        <div className="relative mt-8 max-w-xl sm:max-w-2xl mx-auto">
+          <div className="absolute -inset-px rounded-2xl bg-gradient-to-r from-indigo-500/15 via-purple-500/15 to-pink-500/15 blur-md" />
+          <div className="relative grid grid-cols-3 divide-x divide-slate-800/60 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-sm">
+            {STATS.map((stat) => {
+              const Icon = stat.icon;
+              return (
+                <div key={stat.label} className="group flex flex-col items-center gap-2 px-2 py-5 text-center transition-colors hover:bg-white/[0.03]">
+                  <div
+                    className="w-8 h-8 rounded-[10px] flex items-center justify-center transition-transform duration-300 group-hover:scale-110"
+                    style={{ background: stat.bg }}
+                  >
+                    <Icon className="w-4 h-4" style={{ color: stat.color }} strokeWidth={2.2} />
+                  </div>
+                  {stat.countTo ? (
+                    <p className="font-mono text-xl sm:text-2xl font-extrabold leading-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300">
+                      <CountUp target={stat.countTo} />
+                    </p>
+                  ) : (
+                    <p className="text-sm sm:text-lg font-bold leading-tight text-white">{stat.value}</p>
+                  )}
+                  <p className="text-[11px] text-slate-500 leading-snug">{stat.label}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
