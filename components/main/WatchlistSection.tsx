@@ -107,6 +107,7 @@ export default function WatchlistSection() {
   useEffect(() => {
     if (!needCarousel || paused) return;
     const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
       setTransition(true);
       setIndex(i => i + 1);
     }, AUTO_MS);
