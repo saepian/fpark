@@ -345,31 +345,28 @@ export default function Hero() {
         )}
 
         {/* 통계 수치 */}
-        <div className="relative mt-8 max-w-xl sm:max-w-2xl mx-auto">
-          <div className="absolute -inset-px rounded-2xl bg-gradient-to-r from-indigo-500/15 via-purple-500/15 to-pink-500/15 blur-md" />
-          <div className="relative grid grid-cols-3 divide-x divide-slate-800/60 rounded-2xl border border-slate-800/60 bg-slate-900/40 backdrop-blur-sm">
-            {STATS.map((stat) => {
-              const Icon = stat.icon;
-              return (
-                <div key={stat.label} className="group flex flex-col items-center gap-2 px-2 py-5 text-center transition-colors hover:bg-white/[0.03]">
-                  <div
-                    className="w-8 h-8 rounded-[10px] flex items-center justify-center transition-transform duration-300 group-hover:scale-110"
-                    style={{ background: stat.bg }}
-                  >
-                    <Icon className="w-4 h-4" style={{ color: stat.color }} strokeWidth={2.2} />
-                  </div>
-                  {stat.countTo ? (
-                    <p className="font-mono text-xl sm:text-2xl font-extrabold leading-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300">
-                      <CountUp target={stat.countTo} />
-                    </p>
-                  ) : (
-                    <p className="text-sm sm:text-lg font-bold leading-tight text-white">{stat.value}</p>
-                  )}
-                  <p className="text-[11px] text-slate-500 leading-snug">{stat.label}</p>
+        <div className="grid grid-cols-3 divide-x divide-slate-800/60 max-w-xs sm:max-w-sm mx-auto mt-8">
+          {STATS.map((stat) => {
+            const Icon = stat.icon;
+            return (
+              <div key={stat.label} className="group flex flex-col items-center gap-1.5 px-3 py-1 text-center">
+                <div
+                  className="w-6 h-6 rounded-md flex items-center justify-center transition-transform duration-300 group-hover:scale-110"
+                  style={{ background: stat.bg }}
+                >
+                  <Icon className="w-3.5 h-3.5" style={{ color: stat.color }} strokeWidth={2.2} />
                 </div>
-              );
-            })}
-          </div>
+                {stat.countTo ? (
+                  <p className="font-mono text-sm font-bold leading-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300">
+                    <CountUp target={stat.countTo} />
+                  </p>
+                ) : (
+                  <p className="text-xs font-bold leading-tight text-white">{stat.value}</p>
+                )}
+                <p className="text-[10px] text-slate-500 leading-snug">{stat.label}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
