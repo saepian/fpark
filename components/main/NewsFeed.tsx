@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import NewsCard from './NewsCard';
-import AdSlot from './AdSlot';
 import { NewsItem, NewsListResponse } from '../../lib/types';
 
 const TABS = [
@@ -97,13 +96,7 @@ export default function NewsFeed({ onSelectStock }: NewsFeedProps) {
         <div className="py-12 text-center text-gray-400 text-sm">해당 카테고리의 뉴스가 없습니다.</div>
       ) : (
         <div className="space-y-4">
-          {news.slice(0, 2).map((item) => (
-            <NewsCard key={item.id} item={item} onSelectStock={onSelectStock} />
-          ))}
-
-          <AdSlot size="feed" />
-
-          {news.slice(2).map((item) => (
+          {news.map((item) => (
             <NewsCard key={item.id} item={item} onSelectStock={onSelectStock} />
           ))}
 
