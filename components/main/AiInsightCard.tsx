@@ -9,6 +9,7 @@ interface DailyPick {
   ticker: string;
   name: string;
   date: string;
+  data_reference_date: string | null;
   summary: string;
   analysis: string;
   catalysts: string[]; // 참고 정보 (뉴스·실적 등, 보조적)
@@ -63,8 +64,11 @@ export default function AiInsightCard() {
   const isUp = (pick.currentChangeRate ?? 0) >= 0;
   const priceColor = isUp ? 'text-red-400' : 'text-blue-400';
 
-  const isToday = pick.date === new Date().toISOString().split('T')[0];
-  const dateLabel = new Date(pick.date).toLocaleDateString('ko-KR', {
+  // data_reference_date = 실제 수급 데이터의 기준 거래일. 생성일(date)과 다를 수 있음
+  // (예: 공휴일/주말로 최근 완료 거래일이 며칠 전인 경우) — 구 row는 컬럼이 없어 date로 폴백.
+  const referenceDate = pick.data_reference_date ?? pick.date;
+  const isToday = referenceDate === new Date().toISOString().split('T')[0];
+  const dateLabel = new Date(referenceDate).toLocaleDateString('ko-KR', {
     month: 'long', day: 'numeric', weekday: 'short',
   });
 

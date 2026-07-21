@@ -83,6 +83,7 @@ async function fetchStockDetail(ticker: string, token: string) {
 interface FlowCandidate {
   ticker: string;
   name: string;
+  dataReferenceDate: string;         // 이 수급 데이터의 실제 기준 거래일 (YYYY-MM-DD)
   foreignNetBuyAuk: number;          // 최근 거래일 외국인 순매수(억원)
   institutionNetBuyAuk: number;      // 최근 거래일 기관 순매수(억원)
   foreignCumulative5dAuk: number;    // 최근 5거래일 누적 외국인 순매수(억원)
@@ -147,6 +148,7 @@ async function scanFlowCandidates(): Promise<{ candidates: FlowCandidate[]; apiE
           candidate: {
             ticker,
             name: STOCK_NAMES[ticker] ?? ticker,
+            dataReferenceDate:    latest.date,
             foreignNetBuyAuk:     latest.foreign.amount,
             institutionNetBuyAuk: latest.institution.amount,
             // 누적/연속일수는 "최근 5거래일"이라는 기존 의미를 유지 — trend가 21일로 늘어났어도
@@ -365,6 +367,7 @@ ${newsText}
     ticker: selected.ticker,
     name: selected.name,
     date: today,
+    data_reference_date: selected.dataReferenceDate,
     analysis: analysisResult.analysis,
     summary: analysisResult.summary,
     catalysts: analysisResult.reference_info ?? [], // 참고 정보 (뉴스/실적 등, 보조적)

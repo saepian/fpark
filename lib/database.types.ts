@@ -163,6 +163,7 @@ export type Database = {
           analysis: string | null
           catalysts: string[] | null
           created_at: string | null
+          data_reference_date: string | null
           date: string
           foreign_consecutive_days: number | null
           foreign_net_buy_auk: number | null
@@ -186,6 +187,7 @@ export type Database = {
           analysis?: string | null
           catalysts?: string[] | null
           created_at?: string | null
+          data_reference_date?: string | null
           date?: string
           foreign_consecutive_days?: number | null
           foreign_net_buy_auk?: number | null
@@ -209,6 +211,7 @@ export type Database = {
           analysis?: string | null
           catalysts?: string[] | null
           created_at?: string | null
+          data_reference_date?: string | null
           date?: string
           foreign_consecutive_days?: number | null
           foreign_net_buy_auk?: number | null

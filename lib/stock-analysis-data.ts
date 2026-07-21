@@ -31,6 +31,7 @@ function kisHdr(token: string, trId: string): Record<string, string> {
 const toAuk = (v: string | number | undefined) => Math.round(Number(v || 0) / 100);
 
 export interface InvestorFlow {
+  date:        string; // 이 수급 데이터가 실제로 어느 거래일 기준인지 (YYYY-MM-DD) — "today"가 아직 미개장/휴장이면 가장 최근 완료 거래일
   foreign:     { qty: number; amount: number };
   institution: { qty: number; amount: number };
   individual:  { qty: number; amount: number };
@@ -185,6 +186,7 @@ export async function fetchInvestorTrend(ticker: string, days = 5): Promise<{ la
     console.log('[ANALYSIS] fetchInvestorTrend 성공, 데이터 수:', valid.length);
     return {
       latest: {
+        date:        `${today.stck_bsop_date.slice(0,4)}-${today.stck_bsop_date.slice(4,6)}-${today.stck_bsop_date.slice(6,8)}`,
         foreign:     { qty: Number(today.frgn_ntby_qty || 0), amount: toAuk(today.frgn_ntby_tr_pbmn) },
         institution: { qty: Number(today.orgn_ntby_qty || 0), amount: toAuk(today.orgn_ntby_tr_pbmn) },
         individual:  { qty: Number(today.prsn_ntby_qty || 0), amount: toAuk(today.prsn_ntby_tr_pbmn) },
