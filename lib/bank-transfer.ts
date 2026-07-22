@@ -115,12 +115,18 @@ export async function sendBankTransferEmail(params: {
   }
   try {
     const resend = new Resend(process.env.RESEND_API_KEY);
-    await resend.emails.send({
+    // Resend SDK는 API 레벨 실패 시 throw하지 않고 { error }로 반환한다 —
+    // 체크 안 하면 발송 실패를 "완료"로 조용히 오인하게 된다.
+    const { error } = await resend.emails.send({
       from: 'Finance Park <noreply@fpark.com>',
       to:   [to],
       subject,
       html,
     });
+    if (error) {
+      console.error(`[${logTag}] 이메일 발송 실패: ${to}`, error.message ?? error);
+      return false;
+    }
     console.log(`[${logTag}] 이메일 발송 완료: ${to}`);
     return true;
   } catch (e) {
