@@ -82,7 +82,10 @@ export default function MarketTicker() {
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 30_000);
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      refresh();
+    }, 30_000);
     return () => clearInterval(id);
   }, [refresh]);
 

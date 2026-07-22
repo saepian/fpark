@@ -105,7 +105,10 @@ export default function MarketSummary() {
   // 초기 데이터 + 30초 갱신
   useEffect(() => {
     loadData();
-    const refresh = setInterval(loadData, 30_000);
+    const refresh = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      loadData();
+    }, 30_000);
     return () => clearInterval(refresh);
   }, [loadData]);
 

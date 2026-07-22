@@ -3,10 +3,17 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { StockInfo } from '../../lib/types';
+import { isKoreanMarketOpen } from '../../lib/market-utils';
 
 interface StockMetricsProps {
   ticker: string;
 }
+
+// info API는 서버 TTL 캐시가 없어(매 요청 KIS 라이브 호출) StockHeader보다 보수적인
+// 주기로 폴링 — 52주 range/시총/PER/PBR은 분 단위로 급변하지 않는 지표라 이 정도로 충분
+const POLL_TICK_MS = 30_000;
+const POLL_OPEN_MS = 2 * 60_000;
+const POLL_CLOSED_MS = 10 * 60_000;
 
 export default function StockMetrics({ ticker }: StockMetricsProps) {
   const [info, setInfo] = useState<StockInfo | null>(null);
@@ -14,9 +21,11 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchData = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [infoRes, priceRes] = await Promise.all([
         fetch(`/api/stock/${ticker}/info`),
@@ -40,14 +49,31 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
         throw new Error('일시적으로 정보를 불러오지 못했습니다.');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '일시적으로 정보를 불러오지 못했습니다.');
+      // 백그라운드 갱신 실패는 기존 화면을 유지하고 콘솔에만 남긴다(스켈레톤/에러 화면으로 갈아치우지 않음)
+      if (!opts?.silent) {
+        setError(e instanceof Error ? e.message : '일시적으로 정보를 불러오지 못했습니다.');
+      } else {
+        console.error('[StockMetrics] 백그라운드 갱신 실패:', e);
+      }
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
+  }, [ticker]);
+
+  useEffect(() => {
+    let lastFetch = Date.now();
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      const interval = isKoreanMarketOpen() ? POLL_OPEN_MS : POLL_CLOSED_MS;
+      if (Date.now() - lastFetch < interval) return;
+      lastFetch = Date.now();
+      fetchData({ silent: true });
+    }, POLL_TICK_MS);
+    return () => clearInterval(id);
   }, [ticker]);
 
   if (loading) {
@@ -71,7 +97,7 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
       <div className="p-4 border border-red-500/30 rounded-lg">
         <p className="text-red-500 text-sm">{error ?? '일시적으로 정보를 불러오지 못했습니다.'}</p>
         <button
-          onClick={fetchData}
+          onClick={() => fetchData()}
           className="mt-2 flex items-center gap-1 text-xs text-blue-500 hover:text-blue-400"
         >
           <RefreshCw className="w-3 h-3" /> 재시도

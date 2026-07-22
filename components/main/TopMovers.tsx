@@ -102,7 +102,10 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
 
   useEffect(() => {
     load();
-    const interval = setInterval(() => load(), 3 * 60 * 1000);
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      load();
+    }, 3 * 60 * 1000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

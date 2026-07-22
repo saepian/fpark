@@ -3,20 +3,29 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import type { StockPrice } from '../../lib/types';
+import { isKoreanMarketOpen } from '../../lib/market-utils';
 import WatchlistButton from './WatchlistButton';
 
 interface StockHeaderProps {
   ticker: string;
 }
 
+// 장중 30초 / 장외 10분 — 장외에도 완전히 멈추지 않는 이유는 동시호가 직후
+// 최종 체결가를 반영하기 위함(price API의 장마감 스테일 캐시 픽스와 동일 취지)
+const POLL_TICK_MS = 30_000;
+const POLL_OPEN_MS = 30_000;
+const POLL_CLOSED_MS = 10 * 60_000;
+
 export default function StockHeader({ ticker }: StockHeaderProps) {
   const [data, setData] = useState<StockPrice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchData = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await fetch(`/api/stock/${ticker}/price`);
       const body = await res.json().catch(() => null) as StockPrice | { error?: string } | null;
@@ -28,14 +37,31 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
       }
       setData(body as StockPrice);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '데이터 조회 실패');
+      // 백그라운드 갱신 실패는 기존 화면을 유지하고 콘솔에만 남긴다(스켈레톤/에러 화면으로 갈아치우지 않음)
+      if (!opts?.silent) {
+        setError(e instanceof Error ? e.message : '데이터 조회 실패');
+      } else {
+        console.error('[StockHeader] 백그라운드 갱신 실패:', e);
+      }
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
+  }, [ticker]);
+
+  useEffect(() => {
+    let lastFetch = Date.now();
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      const interval = isKoreanMarketOpen() ? POLL_OPEN_MS : POLL_CLOSED_MS;
+      if (Date.now() - lastFetch < interval) return;
+      lastFetch = Date.now();
+      fetchData({ silent: true });
+    }, POLL_TICK_MS);
+    return () => clearInterval(id);
   }, [ticker]);
 
   if (loading) {
@@ -57,7 +83,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
       <section className="mb-6">
         <p className="text-red-500 text-sm">{error ?? '데이터 없음'}</p>
         <button
-          onClick={fetchData}
+          onClick={() => fetchData()}
           className="mt-2 flex items-center gap-1 text-xs text-blue-500 hover:text-blue-400"
         >
           <RefreshCw className="w-3 h-3" /> 재시도
