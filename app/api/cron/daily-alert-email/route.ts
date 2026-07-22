@@ -7,6 +7,7 @@ import { makeUnsubToken } from '@/lib/unsubscribe-token';
 import { fetchDBNews, fetchMarketNews, pickRelevantNews } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { nowKstString, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency } from '@/lib/ai-grounding';
+import { listAllAuthUserEmails } from '@/lib/list-all-auth-users';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -392,16 +393,13 @@ export async function GET(request: NextRequest) {
   console.log(`[DAILY-EMAIL] 발송 대상: ${userIds.length}명`);
 
   // 2. 이메일 주소 일괄 조회 (페이지네이션으로 1000명 초과 대응)
-  const allAuthUsers: { id: string; email?: string }[] = [];
-  let authPage = 1;
-  while (true) {
-    const { data: { users: pageUsers } } = await adminClient.auth.admin.listUsers({ page: authPage, perPage: 1000 });
-    if (!pageUsers?.length) break;
-    allAuthUsers.push(...pageUsers);
-    if (pageUsers.length < 1000) break;
-    authPage++;
+  let emailMap: Map<string, string>;
+  try {
+    emailMap = await listAllAuthUserEmails('[DAILY-EMAIL]');
+  } catch (e) {
+    console.error('[DAILY-EMAIL] 유저 이메일 조회 최종 실패 — 발송 중단:', e instanceof Error ? e.message : e);
+    return NextResponse.json({ ok: false, error: 'listUsers failed' });
   }
-  const emailMap = new Map<string, string>(allAuthUsers.map((u) => [u.id, u.email ?? ''] as [string, string]));
 
   // 3. 관심종목 일괄 조회
   const { data: allWatchlist } = await adminClient
@@ -469,6 +467,11 @@ export async function GET(request: NextRequest) {
       stocks,
       notifications: notifMap.get(userId) ?? [],
     });
+  }
+
+  if (!userCtxList.length) {
+    console.error(`[DAILY-EMAIL] 활성 유저 ${activeUserIds.length}명 있었으나 이메일/주가 매칭 실패로 발송 대상 0명 — 확인 필요`);
+    return NextResponse.json({ ok: true, sent: 0, failed: 0, reason: 'no-valid-recipients' });
   }
 
   // 6-1. 유니크 하락 종목(전체 유저 통틀어) 뉴스 배치 조회 — 유저별이 아니라 종목 단위로 한 번만
@@ -544,5 +547,8 @@ export async function GET(request: NextRequest) {
   }
 
   console.log(`[DAILY-EMAIL] 완료 — 발송: ${sent}, 실패: ${failed}`);
+  if (sent === 0 && activeUserIds.length > 0) {
+    console.error(`[DAILY-EMAIL] 활성 유저 ${activeUserIds.length}명 있었으나 최종 발송 0건 (실패 ${failed}건) — 확인 필요`);
+  }
   return NextResponse.json({ ok: true, sent, failed });
 }

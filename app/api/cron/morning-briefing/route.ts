@@ -6,6 +6,7 @@ import { makeUnsubToken } from '@/lib/unsubscribe-token';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { fetchNaverNews, type NaverNewsItem } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency } from '@/lib/ai-grounding';
+import { listAllAuthUserEmails } from '@/lib/list-all-auth-users';
 
 // 장 시작 전(07:00 KST) 관심종목 "뉴스" 브리핑 — 저녁 daily-alert-email(수급/가격 중심)과
 // 겹치지 않도록 전일 장 마감 이후 새로 나온 뉴스만 AI로 분석해서 보낸다.
@@ -227,16 +228,13 @@ export async function GET(request: NextRequest) {
   const userIds = proUsers.map((u: { id: string }) => u.id);
 
   // 2. 이메일 주소 일괄 조회
-  const allAuthUsers: { id: string; email?: string }[] = [];
-  let authPage = 1;
-  while (true) {
-    const { data: { users: pageUsers } } = await adminClient.auth.admin.listUsers({ page: authPage, perPage: 1000 });
-    if (!pageUsers?.length) break;
-    allAuthUsers.push(...pageUsers);
-    if (pageUsers.length < 1000) break;
-    authPage++;
+  let emailMap: Map<string, string>;
+  try {
+    emailMap = await listAllAuthUserEmails('[MORNING-BRIEFING]');
+  } catch (e) {
+    console.error('[MORNING-BRIEFING] 유저 이메일 조회 최종 실패 — 발송 중단:', e instanceof Error ? e.message : e);
+    return NextResponse.json({ ok: false, error: 'listUsers failed' });
   }
-  const emailMap = new Map<string, string>(allAuthUsers.map((u) => [u.id, u.email ?? ''] as [string, string]));
 
   // 3. 관심종목 일괄 조회 — 워치리스트 없는 Pro 유저는 여기서 자연스럽게 제외
   const { data: allWatchlist } = await adminClient
@@ -298,7 +296,7 @@ export async function GET(request: NextRequest) {
 
   const tickersWithNews = [...newsResultMap.keys()];
   if (!tickersWithNews.length) {
-    console.log('[MORNING-BRIEFING] 새 뉴스 있는 종목 없음 — 오늘은 발송 스킵');
+    console.error(`[MORNING-BRIEFING] 활성 유저 ${activeUserIds.length}명 있었으나 새 뉴스 있는 종목 없음 — 발송 스킵 (sent:0, 확인 필요)`);
     return NextResponse.json({ ok: true, sent: 0, reason: 'no-fresh-news' });
   }
 
@@ -332,7 +330,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!userBriefings.length) {
-    console.log('[MORNING-BRIEFING] 새 뉴스가 관심종목에 매칭되는 유저 없음 — 발송 스킵');
+    console.error(`[MORNING-BRIEFING] 활성 유저 ${activeUserIds.length}명 있었으나 새 뉴스가 관심종목에 매칭되는 유저 없음 — 발송 스킵 (sent:0, 확인 필요)`);
     return NextResponse.json({ ok: true, sent: 0, reason: 'no-matching-users' });
   }
 
@@ -379,5 +377,8 @@ export async function GET(request: NextRequest) {
   }
 
   console.log(`[MORNING-BRIEFING] 완료 — 발송: ${sent}, 실패: ${failed}`);
+  if (sent === 0 && activeUserIds.length > 0) {
+    console.error(`[MORNING-BRIEFING] 활성 유저 ${activeUserIds.length}명 있었으나 최종 발송 0건 (실패 ${failed}건) — 확인 필요`);
+  }
   return NextResponse.json({ ok: true, sent, failed });
 }
