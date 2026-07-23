@@ -865,6 +865,63 @@ export async function fetchFluctuation(direction: 'up' | 'down', count = 5): Pro
   });
 }
 
+export interface InvestorFlowRankRow {
+  ticker: string;
+  name: string;
+  price: number;
+  changeRate: number;
+  netAmountAuk: number; // 억원 단위 (아래 PBMN_TO_AUK_DIVISOR 참고)
+}
+
+// [확인 완료, 2026-07-23 09:22 KST] frgn_ntby_tr_pbmn/orgn_ntby_tr_pbmn 단위 = 백만원(→ /100 = 억원).
+// 실제 응답으로 직접 검증: SK하이닉스 행에서 frgn_ntby_qty(166,000주) × stck_prpr(1,924,000원)
+// = 319,384,000,000원인데, frgn_ntby_tr_pbmn 원본값이 정확히 "319384" — 즉 raw × 1,000,000 = 실제 금액.
+// SK스퀘어 매도 행(-25,000주 × 1,264,000원 = -31,600,000,000원 vs raw "-31600")에서도 동일하게 재확인.
+// inquire-investor(FHKST01010900) 등 이 코드베이스의 다른 3곳과 동일한 단위 컨벤션.
+const PBMN_TO_AUK_DIVISOR = 100;
+
+// 국내기관_외국인 매매종목가집계 — 전 종목 대상 외국인/기관 순매수·순매도 상위 (FHPTJ04400000)
+// ⚠ 증권사 직원이 장중 수기 집계한 근사치로, 입력 시각은 외국인 09:30/11:20/13:20/14:30,
+// 기관종합 10:00/11:20/13:20/14:30 고정 — 그 이전 시각에 호출하면 빈 배열이 정상 응답이다.
+export async function fetchInvestorFlowRanking(
+  investorType: 'foreign' | 'institution',
+  direction: 'inflow' | 'outflow',
+  count = 5,
+): Promise<InvestorFlowRankRow[]> {
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/foreign-institution-total`);
+    url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'V');
+    url.searchParams.set('FID_COND_SCR_DIV_CODE', '16449');
+    url.searchParams.set('FID_INPUT_ISCD', '0000');       // 전체(코스피+코스닥)
+    url.searchParams.set('FID_DIV_CLS_CODE', '1');         // 금액정렬
+    url.searchParams.set('FID_RANK_SORT_CLS_CODE', direction === 'inflow' ? '0' : '1');
+    url.searchParams.set('FID_ETC_CLS_CODE', investorType === 'foreign' ? '1' : '2');
+
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'FHPTJ04400000'),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`외국인/기관 매매종목가집계 조회 실패 [${res.status}]`);
+
+    const data = await res.json();
+    assertKisTokenValid(data, `fetchInvestorFlowRanking(${investorType},${direction})`);
+    if (data.rt_cd !== '0') throw new Error(`외국인/기관 매매종목가집계 API 오류: ${data.msg1}`);
+
+    const output: any[] = data.output ?? [];
+    const amountField = investorType === 'foreign' ? 'frgn_ntby_tr_pbmn' : 'orgn_ntby_tr_pbmn';
+    return output.slice(0, count).map((o) => ({
+      ticker:       o.mksc_shrn_iscd,
+      name:         o.hts_kor_isnm,
+      price:        parseInt(o.stck_prpr || '0', 10),
+      changeRate:   signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
+      netAmountAuk: Math.round(Number(o[amountField] || 0) / PBMN_TO_AUK_DIVISOR),
+    }));
+  });
+}
+
 // 100개 주요 종목의 당일 52주 신고가/신저가 갱신 여부 확인 (배치 처리)
 export async function fetchCurated52wAlerts(): Promise<{ highAlerts: AlertStock[]; lowAlerts: AlertStock[] }> {
   return withKisTokenRetry(async () => {

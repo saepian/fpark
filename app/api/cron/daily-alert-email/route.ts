@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminClient } from '@/lib/supabase-admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
-import { fetchStockPrice } from '@/lib/kis-api';
+import { fetchStockPrice, fetchInvestorFlowRanking, type InvestorFlowRankRow } from '@/lib/kis-api';
 import { makeUnsubToken } from '@/lib/unsubscribe-token';
 import { fetchDBNews, fetchMarketNews, pickRelevantNews } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
@@ -228,8 +228,14 @@ function buildEmailHtml(params: {
   aiComment: string;
   notifications: { message: string }[];
   userId: string;
+  investorFlow: {
+    foreignInflow: InvestorFlowRankRow[];
+    foreignOutflow: InvestorFlowRankRow[];
+    institutionInflow: InvestorFlowRankRow[];
+    institutionOutflow: InvestorFlowRankRow[];
+  };
 }): string {
-  const { userName, dateStr, stocks, aiComment, notifications, userId } = params;
+  const { userName, dateStr, stocks, aiComment, notifications, userId, investorFlow } = params;
 
   const upStocks   = stocks.filter((s) => s.changeRate > 0);
   const downStocks = stocks.filter((s) => s.changeRate < 0);
@@ -269,6 +275,44 @@ function buildEmailHtml(params: {
           </ul>
         </div>`
       : '';
+
+  // 외국인/기관 매매종목가집계 — "매수"/"매도" 대신 자금 유입/유출로 표현(COMPLIANCE_PRINCIPLE 준수).
+  // 09:30/10:00 첫 집계 전이나 휴장일엔 4개 리스트 전부 빈 배열일 수 있어 그 경우 섹션 자체를 생략한다.
+  const flowRow = (r: InvestorFlowRankRow, accentColor: string) => `<tr style="border-bottom:1px solid #1e2537">
+      <td style="padding:7px 8px;color:#e2e8f0;font-size:12.5px">${escapeHtml(r.name)}<span style="color:#475569;font-size:10.5px;margin-left:4px">${r.ticker}</span></td>
+      <td style="padding:7px 8px;color:${accentColor};font-size:12.5px;font-weight:700;text-align:right;font-family:monospace">${Math.abs(r.netAmountAuk).toLocaleString()}억원</td>
+      <td style="padding:7px 8px;color:${r.changeRate >= 0 ? '#ef4444' : '#3b82f6'};font-size:12px;text-align:right;font-family:monospace">${r.changeRate >= 0 ? '+' : ''}${r.changeRate.toFixed(2)}%</td>
+    </tr>`;
+
+  const flowTable = (title: string, rows: InvestorFlowRankRow[], accentColor: string) =>
+    rows.length
+      ? `<div style="margin-top:14px">
+          <p style="margin:0 0 6px;color:#94a3b8;font-size:11.5px;font-weight:600">${title}</p>
+          <table style="width:100%;border-collapse:collapse">
+            <tbody>${rows.map((r) => flowRow(r, accentColor)).join('')}</tbody>
+          </table>
+        </div>`
+      : '';
+
+  const hasAnyFlowData =
+    investorFlow.foreignInflow.length > 0 || investorFlow.foreignOutflow.length > 0 ||
+    investorFlow.institutionInflow.length > 0 || investorFlow.institutionOutflow.length > 0;
+
+  const flowSection = hasAnyFlowData
+    ? `<div style="margin-top:28px;background:#0f1117;border:1px solid #1e2537;border-radius:12px;padding:20px 24px">
+        <h2 style="margin:0 0 4px;color:#e2e8f0;font-size:14px;font-weight:700;letter-spacing:.05em">🌐 외국인·기관 매매동향 (14:30 기준 잠정치)</h2>
+        <p style="margin:0 0 14px;color:#64748b;font-size:11px;line-height:1.6">
+          장중 집계 자료로, 장마감(15:30) 이후 최종 수치와 다를 수 있습니다. 전 종목 대상 자금 유입·유출 상위 5개입니다.
+        </p>
+        ${flowTable('외국인 자금 유입 상위 5', investorFlow.foreignInflow, '#ef4444')}
+        ${flowTable('외국인 자금 유출 상위 5', investorFlow.foreignOutflow, '#3b82f6')}
+        ${flowTable('기관 자금 유입 상위 5', investorFlow.institutionInflow, '#ef4444')}
+        ${flowTable('기관 자금 유출 상위 5', investorFlow.institutionOutflow, '#3b82f6')}
+        <p style="margin:16px 0 0;color:#475569;font-size:11px;font-style:italic;border-top:1px solid #1e293b;padding-top:12px">
+          ${INVESTMENT_DISCLAIMER}
+        </p>
+      </div>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="ko">
@@ -322,6 +366,7 @@ function buildEmailHtml(params: {
       </div>
     </div>
 
+    ${flowSection}
     ${aiSection}
     ${notifSection}
 
@@ -488,6 +533,25 @@ export async function GET(request: NextRequest) {
   const marketNews = await fetchMarketNews(`${notifDate}T00:00:00+09:00`);
   console.log(`[DAILY-EMAIL] 시장 전체 뉴스 ${marketNews.length}건:`, marketNews.map((n) => n.title));
 
+  // 6-3. 외국인/기관 매매종목가집계(전 종목 대상) — 크론 실행당 1회만 조회, 전 유저 공유.
+  // 09:30(외국인)/10:00(기관) 첫 집계 전이나 휴장일에는 빈 배열이 정상 응답이라 개별 실패로
+  // 취급하지 않고, 실패한 리스트만 빈 배열로 두고 이메일에서 해당 섹션만 자연스럽게 생략한다.
+  const flowRankingSettled = await Promise.allSettled([
+    fetchInvestorFlowRanking('foreign', 'inflow'),
+    fetchInvestorFlowRanking('foreign', 'outflow'),
+    fetchInvestorFlowRanking('institution', 'inflow'),
+    fetchInvestorFlowRanking('institution', 'outflow'),
+  ]);
+  const [foreignInflow, foreignOutflow, institutionInflow, institutionOutflow] = flowRankingSettled.map((r) => {
+    if (r.status === 'fulfilled') return r.value;
+    console.error('[DAILY-EMAIL] 외국인/기관 매매종목가집계 조회 실패:', r.reason);
+    return [] as InvestorFlowRankRow[];
+  });
+  console.log(
+    `[DAILY-EMAIL] 외국인/기관 매매동향 — 외국인 유입 ${foreignInflow.length}/유출 ${foreignOutflow.length}, ` +
+    `기관 유입 ${institutionInflow.length}/유출 ${institutionOutflow.length}`,
+  );
+
   // 7. Claude 호출 병렬 실행 (Promise.allSettled)
   const aiResults = await Promise.allSettled(
     userCtxList.map((ctx) => generateAiComment(ctx.userName, ctx.stocks, newsMap, commonCauseNews, marketNews)),
@@ -514,6 +578,7 @@ export async function GET(request: NextRequest) {
       aiComment,
       notifications: ctx.notifications,
       userId:        ctx.userId,
+      investorFlow:  { foreignInflow, foreignOutflow, institutionInflow, institutionOutflow },
     });
 
     let status: 'sent' | 'failed' = 'sent';
