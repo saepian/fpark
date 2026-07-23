@@ -1,7 +1,15 @@
+// 2026-07-23 가격 인상(Basic 9,900→14,900 / Pro 19,900→29,900). 기존 구독자는 Dodo 정책상
+// 자동으로 새 가격이 적용되지 않고 가입 당시 가격을 유지하므로(Change Plan API를 별도
+// 호출해야 이관됨), 환불/업그레이드 계산은 이 라이브 상수가 아니라 실제 결제 기록에서
+// 가입 당시 가격을 역산해야 한다 — lib/subscription-pricing.ts 참고.
 export const PLAN_AMOUNTS = {
-  basic: { monthly: 9900,  annual: 95040,  name: 'Finance Park Basic' },
-  pro:   { monthly: 19900, annual: 191040, name: 'Finance Park Pro'   },
+  basic: { monthly: 14900, annual: 143040, name: 'Finance Park Basic' },
+  pro:   { monthly: 29900, annual: 287040, name: 'Finance Park Pro'   },
 } as const satisfies Record<string, { monthly: number; annual: number; name: string }>;
+
+// 연간 결제 할인율 — annual = monthly × 12 × (1 - 이 값). PricingClient.tsx(정가 표시)와
+// lib/subscription-pricing.ts(실 결제액에서 정가 역산)가 공유한다.
+export const ANNUAL_DISCOUNT_RATE = 0.2;
 
 // verify/route.ts 에서 금액 검증 시 사용
 export const PLAN_ALLOWED_AMOUNTS: Record<string, number[]> = {

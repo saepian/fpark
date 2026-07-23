@@ -17,6 +17,7 @@ import { adminClient } from '@/lib/supabase-admin';
 import { PLAN_ALLOWED_AMOUNTS, PLAN_AMOUNTS } from '@/lib/payment-constants';
 import { computeDepositorName } from '@/lib/bank-transfer';
 import { calculateUpgradeChargeAmount } from '@/lib/upgrade-credit';
+import { getLastActualPayment, deriveMonthlyPriceFromPayment } from '@/lib/subscription-pricing';
 import { getUsageCycleStart } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
@@ -85,7 +86,7 @@ async function computeUpgradeQuote(
   // 크레딧 이용률 상한(calculateUsageRatio) 계산에 필요한 이용실적 — 원 가입일 이후
   // 평생 누적이 아니라 "이번 결제 사이클" 이용 건수여야 한다(lib/upgrade-credit.ts 주석 참고).
   const { cycleStart } = getUsageCycleStart(userRow.subscription_start_date, new Date());
-  const [{ count: diagnosisCount }, { count: portfolioCount }, { count: stockAnalysisCount }] = await Promise.all([
+  const [{ count: diagnosisCount }, { count: portfolioCount }, { count: stockAnalysisCount }, lastPayment] = await Promise.all([
     adminClient
       .from('stock_diagnosis')
       .select('*', { count: 'exact', head: true })
@@ -101,10 +102,20 @@ async function computeUpgradeQuote(
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .gte('usage_date', cycleStart.toISOString().split('T')[0]),
+    getLastActualPayment(userId),
   ]);
 
+  // 2026-07-23 가격 인상 대응 — 라이브 PLAN_AMOUNTS.basic.monthly 대신 이 유저가 실제로 내고
+  // 있는 Basic 금액을 씀. 그래야 인상 전 가입자가 인상 후 업그레이드해도, 실제로는 옛 가격을
+  // 내고 있는데 크레딧이 새(더 비싼) 가격 기준으로 과다 산정되는 걸 막는다(Dodo는 기존 구독을
+  // 자동으로 새 가격으로 옮기지 않음). targetPlanMonthly(Pro)는 오늘 새로 가입하는 가격이라
+  // 라이브 값이 맞다.
+  const currentPlanMonthly = lastPayment
+    ? deriveMonthlyPriceFromPayment(lastPayment.amount, lastPayment.isAnnual)
+    : PLAN_AMOUNTS.basic.monthly; // 과거 결제기록이 없는 예외 상황(레거시 데이터 등) 폴백
+
   const { credit, chargeAmount } = calculateUpgradeChargeAmount({
-    currentPlanMonthly: PLAN_AMOUNTS.basic.monthly,
+    currentPlanMonthly,
     targetPlanMonthly:  PLAN_AMOUNTS.pro.monthly,
     nextBilledAt:       new Date(userRow.next_billed_at),
     now:                new Date(),
@@ -119,7 +130,7 @@ async function computeUpgradeQuote(
     chargeAmount,
     creditAmount:       credit.creditAmount,
     remainingDays:      credit.remainingDays,
-    currentPlanMonthly: PLAN_AMOUNTS.basic.monthly,
+    currentPlanMonthly,
     targetPlanMonthly:  PLAN_AMOUNTS.pro.monthly,
     usageCapped:        credit.cappedByUsage,
   };

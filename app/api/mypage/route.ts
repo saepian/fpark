@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 import { adminClient } from '@/lib/supabase-admin';
 import { cookies } from 'next/headers';
 import { getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
+import { PLAN_AMOUNTS } from '@/lib/payment-constants';
+import { getLastActualPayment, deriveMonthlyPriceFromPayment } from '@/lib/subscription-pricing';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -45,7 +47,7 @@ export async function GET() {
     now,
   );
 
-  const [diagnosisCount, portfolioCount, stockAnalysisCount, payments, pendingBankTransfer] = await Promise.all([
+  const [diagnosisCount, portfolioCount, stockAnalysisCount, payments, pendingBankTransfer, lastPayment] = await Promise.all([
     adminClient
       .from('stock_diagnosis')
       .select('*', { count: 'exact', head: true })
@@ -113,13 +115,24 @@ export async function GET() {
         return null;
       }
     })(),
+
+    plan === 'free' ? Promise.resolve(null) : getLastActualPayment(user.id),
   ]);
+
+  // 2026-07-23 가격 인상 대응 — 라이브 PLAN_AMOUNTS를 그대로 보여주면, 가입 당시 옛 가격을
+  // 계속 내고 있는 기존 구독자(Dodo는 기존 구독을 자동으로 새 가격으로 옮기지 않음)에게
+  // "월 결제금액"이 실제 청구액과 다르게 표시된다 — 실제 결제 기록에서 역산한 값을 쓴다.
+  const monthlyDisplayAmount =
+    plan === 'free' ? 0
+    : lastPayment ? deriveMonthlyPriceFromPayment(lastPayment.amount, lastPayment.isAnnual)
+    : PLAN_AMOUNTS[plan].monthly; // 과거 결제기록이 없는 예외 상황(레거시 데이터 등) 폴백
 
   return NextResponse.json({
     email: user.email ?? '',
     name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
     avatarUrl: user.user_metadata?.avatar_url ?? user.user_metadata?.picture ?? null,
     plan,
+    monthlyDisplayAmount,
     createdAt: userRow?.created_at ?? user.created_at,
     emailAlertEnabled: userRow?.email_alert_enabled ?? true,
     morningBriefingEnabled: userRow?.morning_briefing_enabled ?? true,

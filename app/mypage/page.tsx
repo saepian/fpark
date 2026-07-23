@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import PageBackground from '@/components/layout/PageBackground';
-import { BANK_TRANSFER_ACCOUNT, PLAN_USAGE_LIMITS, PLAN_AMOUNTS } from '@/lib/payment-constants';
+import { BANK_TRANSFER_ACCOUNT, PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
 type PlanType = 'free' | 'basic' | 'pro';
 
@@ -15,6 +15,7 @@ interface MyPageData {
   name: string | null;
   avatarUrl: string | null;
   plan: PlanType;
+  monthlyDisplayAmount: number;
   createdAt: string;
   emailAlertEnabled: boolean;
   morningBriefingEnabled: boolean;
@@ -629,7 +630,7 @@ export default function MyPage() {
                 <div className="flex items-end gap-0.5">
                   <span className="text-slate-500 text-[15px] mb-0.5">₩</span>
                   <span className="text-[28px] font-bold text-white leading-none font-mono">
-                    {PLAN_AMOUNTS[data.plan as 'basic' | 'pro'].monthly.toLocaleString()}
+                    {data.monthlyDisplayAmount.toLocaleString()}
                   </span>
                   <span className="text-slate-500 text-[13px] mb-0.5">/월</span>
                 </div>

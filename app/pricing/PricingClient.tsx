@@ -6,7 +6,7 @@ import { ChevronDown, Zap } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import PageBackground from '@/components/layout/PageBackground';
 import PaymentMethodSelect from '@/components/payment/PaymentMethodSelect';
-import { PLAN_AMOUNTS, PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { PLAN_AMOUNTS, PLAN_USAGE_LIMITS, ANNUAL_DISCOUNT_RATE } from '@/lib/payment-constants';
 import { PLAN_FEATURES, type PlanType, type PlanFeature } from '@/lib/plan-features';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -45,7 +45,8 @@ const ANNUAL_BILLING_ENABLED = true;
 
 // 연간 일시불 = 월 요금 × 12 × (1 - 할인율). 상수로 박아두면 월 요금이 바뀔 때
 // 연간 값과 어긋날 수 있어, 항상 이 공식으로 계산해 자동 동기화한다.
-const ANNUAL_DISCOUNT_RATE = 0.2; // 20% 할인
+// ANNUAL_DISCOUNT_RATE는 lib/payment-constants.ts에서 공유 — lib/subscription-pricing.ts의
+// 정가 역산 공식과 동일한 값을 써야 한다.
 
 function withAnnualPricing(
   data: { type: PlanType; name: string; monthly: number; description: string; features: PlanFeature[]; cta: string },
@@ -134,11 +135,11 @@ const FAQ_ITEMS = [
 - 그 외의 모든 경우(7일 이내 이용했거나 7일을 초과한 경우): 실제 이용한 개월 수(경과일수 ÷ 30일, 올림, 최대 12개월)만큼
   정가 월요금을 소급 청구한 뒤 나머지를 환불. 7일이 지나도 환불이 불가능해지지 않으며 언제든 해지·환불 신청이 가능합니다.
 
-예시(Pro 연간, 191,040원 결제 기준)
-- 0일, 미사용 → 전액환불 191,040원
-- 3일 경과(사용 여부 무관) → 1개월 정가(19,900원) 소급 차감 → 171,140원 환불
-- 40일 경과 → 2개월 정가(39,800원) 소급 차감 → 151,240원 환불
-- 350일 경과 → 12개월(정가 소급 상한) 238,800원 ≥ 결제액이라 환불 0원`,
+예시(Pro 연간, ${PLAN_AMOUNTS.pro.annual.toLocaleString()}원 결제 기준)
+- 0일, 미사용 → 전액환불 ${PLAN_AMOUNTS.pro.annual.toLocaleString()}원
+- 3일 경과(사용 여부 무관) → 1개월 정가(${PLAN_AMOUNTS.pro.monthly.toLocaleString()}원) 소급 차감 → ${(PLAN_AMOUNTS.pro.annual - PLAN_AMOUNTS.pro.monthly).toLocaleString()}원 환불
+- 40일 경과 → 2개월 정가(${(PLAN_AMOUNTS.pro.monthly * 2).toLocaleString()}원) 소급 차감 → ${(PLAN_AMOUNTS.pro.annual - PLAN_AMOUNTS.pro.monthly * 2).toLocaleString()}원 환불
+- 350일 경과 → 12개월(정가 소급 상한) ${(PLAN_AMOUNTS.pro.monthly * 12).toLocaleString()}원 ≥ 결제액이라 환불 0원`,
   },
   {
     id: 'plan-diff',

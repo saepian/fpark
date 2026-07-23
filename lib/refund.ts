@@ -19,7 +19,8 @@
 //       재사용된다 — 단, 거기서는 이 함수의 "7일 쿨링오프" 게이트를 적용하지 않는다(그
 //       게이트는 최초 가입 청약철회 정책이라 매달 반복 적용되면 안 됨).
 
-import { PLAN_USAGE_LIMITS, PLAN_AMOUNTS } from '@/lib/payment-constants';
+import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { deriveMonthlyPriceFromPayment } from '@/lib/subscription-pricing';
 
 const REFUND_WINDOW_DAYS = 7;
 const PRORATION_DENOMINATOR_DAYS = 30;
@@ -159,7 +160,8 @@ export function calculateRefund(params: {
 //      (전자상거래법 기준 절대 예외, 월간결제와 동일하게 유지)
 //   2) 그 외(7일 이내라도 사용했거나, 7일 초과): 해지예약 없이 즉시 해지 + 아래 공식으로 환불
 //      - monthsUsed = max(1, ceil(경과일수 / 30)), 최대 12개월로 cap
-//      - retroactiveCost = monthsUsed × 플랜 정가 월요금(PLAN_AMOUNTS[plan].monthly)
+//      - retroactiveCost = monthsUsed × 플랜 정가 월요금(deriveMonthlyPriceFromPayment(paidAmount, true) —
+//        가입 당시 결제액에서 역산, 라이브 PLAN_AMOUNTS 아님— 2026-07-23 가격 인상 대응)
 //      - refundAmount = max(0, 결제금액 - retroactiveCost)
 //   연간결제는 "7일 초과 시 환불 불가·해지예약" 규칙을 적용하지 않는다 — 언제든 취소 가능.
 
@@ -169,7 +171,7 @@ export interface AnnualRefundCalcResult {
   paidAmount:        number;
   elapsedDays:       number;
   monthsUsed:        number;
-  monthlyFullPrice:  number; // 플랜 정가 월요금(PLAN_AMOUNTS[plan].monthly) — 소급 계산의 단가
+  monthlyFullPrice:  number; // 가입 당시 정가 월요금(결제액에서 역산) — 소급 계산의 단가
   retroactiveCost:   number;
   diagnosisCount:    number;
   portfolioCount:    number;
@@ -194,7 +196,11 @@ export function calculateAnnualRefund(params: {
   const elapsedDays   = Math.floor((cancelAt.getTime() - subscriptionStartDate.getTime()) / 86_400_000);
   const usageDetected = diagnosisCount + portfolioCount + stockAnalysisCount > 0;
 
-  const monthlyFullPrice = PLAN_AMOUNTS[plan].monthly;
+  // 2026-07-23 가격 인상 대응 — 라이브 PLAN_AMOUNTS 대신 이 유저가 실제로 낸 paidAmount에서
+  // "가입 당시 정가"를 역산한다. 인상 전에 가입한 유저가 인상 후 취소해도, 새(더 비싼) 정가로
+  // 소급 계산돼 환불액이 부당하게 줄어드는 걸 막는다 — Dodo는 기존 구독을 자동으로 새 가격으로
+  // 옮기지 않으므로(Change Plan API 별도 호출 전까지) 가입 당시 가격이 여전히 유효하다.
+  const monthlyFullPrice = deriveMonthlyPriceFromPayment(paidAmount, true);
 
   // 7일 이내 + 완전 미사용 → 전액환불 (전자상거래법 기준 예외, 그대로 유지)
   if (elapsedDays <= REFUND_WINDOW_DAYS && !usageDetected) {
