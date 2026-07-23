@@ -1,3 +1,35 @@
+import type { MarketIndexData } from './types';
+
+// Yahoo Finance Chart API로 해외 지수/환율 조회 — KIS 인증 불필요, 무료.
+// app/api/market/route.ts(국내증시 카드)와 cron/morning-briefing(미국증시 개장 전 요약)이 공유한다.
+export async function fetchYahooIndex(symbol: string): Promise<MarketIndexData | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; fpark/1.0)' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    });
+    const data = await res.json();
+    const result = data.chart?.result?.[0];
+    const meta   = result?.meta;
+    if (!meta?.regularMarketPrice) return null;
+
+    const rawCloses: (number | null)[] = result?.indicators?.quote?.[0]?.close ?? [];
+    const closes = rawCloses.filter((v): v is number => v != null && isFinite(v));
+
+    const price      = meta.regularMarketPrice as number;
+    const prev       = closes[closes.length - 2] ?? (meta.chartPreviousClose ?? meta.previousClose ?? price) as number;
+    const change     = price - prev;
+    const changeRate = prev > 0 ? ((price - prev) / prev) * 100 : 0;
+
+    return { value: price, change, changeRate, sparkline: closes };
+  } catch (e) {
+    console.warn(`[market-utils] ${symbol} 조회 실패:`, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 export function isKoreanMarketOpen(): boolean {
   const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
   const day = kst.getDay();

@@ -1,7 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { fetchMarketIndex } from '../../../lib/kis-api';
 import { supabase } from '../../../lib/supabase';
-import { isKoreanMarketOpen, getLastTradingDate } from '../../../lib/market-utils';
+import { isKoreanMarketOpen, getLastTradingDate, fetchYahooIndex } from '../../../lib/market-utils';
 import type { MarketResponse, MarketIndexData } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -35,34 +35,6 @@ async function fetchUsdKrwWithFallback(): Promise<MarketIndexData | null> {
 
   // 2순위: Yahoo Finance
   return fetchYahooFX('KRW=X').catch(() => null);
-}
-
-async function fetchYahooIndex(symbol: string): Promise<MarketIndexData | null> {
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; fpark/1.0)' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(6000),
-    });
-    const data = await res.json();
-    const result = data.chart?.result?.[0];
-    const meta   = result?.meta;
-    if (!meta?.regularMarketPrice) return null;
-
-    const rawCloses: (number | null)[] = result?.indicators?.quote?.[0]?.close ?? [];
-    const closes = rawCloses.filter((v): v is number => v != null && isFinite(v));
-
-    const price      = meta.regularMarketPrice as number;
-    const prev       = closes[closes.length - 2] ?? (meta.chartPreviousClose ?? meta.previousClose ?? price) as number;
-    const change     = price - prev;
-    const changeRate = prev > 0 ? ((price - prev) / prev) * 100 : 0;
-
-    return { value: price, change, changeRate, sparkline: closes };
-  } catch (e) {
-    console.warn(`[MARKET] ${symbol} 조회 실패:`, e instanceof Error ? e.message : e);
-    return null;
-  }
 }
 
 // 국고채 3년: Yahoo Reuters RIC 'KR3YT=RR' (1순위) → 네이버 스크래핑 (2순위)
