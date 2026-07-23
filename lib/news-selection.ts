@@ -30,6 +30,7 @@ export interface NewsCandidate {
   summary?: string;
   date?: string;
   url?: string;
+  source?: string; // 표시용 출처(예: '네이버뉴스', DB 기사 원 출처명) — 호출자가 필요할 때만 사용
 }
 
 const SELECTION_SYSTEM_PROMPT = `당신은 뉴스 제목 목록에서 특정 종목과 직접 관련된 "서로 다른 사건"만 골라내는 필터입니다.
@@ -94,10 +95,10 @@ export async function selectRelevantNews(
   ]);
 
   const naverByNameCandidates: NewsCandidate[] = byName.items.map((n) => ({
-    title: n.title, summary: n.description, date: n.pubDate, url: n.url,
+    title: n.title, summary: n.description, date: n.pubDate, url: n.url, source: '네이버뉴스',
   }));
   const naverByCodeCandidates: NewsCandidate[] = byCode.items.map((n) => ({
-    title: n.title, summary: n.description, date: n.pubDate, url: n.url,
+    title: n.title, summary: n.description, date: n.pubDate, url: n.url, source: '네이버뉴스',
   }));
 
   const seen = new Set<string>();
