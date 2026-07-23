@@ -528,8 +528,22 @@ export async function GET(request: NextRequest) {
     const email = emailMap.get(userId) ?? '';
     if (!email) { console.warn(`[DAILY-EMAIL] 이메일 없음: ${userId}`); continue; }
     const watchItems = userWatchMap.get(userId) ?? [];
+    // 2026-07-23: priceMap의 이름(fetchStockPrice → resolveStockName)은 KIS 재조회가
+    // 실패하면 종목코드를 그대로 반환하는데(lib/kis-api.ts), 여기서 그 값을 무조건
+    // 채택해 watchlist 테이블에 있던 정상 이름을 버리고 있었다 — 실제 발송에서
+    // 012860/047040/375500/006800/185750이 코드로 노출된 원인. watchlist 쪽도
+    // 드물게 이름이 코드로 잘못 저장된 경우가 있어(예: 064260) 단순히 watchlist를
+    // 우선할 수는 없고, "종목코드와 다른(=진짜 이름으로 보이는)" 쪽을 우선한다.
+    const isPlaceholderName = (name: string, ticker: string) => !name || name === ticker;
     const stocks: StockResult[] = watchItems
-      .map((w) => priceMap.get(w.ticker))
+      .map((w) => {
+        const p = priceMap.get(w.ticker);
+        if (!p) return null;
+        const name = !isPlaceholderName(p.name, w.ticker) ? p.name
+                   : !isPlaceholderName(w.name, w.ticker) ? w.name
+                   : p.name;
+        return { ...p, name };
+      })
       .filter((s): s is StockResult => !!s);
     if (!stocks.length) continue;
     userCtxList.push({
