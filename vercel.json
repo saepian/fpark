@@ -36,6 +36,9 @@
     },
     "app/api/cron/bank-transfer-auto-match/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/dart-corp-code-refresh/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -86,6 +89,10 @@
     {
       "path": "/api/cron/bank-transfer-auto-match",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/dart-corp-code-refresh",
+      "schedule": "0 18 */3 * *"
     }
   ]
 }

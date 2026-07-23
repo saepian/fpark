@@ -262,7 +262,11 @@ async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
         { type: 'text', text: STOCK_SIGNAL_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
       ],
       messages: [{ role: 'user', content: prompt }],
-    });
+      // 2026-07-23: 종목별 병렬 호출이라 재시도가 겹치면 전체 Stage 1 시간이 크게 늘어날 수
+      // 있음 — maxRetries:0(SDK 기본 재시도는 타임아웃도 재시도 대상이라 예산 계산 불가)
+      // + timeout 30s(실측 종목당 최악 ~10초 대비 3배 여유, 병렬이라 종목 수와 무관하게
+      // 이 값이 Stage 1 전체 상한).
+    }, { timeout: 30_000, maxRetries: 0 });
     console.log('[TOKEN_USAGE]', {
       route: 'portfolio-diagnosis-stage1', ticker: h.ticker, hasNews: h.relevantNews.length > 0,
       input_tokens: msg.usage.input_tokens,
@@ -423,7 +427,10 @@ async function analyzePortfolioSummary(
         { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
       ],
       messages: [{ role: 'user', content: prompt }],
-    });
+      // 2026-07-23: 단일 호출(Stage 2)이 전체 라우트의 지배적 병목(실측 62.7초) — maxRetries:0
+      // (SDK 기본 재시도는 타임아웃도 재시도 대상이라 예산 계산 불가) + timeout 75s로,
+      // Stage 0/1/DB저장 몫을 남기고도 maxDuration(120s) 안에서 우리 catch가 먼저 발동하게 함.
+    }, { timeout: 75_000, maxRetries: 0 });
     console.log('[TOKEN_USAGE]', {
       route: 'portfolio-diagnosis-stage2', holdingCount,
       input_tokens: msg.usage.input_tokens,

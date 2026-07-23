@@ -133,6 +133,10 @@ export default function DiagnosisPage() {
           quantity: parseInt(quantity),
           buyDate: buyDate || null,
         }),
+        // 2026-07-23: 종목분석(AiAnalysis.tsx)과 동일한 방어적 타임아웃 — 서버
+        // maxDuration(120s)보다 살짝 여유를 둬서, 서버가 죽어 응답이 영영 안 오는
+        // 경우에도 무한 대기하지 않고 catch로 떨어져 에러 메시지를 보여주게 함.
+        signal: AbortSignal.timeout(125_000),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || '분석 실패'); return; }

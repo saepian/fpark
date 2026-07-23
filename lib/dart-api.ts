@@ -12,6 +12,15 @@ const DART_BASE = 'https://opendart.fss.or.kr/api';
 const CORP_CODE_CACHE_KEY = 'dart_corp_code_map';
 const CORP_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // DART 데이터 갱신 주기 고려 7일
 
+// 2026-07-23 실측: Supabase 캐시가 있어도 매 요청마다 DB 왕복이 발생했고, 캐시가
+// 만료된 시점엔 그 순간 요청한 사용자가 다운로드+파싱 비용(실측 4.3초)을 그대로
+// 떠안는 구조였다(진단: TTL 만료 시 지연(lazy) 갱신 방식이 원인, 콜드스타트와는 무관 —
+// Supabase 영속 캐시 자체는 이미 있었음). 워밍된 인스턴스 안에서는 프로세스 메모리에
+// 들고 있다가 재사용해 DB 왕복조차 줄인다 — 원본 데이터가 7일에 한 번 바뀌는 정적
+// 데이터라 인스턴스 생애주기 동안(길어야 몇 시간) 재검증 없이 재사용해도 안전하다.
+let _memCache: { map: Map<string, string>; loadedAt: number } | null = null;
+const MEM_TTL_MS = 60 * 60 * 1000; // 1시간 — 인스턴스가 오래 warm 상태로 남아도 너무 오래 묵지 않게
+
 let _sb: ReturnType<typeof createClient<Database>> | null = null;
 function getSb() {
   if (!_sb) _sb = createClient<Database>(
@@ -80,6 +89,10 @@ async function downloadAndParseCorpCodeMap(): Promise<Map<string, string>> {
 }
 
 async function loadCorpCodeMap(): Promise<Map<string, string>> {
+  if (_memCache && Date.now() - _memCache.loadedAt < MEM_TTL_MS) {
+    return _memCache.map;
+  }
+
   try {
     const { data: cache } = await getSb()
       .from('market_cache')
@@ -87,13 +100,24 @@ async function loadCorpCodeMap(): Promise<Map<string, string>> {
       .eq('key', CORP_CODE_CACHE_KEY)
       .single();
     if (cache?.data && Date.now() - new Date(cache.updated_at as string).getTime() < CORP_CODE_TTL_MS) {
-      return new Map(Object.entries(cache.data as Record<string, string>));
+      const map = new Map(Object.entries(cache.data as Record<string, string>));
+      _memCache = { map, loadedAt: Date.now() };
+      return map;
     }
   } catch (e) {
     console.warn('[DART] corp_code 캐시 조회 실패, 새로 받는다:', e instanceof Error ? e.message : e);
   }
 
+  // 2026-07-23: 여기 도달하는 경우 = Supabase 캐시가 없거나 TTL(7일) 만료 — 이 요청을
+  // 보낸 사용자가 다운로드+파싱 비용(실측 4.3초)을 떠안는다. refreshCorpCodeMap()을
+  // 크론으로 미리 돌려 TTL 만료 전에 갱신해두면 사용자 요청이 이 경로를 타지 않는다.
   const map = await downloadAndParseCorpCodeMap();
+  await persistCorpCodeMap(map);
+  _memCache = { map, loadedAt: Date.now() };
+  return map;
+}
+
+async function persistCorpCodeMap(map: Map<string, string>): Promise<void> {
   try {
     await getSb().from('market_cache').upsert({
       key: CORP_CODE_CACHE_KEY,
@@ -103,7 +127,15 @@ async function loadCorpCodeMap(): Promise<Map<string, string>> {
   } catch (e) {
     console.warn('[DART] corp_code 캐시 저장 실패(계속 진행):', e instanceof Error ? e.message : e);
   }
-  return map;
+}
+
+// TTL(7일)보다 훨씬 짧은 주기의 크론에서 호출 — 사용자 요청 경로에서 다운로드가
+// 발생하지 않도록 만료 전에 선제적으로 갱신한다. 강제 다운로드(TTL 체크 없이).
+export async function refreshCorpCodeMap(): Promise<{ count: number }> {
+  const map = await downloadAndParseCorpCodeMap();
+  await persistCorpCodeMap(map);
+  _memCache = { map, loadedAt: Date.now() };
+  return { count: map.size };
 }
 
 export async function fetchCorpCode(ticker: string): Promise<string | null> {

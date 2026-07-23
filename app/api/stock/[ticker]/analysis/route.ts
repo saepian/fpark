@@ -598,7 +598,12 @@ ${yesterdayComparisonBlock}
             { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
           ],
           messages: [{ role: 'user', content: prompt }],
-        });
+          // 2026-07-23: withTemporalRetry가 이미 최대 2회(초기+재생성) 이 함수를 호출하므로,
+          // SDK maxRetries까지 더하면 예산 계산이 불가능해진다(SDK는 타임아웃도 재시도
+          // 대상이라 timeout의 배수만큼 걸릴 수 있음) — maxRetries:0으로 앱 레벨 재시도와
+          // 중첩되지 않게 하고, timeout은 2회 호출 최악(2×28s=56s)이 maxDuration(60s) 안에
+          // 들어오도록 산정(실측 단일호출 최악 22.5초 대비 여유 있음).
+        }, { timeout: 28_000, maxRetries: 0 });
         console.log('[TOKEN_USAGE]', {
           route: 'stock-analysis', ticker, reportType,
           input_tokens: message.usage.input_tokens,

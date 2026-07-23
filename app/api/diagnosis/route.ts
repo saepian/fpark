@@ -29,7 +29,11 @@ import {
 import type { Database } from '@/lib/database.types';
 
 export const dynamic    = 'force-dynamic';
-export const maxDuration = 60;
+// 2026-07-23 실측: 60초는 2026-06-29 DB 에러 핸들링 보강 시 30→60초로 단순 연장한 값이라
+// 실측 근거가 없었음 — 이후 "3차 고도화"로 출력 필드가 늘며 지금은 실측 worst-case가
+// 42.9초(71.5%)까지 올라와 세 리포트 중 여유가 가장 적었다. 포트폴리오진단(120s)과
+// 동일 수준으로 맞춰 안전마진 확보(Vercel Pro GA 상한 800초 대비 15%에 불과).
+export const maxDuration = 120;
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -538,7 +542,14 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysis에서 판단 없이 사실 
         { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
       ],
       messages: [{ role: 'user', content: prompt }],
-    });
+      // 2026-07-23: SDK 기본값(timeout 10분, maxRetries 2)은 maxDuration(120s)보다 훨씬 커서,
+      // Claude가 느려지면 우리 catch가 실행되기 전에 Vercel이 함수를 강제종료해 사용자에게
+      // 에러 메시지 없이 연결만 끊길 위험이 있었다 — 명시적으로 짧게 걸어 우리 에러 핸들링이
+      // 항상 먼저 발동하도록 함. maxRetries는 0으로 낮춤(SDK 기본 재시도는 타임아웃도
+      // 재시도 대상이라 최악의 경우 timeout의 배수만큼 걸릴 수 있어, 예산 계산이 불가능해짐
+      // — 재시도 없이 1회 시도(실측 최악 36.6초 대비 2.5배 여유)로 실패하면 즉시 명확한
+      // 에러를 반환하는 편이 낫다).
+    }, { timeout: 90_000, maxRetries: 0 });
 
     console.log('[DIAGNOSIS] 5. Claude 응답 수신');
     console.log('[TOKEN_USAGE]', {
