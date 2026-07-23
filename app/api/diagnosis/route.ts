@@ -10,7 +10,6 @@ import {
   buildTechnicalBlock,
   buildInvestorBlock,
   buildNewsBlock,
-  pickRelevantNews,
   computeSurgeHistory,
   computeTradingValueMultiple,
   computeRiskMetrics,
@@ -21,7 +20,7 @@ import {
 import { fetchSectorPeers, computeSectorRelativeChange } from '@/lib/sector-peers';
 import { fetchRecentDisclosures, type DartDisclosure } from '@/lib/dart-api';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
-import { fetchNaverNews } from '@/lib/naver-news';
+import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import {
   nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency,
   kstDateStr, daysBetween,
@@ -244,10 +243,22 @@ export async function POST(request: NextRequest) {
     // ── 1단계: 데이터 병렬 수집 ─────────────────────────────────────────────
     console.log('[DIAGNOSIS] 1. 데이터 수집 시작', { ticker, name });
 
-    const [priceResult, analysisResult, naverNewsResult, chartResult, sectorResult, financialsResult, disclosuresResult] = await Promise.allSettled([
+    // 2026-07-23: 뉴스 조회를 종목명 단독 검색(+DB뉴스 병합)에서 종목명+종목코드
+    // 병행 검색 후 Haiku 1차 선별로 교체(lib/news-selection.ts, 종목분석에서
+    // 이미 검증됨). collectStockAnalysisData의 DB뉴스(analysisData.news)는 계속
+    // 보조 후보로 병행 — Promise로 넘겨 collectStockAnalysisData 완료를 기다리지
+    // 않고 Naver 조회를 먼저 시작한다(같은 collectStockAnalysisData 호출을
+    // 중복 호출하지 않도록 analysisDataPromise를 한 번만 만들어 재사용).
+    const analysisDataPromise = collectStockAnalysisData(ticker, name);
+    const dbNewsExtraPromise: Promise<NewsCandidate[]> = analysisDataPromise.then(
+      (ad) => (ad.news ?? []).map((n) => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
+      () => [],
+    );
+
+    const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult] = await Promise.allSettled([
       fetchStockPrice(ticker),
-      collectStockAnalysisData(ticker, name),
-      fetchNaverNews(name),
+      analysisDataPromise,
+      selectRelevantNews(ticker, name, dbNewsExtraPromise),
       // '1M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
       // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
       fetchDailyChart(ticker, '1Y'),
@@ -259,14 +270,14 @@ export async function POST(request: NextRequest) {
     console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
       price:    priceResult.status,
       analysis: analysisResult.status,
-      news:     naverNewsResult.status,
+      news:     newsSelectionResult.status,
       chart:    chartResult.status,
       sector:   sectorResult.status,
       financials: financialsResult.status,
       disclosures: disclosuresResult.status,
       priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
       analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
-      newsErr:     naverNewsResult.status === 'rejected' ? String(naverNewsResult.reason): null,
+      newsErr:     newsSelectionResult.status === 'rejected' ? String(newsSelectionResult.reason): null,
       chartErr:    chartResult.status    === 'rejected' ? String(chartResult.reason)    : null,
       sectorErr:   sectorResult.status   === 'rejected' ? String(sectorResult.reason)   : null,
       financialsErr: financialsResult.status === 'rejected' ? String(financialsResult.reason) : null,
@@ -276,7 +287,6 @@ export async function POST(request: NextRequest) {
     // ── 2단계: 결과 추출 ──────────────────────────────────────────────────────
     const priceData    = priceResult.status    === 'fulfilled' ? priceResult.value    : null;
     const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
-    const naverNewsRaw = naverNewsResult.status === 'fulfilled' ? naverNewsResult.value.items : [];
     const chartData    = chartResult.status    === 'fulfilled' ? chartResult.value    : [];
     const sectorPeers   = sectorResult.status     === 'fulfilled' ? sectorResult.value     : [];
     const annualFinancials: AnnualFinancialRow[] = financialsResult.status === 'fulfilled' ? financialsResult.value : [];
@@ -307,16 +317,8 @@ export async function POST(request: NextRequest) {
       if (analysisData) investorBlock = buildInvestorBlock(analysisData);
     } catch (e) { console.error('[DIAGNOSIS] buildInvestorBlock 실패:', e); }
 
-    // DB 뉴스 + Naver 뉴스를 한 풀로 모은 뒤, 종목명·업종 키워드로 관련도 상위 2~3개만 선별
-    const newsCandidates = [
-      ...(analysisData?.news ?? []).map(n => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
-      ...naverNewsRaw.map((n) => ({
-        title:   n.title,
-        summary: n.description,
-        url:     n.url,
-      })),
-    ];
-    const relevantNews = pickRelevantNews(newsCandidates, stockName, analysisData?.sector, 3);
+    // 종목명+종목코드 병행 검색 + Haiku 1차 선별 결과(최대 5건, 이미 관련성 검증됨)
+    const relevantNews = newsSelectionResult.status === 'fulfilled' ? newsSelectionResult.value.items : [];
     const hasRelevantNews = relevantNews.length > 0;
 
     try {

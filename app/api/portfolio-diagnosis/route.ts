@@ -8,7 +8,6 @@ import {
   collectStockAnalysisData,
   buildTechnicalBlock,
   buildInvestorBlock,
-  pickRelevantNews,
   computeRiskMetrics,
   computeSurgeHistory,
   buildSurgeHistoryBlock,
@@ -17,7 +16,7 @@ import {
 } from '@/lib/stock-analysis-data';
 import type { StockAnalysisData } from '@/lib/stock-analysis-data';
 import { fetchDailyChart, fetchIndexRangeChange } from '@/lib/kis-api';
-import { fetchNaverNews } from '@/lib/naver-news';
+import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import { COMPLIANCE_PRINCIPLE, clampSignal, type Signal } from '@/lib/ai-compliance';
 import {
   nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency,
@@ -578,12 +577,18 @@ export async function POST(request: NextRequest) {
         send(controller, { type: 'progress', label: '종목 데이터 수집 중...' });
         console.log(`[PORTFOLIO-DIAGNOSIS] 데이터 수집 시작 (${holdings.length}개 종목)`);
 
-        const [analysisResults, chartResults, naverNewsResults] = await Promise.all([
-          Promise.allSettled(
-            holdings.map(h =>
-              withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
-            ),
-          ),
+        // 2026-07-23: 뉴스 조회를 종목명 단독 검색에서 종목명+종목코드 병행 검색 +
+        // Haiku 1차 선별로 교체(lib/news-selection.ts, 종목분석에서 이미 검증됨).
+        // collectStockAnalysisData 완료를 기다리지 않도록 promise를 미리 만들어
+        // 재사용 — 종목별로 selectRelevantNews가 완전히 병렬로 나가야 보유종목
+        // 수와 무관하게 Stage 0 시간이 늘어나지 않는다(analysisResults 배치와
+        // 동일하게 holdings.map()으로 병렬 fan-out).
+        const analysisDataPromises = holdings.map(h =>
+          withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
+        );
+
+        const [analysisResults, chartResults, newsSelectionResults] = await Promise.all([
+          Promise.allSettled(analysisDataPromises),
           Promise.allSettled(
             // '3M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
             // 호출 수는 그대로(종목당 1회) — MDD/변동성 계산도 배열이 길어져도 동일하게 동작.
@@ -599,12 +604,20 @@ export async function POST(request: NextRequest) {
               })
             ),
           ),
-          // 2026-07-13 발견: collectStockAnalysisData는 DB(articles) 뉴스만 보고 있어서
-          // 소형주는 실제 관련 뉴스가 있어도 DB 커버리지가 낮아 "미확인" 처리되는 문제가
-          // 있었다(실측: 모베이스전자 DB 뉴스 0건). 기업분석/종목 리포트와 동일하게
-          // 네이버 실시간 검색을 병행한다.
+          // 종목당 최대 12초로 상한(기존 chart 타임아웃 15초보다 짧게 유지 — Stage 0
+          // 전체 worst-case가 이 변경으로 늘어나지 않도록, chart가 계속 지배적 병목이게 함).
           Promise.allSettled(
-            holdings.map(h => withTimeout(fetchNaverNews(h.name), 8000, { items: [], apiError: true })),
+            holdings.map((h, i) => {
+              const extraCandidates: Promise<NewsCandidate[]> = analysisDataPromises[i].then(
+                (ad) => (ad?.news ?? []).map(n => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
+                () => [],
+              );
+              return withTimeout(
+                selectRelevantNews(h.ticker, h.name, extraCandidates),
+                12000,
+                { items: [], isCached: false },
+              );
+            }),
           ),
         ]);
 
@@ -618,13 +631,8 @@ export async function POST(request: NextRequest) {
           const profit       = value - invested;
           const profitRate   = h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : 0;
 
-          const nr = naverNewsResults[i];
-          const naverItems = nr.status === 'fulfilled' ? nr.value.items : [];
-          const newsCandidates = [
-            ...(ad?.news ?? []).map(n => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
-            ...naverItems.map(n => ({ title: n.title, summary: n.description, url: n.url })),
-          ];
-          const relevantNews = pickRelevantNews(newsCandidates, resolvedName, ad?.sector, 3);
+          const newsRes = newsSelectionResults[i];
+          const relevantNews = newsRes.status === 'fulfilled' ? newsRes.value.items : [];
 
           const cr        = chartResults[i];
           const chartData = (cr.status === 'fulfilled' && cr.value) ? cr.value : [];

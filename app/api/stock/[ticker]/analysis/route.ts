@@ -11,11 +11,10 @@ import {
   buildSurgeHistoryBlock,
   buildTradingValueBlock,
   buildRiskMetricsBlock,
-  pickRelevantNews,
   buildNewsBlock,
 } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
-import { fetchNaverNews } from '@/lib/naver-news';
+import { selectRelevantNews } from '@/lib/news-selection';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
 import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
@@ -31,7 +30,7 @@ export type ReportType = 'news-driven' | 'data-driven';
 
 // 2026-07-10 "리포트가 매일 똑같아 보인다"는 문제 제기로 재설계. 핵심 원칙:
 // 1) 뉴스 유무는 AI가 스스로 판단하지 않고 서버가 먼저 결정해서 프롬프트에 못박는다
-//    (아래 reportType — pickRelevantNews 결과 유무로 결정, AI는 echo만 함).
+//    (아래 reportType — selectRelevantNews 결과 유무로 결정, AI는 echo만 함).
 // 2) 52주 고저가·PER 같은 정적 지표는 참고 정보로 격하하고 본문 근거로 못 쓰게 막는다.
 // 3) "어제와 달라진 점"을 직접 계산해서 프롬프트에 주입해 대조 기준을 준다.
 // 4) fpark 자체 계산 지표(급등이력/거래대금배수/MDD·변동성)를 최소 1개 강제 활용시킨다.
@@ -458,9 +457,11 @@ export async function GET(
   }
   const [price, info] = priceInfo;
 
-  // 3. 관련 뉴스 — DB 캐시(articles) 조회는 유지하되, 중소형주는 DB에 거의 안 걸리므로
-  // Naver 실시간 검색 결과를 보완적으로 병행하고 관련도 스코어링으로 상위 3건만 선별.
-  const [{ data: dbNews }, ...naverResults] = await Promise.all([
+  // 3. 관련 뉴스 — 종목명+종목코드 병행 검색(display=100) 후 Haiku 1차 관련성 선별.
+  // 2026-07-23 재설계: 기존 종목명 단독 검색(display=5)은 "네이버"처럼 일상어·그룹명과
+  // 겹치는 종목에서 노이즈(수백만 건)에 실제 회사 뉴스가 파묻히는 문제를 실측 확인
+  // (lib/news-selection.ts 참고). DB 캐시(articles)는 계속 보조 후보로 병행.
+  const dbNewsPromise = Promise.resolve(
     supabase
       .from('articles')
       .select('title, summary, published_at')
@@ -468,27 +469,13 @@ export async function GET(
       .not('summary', 'is', null)
       .order('published_at', { ascending: false })
       .limit(5),
-    fetchNaverNews(price.name, { sort: 'date' }),
-    fetchNaverNews(`${price.name} 잠정실적`, { sort: 'date' }),
-    fetchNaverNews(`${price.name} 실적발표`, { sort: 'date' }),
-  ]);
+  ).then(({ data }) => (data ?? []).map((n) => ({
+    title:   n.title,
+    summary: n.summary ?? undefined,
+    date:    n.published_at ? new Date(n.published_at).toLocaleDateString('ko-KR') : undefined,
+  })));
 
-  const seenNaverTitle = new Set<string>();
-  const naverItems = naverResults.flatMap((r) => r.items).filter((item) => {
-    if (seenNaverTitle.has(item.title)) return false;
-    seenNaverTitle.add(item.title);
-    return true;
-  });
-
-  const newsCandidates = [
-    ...(dbNews ?? []).map((n) => ({
-      title:   n.title,
-      summary: n.summary ?? undefined,
-      date:    n.published_at ? new Date(n.published_at).toLocaleDateString('ko-KR') : undefined,
-    })),
-    ...naverItems.map((n) => ({ title: n.title, summary: n.description })),
-  ];
-  const relevantNews = pickRelevantNews(newsCandidates, price.name, price.sector, 3);
+  const { items: relevantNews } = await selectRelevantNews(ticker, price.name, dbNewsPromise);
   const newsBlock = buildNewsBlock(relevantNews);
 
   // 이 종목과 직접 관련된 뉴스 유무로 리포트 유형을 서버가 먼저 결정한다 — AI가 스스로
