@@ -278,19 +278,40 @@ function buildEmailHtml(params: {
 
   // 외국인/기관 매매종목가집계 — "매수"/"매도" 대신 자금 유입/유출로 표현(COMPLIANCE_PRINCIPLE 준수).
   // 09:30/10:00 첫 집계 전이나 휴장일엔 4개 리스트 전부 빈 배열일 수 있어 그 경우 섹션 자체를 생략한다.
+  // 유입/유출을 한 줄에 나란히 배치해 기관까지 포함돼도 세로 길이가 늘어나지 않게 한다.
   const flowRow = (r: InvestorFlowRankRow, accentColor: string) => `<tr style="border-bottom:1px solid #1e2537">
-      <td style="padding:7px 8px;color:#e2e8f0;font-size:12.5px">${escapeHtml(r.name)}<span style="color:#475569;font-size:10.5px;margin-left:4px">${r.ticker}</span></td>
-      <td style="padding:7px 8px;color:${accentColor};font-size:12.5px;font-weight:700;text-align:right;font-family:monospace">${Math.abs(r.netAmountAuk).toLocaleString()}억원</td>
-      <td style="padding:7px 8px;color:${r.changeRate >= 0 ? '#ef4444' : '#3b82f6'};font-size:12px;text-align:right;font-family:monospace">${r.changeRate >= 0 ? '+' : ''}${r.changeRate.toFixed(2)}%</td>
+      <td style="padding:6px 4px;color:#e2e8f0;font-size:11.5px">${escapeHtml(r.name)}<span style="color:#475569;font-size:9.5px;margin-left:3px">${r.ticker}</span></td>
+      <td style="padding:6px 4px;color:${accentColor};font-size:11.5px;font-weight:700;text-align:right;font-family:monospace;white-space:nowrap">${Math.abs(r.netAmountAuk).toLocaleString()}억</td>
     </tr>`;
 
-  const flowTable = (title: string, rows: InvestorFlowRankRow[], accentColor: string) =>
+  // Outlook/Apple Mail 등은 flexbox(gap, flex:1 등)를 불안정하게 처리하는 경우가 많아
+  // (실측: gap 제거됨, 두 컬럼 폭이 깨짐) — 이메일에서 가장 안정적인 table 2컬럼 구조로 배치한다.
+  const flowColumn = (title: string, rows: InvestorFlowRankRow[], accentColor: string) =>
     rows.length
-      ? `<div style="margin-top:14px">
-          <p style="margin:0 0 6px;color:#94a3b8;font-size:11.5px;font-weight:600">${title}</p>
-          <table style="width:100%;border-collapse:collapse">
-            <tbody>${rows.map((r) => flowRow(r, accentColor)).join('')}</tbody>
-          </table>
+      ? `<p style="margin:0 0 6px;color:#94a3b8;font-size:11px;font-weight:600">${title}</p>
+        <table style="width:100%;border-collapse:collapse">
+          <tbody>${rows.map((r) => flowRow(r, accentColor)).join('')}</tbody>
+        </table>`
+      : '';
+
+  const flowPairRow = (leftTitle: string, leftRows: InvestorFlowRankRow[], rightTitle: string, rightRows: InvestorFlowRankRow[]) =>
+    (leftRows.length > 0 || rightRows.length > 0)
+      ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px">
+          <tr>
+            <td width="50%" valign="top" style="padding-right:15px">${flowColumn(leftTitle, leftRows, '#ef4444')}</td>
+            <td width="50%" valign="top" style="padding-left:15px">${flowColumn(rightTitle, rightRows, '#3b82f6')}</td>
+          </tr>
+        </table>`
+      : '';
+
+  // 외국인/기관 두 그룹이 서로 구분되도록 그룹별로 큰 컬러 배지 헤더를 두고, 그 아래 배경을
+  // 살짝 다르게 줘서 박스 자체로도 구획을 나눈다. 컬럼 제목은 그룹 헤더가 이미 "외국인"/"기관"을
+  // 나타내므로 "자금 유입/유출 상위 5"로 간결화한다.
+  const flowGroup = (label: string, emoji: string, groupColor: string, bgColor: string, inflowRows: InvestorFlowRankRow[], outflowRows: InvestorFlowRankRow[]) =>
+    (inflowRows.length > 0 || outflowRows.length > 0)
+      ? `<div style="margin-top:16px;background:${bgColor};border:1px solid ${groupColor}55;border-radius:10px;padding:14px 16px">
+          <span style="display:inline-block;color:${groupColor};font-size:14px;font-weight:800;letter-spacing:.02em">${emoji} ${label}</span>
+          ${flowPairRow('자금 유입 상위 5', inflowRows, '자금 유출 상위 5', outflowRows)}
         </div>`
       : '';
 
@@ -304,10 +325,8 @@ function buildEmailHtml(params: {
         <p style="margin:0 0 14px;color:#64748b;font-size:11px;line-height:1.6">
           장중 집계 자료로, 장마감(15:30) 이후 최종 수치와 다를 수 있습니다. 전 종목 대상 자금 유입·유출 상위 5개입니다.
         </p>
-        ${flowTable('외국인 자금 유입 상위 5', investorFlow.foreignInflow, '#ef4444')}
-        ${flowTable('외국인 자금 유출 상위 5', investorFlow.foreignOutflow, '#3b82f6')}
-        ${flowTable('기관 자금 유입 상위 5', investorFlow.institutionInflow, '#ef4444')}
-        ${flowTable('기관 자금 유출 상위 5', investorFlow.institutionOutflow, '#3b82f6')}
+        ${flowGroup('외국인', '🌍', '#38bdf8', '#0c1a24', investorFlow.foreignInflow, investorFlow.foreignOutflow)}
+        ${flowGroup('기관', '🏛', '#fbbf24', '#241c0c', investorFlow.institutionInflow, investorFlow.institutionOutflow)}
         <p style="margin:16px 0 0;color:#475569;font-size:11px;font-style:italic;border-top:1px solid #1e293b;padding-top:12px">
           ${INVESTMENT_DISCLAIMER}
         </p>
@@ -318,7 +337,10 @@ function buildEmailHtml(params: {
 <html lang="ko">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Finance Park 일일 리포트</title></head>
 <body style="margin:0;padding:0;background:#060810;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-  <div style="max-width:560px;margin:0 auto;padding:24px 16px 48px">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#060810">
+    <tr>
+      <td align="center">
+  <div style="max-width:640px;margin:0 auto;padding:24px 16px 48px;text-align:left">
 
     <!-- 헤더 -->
     <div style="text-align:center;padding:32px 0 24px">
@@ -386,6 +408,9 @@ function buildEmailHtml(params: {
     </div>
 
   </div>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
 }
