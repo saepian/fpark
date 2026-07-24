@@ -77,15 +77,21 @@ async function saveToCache(ticker: string, items: NewsCandidate[]): Promise<void
 // extraCandidates: DB 캐시(articles) 등 호출자가 이미 갖고 있는 후보를 함께 판단시키고
 // 싶을 때 전달 — Promise로 받아서 캐시 히트 시엔 기다리지 않고, 캐시 미스일 때만
 // Naver 조회와 병렬로 resolve되게 한다(호출자가 미리 시작해둔 DB 쿼리를 그대로 활용).
+// 2026-07-24: apiError 필드 추가 — 이름/코드 검색이 둘 다 레이트리밋(429) 등으로
+// 실패하면(bothFailed) items가 빈 배열로 나오는데, 기존엔 이걸 "검색해서 실제로 뉴스가
+// 없음"과 구분할 방법이 없었다(bothFailed는 캐싱 여부 판단에만 쓰이고 반환되지 않았음).
+// 호출부(daily-alert-email의 fetchNewsMapForStocks)가 "확인된 없음"과 "확인 자체를
+// 못함"을 구분해 다른 문구를 보여줄 수 있도록 명시적으로 반환한다. 기존 호출부 5곳은
+// 전부 { items } 구조분해만 하므로 필드 추가는 하위호환.
 export async function selectRelevantNews(
   ticker: string,
   stockName: string,
   extraCandidates: Promise<NewsCandidate[]> | NewsCandidate[] = [],
-): Promise<{ items: NewsCandidate[]; isCached: boolean }> {
+): Promise<{ items: NewsCandidate[]; isCached: boolean; apiError: boolean }> {
   const cached = await loadFromCache(ticker);
   if (cached) {
     console.log(`[NEWS-SELECTION] ${ticker} 캐시 히트 (${cached.length}건)`);
-    return { items: cached, isCached: true };
+    return { items: cached, isCached: true, apiError: false };
   }
 
   const [byName, byCode, extra] = await Promise.all([
@@ -116,7 +122,7 @@ export async function selectRelevantNews(
 
   if (candidates.length === 0) {
     if (!bothFailed) await saveToCache(ticker, []);
-    return { items: [], isCached: false };
+    return { items: [], isCached: false, apiError: bothFailed };
   }
 
   const fallback = (): NewsCandidate[] => naverByNameCandidates.slice(0, 3);
@@ -160,5 +166,5 @@ export async function selectRelevantNews(
 
   selected = selected.slice(0, NEWS_SELECTION_MAX);
   await saveToCache(ticker, selected);
-  return { items: selected, isCached: false };
+  return { items: selected, isCached: false, apiError: false };
 }

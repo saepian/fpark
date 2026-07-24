@@ -615,7 +615,7 @@ export async function POST(request: NextRequest) {
               return withTimeout(
                 selectRelevantNews(h.ticker, h.name, extraCandidates),
                 12000,
-                { items: [], isCached: false },
+                { items: [], isCached: false, apiError: true }, // 타임아웃도 "확인 자체를 못함" 상태
               );
             }),
           ),
