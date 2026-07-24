@@ -1,171 +1,27 @@
 import { after } from 'next/server';
-import { getAccessToken, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
+import { getAccessToken } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
-import { isKoreanMarketOpen, getTradingDateCandidates, findFirstNonEmptyByDate } from '@/lib/market-utils';
+import { isKoreanMarketOpen } from '@/lib/market-utils';
+import {
+  type StockRow,
+  type MarketCacheJson,
+  cacheKeyFor,
+  isValidStockItem,
+  mapRow,
+  fetchFluctuation,
+  fetchNaverRanking,
+  getCachedRanking,
+  getLastCloseRanking,
+  fetchDailyRanking,
+} from '@/lib/market-ranking';
 
 export const dynamic = 'force-dynamic';
 
-const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 // 2026-07-15: 이 상수가 정의만 되고 실제 TTL 게이팅에 쓰이지 않던 죽은 코드였음(캐시는
 // KIS/네이버 실패 시 폴백으로만 쓰였고, 매 요청이 항상 라이브 호출이었다) — 국내증시
 // 페이지 5분 자동 새로고침 도입 후 부하 문제로 실제 TTL 캐시로 전환.
 const CACHE_TTL_MS_OPEN   = 60_000;      // 장중 1분 — 순위는 급격히 안 바뀜
 const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
-const cacheKeyFor = (tab: string) => `ranking_${tab}`;
-
-const EXCLUDE_PATTERN = /ETN|ETF|ELW|인버스|레버리지|선물|PLUS|KODEX|TIGER|KBSTAR|ARIRANG|HANARO|ACE|SOL\s/;
-
-const kisHeaders = (token: string, trId: string) => ({
-  'content-type': 'application/json',
-  authorization: `Bearer ${token}`,
-  appkey: process.env.KIS_APP_KEY!,
-  appsecret: process.env.KIS_APP_SECRET!,
-  tr_id: trId,
-  custtype: 'P',
-});
-
-interface StockRow {
-  rank: number;
-  ticker: string;
-  name: string;
-  price: number;
-  changeRate: number;
-  change: number;
-  volume: number;
-  tradingValue: number;
-}
-
-// KIS가 간헐적으로 이름/가격이 빈 stub row를 섞어 보내는 경우가 있어(2026-07-21 장중
-// 관측), 네이버 폴백 경로(fetchNaverRanking)와 동일한 유효성 기준으로 걸러낸다.
-function isValidStockItem(item: any): boolean {
-  const name = String(item.hts_kor_isnm ?? '').trim();
-  const price = Number(item.stck_prpr);
-  return name.length > 0 && price > 0;
-}
-
-function mapRow(item: any, i: number): StockRow {
-  return {
-    rank: i + 1,
-    ticker: item.stck_shrn_iscd || item.mksc_shrn_iscd || '',
-    name: item.hts_kor_isnm,
-    price: Number(item.stck_prpr),
-    changeRate: Number(item.prdy_ctrt),
-    change: Number(item.prdy_vrss),
-    volume: Number(item.acml_vol),
-    tradingValue: Math.round(Number(item.acml_tr_pbmn) / 1_000_000),
-  };
-}
-
-async function fetchFluctuation(blngClsCode: string) {
-  return withKisTokenRetry(async () => {
-    const token = await getAccessToken();
-    const params = new URLSearchParams({
-      FID_COND_MRKT_DIV_CODE: 'J',
-      FID_COND_SCR_DIV_CODE: '20171',
-      FID_INPUT_ISCD: '0001',
-      FID_DIV_CLS_CODE: '0',
-      FID_BLNG_CLS_CODE: blngClsCode,
-      FID_TRGT_CLS_CODE: '111111111',
-      FID_TRGT_EXLS_CLS_CODE: '000000',
-      FID_INPUT_PRICE_1: '0',
-      FID_INPUT_PRICE_2: '9999999',
-      FID_VOL_CNT: '0',
-      FID_INPUT_DATE_1: '',
-    });
-    const res = await fetch(
-      `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
-      { headers: kisHeaders(token, 'FHPST01710000'), cache: 'no-store' },
-    );
-    if (!res.ok) throw new Error(`FHPST01710000 HTTP ${res.status}`);
-    const data = await res.json();
-    assertKisTokenValid(data, 'FHPST01710000');
-    if (data.rt_cd !== '0') throw new Error(`FHPST01710000 ${data.msg1 ?? ''}`);
-    return data;
-  });
-}
-
-// 네이버 급등/급락 스크래핑 (장 마감 폴백)
-async function fetchNaverRanking(type: '급등' | '급락', count = 50): Promise<StockRow[]> {
-  const url = type === '급등'
-    ? 'https://finance.naver.com/sise/sise_rise.naver'
-    : 'https://finance.naver.com/sise/sise_fall.naver';
-
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept-Language': 'ko-KR,ko;q=0.9',
-      'Referer': 'https://finance.naver.com/',
-    },
-    cache: 'no-store',
-    signal: AbortSignal.timeout(8000),
-  });
-
-  const buffer = await res.arrayBuffer();
-  const html = new TextDecoder('euc-kr').decode(buffer);
-
-  const tableMatch = html.match(/<table[^>]*class=['"]type_2['"][^>]*>([\s\S]*?)<\/table>/);
-  if (!tableMatch) {
-    console.warn('[ranking] Naver: type_2 table not found');
-    return [];
-  }
-
-  const rows: StockRow[] = [];
-  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-  let m: RegExpExecArray | null;
-
-  while ((m = rowRe.exec(tableMatch[1])) !== null) {
-    const rowHtml = m[1];
-    const codeMatch = rowHtml.match(/code=(\d{6})/);
-    if (!codeMatch) continue;
-
-    const ticker = codeMatch[1];
-    const cells: string[] = [];
-    const cellRe = /<td[^>]*>([\s\S]*?)<\/td>/g;
-    let cm: RegExpExecArray | null;
-    while ((cm = cellRe.exec(rowHtml)) !== null) {
-      cells.push(cm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
-    }
-    if (cells.length < 9) continue;
-
-    const rank = parseInt(cells[0], 10);
-    if (isNaN(rank) || rank <= 0) continue;
-
-    const name = cells[1].trim();
-    const price = parseInt(cells[2].replace(/,/g, ''), 10);
-    if (!name || isNaN(price) || price <= 0) continue;
-    if (EXCLUDE_PATTERN.test(name)) continue;
-
-    // cells[4]: "+29.99%" or "-5.23%"
-    const changeRateStr = cells[4].replace(/[+%,]/g, '').trim();
-    const changeRate = parseFloat(changeRateStr);
-    // cells[3]: "상한가 2,810" or "상승 1,500" or "하락 200" — 숫자만 추출
-    const changeAbs = parseInt(cells[3].replace(/[^0-9]/g, ''), 10) || 0;
-    const change = changeRate >= 0 ? changeAbs : -changeAbs;
-
-    const volume = parseInt(cells[5].replace(/,/g, ''), 10) || 0;
-    const tradingValue = parseInt(cells[8].replace(/,/g, ''), 10) || 0;
-
-    rows.push({ rank, ticker, name, price, changeRate, change, volume, tradingValue });
-    if (rows.length >= count) break;
-  }
-
-  console.log(`[ranking] Naver ${type}: ${rows.length}행`);
-  return rows;
-}
-
-async function getCachedRanking(tab: string): Promise<StockRow[] | null> {
-  try {
-    const { data: cache } = await supabase
-      .from('market_cache')
-      .select('data, updated_at')
-      .eq('key', cacheKeyFor(tab))
-      .single();
-    if (!cache?.data) return null;
-    return cache.data as StockRow[];
-  } catch {
-    return null;
-  }
-}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -183,7 +39,7 @@ export async function GET(request: Request) {
       const age = Date.now() - new Date(cache.updated_at).getTime();
       if (age < ttlMs) {
         console.log(`[ranking] ${tab} TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s) — 라이브 호출 생략`);
-        return Response.json(cache.data as StockRow[]);
+        return Response.json(cache.data as unknown as StockRow[]);
       }
     }
   } catch (e) {
@@ -210,7 +66,7 @@ export async function GET(request: Request) {
         validRows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
         const result = validRows.slice(0, 50).map(mapRow);
         after(async () => {
-          const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result, updated_at: new Date().toISOString() });
+          const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result as unknown as MarketCacheJson, updated_at: new Date().toISOString() });
           if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
         });
         return Response.json(result);
@@ -235,7 +91,7 @@ export async function GET(request: Request) {
         validRows.sort((a, b) => Number(b.acml_vol) - Number(a.acml_vol));
         const result = validRows.slice(0, 50).map(mapRow);
         after(async () => {
-          const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result, updated_at: new Date().toISOString() });
+          const { error } = await supabase.from('market_cache').upsert({ key: cacheKeyFor(tab), data: result as unknown as MarketCacheJson, updated_at: new Date().toISOString() });
           if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
         });
         return Response.json(result);
@@ -251,92 +107,65 @@ export async function GET(request: Request) {
     if (tab === '급등' || tab === '급락') {
       const cacheKey = cacheKeyFor(tab);
       const marketOpen = isKoreanMarketOpen();
-      // 장 외 시간에는 "실제 데이터가 존재하는" 가장 최근 거래일을 순차 탐색한다 —
-      // 공휴일 캘린더 없이 KIS 응답이 비어있으면 하루씩 물러나며 재시도 (장 시작 전
-      // "전날꺼" 표시 요구사항 + 공휴일 폴백 견고화).
-      const dateCandidates = marketOpen ? [{ yyyymmdd: '', label: '' }] : getTradingDateCandidates();
 
-      const fetchAndMap = async (inputDate: string): Promise<StockRow[]> => {
-        const data = await withKisTokenRetry(async () => {
-          const token = await getAccessToken();
-          const params = new URLSearchParams({
-            FID_COND_MRKT_DIV_CODE: 'J',
-            FID_COND_SCR_DIV_CODE: '170',
-            FID_INPUT_ISCD: '0001',
-            FID_RANK_SORT_CLS_CODE: tab === '급등' ? '0' : '1',
-            FID_INPUT_CNT_1: '0',
-            FID_PRC_CLS_CODE: '0',
-            FID_INPUT_PRICE_1: '',
-            FID_INPUT_PRICE_2: '',
-            FID_VOL_CNT: '',
-            FID_TRGT_CLS_CODE: '111111111',
-            FID_TRGT_EXLS_CLS_CODE: '000000',
-            FID_DIV_CLS_CODE: '0',
-            FID_INPUT_DATE_1: inputDate,
-            FID_RSFL_RATE1: '',
-            FID_RSFL_RATE2: '',
-            FID_RST_CLB_CODE: '',
-          });
-          const res = await fetch(
-            `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
-            { headers: kisHeaders(token, 'FHPST01700000'), cache: 'no-store' },
-          );
-          if (!res.ok) throw new Error(`FHPST01700000 HTTP ${res.status}`);
-          const json = await res.json();
-          assertKisTokenValid(json, 'FHPST01700000');
-          if (json.rt_cd !== '0') throw new Error(`FHPST01700000 ${json.msg1}`);
-          return json;
-        });
-
-        const rows: any[] = data.output ?? [];
-        if (rows.length === 0) return [];
-        rows.sort((a, b) =>
-          tab === '급등'
-            ? Number(b.prdy_ctrt) - Number(a.prdy_ctrt)
-            : Number(a.prdy_ctrt) - Number(b.prdy_ctrt),
-        );
-        const filtered = rows.filter(item => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? '') && isValidStockItem(item));
-        if (filtered.length < rows.length) {
-          console.warn(`[ranking] KIS ${tab} (${inputDate || '실시간'}): 유효성/제외 필터로 ${rows.length - filtered.length}행 제외 (${rows.length}행 → ${filtered.length}행)`);
+      if (marketOpen) {
+        // 장중 — KIS 실시간 → 네이버 → 캐시 순 폴백 (기존 로직 그대로)
+        try {
+          const rows = await fetchDailyRanking(tab);
+          if (rows.length > 0) {
+            after(async () => {
+              const { error } = await supabase.from('market_cache').upsert({ key: cacheKey, data: rows as unknown as MarketCacheJson, updated_at: new Date().toISOString() });
+              if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
+            });
+            return Response.json(rows);
+          }
+          console.log(`[ranking] KIS ${tab}: 장중 0행, 네이버 폴백`);
+        } catch (e) {
+          console.warn(`[ranking] KIS ${tab} 실패:`, e instanceof Error ? e.message : e);
         }
-        return filtered.slice(0, 50).map(mapRow);
-      };
 
-      // 1순위: KIS 실시간 — 후보 날짜를 순서대로 시도, 응답이 비어있지 않은 첫 날짜 채택
-      try {
-        const picked = await findFirstNonEmptyByDate(dateCandidates, fetchAndMap);
-        if (picked) {
-          const result = picked.rows;
-          after(async () => {
-            const { error } = await supabase.from('market_cache').upsert({ key: cacheKey, data: result, updated_at: new Date().toISOString() });
-            if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
-          });
-          return Response.json(result);
+        // 네이버 스크래핑
+        try {
+          const naverRows = await fetchNaverRanking(tab as '급등' | '급락');
+          if (naverRows.length > 0) {
+            after(async () => {
+              const { error } = await supabase.from('market_cache').upsert({ key: cacheKey, data: naverRows as unknown as MarketCacheJson, updated_at: new Date().toISOString() });
+              if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
+            });
+            return Response.json(naverRows);
+          }
+        } catch (e) {
+          console.warn(`[ranking] Naver ${tab} 실패:`, e instanceof Error ? e.message : e);
         }
-        console.log(`[ranking] KIS ${tab}: 모든 후보 날짜(${dateCandidates.map(c => c.yyyymmdd || '실시간').join(',')}) 0행/실패 (marketOpen=${marketOpen}), 네이버 폴백`);
-      } catch (e) {
-        console.warn(`[ranking] KIS ${tab} 실패:`, e instanceof Error ? e.message : e);
+
+        // Supabase 캐시 (만료 포함)
+        const cached = await getCachedRanking(tab);
+        if (cached) return Response.json(cached);
+
+        console.warn(`[ranking] ${tab}: 장중인데 KIS/네이버/캐시 모두 사용 불가, 빈 배열 반환`);
+        return Response.json([]);
       }
 
-      // 2순위: 네이버 스크래핑
-      try {
-        const naverRows = await fetchNaverRanking(tab as '급등' | '급락');
-        if (naverRows.length > 0) {
-          after(async () => {
-            const { error } = await supabase.from('market_cache').upsert({ key: cacheKey, data: naverRows, updated_at: new Date().toISOString() });
-            if (error) console.warn(`[ranking] ${tab} 캐시 저장 실패:`, error.message);
-          });
-          return Response.json(naverRows);
-        }
-      } catch (e) {
-        console.warn(`[ranking] Naver ${tab} 실패:`, e instanceof Error ? e.message : e);
+      // 장 시작 전/마감 후 — [2026-07-24 실측 확인] FHPST01700000는 FID_INPUT_DATE_1에
+      // 과거 날짜를 넣어도 항상 0행을 반환한다(이 TR은 과거 날짜 재조회 자체를 지원하지
+      // 않음) — 예전엔 이 경로가 사실상 한 번도 성공한 적이 없었다. 대신
+      // market-cache-warm 크론이 장마감 직후(15:35 KST) captureLastCloseSnapshot()으로
+      // 미리 찍어둔 "전일 마감" 캐시를 사용한다.
+      const lastClose = await getLastCloseRanking(tab);
+      if (lastClose) {
+        const rows = lastClose.rows.map((r) => ({ ...r, isPrevDayClose: true, asOfDate: lastClose.tradingDate }));
+        return Response.json(rows);
       }
 
-      // 3순위: Supabase 캐시 (만료 포함)
-      const cached = await getCachedRanking(tab);
-      if (cached) return Response.json(cached);
+      // lastclose 캐시가 아직 한 번도 안 채워진 극히 드문 경우(신규 배포 직후 등)의
+      // 최후 수단 — 예전에 성공했던 아무 캐시나(만료 무시)
+      const fallbackCached = await getCachedRanking(tab);
+      if (fallbackCached) {
+        const rows = fallbackCached.map((r) => ({ ...r, isPrevDayClose: true }));
+        return Response.json(rows);
+      }
 
-      console.warn(`[ranking] ${tab}: KIS/네이버/캐시 모두 사용 불가 (marketOpen=${marketOpen}), 빈 배열 반환`);
+      console.warn(`[ranking] ${tab}: 장 시작 전이고 lastclose/기존 캐시 모두 없음 — 빈 배열 반환`);
       return Response.json([]);
     }
 

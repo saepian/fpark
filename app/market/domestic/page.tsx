@@ -28,6 +28,8 @@ interface StockRow {
   change: number;
   volume: number;
   tradingValue: number;
+  isPrevDayClose?: boolean;
+  asOfDate?: string;
 }
 
 interface PopularStock {
@@ -609,6 +611,12 @@ export default function DomesticMarketPage() {
 
         {/* 좌측: 테이블 + 광고 */}
         <div className="min-w-0">
+          {!loading && stocks.length > 0 && stocks[0].isPrevDayClose && (
+            <p className="mb-2 text-[11px] text-amber-400/90 flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/70" />
+              전일{stocks[0].asOfDate ? ` (${stocks[0].asOfDate})` : ''} 15:35 마감 기준 · 실시간 데이터가 아닙니다
+            </p>
+          )}
           <div className="rounded-2xl bg-[#13161f] overflow-hidden mb-4">
             <div className="grid grid-cols-[48px_1fr_110px_100px_90px_90px] gap-3 px-4 py-2.5
               text-[12px] font-semibold text-slate-400 uppercase tracking-wider
@@ -623,7 +631,9 @@ export default function DomesticMarketPage() {
 
             <div className="stock-scroll overflow-y-auto" style={{ maxHeight: '580px' }}>
             {loading ? <SkeletonRows /> : stocks.length === 0 ? (
-              <p className="py-20 text-center text-slate-600 text-sm">데이터를 불러올 수 없습니다.</p>
+              <p className="py-20 text-center text-slate-600 text-sm">
+                {isKoreanMarketOpen() ? '데이터를 불러올 수 없습니다.' : '이전 거래일 데이터를 아직 준비하지 못했습니다.'}
+              </p>
             ) : (
               <div className="divide-y divide-slate-800/30">
                 {stocks.map((stock, i) => {
