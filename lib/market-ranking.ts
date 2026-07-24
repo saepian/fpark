@@ -62,13 +62,18 @@ export function mapRow(item: any, i: number): StockRow {
   };
 }
 
-export async function fetchFluctuation(blngClsCode: string) {
+// market 파라미터는 기존 호출부(app/api/market/ranking/route.ts의 거래대금순/거래량순
+// 탭 — 코스피만 다룸)를 그대로 보존하기 위해 기본값 'KOSPI'로 둔다. daily-alert-email의
+// 코스피+코스닥 거래대금 상위 판정(fetchTopTradingValueTickers)만 'KOSDAQ'을 명시로 전달.
+const ISCD_BY_MARKET = { KOSPI: '0001', KOSDAQ: '1001' } as const;
+
+export async function fetchFluctuation(blngClsCode: string, market: 'KOSPI' | 'KOSDAQ' = 'KOSPI') {
   return withKisTokenRetry(async () => {
     const token = await getAccessToken();
     const params = new URLSearchParams({
       FID_COND_MRKT_DIV_CODE: 'J',
       FID_COND_SCR_DIV_CODE: '20171',
-      FID_INPUT_ISCD: '0001',
+      FID_INPUT_ISCD: ISCD_BY_MARKET[market],
       FID_DIV_CLS_CODE: '0',
       FID_BLNG_CLS_CODE: blngClsCode,
       FID_TRGT_CLS_CODE: '111111111',
@@ -88,6 +93,33 @@ export async function fetchFluctuation(blngClsCode: string) {
     if (data.rt_cd !== '0') throw new Error(`FHPST01710000 ${data.msg1 ?? ''}`);
     return data;
   });
+}
+
+// 코스피/코스닥 거래대금 상위 count(기본 30)위 이내 종목코드 집합 — daily-alert-email의
+// "이상 매매 활동" 판정 기준. 이 TR(FHPST01710000)은 시장당 최대 30행만 반환하고
+// 페이지네이션도 없음(2026-07-24 실측) — "정확한 상위 10%"는 계산 불가해 "시장당
+// 상위 30위 이내"로 재정의(사용자 승인). 한쪽 시장 조회가 실패해도 다른 쪽은 반영되게
+// allSettled로 처리.
+export async function fetchTopTradingValueTickers(count = 30): Promise<Set<string>> {
+  const settled = await Promise.allSettled([
+    fetchFluctuation('0', 'KOSPI'),
+    fetchFluctuation('0', 'KOSDAQ'),
+  ]);
+  const tickers = new Set<string>();
+  for (const r of settled) {
+    if (r.status !== 'fulfilled') {
+      console.warn('[market-ranking] fetchTopTradingValueTickers 시장 조회 실패:', r.reason);
+      continue;
+    }
+    const rows: any[] = r.value.output ?? [];
+    const validRows = rows.filter(isValidStockItem).filter((item) => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? ''));
+    validRows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
+    for (const item of validRows.slice(0, count)) {
+      const ticker = item.stck_shrn_iscd || item.mksc_shrn_iscd;
+      if (ticker) tickers.add(ticker);
+    }
+  }
+  return tickers;
 }
 
 // 네이버 급등/급락 스크래핑 (장 마감 폴백)
