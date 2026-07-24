@@ -520,19 +520,25 @@ export function buildEmailHtml(params: {
   const groupBConfirmed = groupBStocks.filter((s) => !apiErrorTickers.has(s.ticker));
   const groupBUnknown   = groupBStocks.filter((s) => apiErrorTickers.has(s.ticker));
 
+  // 2026-07-24: 종목명을 본문과 시각적으로 구분하기 위해 포인트 컬러 적용. Gmail 등
+  // 일부 클라이언트가 <style> 클래스 규칙을 제거하는 경우가 있어 class 대신 style
+  // 속성을 각 태그에 직접 지정.
+  const STOCK_NAME_COLOR = '#61afd4';
+  const nameSpan = (name: string) => `<strong style="color:${STOCK_NAME_COLOR}">${escapeHtml(name)}</strong>`;
+
   const groupBLine = groupBConfirmed.length
     ? (() => {
         const names = groupBConfirmed.map((s) => s.name);
         const particle = pickEunNeun(names[names.length - 1]);
         return `<p style="margin:${aiResult.focusedStockAnalysis.length ? '10px' : '0'} 0 0;color:#94a3b8;font-size:13px;line-height:1.8">
-            ${escapeHtml(names.join(', '))}${particle} 특별한 뉴스 없이 수급 요인으로 추정된다.
+            ${names.map(nameSpan).join(', ')}${particle} 특별한 뉴스 없이 수급 요인으로 추정된다.
           </p>`;
       })()
     : '';
 
   const groupBUnknownLines = groupBUnknown
     .map((s) => `<p style="margin:8px 0 0;color:#64748b;font-size:13px;line-height:1.8">
-        ${escapeHtml(s.name)}${pickEunNeun(s.name)} 일시적으로 뉴스를 확인하지 못했습니다.
+        ${nameSpan(s.name)}${pickEunNeun(s.name)} 일시적으로 뉴스를 확인하지 못했습니다.
       </p>`)
     .join('');
 
@@ -542,7 +548,7 @@ export function buildEmailHtml(params: {
         ${stocks
           .filter((s) => focusedMap.has(s.ticker))
           .map((s) => `<p style="margin:0 0 10px;color:#cbd5e1;font-size:13.5px;line-height:1.8">
-            <strong style="color:#e2e8f0">${escapeHtml(s.name)}</strong> — ${escapeHtml(focusedMap.get(s.ticker) ?? '')}
+            ${nameSpan(s.name)} — ${escapeHtml(focusedMap.get(s.ticker) ?? '')}
           </p>`)
           .join('')}
         ${groupBLine}
@@ -558,13 +564,13 @@ export function buildEmailHtml(params: {
   const otherStockNoteMap = new Map(aiResult.otherStockNotes.map((c) => [c.ticker, c.comment]));
   const otherStockLine = (s: StockResult) => {
     if (apiErrorTickers.has(s.ticker)) {
-      return `${escapeHtml(s.name)}${pickEunNeun(s.name)} 일시적으로 뉴스를 확인하지 못했습니다.`;
+      return `${nameSpan(s.name)}${pickEunNeun(s.name)} 일시적으로 뉴스를 확인하지 못했습니다.`;
     }
     const note = otherStockNoteMap.get(s.ticker)?.trim();
     if (note) {
-      return `<strong style="color:#cbd5e1">${escapeHtml(s.name)}</strong> — ${escapeHtml(note)} 다만 주가 흐름에는 큰 영향이 없는 것으로 보입니다.`;
+      return `${nameSpan(s.name)} — ${escapeHtml(note)} 다만 주가 흐름에는 큰 영향이 없는 것으로 보입니다.`;
     }
-    return `${escapeHtml(s.name)}${pickEunNeun(s.name)} AI가 살펴봤지만 특별한 정보가 확인되지 않았습니다.`;
+    return `${nameSpan(s.name)}${pickEunNeun(s.name)} AI가 살펴봤지만 특별한 정보가 확인되지 않았습니다.`;
   };
   const otherStocksSection = groupCStocks.length
     ? `<div style="margin-top:28px;background:#0f1117;border:1px solid #1e2537;border-radius:12px;padding:20px 24px">
