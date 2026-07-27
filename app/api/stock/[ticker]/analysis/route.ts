@@ -662,13 +662,22 @@ ${yesterdayComparisonBlock}
     // JSON.parse해서 "정합성 보정"을 한 번 더 통지한다 — 증분 파서가 뭔가 놓치거나 잘못
     // 뽑았어도 최종 정확성은 이 전체 재파싱 결과가 항상 덮어써서 보장한다(2026-07-27
     // 스트리밍 파일럿 설계 원칙: 지연시간은 일부 포기해도 최종 정확성은 타협하지 않음).
+    //
+    // onPartial이 주어지면(1차 생성에서만) feedWithPartial()로 문자 단위 타이핑 효과를
+    // 추가로 내보낸다 — 필드당 80ms 스로틀(스냅샷 방식, 완결 이벤트는 스로틀과 무관하게
+    // 항상 즉시 발생). 2차(재생성) 호출은 onPartial을 안 넘겨서 기존 feed()만 쓴다 —
+    // 이미 완성된 문장이 화면에 떠 있는 상태에서 다시 타이핑으로 자라나게 하면 오히려
+    // 어색해서(설계 검토 결론), 재생성은 완성된 값을 한 번에 교체하는 쪽이 자연스럽다.
     async function streamOneGeneration(
       onField: (key: string, value: string | string[]) => void,
+      onPartial?: (key: string, value: string) => void,
     ): Promise<{ parsed: ParsedAnalysis; reportText: string }> {
       const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
       let fullText = '';
       const requestStart = Date.now();
       let firstTokenLoggedAt = false;
+      const lastPartialEmitAt: Record<string, number> = {};
+      const PARTIAL_THROTTLE_MS = 80;
 
       const correctIfNeeded = (key: string, value: string | string[]): string | string[] =>
         typeof value === 'string' && PRICE_CORRECTED_KEYS.has(key)
@@ -702,8 +711,25 @@ ${yesterdayComparisonBlock}
           console.log(`[ANALYSIS] ${ticker} 첫 토큰 도착: ${Date.now() - requestStart}ms`);
         }
         fullText += delta;
-        for (const field of parser.feed(delta)) {
+
+        if (!onPartial) {
+          for (const field of parser.feed(delta)) {
+            onField(field.key, correctIfNeeded(field.key, field.value));
+          }
+          return;
+        }
+
+        const { fields, partial } = parser.feedWithPartial(delta);
+        for (const field of fields) {
           onField(field.key, correctIfNeeded(field.key, field.value));
+        }
+        if (partial) {
+          const now = Date.now();
+          const last = lastPartialEmitAt[partial.key] ?? 0;
+          if (now - last >= PARTIAL_THROTTLE_MS) {
+            lastPartialEmitAt[partial.key] = now;
+            onPartial(partial.key, correctIfNeeded(partial.key, partial.value) as string);
+          }
         }
       });
 
@@ -740,7 +766,10 @@ ${yesterdayComparisonBlock}
       send({ type: eventType, key, value });
     };
 
-    const first = await streamOneGeneration(emitIfChanged('field'));
+    const first = await streamOneGeneration(
+      emitIfChanged('field'),
+      (key, value) => send({ type: 'field-partial', key, value }),
+    );
     const check1 = checkTemporalConsistency(first.reportText, newsText);
     let finalParsed = first.parsed;
 

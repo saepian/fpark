@@ -109,6 +109,13 @@ function FieldSkeleton({ lines = 2 }: { lines?: number }) {
   );
 }
 
+// 지금 문자 단위로 자라나는 중인 필드 끝에 붙는 깜빡이는 커서 — AiLoadingScreen의
+// 타이핑 커서(`|`)와 같은 모티프를 재사용해 "지금 이 부분이 실시간으로 써지고 있다"는
+// 신호를 준다.
+function TypingCursor() {
+  return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
+}
+
 function fmtPrice(v: number) {
   return v.toLocaleString('ko-KR');
 }
@@ -127,6 +134,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
   const [needsLogin, setNeedsLogin] = useState(false);
   const [partialFailure, setPartialFailure] = useState(false);
   const [updatedKey, setUpdatedKey] = useState<string | null>(null);
+  const [typingKey, setTypingKey]   = useState<string | null>(null); // 지금 문자 단위로 자라나는 중인 필드(1차 생성만 — 재생성은 즉시 교체라 타이핑 없음)
   const [toast, setToast]           = useState(false);
   const [retryToken, setRetryToken] = useState(0);
 
@@ -142,6 +150,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     setNeedsLogin(false);
     setPartialFailure(false);
     setData(null);
+    setTypingKey(null);
 
     const flashUpdated = (key: string) => {
       setUpdatedKey(key);
@@ -190,10 +199,21 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
                   setLoading(false);
                   setData((prev) => ({ ...prev, ...metaFields } as StreamedData));
                 }
+              } else if (event.type === 'field-partial') {
+                // 문자 단위 타이핑 효과 — 1차 생성에서만 온다(서버가 80ms 스로틀로 전송).
+                fieldsArrived = true;
+                const key = event.key as keyof AnalysisResult;
+                if (!cancelled) {
+                  setData((prev) => ({ ...(prev ?? {}), [key]: event.value }));
+                  setTypingKey(key);
+                }
               } else if (event.type === 'field') {
                 fieldsArrived = true;
                 const key = event.key as keyof AnalysisResult;
-                if (!cancelled) setData((prev) => ({ ...(prev ?? {}), [key]: event.value }));
+                if (!cancelled) {
+                  setData((prev) => ({ ...(prev ?? {}), [key]: event.value }));
+                  setTypingKey((k) => (k === key ? null : k)); // 이 필드 타이핑 커서 종료
+                }
               } else if (event.type === 'field-updated') {
                 const key = event.key as keyof AnalysisResult;
                 if (!cancelled) {
@@ -202,7 +222,10 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
                 }
               } else if (event.type === 'done') {
                 receivedDone = true;
-                if (!cancelled) setData((prev) => (prev ? { ...prev, createdAt: event.createdAt as string } : prev));
+                if (!cancelled) {
+                  setData((prev) => (prev ? { ...prev, createdAt: event.createdAt as string } : prev));
+                  setTypingKey(null); // 정상 종료 시 커서 확실히 정리
+                }
               } else if (event.type === 'error') {
                 throw new Error((event.message as string) ?? 'stream-error');
               }
@@ -213,7 +236,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             // 명시적 done 없이 스트림이 끊김(예: Vercel 함수 타임아웃) — 이미 보여준 필드가
             // 있으면 부분실패로 처리하고 그 내용은 그대로 유지한다.
             if (fieldsArrived) {
-              if (!cancelled) setPartialFailure(true);
+              if (!cancelled) { setPartialFailure(true); setTypingKey(null); }
               return;
             }
             throw new Error('stream-ended-without-done');
@@ -318,7 +341,9 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
         </div>
         <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('headline')}`}>
           {data.headline !== undefined ? (
-            <p className="text-[15px] font-semibold text-white leading-snug">{data.headline}</p>
+            <p className="text-[15px] font-semibold text-white leading-snug">
+              {data.headline}{typingKey === 'headline' && <TypingCursor />}
+            </p>
           ) : (
             <FieldSkeleton lines={1} />
           )}
@@ -379,7 +404,9 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           </p>
           <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('mainAnalysis')}`}>
             {data.mainAnalysis !== undefined ? (
-              <p className="text-[13px] text-slate-400 leading-relaxed">{data.mainAnalysis}</p>
+              <p className="text-[13px] text-slate-400 leading-relaxed">
+                {data.mainAnalysis}{typingKey === 'mainAnalysis' && <TypingCursor />}
+              </p>
             ) : (
               <FieldSkeleton lines={4} />
             )}
@@ -390,7 +417,9 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
         <div className={`bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3 ${highlightClass('yesterdayDelta')}`}>
           <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-1">🔄 어제 대비</p>
           {data.yesterdayDelta !== undefined ? (
-            <p className="text-[13px] text-slate-300 leading-relaxed">{data.yesterdayDelta}</p>
+            <p className="text-[13px] text-slate-300 leading-relaxed">
+              {data.yesterdayDelta}{typingKey === 'yesterdayDelta' && <TypingCursor />}
+            </p>
           ) : (
             <FieldSkeleton lines={2} />
           )}
@@ -401,7 +430,9 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           <p className="text-[12px] font-bold text-slate-300 mb-2">⚠️ 리스크 요인</p>
           <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('riskFactor')}`}>
             {data.riskFactor !== undefined ? (
-              <p className="text-[13px] text-slate-400 leading-relaxed">{data.riskFactor}</p>
+              <p className="text-[13px] text-slate-400 leading-relaxed">
+                {data.riskFactor}{typingKey === 'riskFactor' && <TypingCursor />}
+              </p>
             ) : (
               <FieldSkeleton lines={2} />
             )}

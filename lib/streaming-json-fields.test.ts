@@ -103,3 +103,140 @@ describe('StreamingFieldParser', () => {
     ]);
   });
 });
+
+describe('StreamingFieldParser.feedWithPartial (문자단위 타이핑 효과)', () => {
+  it('전체를 한 번에 먹이면 fields는 feed()와 동일하고 partial은 null이다(스트림이 이미 다 끝났으므로)', () => {
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+    const { fields, partial } = parser.feedWithPartial(jsonOf(SAMPLE));
+    expect(fields.map(f => f.key)).toEqual(['headline', 'mainAnalysis', 'yesterdayDelta', 'riskFactor', 'tags']);
+    expect(partial).toBeNull();
+  });
+
+  it('문자 단위로 흘리면 partial이 최종값의 접두사로 단조증가하다가 완결 시 fields로 넘어간다', () => {
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+    const full = jsonOf(SAMPLE);
+    const partialLengths: number[] = [];
+    let lastHeadlinePartial = '';
+    let headlineDone: string | undefined;
+
+    for (const ch of full) {
+      const { fields, partial } = parser.feedWithPartial(ch);
+      if (partial?.key === 'headline') {
+        expect(SAMPLE.headline.startsWith(partial.value)).toBe(true);
+        expect(partial.value.length).toBeGreaterThanOrEqual(lastHeadlinePartial.length);
+        lastHeadlinePartial = partial.value;
+        partialLengths.push(partial.value.length);
+      }
+      const f = fields.find(x => x.key === 'headline');
+      if (f) headlineDone = f.value as string;
+    }
+
+    // 진행 도중(마지막 완결 순간 이전) 최소 한 번은 전체보다 짧은 길이를 거쳐야
+    // "점진적으로 자라났다"고 할 수 있다 — 마지막 partial 자체는 닫는 따옴표 직전에
+    // 이미 전체 글자가 다 도착한 상태일 수 있어(구조적으로만 미완결) 전체 길이와 같을 수 있다.
+    expect(partialLengths.some((len) => len < SAMPLE.headline.length)).toBe(true);
+    expect(headlineDone).toBe(SAMPLE.headline);
+  });
+
+  it('이스케이프된 따옴표가 포함된 필드를 문자 단위로 흘려도 partial은 항상 최종값의 유효한 접두사다(깨진 값 없음)', () => {
+    const value = '삼성전자 "역대 최다 판매" 목표 재확인';
+    const raw = jsonOf({ ...SAMPLE, headline: value });
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+    let lastPartial = '';
+    let done: string | undefined;
+
+    for (const ch of raw) {
+      const { fields, partial } = parser.feedWithPartial(ch);
+      if (partial?.key === 'headline') {
+        expect(value.startsWith(partial.value)).toBe(true);
+        expect(partial.value.length).toBeGreaterThanOrEqual(lastPartial.length);
+        lastPartial = partial.value;
+      }
+      const f = fields.find(x => x.key === 'headline');
+      if (f) done = f.value as string;
+    }
+    expect(lastPartial.length).toBeGreaterThan(0);
+    expect(done).toBe(value);
+  });
+
+  it('\\uXXXX 이스케이프가 델타 경계에 걸쳐 2/4자리만 도착했을 때, 그 이스케이프 시작 전까지만 partial로 노출한다', () => {
+    // 일부러 JSON.stringify가 안 만드는 \uXXXX 형태를 수기로 구성 — A == 'A'.
+    // 템플릿 리터럴에서 "\\u0041"은 실제 문자 6개(\,u,0,0,4,1)를 만든다(JS가 유니코드로
+    // 해석하는 게 아니라 리터럴 백슬래시 이스케이프).
+    const rawJson = '{"reportType":"x","headline":"A\\u0041B","mainAnalysis":"m","yesterdayDelta":"y","riskFactor":"r","tags":["t"],"signal":"s"}';
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+
+    const escapeStart = rawJson.indexOf('\\u0041');
+    const splitPoint  = escapeStart + 3; // '\','u','0' 까지만 도착, 남은 '0','4','1'은 아직
+    const part1 = rawJson.slice(0, splitPoint);
+    const part2 = rawJson.slice(splitPoint);
+
+    const r1 = parser.feedWithPartial(part1);
+    expect(r1.fields).toEqual([]);
+    expect(r1.partial).toEqual({ key: 'headline', value: 'A' }); // \u 이스케이프 시작 이전까지만
+
+    const r2 = parser.feedWithPartial(part2);
+    const headline = r2.fields.find(f => f.key === 'headline');
+    expect(headline?.value).toBe('AAB'); // A == 'A' → "A" + "A" + "B"
+  });
+
+  it('\\uXXXX가 한 글자씩(총 6번) 쪼개져 도착해도 완결 전엔 항상 이스케이프 시작 전 지점에서 멈춘다', () => {
+    const rawJson = '{"reportType":"x","headline":"가\\u0042나","mainAnalysis":"m","yesterdayDelta":"y","riskFactor":"r","tags":["t"],"signal":"s"}';
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+    const escapeStart = rawJson.indexOf('\\u0042');
+
+    let sawStalledAtEscape = false;
+    for (let i = 0; i < rawJson.length; i++) {
+      const { fields, partial } = parser.feedWithPartial(rawJson[i]);
+      if (partial?.key === 'headline') {
+        // \uXXXX는 6글자(\,u,+4자리)가 전부 도착해야 완결 — escapeStart+5까지 도착해야
+        // 6번째(마지막) 글자까지 온 것이므로, 그 전(escapeStart..escapeStart+4)까지는
+        // 아직 이스케이프가 미완결이라 partial이 이스케이프 시작 이전 지점에서 멈춰야 한다.
+        if (i >= escapeStart && i < escapeStart + 5) {
+          expect(partial.value).toBe('가');
+          sawStalledAtEscape = true;
+        }
+      }
+      const done = fields.find(f => f.key === 'headline');
+      if (done) expect(done.value).toBe('가B나'); // B == 'B'
+    }
+    expect(sawStalledAtEscape).toBe(true);
+  });
+
+  it('tags(string[])는 partial 대상이 아니다 — 완결될 때까지 아무 partial도 안 나온다', () => {
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+    const full = jsonOf(SAMPLE);
+    const tagsKeyIdx = full.indexOf('"tags"');
+    const tagsEndIdx = full.indexOf(']', tagsKeyIdx) + 1;
+
+    // riskFactor까지 끝내고 tags 값 도중까지만 먹인다(마지막 원소 닫는 따옴표 전에서 끊음)
+    const midTags = full.slice(0, tagsEndIdx - 3);
+    const { partial } = parser.feedWithPartial(midTags);
+    expect(partial).toBeNull();
+  });
+
+  it('emit:false 필드(reportType/signal)는 partial을 절대 내보내지 않는다', () => {
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+    // reportType 값 "news-driven" 도중까지만 먹인다
+    const full = jsonOf(SAMPLE);
+    const cut = full.indexOf('"news-driven') + 6;
+    const { fields, partial } = parser.feedWithPartial(full.slice(0, cut));
+    expect(fields).toEqual([]);
+    expect(partial).toBeNull();
+  });
+
+  it('필드가 전환돼도 다음 필드에서 partial이 다시 정상적으로(처음부터) 나온다', () => {
+    const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+    const full = jsonOf(SAMPLE);
+    let mainAnalysisPartialSeen = false;
+
+    for (const ch of full) {
+      const { partial } = parser.feedWithPartial(ch);
+      if (partial?.key === 'mainAnalysis') {
+        expect(SAMPLE.mainAnalysis.startsWith(partial.value)).toBe(true);
+        mainAnalysisPartialSeen = true;
+      }
+    }
+    expect(mainAnalysisPartialSeen).toBe(true);
+  });
+});

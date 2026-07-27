@@ -20,15 +20,26 @@ export interface ExtractedField {
   value: string | string[];
 }
 
+export interface PartialField {
+  key: string;
+  value: string;
+}
+
 export class StreamingFieldParser {
   private buffer = '';
   private cursor = 0;
   private specIndex = 0;
+  // feedWithPartial 전용 — 현재 진행 중인 필드에서 "안전하게 잘라도 되는" 가장 먼 인덱스
+  // (누적 커서, 매 호출마다 처음부터 다시 스캔하면 필드가 길어질수록 O(n²)가 되는 걸 방지).
+  // feed()만 쓰는 인스턴스에서는 계속 -1로 남아 아무 영향 없다.
+  private partialSafeEnd = -1;
 
   constructor(private readonly specs: FieldSpec[]) {}
 
   // 델타 텍스트를 누적하고, 이번 호출로 새로 완결된 필드들을 순서대로 반환한다.
   // emit:false인 필드는 커서만 이동하고 반환 배열에는 포함하지 않는다.
+  // (2026-07-27 feedWithPartial 추가 이후에도 이 메서드 자체는 무변경 — 재생성/2차 생성이
+  // 계속 이 메서드를 쓰므로 기존 "완성 시점에만 노출" 보장을 그대로 유지해야 한다.)
   feed(deltaText: string): ExtractedField[] {
     this.buffer += deltaText;
     const results: ExtractedField[] = [];
@@ -43,7 +54,48 @@ export class StreamingFieldParser {
     return results;
   }
 
-  private tryExtract(spec: FieldSpec): { value: string | string[]; nextCursor: number } | null {
+  // feed()와 동일하게 완결된 필드를 뽑아내되, 그 다음으로 "지금 값이 채워지고 있는 중인"
+  // 필드가 문자열 타입이면 지금까지 도착한 안전한 부분 문자열도 함께 반환한다(타이핑 효과용).
+  // tags(string[])나 emit:false 필드는 partial을 지원하지 않는다 — 배열은 원소 인덱스까지
+  // 추적해야 해서 복잡도 대비 이득이 적고, emit:false는 애초에 화면에 안 쓰인다.
+  feedWithPartial(deltaText: string): { fields: ExtractedField[]; partial: PartialField | null } {
+    this.buffer += deltaText;
+    const fields: ExtractedField[] = [];
+    while (this.specIndex < this.specs.length) {
+      const spec = this.specs[this.specIndex];
+      const found = this.tryExtract(spec);
+      if (!found) break;
+      if (spec.emit) fields.push({ key: spec.key, value: found.value });
+      this.cursor = found.nextCursor;
+      this.specIndex++;
+      this.partialSafeEnd = -1; // 다음 필드로 넘어가니 리셋
+    }
+
+    let partial: PartialField | null = null;
+    if (this.specIndex < this.specs.length) {
+      const spec = this.specs[this.specIndex];
+      if (spec.emit && spec.type === 'string') {
+        const tokenStart = this.findValueTokenStart(spec);
+        if (tokenStart !== null && this.buffer[tokenStart] === '"') {
+          const valueStart = tokenStart + 1;
+          const safeEnd = this.scanSafePartialEnd(valueStart);
+          if (safeEnd > valueStart) {
+            const raw = `"${this.buffer.slice(valueStart, safeEnd)}"`;
+            try {
+              partial = { key: spec.key, value: JSON.parse(raw) as string };
+            } catch { /* 이론상 도달하지 않음 — scanSafePartialEnd가 항상 파싱 가능한 지점까지만 자름 */ }
+          }
+        }
+      }
+    }
+
+    return { fields, partial };
+  }
+
+  // spec의 값 토큰(여는 따옴표 "나 여는 대괄호 [) 위치를 찾는다. 키 자체가 아직 안 왔거나
+  // 콜론 뒤 값이 아직 안 왔으면 null. tryExtract와 feedWithPartial의 partial 스캔이
+  // "값이 어디서 시작하는지"에 대해 항상 같은 지점을 보도록 공유한다(divergence 방지).
+  private findValueTokenStart(spec: FieldSpec): number | null {
     const keyPattern = `"${spec.key}"`;
     const keyIdx = this.buffer.indexOf(keyPattern, this.cursor);
     if (keyIdx === -1) return null;
@@ -51,6 +103,12 @@ export class StreamingFieldParser {
     let i = keyIdx + keyPattern.length;
     while (i < this.buffer.length && /[\s:]/.test(this.buffer[i])) i++;
     if (i >= this.buffer.length) return null;
+    return i;
+  }
+
+  private tryExtract(spec: FieldSpec): { value: string | string[]; nextCursor: number } | null {
+    const i = this.findValueTokenStart(spec);
+    if (i === null) return null;
 
     if (spec.type === 'string') {
       if (this.buffer[i] !== '"') return null;
@@ -69,6 +127,34 @@ export class StreamingFieldParser {
     let value: string[];
     try { value = JSON.parse(raw); } catch { return null; }
     return { value, nextCursor: arrEnd + 1 };
+  }
+
+  // feedWithPartial 전용. valueStart(여는 따옴표 다음 위치)부터 시작해서, 완결된
+  // 이스케이프 시퀀스만 통째로 포함하는 가장 먼 지점을 찾는다 — \" \\ \n 같은 2글자
+  // 이스케이프는 물론, \uXXXX(6글자)가 스트림 델타 경계에 걸쳐 일부만 도착했을 때도
+  // 그 이스케이프 시작 지점 이전에서 반드시 멈춘다(자칫 "...\u00"처럼 잘리면 그 자체로
+  // 유효하지 않은 JSON 문자열이 되어 버리기 때문). this.partialSafeEnd에 진행 상황을
+  // 누적해서, 다음 호출은 처음부터가 아니라 이 지점부터 이어서 스캔한다(O(n) 보장).
+  private scanSafePartialEnd(valueStart: number): number {
+    let i = Math.max(this.partialSafeEnd, valueStart);
+    while (i < this.buffer.length) {
+      const c = this.buffer[i];
+      if (c === '"') break; // 닫는 따옴표 — 이미 완결됐어야 정상(feed 경로가 처리), 방어적으로만
+      if (c === '\\') {
+        const next = this.buffer[i + 1];
+        if (next === undefined) break; // "\"만 오고 다음 글자가 아직 안 옴
+        if (next === 'u') {
+          if (i + 6 > this.buffer.length) break; // \uXXXX 4자리가 아직 다 안 옴
+          i += 6;
+        } else {
+          i += 2;
+        }
+        continue;
+      }
+      i++;
+    }
+    this.partialSafeEnd = i;
+    return i;
   }
 
   // start는 여는 따옴표 위치. 이스케이프(\") 문자를 건너뛰며 닫는 따옴표 위치를 찾는다.
