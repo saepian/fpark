@@ -18,7 +18,7 @@ import { selectRelevantNews } from '@/lib/news-selection';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency, kstDateStr, daysBetween } from '@/lib/ai-grounding';
 import { getDomesticMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
-import { StreamingFieldParser, STOCK_ANALYSIS_FIELD_SPECS } from '@/lib/streaming-json-fields';
+import { StreamingFieldParser, STOCK_ANALYSIS_FIELD_SPECS, type JsonFieldValue } from '@/lib/streaming-json-fields';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -679,7 +679,10 @@ ${yesterdayComparisonBlock}
       const lastPartialEmitAt: Record<string, number> = {};
       const PARTIAL_THROTTLE_MS = 80;
 
-      const correctIfNeeded = (key: string, value: string | string[]): string | string[] =>
+      // value 타입이 string | string[] | JsonFieldValue로 넓은 건 StreamingFieldParser가
+      // 범용(포트폴리오분석의 'json' 타입 포함)이기 때문 — 이 라우트의 STOCK_ANALYSIS_FIELD_SPECS는
+      // 'json' 타입을 쓰지 않으므로 실제로는 항상 string | string[]만 들어온다.
+      const correctIfNeeded = (key: string, value: string | string[] | JsonFieldValue): string | string[] | JsonFieldValue =>
         typeof value === 'string' && PRICE_CORRECTED_KEYS.has(key)
           ? fixPriceText(value, priceChecks, ticker)
           : value;
@@ -714,14 +717,14 @@ ${yesterdayComparisonBlock}
 
         if (!onPartial) {
           for (const field of parser.feed(delta)) {
-            onField(field.key, correctIfNeeded(field.key, field.value));
+            onField(field.key, correctIfNeeded(field.key, field.value) as string | string[]);
           }
           return;
         }
 
         const { fields, partial } = parser.feedWithPartial(delta);
         for (const field of fields) {
-          onField(field.key, correctIfNeeded(field.key, field.value));
+          onField(field.key, correctIfNeeded(field.key, field.value) as string | string[]);
         }
         if (partial) {
           const now = Date.now();
@@ -752,7 +755,7 @@ ${yesterdayComparisonBlock}
         if (!spec.emit) continue;
         const raw = (parsed as unknown as Record<string, string | string[] | undefined>)[spec.key];
         if (raw === undefined) continue;
-        onField(spec.key, correctIfNeeded(spec.key, raw));
+        onField(spec.key, correctIfNeeded(spec.key, raw) as string | string[]);
       }
 
       const reportText = [parsed.headline, parsed.mainAnalysis, parsed.yesterdayDelta, parsed.riskFactor].join(' ');

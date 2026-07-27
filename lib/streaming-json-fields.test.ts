@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StreamingFieldParser, STOCK_ANALYSIS_FIELD_SPECS, type FieldSpec } from './streaming-json-fields';
+import { StreamingFieldParser, STOCK_ANALYSIS_FIELD_SPECS, PORTFOLIO_SUMMARY_FIELD_SPECS, type FieldSpec } from './streaming-json-fields';
 
 const SAMPLE = {
   reportType: 'news-driven',
@@ -238,5 +238,87 @@ describe('StreamingFieldParser.feedWithPartial (문자단위 타이핑 효과)',
       }
     }
     expect(mainAnalysisPartialSeen).toBe(true);
+  });
+});
+
+describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors)", () => {
+  const PORTFOLIO_SAMPLE = {
+    summary: '포트폴리오는 반도체 섹터에 집중돼 있으며 오늘 소폭 하락했다.',
+    sectors: [
+      { name: '반도체', tickers: ['005930', '000660'], weight: 60, warning: true },
+      { name: '제약', tickers: ['185750'], weight: 40, warning: false },
+    ],
+    riskFactors: ['반도체 섹터 60% 집중', '손실 종목 비중 30%'],
+    opportunityFactors: ['저PER 종목 다수 포함'],
+    historyNarrative: '어제 대비 수익률이 소폭 개선됐다.',
+    contributionNarrative: '오늘 손익 변화는 대부분 삼성전자에서 발생했다.',
+    holdingPeriodNarrative: '',
+    coMovementNarrative: '',
+    shortTermOutlook: '이 포트폴리오는 반도체 업황 뉴스에 민감하게 반응할 수 있다.',
+    midTermOutlook: '중기적으로는 실적 발표 시즌이 핵심 변수다.',
+  };
+
+  it('sectors(중첩 배열 포함 객체 배열)를 한 번에 먹이면 정확히 파싱하고, 그 다음 필드(riskFactors)도 정상 진행된다', () => {
+    const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
+    const { fields } = parser.feedWithPartial(JSON.stringify(PORTFOLIO_SAMPLE));
+    const sectors = fields.find(f => f.key === 'sectors');
+    expect(sectors?.value).toEqual(PORTFOLIO_SAMPLE.sectors);
+    const riskFactors = fields.find(f => f.key === 'riskFactors');
+    expect(riskFactors?.value).toEqual(PORTFOLIO_SAMPLE.riskFactors);
+  });
+
+  it('중첩 배열(tickers) 내부의 첫 "]"에서 잘못 멈추지 않고 sectors 전체(바깥 배열)의 끝까지 정확히 찾는다', () => {
+    // sectors 안 첫 원소의 tickers 배열이 닫히는 지점(내부 ']')까지만 먼저 먹여서,
+    // 그 시점엔 아직 sectors 필드 자체가 완결되면 안 된다는 걸 확인한다.
+    const full = JSON.stringify(PORTFOLIO_SAMPLE);
+    const innerArrayEnd = full.indexOf('"000660"]') + '"000660"]'.length; // 첫 tickers 배열 닫는 ']' 직후
+    const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
+
+    const r1 = parser.feedWithPartial(full.slice(0, innerArrayEnd));
+    expect(r1.fields.find(f => f.key === 'sectors')).toBeUndefined(); // 아직 바깥 배열 안 끝남
+
+    const r2 = parser.feedWithPartial(full.slice(innerArrayEnd));
+    const sectors = r2.fields.find(f => f.key === 'sectors');
+    expect(sectors?.value).toEqual(PORTFOLIO_SAMPLE.sectors);
+  });
+
+  it('sectors는 emit:true·type:json이라도 partial(타이핑 효과)이 나오지 않는다 — 완결 시 1회만', () => {
+    const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
+    const full = JSON.stringify(PORTFOLIO_SAMPLE);
+    let sawSectorsPartial = false;
+    for (const ch of full) {
+      const { partial } = parser.feedWithPartial(ch);
+      if (partial?.key === 'sectors') sawSectorsPartial = true;
+    }
+    expect(sawSectorsPartial).toBe(false);
+  });
+
+  it('sectors 문자열 값 안에 대괄호처럼 보이는 문자가 있어도(문자열 내부) 깊이 계산이 깨지지 않는다', () => {
+    const withBracketInString = {
+      ...PORTFOLIO_SAMPLE,
+      sectors: [{ name: '반도체[특수]', tickers: ['005930'], weight: 100, warning: false }],
+    };
+    const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
+    const { fields } = parser.feedWithPartial(JSON.stringify(withBracketInString));
+    expect(fields.find(f => f.key === 'sectors')?.value).toEqual(withBracketInString.sectors);
+    expect(fields.find(f => f.key === 'riskFactors')?.value).toEqual(PORTFOLIO_SAMPLE.riskFactors);
+  });
+
+  it('문자 단위로 흘려도 summary/sectors/riskFactors 이후 모든 문자열 필드가 순서대로 정확히 완결된다(엔드투엔드)', () => {
+    const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
+    const full = JSON.stringify(PORTFOLIO_SAMPLE);
+    const collected: Record<string, unknown> = {};
+    for (const ch of full) {
+      const { fields } = parser.feedWithPartial(ch);
+      for (const f of fields) collected[f.key] = f.value;
+    }
+    expect(collected).toEqual(PORTFOLIO_SAMPLE);
+  });
+
+  it('sectors가 빈 배열이어도 정상 처리된다', () => {
+    const empty = { ...PORTFOLIO_SAMPLE, sectors: [] };
+    const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
+    const { fields } = parser.feedWithPartial(JSON.stringify(empty));
+    expect(fields.find(f => f.key === 'sectors')?.value).toEqual([]);
   });
 });

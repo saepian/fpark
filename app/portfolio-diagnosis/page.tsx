@@ -106,6 +106,28 @@ interface PortfolioResult {
   };
 }
 
+// 스트리밍 중 부분적으로만 채워진 상태 — Stage1(종목별)/Stage2(종합) AI 필드는
+// 도착 전까지 undefined, meta/holding-meta로 서버가 즉시 계산해 보내는 수치 필드는
+// result가 non-null이 되는 시점에 이미 채워져 있다.
+type StreamedHolding = Omit<HoldingResult, 'reason' | 'sector'> & {
+  reason?: string;
+  sector?: string;
+};
+
+type StreamedHistory = Omit<PortfolioHistory, 'narrative'> & { narrative?: string };
+
+type StreamedHoldingPeriod = {
+  longest: HoldingPeriodEntry | null;
+  mostRecent: HoldingPeriodEntry | null;
+  narrative?: string;
+};
+
+type StreamedResult = Omit<Partial<PortfolioResult>, 'holdings' | 'history' | 'holdingPeriod'> & {
+  holdings?: StreamedHolding[];
+  history?: StreamedHistory;
+  holdingPeriod?: StreamedHoldingPeriod;
+};
+
 interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -126,6 +148,25 @@ function uid()           { return Math.random().toString(36).slice(2, 9); }
 
 function emptyHolding(): HoldingInput {
   return { id: uid(), ticker: '', name: '', avgPrice: '', quantity: '', buyDate: '', _q: '', _results: [], _open: false };
+}
+
+// Stage2 'portfolio-field(-partial)' 이벤트의 key를 PortfolioResult 형태로 매핑.
+// historyNarrative/holdingPeriodNarrative만 중첩 객체 안으로 들어가고 나머지는 최상위.
+function applyPortfolioField(prev: StreamedResult | null, key: string, value: unknown): StreamedResult {
+  const base = prev ?? {};
+  if (key === 'historyNarrative') {
+    return {
+      ...base,
+      history: { ...(base.history ?? { daysSince: null, compositionChanged: false, addedTickers: [], removedTickers: [] }), narrative: value as string },
+    };
+  }
+  if (key === 'holdingPeriodNarrative') {
+    return {
+      ...base,
+      holdingPeriod: { ...(base.holdingPeriod ?? { longest: null, mostRecent: null }), narrative: value as string },
+    };
+  }
+  return { ...base, [key]: value };
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -167,10 +208,33 @@ function StatDelta({ label, value, positive }: { label: string; value: string; p
   );
 }
 
+// 아직 도착하지 않은 필드 자리에 보여줄 스켈레톤 — components/stock/AiAnalysis.tsx의
+// FieldSkeleton과 동일한 패턴.
+function FieldSkeleton({ lines = 2 }: { lines?: number }) {
+  return (
+    <div className="space-y-1.5 animate-pulse">
+      {Array.from({ length: lines }).map((_, i) => (
+        <div
+          key={i}
+          className="h-3 rounded bg-slate-700/40"
+          style={{ width: i === lines - 1 ? '60%' : '100%' }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// 문자 단위로 자라나는 중인 필드 끝에 붙는 타이핑 커서
+function TypingCursor() {
+  return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
+}
+
 // "직전 진단 대비" 카드 — components/diagnosis/DiagnosisReport.tsx의 HistoryCompareCard와
 // 동일한 시각 언어 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시.
-function PortfolioHistoryCard({ result }: { result: PortfolioResult }) {
+// history 자체는 meta 이벤트로 즉시 오지만 narrative는 Stage2 스트리밍으로 늦게 채워진다.
+function PortfolioHistoryCard({ result, typingKey, stage2Failed }: { result: StreamedResult; typingKey: string | null; stage2Failed: boolean }) {
   const h = result.history;
+  if (!h) return null;
   const isFirst = h.daysSince === null;
   const label = isFirst
     ? '🔄 첫 포트폴리오 진단'
@@ -180,8 +244,8 @@ function PortfolioHistoryCard({ result }: { result: PortfolioResult }) {
         ? `🔄 ${h.daysSince}일 전 진단 대비`
         : '🔄 오랜만에 재조회';
 
-  const rateDelta   = !isFirst && typeof h.prevTotalProfitRate === 'number' ? result.totalProfitRate - h.prevTotalProfitRate : null;
-  const amountDelta = !isFirst && !h.compositionChanged && typeof h.prevTotalProfit === 'number' ? result.totalProfit - h.prevTotalProfit : null;
+  const rateDelta   = !isFirst && typeof h.prevTotalProfitRate === 'number' && typeof result.totalProfitRate === 'number' ? result.totalProfitRate - h.prevTotalProfitRate : null;
+  const amountDelta = !isFirst && !h.compositionChanged && typeof h.prevTotalProfit === 'number' && typeof result.totalProfit === 'number' ? result.totalProfit - h.prevTotalProfit : null;
 
   return (
     <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
@@ -203,7 +267,13 @@ function PortfolioHistoryCard({ result }: { result: PortfolioResult }) {
           )}
         </div>
       )}
-      <p className="text-[13px] text-slate-300 leading-relaxed">{h.narrative}</p>
+      {h.narrative !== undefined ? (
+        <p className="text-[13px] text-slate-300 leading-relaxed">
+          {h.narrative}{typingKey === 'historyNarrative' && <TypingCursor />}
+        </p>
+      ) : (
+        !stage2Failed && <FieldSkeleton lines={2} />
+      )}
     </div>
   );
 }
@@ -233,8 +303,13 @@ export default function PortfolioDiagnosisPage() {
   const [loadingLabel,        setLoadingLabel]        = useState('');
   const [loadingStep,         setLoadingStep]         = useState(0);
   const [error,               setError]               = useState('');
-  const [result,      setResult]      = useState<PortfolioResult | null>(null);
+  const [result,      setResult]      = useState<StreamedResult | null>(null);
   const [generatedAt, setGeneratedAt] = useState('');
+  const [stage1Complete, setStage1Complete] = useState(false); // 종목별 개별 분석(Stage1) 전부 완료 여부
+  const [stage2Failed,   setStage2Failed]   = useState(false); // Stage1은 끝났는데 종합분석(Stage2)만 실패/끊김
+  const [streamFinished, setStreamFinished] = useState(false); // done 수신 또는 stage2 실패 확정 — 공유/인쇄 활성화 기준
+  const [typingHolding,  setTypingHolding]  = useState<{ ticker: string; key: string } | null>(null); // Stage1 타이핑 커서
+  const [typingPortfolioKey, setTypingPortfolioKey] = useState<string | null>(null); // Stage2 타이핑 커서
 
   // debounce timers
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -350,6 +425,15 @@ export default function PortfolioDiagnosisPage() {
     setError('');
     setLoading(true);
     setLoadingLabel('분석 준비 중...');
+    setResult(null);
+    setStage1Complete(false);
+    setStage2Failed(false);
+    setStreamFinished(false);
+    setTypingHolding(null);
+    setTypingPortfolioKey(null);
+
+    // catch 블록에서도 참조해야 해서(네트워크 예외로 스트림 도중 끊긴 경우) try 밖에서 선언
+    let sawStage1Complete = false;
 
     try {
       const res = await fetch('/api/portfolio-diagnosis', {
@@ -396,13 +480,51 @@ export default function PortfolioDiagnosisPage() {
           if (!line.startsWith('data: ')) continue;
           try {
             const event = JSON.parse(line.slice(6));
+
             if (event.type === 'progress') {
               setLoadingLabel(event.label);
-            } else if (event.type === 'result') {
+            } else if (event.type === 'meta') {
+              const { type: _t, ...metaFields } = event;
+              setLoading(false);
+              setResult(prev => ({ ...prev, ...metaFields }));
+            } else if (event.type === 'holding-meta') {
+              setResult(prev => ({ ...(prev ?? {}), holdings: event.holdings }));
+            } else if (event.type === 'holding-field-partial') {
+              const { ticker, key, value: v } = event;
+              setResult(prev => {
+                if (!prev?.holdings) return prev;
+                return { ...prev, holdings: prev.holdings.map(h => h.ticker === ticker ? { ...h, [key]: v } : h) };
+              });
+              setTypingHolding({ ticker, key });
+            } else if (event.type === 'holding-field') {
+              const { ticker, key, value: v } = event;
+              setResult(prev => {
+                if (!prev?.holdings) return prev;
+                return { ...prev, holdings: prev.holdings.map(h => h.ticker === ticker ? { ...h, [key]: v } : h) };
+              });
+              setTypingHolding(prev => (prev?.ticker === ticker && prev.key === key) ? null : prev);
+            } else if (event.type === 'stage1-done') {
+              sawStage1Complete = true;
+              setStage1Complete(true);
+              setResult(prev => ({ ...(prev ?? {}), coMovementText: event.coMovementText }));
+            } else if (event.type === 'portfolio-field-partial') {
+              const { key, value: v } = event;
+              setResult(prev => applyPortfolioField(prev, key, v));
+              setTypingPortfolioKey(key);
+            } else if (event.type === 'portfolio-field') {
+              const { key, value: v } = event;
+              setResult(prev => applyPortfolioField(prev, key, v));
+              setTypingPortfolioKey(k => (k === key ? null : k));
+            } else if (event.type === 'stage2-error') {
+              setStage2Failed(true);
+              setStreamFinished(true);
+            } else if (event.type === 'done') {
               receivedTerminalEvent = true;
-              setResult(event.data);
               setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
               setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
+              setTypingPortfolioKey(null);
+              setTypingHolding(null);
+              setStreamFinished(true);
             } else if (event.type === 'error') {
               receivedTerminalEvent = true;
               if (event.message === 'PRO_REQUIRED') setShowUpgradeModal(true);
@@ -413,14 +535,32 @@ export default function PortfolioDiagnosisPage() {
       }
 
       if (!receivedTerminalEvent) {
-        setError('분석 중 연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.');
+        if (sawStage1Complete) {
+          // Stage1은 다 끝났는데 done 없이 스트림만 끊김 — Stage2만 실패한 것으로 보고
+          // 종합평가 카드 자리에 배너+재시도를 띄운다(Stage1 결과는 그대로 유지).
+          setStage2Failed(true);
+          setStreamFinished(true);
+          setTypingPortfolioKey(null);
+          setTypingHolding(null);
+        } else {
+          setError('분석 중 연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.');
+        }
       }
     } catch {
-      setError('네트워크 오류가 발생했습니다.');
+      if (sawStage1Complete) {
+        setStage2Failed(true);
+        setStreamFinished(true);
+        setTypingPortfolioKey(null);
+        setTypingHolding(null);
+      } else {
+        setError('네트워크 오류가 발생했습니다.');
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const handleRetry = () => { handleSubmit(); };
 
   // ── Auth loading ──────────────────────────────────────────────────────────
 
@@ -523,8 +663,18 @@ export default function PortfolioDiagnosisPage() {
   // ════════════════════════════════════════════════════════════════════════════
 
   if (result) {
-    const isUp = result.totalProfitRate >= 0;
-    const sortedSectors = [...result.sectors].sort((a, b) => b.weight - a.weight);
+    // meta 이벤트로 즉시 채워지는 필드들 — result가 non-null이 된 시점에 항상 존재하지만
+    // 타입은 Partial이라 폴백을 둔다(실제로 undefined인 경우는 없음).
+    const totalInvested   = result.totalInvested ?? 0;
+    const totalValue      = result.totalValue ?? 0;
+    const totalProfit     = result.totalProfit ?? 0;
+    const totalProfitRate = result.totalProfitRate ?? 0;
+    const holdingsList    = result.holdings ?? [];
+    const topContributors = result.topContributors ?? { n: 0, positive: [], negative: [] };
+    const isUp = totalProfitRate >= 0;
+    // sectors는 Stage2 완료 시 한 번에 도착 — 그 전엔 undefined
+    const sortedSectors = result.sectors ? [...result.sectors].sort((a, b) => b.weight - a.weight) : null;
+    const reportReady = streamFinished && !stage2Failed;
 
     return (
       <div className="pb-8">
@@ -542,20 +692,26 @@ export default function PortfolioDiagnosisPage() {
               <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성: {generatedAt}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0 mt-1 no-print">
-              <ShareDropdown
-                title="AI 포트폴리오 분석 리포트"
-                description={`총 수익률 ${result.totalProfitRate >= 0 ? '+' : ''}${result.totalProfitRate.toFixed(2)}% | ${result.holdings.length}개 기업 AI 분석`}
-                hashtags="fpark,기업분석,포트폴리오,AI분석"
-                reportType="portfolio"
-                reportData={{ ...result, generatedAt }}
-              />
-              <button
-                onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30
-                  border border-indigo-500/40 text-indigo-300 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer"
-              >
-                <Printer className="w-3 h-3" /> PRINT REPORT
-              </button>
+              {reportReady ? (
+                <>
+                  <ShareDropdown
+                    title="AI 포트폴리오 분석 리포트"
+                    description={`총 수익률 ${totalProfitRate >= 0 ? '+' : ''}${totalProfitRate.toFixed(2)}% | ${holdingsList.length}개 기업 AI 분석`}
+                    hashtags="fpark,기업분석,포트폴리오,AI분석"
+                    reportType="portfolio"
+                    reportData={{ ...result, generatedAt }}
+                  />
+                  <button
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30
+                      border border-indigo-500/40 text-indigo-300 text-[11px] font-semibold tracking-wide transition-colors cursor-pointer"
+                  >
+                    <Printer className="w-3 h-3" /> PRINT REPORT
+                  </button>
+                </>
+              ) : (
+                <span className="text-[11px] text-slate-500">리포트 생성 중...</span>
+              )}
             </div>
           </div>
 
@@ -572,60 +728,83 @@ export default function PortfolioDiagnosisPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <MetricCard
               label="총 투자금"
-              value={`${fmt(result.totalInvested)}원`}
+              value={`${fmt(totalInvested)}원`}
             />
             <MetricCard
               label="평가금액"
-              value={`${fmt(result.totalValue)}원`}
+              value={`${fmt(totalValue)}원`}
             />
             <MetricCard
               label="총 손익"
-              value={`${result.totalProfit >= 0 ? '+' : ''}${fmt(result.totalProfit)}원`}
+              value={`${totalProfit >= 0 ? '+' : ''}${fmt(totalProfit)}원`}
               up={isUp}
               highlight
             />
             <MetricCard
               label="수익률"
-              value={fmtR(result.totalProfitRate)}
-              sub={`${result.holdings.length}개 기업`}
+              value={fmtR(totalProfitRate)}
+              sub={`${holdingsList.length}개 기업`}
               up={isUp}
               highlight
             />
           </div>
 
-          {/* 2행: AI 요약 */}
-          <div
-            className="rounded-2xl border border-indigo-500/25 overflow-hidden mb-4"
-            style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}
-          >
-            <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
-            <div className="px-8 py-6">
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-                <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
+          {/* 2행: AI 요약 (Stage2 실패 시 배너+재시도로 대체) */}
+          {stage2Failed ? (
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-6 py-5 mb-4">
+              <div className="flex items-start gap-2.5">
+                <span className="text-amber-400 text-sm mt-0.5 shrink-0">ⓘ</span>
+                <p className="text-[13px] text-amber-200/90 leading-relaxed">
+                  AI 종합 평가를 불러오지 못했습니다. 기업별 개별 분석 결과는 아래에서 확인하실 수 있습니다.
+                </p>
               </div>
-              <div className="flex flex-col gap-3">
-                {result.summary
-                  .replace(/([.!?])\s+/g, '$1\n')
-                  .split('\n')
-                  .filter(Boolean)
-                  .reduce<string[][]>((acc, s, i) => {
-                    if (i % 2 === 0) acc.push([s]);
-                    else acc[acc.length - 1].push(s);
-                    return acc;
-                  }, [])
-                  .map((group, i) => (
-                    <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>
-                      {group.join(' ')}
-                    </p>
-                  ))
-                }
+              <button
+                onClick={handleRetry}
+                className="flex items-center gap-1.5 shrink-0 px-4 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25
+                  border border-amber-500/30 text-amber-300 text-[12px] font-semibold transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> 다시 시도
+              </button>
+            </div>
+          ) : (
+            <div
+              className="rounded-2xl border border-indigo-500/25 overflow-hidden mb-4"
+              style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}
+            >
+              <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
+              <div className="px-8 py-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles className="w-4 h-4 text-indigo-400" />
+                  <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
+                </div>
+                {result.summary !== undefined ? (
+                  <div className="flex flex-col gap-3">
+                    {result.summary
+                      .replace(/([.!?])\s+/g, '$1\n')
+                      .split('\n')
+                      .filter(Boolean)
+                      .reduce<string[][]>((acc, s, i) => {
+                        if (i % 2 === 0) acc.push([s]);
+                        else acc[acc.length - 1].push(s);
+                        return acc;
+                      }, [])
+                      .map((group, i) => (
+                        <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>
+                          {group.join(' ')}
+                        </p>
+                      ))
+                    }
+                    {typingPortfolioKey === 'summary' && <TypingCursor />}
+                  </div>
+                ) : (
+                  <FieldSkeleton lines={4} />
+                )}
               </div>
             </div>
-          </div>
+          )}
 
           {/* 2-1행: 직전 진단 대비 (신설) */}
-          <PortfolioHistoryCard result={result} />
+          <PortfolioHistoryCard result={result} typingKey={typingPortfolioKey} stage2Failed={stage2Failed} />
 
           {/* 3행: 벤치마크 비교 (사실 수치만, 판단 없음) */}
           {result.benchmark && (
@@ -650,67 +829,77 @@ export default function PortfolioDiagnosisPage() {
             </Card>
           )}
 
-          {/* 3행: 섹터 편중도 */}
-          <Card title="섹터 편중도 분석" className="mb-4">
-            <div className="flex flex-col gap-3">
-              {sortedSectors.map((s, i) => {
-                const hex = SECTOR_HEX[i % SECTOR_HEX.length];
-                const barColor = s.warning ? '#ef4444' : hex;
-                return (
-                  <div key={s.name}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hex }} />
-                        <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
-                        {s.warning && (
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
-                            style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
-                          >
-                            과집중
-                          </span>
-                        )}
+          {/* 3행: 섹터 편중도 — Stage2 완료 시 한 번에 도착(부분 표시 없음) */}
+          {sortedSectors === null ? (
+            !stage2Failed && (
+              <Card title="섹터 편중도 분석" className="mb-4">
+                <FieldSkeleton lines={4} />
+              </Card>
+            )
+          ) : (
+            <Card title="섹터 편중도 분석" className="mb-4">
+              <div className="flex flex-col gap-3">
+                {sortedSectors.map((s, i) => {
+                  const hex = SECTOR_HEX[i % SECTOR_HEX.length];
+                  const barColor = s.warning ? '#ef4444' : hex;
+                  return (
+                    <div key={s.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hex }} />
+                          <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
+                          {s.warning && (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
+                              style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                            >
+                              과집중
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
                       </div>
-                      <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${s.weight}%`, backgroundColor: barColor }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${s.weight}%`, backgroundColor: barColor }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
 
           {/* 3-1행: 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
-          {((result.topContributors?.positive.length ?? 0) > 0 || (result.topContributors?.negative.length ?? 0) > 0 || result.coMovementText) && (
+          {((topContributors.positive.length ?? 0) > 0 || (topContributors.negative.length ?? 0) > 0 || result.coMovementText) && (
             <div className={`grid grid-cols-1 ${result.coMovementText ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
-              {((result.topContributors?.positive.length ?? 0) > 0 || (result.topContributors?.negative.length ?? 0) > 0) && (
+              {(topContributors.positive.length > 0 || topContributors.negative.length > 0) && (
                 <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                    오늘 손익 영향이 가장 큰 {result.topContributors.n}종목
+                    오늘 손익 영향이 가장 큰 {topContributors.n}종목
                   </p>
                   <p className="text-[10px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
                   {/* 금액은 서버 계산값을 그대로 표시(AI가 옮겨 적지 않음) — 아래 문장은 해석만 */}
                   <div className="flex flex-col gap-1.5 mb-3">
-                    {result.topContributors.positive.map(c => (
+                    {topContributors.positive.map(c => (
                       <div key={c.ticker} className="flex items-center justify-between">
                         <span className="text-[12px] text-slate-400">{c.name}</span>
                         <span className="text-[13px] font-bold font-mono text-red-400">{c.amount >= 0 ? '+' : ''}{fmt(c.amount)}원</span>
                       </div>
                     ))}
-                    {result.topContributors.negative.map(c => (
+                    {topContributors.negative.map(c => (
                       <div key={c.ticker} className="flex items-center justify-between">
                         <span className="text-[12px] text-slate-400">{c.name}</span>
                         <span className="text-[13px] font-bold font-mono text-blue-400">{fmt(c.amount)}원</span>
                       </div>
                     ))}
                   </div>
-                  {result.contributionNarrative && (
-                    <p className="text-[13px] text-slate-300 leading-relaxed">{result.contributionNarrative}</p>
+                  {result.contributionNarrative !== undefined && (
+                    <p className="text-[13px] text-slate-300 leading-relaxed">
+                      {result.contributionNarrative}{typingPortfolioKey === 'contributionNarrative' && <TypingCursor />}
+                    </p>
                   )}
                 </div>
               )}
@@ -718,26 +907,33 @@ export default function PortfolioDiagnosisPage() {
                 <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">섹터 동조화 관찰</p>
                   <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>
-                  {result.coMovementNarrative && (
-                    <p className="text-[13px] text-slate-300 leading-relaxed">{result.coMovementNarrative}</p>
+                  {result.coMovementNarrative !== undefined && (
+                    <p className="text-[13px] text-slate-300 leading-relaxed">
+                      {result.coMovementNarrative}{typingPortfolioKey === 'coMovementNarrative' && <TypingCursor />}
+                    </p>
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* 4행: 기업별 관찰 지표 */}
-          <Card title="기업별 관찰 지표" className="mb-4">
+          {/* 4행: 기업별 관찰 지표 — 카드 위치는 입력 순서 고정, 내용(섹터/사유)은 완료되는 대로 채움 */}
+          <Card title={stage1Complete ? '기업별 관찰 지표' : '기업별 관찰 지표 (분석 중...)'} className="mb-4">
             <div className="flex flex-col divide-y divide-slate-700/40">
-              {result.holdings.map(h => {
+              {holdingsList.map(h => {
                 const hUp = h.profitRate >= 0;
+                const reasonTyping = typingHolding?.ticker === h.ticker && typingHolding.key === 'reason';
+                const sectorTyping = typingHolding?.ticker === h.ticker && typingHolding.key === 'sector';
                 return (
                   <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
                     <div className="flex items-start gap-3 flex-wrap md:flex-nowrap">
                       {/* 종목 */}
                       <div className="w-full md:w-40 shrink-0">
                         <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
-                        <p className="text-[11px] text-slate-500 font-mono">{h.ticker} · {h.sector}</p>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          {h.ticker}{h.sector !== undefined ? ` · ${h.sector}` : ''}
+                          {sectorTyping && <TypingCursor />}
+                        </p>
                         <Link href={`/stock/${h.ticker}`} className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
                           자세히 보기 →
                         </Link>
@@ -773,8 +969,14 @@ export default function PortfolioDiagnosisPage() {
                         </div>
                       )}
                     </div>
-                    {h.reason && (
-                      <p className="mt-2 text-[12px] text-slate-500 leading-relaxed pl-0 md:pl-44">{h.reason}</p>
+                    {h.reason !== undefined ? (
+                      h.reason && (
+                        <p className="mt-2 text-[12px] text-slate-500 leading-relaxed pl-0 md:pl-44">
+                          {h.reason}{reasonTyping && <TypingCursor />}
+                        </p>
+                      )
+                    ) : (
+                      <div className="mt-2 pl-0 md:pl-44"><FieldSkeleton lines={2} /></div>
                     )}
                     {h.mdd != null && (
                       <p className="mt-1 text-[11px] text-slate-600 pl-0 md:pl-44">
@@ -837,7 +1039,9 @@ export default function PortfolioDiagnosisPage() {
                       단기 관찰 변수
                     </span>
                   </div>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">
+                    {result.shortTermOutlook}{typingPortfolioKey === 'shortTermOutlook' && <TypingCursor />}
+                  </p>
                 </div>
               )}
               {result.midTermOutlook && (
@@ -847,7 +1051,9 @@ export default function PortfolioDiagnosisPage() {
                       중기 관찰 변수
                     </span>
                   </div>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
+                  <p className="text-[13px] text-slate-300 leading-relaxed">
+                    {result.midTermOutlook}{typingPortfolioKey === 'midTermOutlook' && <TypingCursor />}
+                  </p>
                 </div>
               )}
             </div>
@@ -870,8 +1076,12 @@ export default function PortfolioDiagnosisPage() {
                   </p>
                 </div>
               </div>
-              {result.holdingPeriod.narrative && (
-                <p className="text-[13px] text-slate-300 leading-relaxed">{result.holdingPeriod.narrative}</p>
+              {result.holdingPeriod.narrative !== undefined ? (
+                <p className="text-[13px] text-slate-300 leading-relaxed">
+                  {result.holdingPeriod.narrative}{typingPortfolioKey === 'holdingPeriodNarrative' && <TypingCursor />}
+                </p>
+              ) : (
+                !stage2Failed && <FieldSkeleton lines={2} />
               )}
             </Card>
           )}
@@ -883,7 +1093,14 @@ export default function PortfolioDiagnosisPage() {
           </p>
 
           <button
-            onClick={() => setResult(null)}
+            onClick={() => {
+              setResult(null);
+              setStage1Complete(false);
+              setStage2Failed(false);
+              setStreamFinished(false);
+              setTypingHolding(null);
+              setTypingPortfolioKey(null);
+            }}
             className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl
               bg-slate-800 hover:bg-slate-700 border border-slate-700
               text-slate-300 text-[13px] transition-colors cursor-pointer"

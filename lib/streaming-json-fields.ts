@@ -11,13 +11,19 @@
 
 export interface FieldSpec {
   key: string;
-  type: 'string' | 'string[]';
+  // 2026-07-27 포트폴리오분석 스트리밍 파일럿에서 'json' 추가 — sectors처럼 flat
+  // string/string[]이 아닌 중첩 객체 배열용. partial(타이핑 효과)은 지원하지 않고
+  // 완결 시에만 통째로 노출한다(tags와 동일 취급, feedWithPartial의 partial 판단은
+  // type === 'string'만 통과시키므로 별도 분기 없이 자동으로 제외됨).
+  type: 'string' | 'string[]' | 'json';
   emit: boolean; // false면 커서 이동만 하고 결과에 포함하지 않음(reportType/signal처럼 UI 미노출 필드)
 }
 
+export type JsonFieldValue = Record<string, unknown> | Record<string, unknown>[];
+
 export interface ExtractedField {
   key: string;
-  value: string | string[];
+  value: string | string[] | JsonFieldValue;
 }
 
 export interface PartialField {
@@ -106,7 +112,7 @@ export class StreamingFieldParser {
     return i;
   }
 
-  private tryExtract(spec: FieldSpec): { value: string | string[]; nextCursor: number } | null {
+  private tryExtract(spec: FieldSpec): { value: string | string[] | JsonFieldValue; nextCursor: number } | null {
     const i = this.findValueTokenStart(spec);
     if (i === null) return null;
 
@@ -120,6 +126,16 @@ export class StreamingFieldParser {
       return { value, nextCursor: strEnd + 1 };
     }
 
+    if (spec.type === 'json') {
+      if (this.buffer[i] !== '{' && this.buffer[i] !== '[') return null;
+      const end = this.findBalancedEnd(i);
+      if (end === -1) return null;
+      const raw = this.buffer.slice(i, end + 1);
+      let value: JsonFieldValue;
+      try { value = JSON.parse(raw); } catch { return null; }
+      return { value, nextCursor: end + 1 };
+    }
+
     if (this.buffer[i] !== '[') return null;
     const arrEnd = this.findArrayEnd(i);
     if (arrEnd === -1) return null;
@@ -127,6 +143,36 @@ export class StreamingFieldParser {
     let value: string[];
     try { value = JSON.parse(raw); } catch { return null; }
     return { value, nextCursor: arrEnd + 1 };
+  }
+
+  // 'json' 타입 전용. start는 여는 { 또는 [ 위치. 문자열 내부는 무시하고(기존 findArrayEnd와
+  // 같은 방식) 중첩 깊이를 추적해서 그 여는 괄호와 정확히 짝이 맞는 닫는 괄호 위치를 찾는다.
+  // findArrayEnd와 달리 깊이 카운터를 두는 이유: sectors 같은 "객체 배열"은 내부에
+  // "tickers":["005930"] 같은 중첩 배열/객체를 포함할 수 있어, 첫 ']'에서 멈추면
+  // 바깥쪽이 아니라 안쪽 배열에서 잘못 멈춘다. partial 지원 없음(emit은 완결 시 1회만).
+  private findBalancedEnd(start: number): number {
+    let depth = 0;
+    let inString = false;
+    let i = start;
+    while (i < this.buffer.length) {
+      const c = this.buffer[i];
+      if (inString) {
+        if (c === '\\') { i += 2; continue; }
+        if (c === '"') inString = false;
+        i++;
+        continue;
+      }
+      if (c === '"') { inString = true; i++; continue; }
+      if (c === '{' || c === '[') { depth++; i++; continue; }
+      if (c === '}' || c === ']') {
+        depth--;
+        if (depth === 0) return i;
+        i++;
+        continue;
+      }
+      i++;
+    }
+    return -1;
   }
 
   // feedWithPartial 전용. valueStart(여는 따옴표 다음 위치)부터 시작해서, 완결된
@@ -199,4 +245,28 @@ export const STOCK_ANALYSIS_FIELD_SPECS: FieldSpec[] = [
   { key: 'riskFactor', type: 'string', emit: true },
   { key: 'tags', type: 'string[]', emit: true },
   { key: 'signal', type: 'string', emit: false },
+];
+
+// 2026-07-27 포트폴리오분석 스트리밍 — app/api/portfolio-diagnosis/route.ts의
+// STOCK_SIGNAL_INSTRUCTIONS 키 순서와 반드시 일치해야 한다.
+export const PORTFOLIO_STOCK_FIELD_SPECS: FieldSpec[] = [
+  { key: 'ticker', type: 'string', emit: false },
+  { key: 'signal', type: 'string', emit: false },
+  { key: 'reason', type: 'string', emit: true },
+  { key: 'sector', type: 'string', emit: true },
+];
+
+// 포트폴리오 종합 분석(Stage 2) 스키마 — PORTFOLIO_SUMMARY_INSTRUCTIONS 키 순서와
+// 반드시 일치해야 한다. sectors만 'json'(중첩 객체 배열) — partial 없이 완결 시에만 노출.
+export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
+  { key: 'summary', type: 'string', emit: true },
+  { key: 'sectors', type: 'json', emit: true },
+  { key: 'riskFactors', type: 'string[]', emit: true },
+  { key: 'opportunityFactors', type: 'string[]', emit: true },
+  { key: 'historyNarrative', type: 'string', emit: true },
+  { key: 'contributionNarrative', type: 'string', emit: true },
+  { key: 'holdingPeriodNarrative', type: 'string', emit: true },
+  { key: 'coMovementNarrative', type: 'string', emit: true },
+  { key: 'shortTermOutlook', type: 'string', emit: true },
+  { key: 'midTermOutlook', type: 'string', emit: true },
 ];

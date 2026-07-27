@@ -23,6 +23,7 @@ import {
   kstDateStr, daysBetween,
 } from '@/lib/ai-grounding';
 import { getDomesticMarketDayContext, buildMarketDayBlock, type MarketDayContext } from '@/lib/market-day-context';
+import { StreamingFieldParser, PORTFOLIO_STOCK_FIELD_SPECS, PORTFOLIO_SUMMARY_FIELD_SPECS } from '@/lib/streaming-json-fields';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic     = 'force-dynamic';
@@ -259,13 +260,26 @@ function buildStockPrompt(h: EnrichedHolding, marketDayBlock: string): string {
 
 // ── Stage 1: 종목 개별 분석 ─────────────────────────────────────────────────
 
-async function analyzeOneStock(h: EnrichedHolding, marketDayBlock: string): Promise<StockAiResult> {
+// 2026-07-27 스트리밍 전환: 재생성 로직이 원래 없는 라우트라(재시도는 비용 문제로 로그만
+// 남기는 정책 — 아래 checkTemporalConsistency 참고) 종목분석 스트리밍에서 가장 복잡했던
+// "재생성 시 필드 교체(field-updated)" 문제 자체가 없다 — onField/onPartial은 항상
+// "이번이 유일한 시도"라는 전제로 단순하게 통지하면 된다.
+async function analyzeOneStock(
+  h: EnrichedHolding,
+  marketDayBlock: string,
+  onPartial: (key: string, value: string) => void,
+  onField: (key: string, value: string) => void,
+): Promise<StockAiResult> {
   const prompt = buildStockPrompt(h, marketDayBlock);
 
   const newsBasis: 'news' | 'estimated' = h.relevantNews.length > 0 ? 'news' : 'estimated';
+  const parser = new StreamingFieldParser(PORTFOLIO_STOCK_FIELD_SPECS);
+  let fullText = '';
+  const lastPartialEmitAt: Record<string, number> = {};
+  const PARTIAL_THROTTLE_MS = 80; // 종목분석 스트리밍에서 검증된 값 — 실측상 Claude 델타 자체가 더 느려 사실상 상한으로만 작동
 
   try {
-    const msg = await claude.messages.create({
+    const claudeStream = claude.messages.stream({
       model:      'claude-sonnet-4-6',
       max_tokens: 2000,
       system: [
@@ -276,8 +290,25 @@ async function analyzeOneStock(h: EnrichedHolding, marketDayBlock: string): Prom
       // 2026-07-23: 종목별 병렬 호출이라 재시도가 겹치면 전체 Stage 1 시간이 크게 늘어날 수
       // 있음 — maxRetries:0(SDK 기본 재시도는 타임아웃도 재시도 대상이라 예산 계산 불가)
       // + timeout 30s(실측 종목당 최악 ~10초 대비 3배 여유, 병렬이라 종목 수와 무관하게
-      // 이 값이 Stage 1 전체 상한).
+      // 이 값이 Stage 1 전체 상한). 스트리밍 전환 후에도 실제 생성 시간 자체는 그대로라
+      // 동일하게 유지(종목분석 스트리밍에서 실측으로 이미 확인된 원칙).
     }, { timeout: 30_000, maxRetries: 0 });
+
+    claudeStream.on('text', (delta) => {
+      fullText += delta;
+      const { fields, partial } = parser.feedWithPartial(delta);
+      for (const field of fields) onField(field.key, field.value as string);
+      if (partial) {
+        const now = Date.now();
+        const last = lastPartialEmitAt[partial.key] ?? 0;
+        if (now - last >= PARTIAL_THROTTLE_MS) {
+          lastPartialEmitAt[partial.key] = now;
+          onPartial(partial.key, partial.value);
+        }
+      }
+    });
+
+    const msg = await claudeStream.finalMessage();
     console.log('[TOKEN_USAGE]', {
       route: 'portfolio-diagnosis-stage1', ticker: h.ticker, hasNews: h.relevantNews.length > 0,
       input_tokens: msg.usage.input_tokens,
@@ -285,8 +316,16 @@ async function analyzeOneStock(h: EnrichedHolding, marketDayBlock: string): Prom
       cache_creation_input_tokens: msg.usage.cache_creation_input_tokens ?? 0,
       cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
     });
-    const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
-    const parsed = parseAiJson<Omit<StockAiResult, 'newsBasis'>>(text, { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '' });
+    const parsed = parseAiJson<Omit<StockAiResult, 'newsBasis'>>(fullText, { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '' });
+
+    // 정합성 보정 — 증분 파서가 놓쳤거나 다르게 뽑았어도 전체 재파싱 결과로 덮어써서
+    // 최종 정확성을 보장(종목분석과 동일 원칙). emit:false인 ticker/signal은 스킵.
+    for (const spec of PORTFOLIO_STOCK_FIELD_SPECS) {
+      if (!spec.emit) continue;
+      const raw = (parsed as unknown as Record<string, string | undefined>)[spec.key];
+      if (raw === undefined) continue;
+      onField(spec.key, raw);
+    }
 
     // 시간적 사실관계 사후 검증 — N개 종목 병렬 호출이라 재생성은 비용이 커서 로그만 남긴다.
     const newsText = h.relevantNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
@@ -298,6 +337,10 @@ async function analyzeOneStock(h: EnrichedHolding, marketDayBlock: string): Prom
     return { ...parsed, signal: clampSignal(parsed.signal), newsBasis };
   } catch (e) {
     console.error(`[PORTFOLIO-DIAGNOSIS] 종목 분석 실패 ${h.ticker}:`, e);
+    // 스트리밍 중 실패했으면 프론트가 이 종목 카드에서 계속 로딩 상태로 멈춰있지 않도록
+    // 빈 값이라도 통지한다.
+    onField('reason', '');
+    onField('sector', '');
     return { ticker: h.ticker, signal: '중립·관망', reason: '', sector: '', newsBasis };
   }
 }
@@ -372,6 +415,14 @@ function buildCoMovementText(
 
 // ── Stage 2: 포트폴리오 종합 분석 ──────────────────────────────────────────
 
+interface PortfolioSummaryResult {
+  summary: string; sectors: unknown[];
+  riskFactors: string[]; opportunityFactors: string[]; historyNarrative: string; contributionNarrative: string;
+  holdingPeriodNarrative: string; coMovementNarrative: string;
+  shortTermOutlook: string; midTermOutlook: string;
+  _failed?: boolean; // 스트림/파싱 실패로 폴백값을 썼는지 — 프론트에 stage2-error를 보낼지 판단용(저장·표시 데이터엔 포함 안 함)
+}
+
 async function analyzePortfolioSummary(
   stockResults: StockAiResult[],
   nameMap: Record<string, string>,   // ticker → 종목명
@@ -387,12 +438,9 @@ async function analyzePortfolioSummary(
   coMovementFactsLine: string,
   gapTone: string,
   marketDayBlock: string,
-): Promise<{
-  summary: string; sectors: unknown[];
-  riskFactors: string[]; opportunityFactors: string[]; historyNarrative: string; contributionNarrative: string;
-  holdingPeriodNarrative: string; coMovementNarrative: string;
-  shortTermOutlook: string; midTermOutlook: string;
-}> {
+  onPartial: (key: string, value: string) => void,
+  onField: (key: string, value: unknown) => void,
+): Promise<PortfolioSummaryResult> {
   // 종목명-종목코드 매핑 테이블
   const mappingTable = Object.entries(nameMap)
     .map(([ticker, name]) => `${ticker}: ${name}`)
@@ -430,8 +478,13 @@ async function analyzePortfolioSummary(
     `## 섹터 동조화 관찰 데이터\n${coMovementFactsLine}\n\n` +
     `위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
+  const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
+  let fullText = '';
+  const lastPartialEmitAt: Record<string, number> = {};
+  const PARTIAL_THROTTLE_MS = 80;
+
   try {
-    const msg = await claude.messages.create({
+    const claudeStream = claude.messages.stream({
       model:      'claude-sonnet-4-6',
       max_tokens: 4096,
       system: [
@@ -443,7 +496,24 @@ async function analyzePortfolioSummary(
       // 2026-07-23: 단일 호출(Stage 2)이 전체 라우트의 지배적 병목(실측 62.7초) — maxRetries:0
       // (SDK 기본 재시도는 타임아웃도 재시도 대상이라 예산 계산 불가) + timeout 75s로,
       // Stage 0/1/DB저장 몫을 남기고도 maxDuration(120s) 안에서 우리 catch가 먼저 발동하게 함.
+      // 스트리밍 전환 후에도 실제 생성 시간은 그대로라 동일하게 유지.
     }, { timeout: 75_000, maxRetries: 0 });
+
+    claudeStream.on('text', (delta) => {
+      fullText += delta;
+      const { fields, partial } = parser.feedWithPartial(delta);
+      for (const field of fields) onField(field.key, field.value);
+      if (partial) {
+        const now = Date.now();
+        const last = lastPartialEmitAt[partial.key] ?? 0;
+        if (now - last >= PARTIAL_THROTTLE_MS) {
+          lastPartialEmitAt[partial.key] = now;
+          onPartial(partial.key, partial.value);
+        }
+      }
+    });
+
+    const msg = await claudeStream.finalMessage();
     console.log('[TOKEN_USAGE]', {
       route: 'portfolio-diagnosis-stage2', holdingCount,
       input_tokens: msg.usage.input_tokens,
@@ -451,12 +521,20 @@ async function analyzePortfolioSummary(
       cache_creation_input_tokens: msg.usage.cache_creation_input_tokens ?? 0,
       cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
     });
-    const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
-    const parsed = parseAiJson(text, {
+    const parsed = parseAiJson(fullText, {
       summary: '', sectors: [],
       riskFactors: [], opportunityFactors: [], historyNarrative: '', contributionNarrative: '',
       holdingPeriodNarrative: '', coMovementNarrative: '', shortTermOutlook: '', midTermOutlook: '',
     });
+
+    // 정합성 보정 — 증분 파서가 놓쳤거나 다르게 뽑았어도 전체 재파싱 결과로 덮어써서
+    // 최종 정확성을 보장(종목분석과 동일 원칙).
+    for (const spec of PORTFOLIO_SUMMARY_FIELD_SPECS) {
+      if (!spec.emit) continue;
+      const raw = (parsed as unknown as Record<string, unknown>)[spec.key];
+      if (raw === undefined) continue;
+      onField(spec.key, raw);
+    }
 
     // 시간적 사실관계 사후 검증 — 포트폴리오 요약은 1회 호출이지만, 종목별 뉴스가 이미
     // Stage 1에서 개별 검증되므로 여기서는 종합 텍스트만 가볍게 로그로 남긴다(재생성 없음).
@@ -474,6 +552,7 @@ async function analyzePortfolioSummary(
       summary: '', sectors: [],
       riskFactors: [], opportunityFactors: [], historyNarrative: '', contributionNarrative: '',
       holdingPeriodNarrative: '', coMovementNarrative: '', shortTermOutlook: '', midTermOutlook: '',
+      _failed: true,
     };
   }
 }
@@ -802,19 +881,80 @@ export async function POST(request: NextRequest) {
         // ── 보유 기간별 관점 (3-1) — 최장/최근 보유 종목 성과 비교 ─────────────────
         const holdingPeriodFacts = buildHoldingPeriodFactsLine(enriched, todayStr);
 
-        // Stage 1: 종목별 개별 분석 (병렬)
+        // 2026-07-27 스트리밍 전환 — 여기까지는 전부 서버가 Claude 호출 전에 이미 계산해
+        // 둔 값들이라(집계 금액·벤치마크·직전 진단 대비·손익 기여도·보유기간) Stage 1을
+        // 시작하기 전에 먼저 통째로 흘려보낸다. 프론트는 이걸로 상단 숫자 카드들을 즉시
+        // 그리고, 종목별 카드도 스켈레톤(숫자는 이미 채워짐, reason만 비어있음) 상태로
+        // 입력 순서 그대로 먼저 그릴 수 있다.
+        send(controller, {
+          type: 'meta',
+          totalInvested,
+          totalValue,
+          totalProfit,
+          totalProfitRate: parseFloat(totalProfitRate.toFixed(2)),
+          benchmark,
+          history: {
+            daysSince: daysSinceLastReport,
+            prevDate: prevRow?.report_date,
+            prevTotalProfitRate: prevRow?.result?.totalProfitRate ?? null,
+            prevTotalProfit:     prevRow?.result?.totalProfit     ?? null,
+            compositionChanged,
+            addedTickers,
+            removedTickers,
+          },
+          topContributors: {
+            n: topPositive.length + topNegative.length,
+            positive: topPositive.map(h => ({ ticker: h.ticker, name: h.name, amount: Math.round(h.todayContribution as number) })),
+            negative: topNegative.map(h => ({ ticker: h.ticker, name: h.name, amount: Math.round(h.todayContribution as number) })),
+          },
+          holdingPeriod: {
+            longest:    holdingPeriodFacts.longest,
+            mostRecent: holdingPeriodFacts.mostRecent,
+          },
+        });
+        send(controller, {
+          type: 'holding-meta',
+          holdings: enriched.map(h => ({
+            ticker:       h.ticker,
+            name:         h.name,
+            currentPrice: h.currentPrice,
+            avgPrice:     h.avgPrice,
+            quantity:     h.quantity,
+            value:        h.value,
+            invested:     h.invested,
+            profit:       h.profit,
+            profitRate:   parseFloat(h.profitRate.toFixed(2)),
+            newsBasis:    h.relevantNews.length > 0 ? 'news' : 'estimated',
+            news:         h.relevantNews,
+            mdd:          h.mdd,
+            volatility:   h.volatility,
+            todayContribution: h.todayContribution,
+            isCached:     h.analysisData?.isCached,
+            cachedAt:     h.analysisData?.cachedAt,
+          })),
+        });
+
+        // Stage 1: 종목별 개별 분석 (병렬) — 종목마다 완료되는 대로 holding-field(-partial)를
+        // 그 종목의 ticker를 실어 보낸다. 프론트는 위 holding-meta로 이미 그려둔 자기 자리에서
+        // 채운다(카드 위치는 입력 순서 고정, 내용만 완료 순서대로).
         send(controller, { type: 'progress', label: `${enriched.length}개 종목 개별 분석 중...` });
         console.log(`[PORTFOLIO-DIAGNOSIS] Stage 1 시작 — ${enriched.length}개 병렬 분석`);
 
         const portfolioMarketDayBlock = buildPortfolioMarketDayBlock(marketDayContext);
-        const stockResults = await Promise.all(enriched.map(h => analyzeOneStock(h, portfolioMarketDayBlock)));
+        const stockResults = await Promise.all(enriched.map(h => analyzeOneStock(
+          h, portfolioMarketDayBlock,
+          (key, value) => send(controller, { type: 'holding-field-partial', ticker: h.ticker, key, value }),
+          (key, value) => send(controller, { type: 'holding-field', ticker: h.ticker, key, value }),
+        )));
 
         // 섹터 co-movement 사실 — 그룹핑·방향 판정은 AI 호출 없이 서버가 결정형으로 계산
         // (컴플라이언스 리스크 없는 순수 사실). 이 사실을 Stage 2 프롬프트에 넣어
         // "왜/무슨 함의인지"는 AI가 해석하게 한다(2026-07-13 3차 고도화 — 사실 재조합에
-        // 그쳤던 문제 개선).
+        // 그쳤던 문제 개선). stockResults(각 종목의 AI sector 라벨)가 있어야 계산 가능해서
+        // Stage 1이 끝난 지금 시점에야 알 수 있다 — stage1-done 이벤트로 함께 통지.
         const coMovementText = buildCoMovementText(enriched, stockResults);
         const coMovementFactsLine = coMovementText ?? '동조화 사례 없음';
+        send(controller, { type: 'stage1-done', coMovementText });
 
         // 포트폴리오 내 과거 유사 급등락 이력 — Stage 0에서 종목별로 이미 계산된 값을 모음
         const surgeFactsLine = enriched
@@ -834,12 +974,30 @@ export async function POST(request: NextRequest) {
           newsMap[h.ticker] = h.relevantNews;
         });
 
+        // Stage 2는 재생성이 없어 dedup은 "정합성 보정이 스트리밍 완결값과 같으면 중복
+        // 전송 생략" 용도로만 쓰인다(종목분석과 동일 패턴, 재시도 diff 목적은 아님).
+        const sentPortfolioValues: Record<string, unknown> = {};
+        const emitPortfolioField = (key: string, value: unknown) => {
+          if (JSON.stringify(sentPortfolioValues[key]) === JSON.stringify(value)) return;
+          sentPortfolioValues[key] = value;
+          send(controller, { type: 'portfolio-field', key, value });
+        };
+        const emitPortfolioPartial = (key: string, value: string) =>
+          send(controller, { type: 'portfolio-field-partial', key, value });
+
         const summary = await analyzePortfolioSummary(
           stockResults, nameMap, newsMap, totalProfitRate, enriched.length, benchmark,
           { lossCount, lossWeightPct, riskiestLines },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
           surgeFactsLine, coMovementFactsLine, gapTone, portfolioMarketDayBlock,
+          emitPortfolioPartial, emitPortfolioField,
         );
+        // Stage 1은 다 됐는데 Stage 2만 실패/폴백된 경우 — 이미 보여준 종목별 카드는
+        // 그대로 두고 "종합 평가" 자리에만 배너+재시도를 띄우도록 프론트에 명시적으로 알림
+        // (알림 없이 빈 문자열만 보내면 사용자는 그냥 내용이 없는 건지 실패한 건지 구분 못함).
+        if (summary._failed) {
+          send(controller, { type: 'stage2-error' });
+        }
 
         // 결과 병합
         const mergedHoldings = enriched.map(h => {
@@ -924,7 +1082,10 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[PORTFOLIO-DIAGNOSIS] 완료${usedCredit ? ' (1회권 사용)' : ''}`);
-        send(controller, { type: 'result', data: finalResult });
+        // 2026-07-27 스트리밍 전환 — 프론트는 위에서 이미 meta/holding-meta/holding-field/
+        // portfolio-field 이벤트로 finalResult와 동등한 내용을 다 받았으므로, 여기서는
+        // 전체를 다시 보내지 않고 종료만 통지한다(종목분석 done 이벤트와 동일 설계).
+        send(controller, { type: 'done' });
       } catch (e) {
         console.error('[PORTFOLIO-DIAGNOSIS] 치명적 오류:', e);
         send(controller, { type: 'error', message: 'AI 분석 생성 실패' });
