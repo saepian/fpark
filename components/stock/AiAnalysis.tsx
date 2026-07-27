@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Sparkles, AlertCircle, TrendingUp, TrendingDown } from 'lucide-react';
+import { Sparkles, AlertCircle, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import type { AnalysisResult } from '@/app/api/stock/[ticker]/analysis/route';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
@@ -93,6 +93,22 @@ function AiLoadingScreen() {
   );
 }
 
+// 아직 도착하지 않은 필드 자리에 보여줄 스켈레톤 — 실제 내용 블록과 높이가 비슷하도록
+// 줄 수를 다르게 줘서 레이아웃 점프를 최소화한다.
+function FieldSkeleton({ lines = 2 }: { lines?: number }) {
+  return (
+    <div className="space-y-1.5 animate-pulse">
+      {Array.from({ length: lines }).map((_, i) => (
+        <div
+          key={i}
+          className="h-3 rounded bg-slate-700/40"
+          style={{ width: i === lines - 1 ? '60%' : '100%' }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function fmtPrice(v: number) {
   return v.toLocaleString('ko-KR');
 }
@@ -102,12 +118,17 @@ function priceDiff(current: number, target: number) {
   return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
 }
 
+type StreamedData = Partial<AnalysisResult>;
+
 export default function AiAnalysis({ ticker }: { ticker: string }) {
-  const [data, setData]           = useState<AnalysisResult | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
+  const [data, setData]             = useState<StreamedData | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
-  const [toast, setToast]         = useState(false);
+  const [partialFailure, setPartialFailure] = useState(false);
+  const [updatedKey, setUpdatedKey] = useState<string | null>(null);
+  const [toast, setToast]           = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   const showToast = () => {
     setToast(true);
@@ -119,16 +140,21 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     setLoading(true);
     setError(null);
     setNeedsLogin(false);
+    setPartialFailure(false);
     setData(null);
 
-    const load = async () => {
+    const flashUpdated = (key: string) => {
+      setUpdatedKey(key);
+      setTimeout(() => { if (!cancelled) setUpdatedKey((k) => (k === key ? null : k)); }, 900);
+    };
+
+    const run = async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
+        let fieldsArrived = false;
         try {
           // 서버 maxDuration(60s)보다 살짝 여유를 둬서, 정상 응답은 끝까지 기다리되
           // 서버가 죽어 응답이 영영 안 오는 경우엔 무한 대기하지 않도록 함
           const res = await fetch(`/api/stock/${ticker}/analysis`, { signal: AbortSignal.timeout(65000) });
-          // 401(로그인 필요)/429(월간 한도 초과)는 재시도해도 결과가 바뀌지 않으므로
-          // 즉시 확정 처리 — 2026-07-14 요금제 재구성으로 종목분석에 로그인·월간 한도가 신설됨.
           if (res.status === 401) {
             if (!cancelled) setNeedsLogin(true);
             return;
@@ -138,22 +164,78 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             if (!cancelled) setError(body?.error ?? '이번 달 이용 한도를 초과했습니다.');
             return;
           }
-          if (!res.ok) throw new Error(`${res.status}`);
-          const json = await res.json() as AnalysisResult;
-          if (!cancelled) setData(json);
-          return;
+          if (!res.ok || !res.body) throw new Error(`${res.status}`);
+
+          const reader  = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let receivedDone = false;
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              let event: Record<string, unknown>;
+              try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+              if (event.type === 'meta') {
+                const { type: _t, ...metaFields } = event;
+                if (!cancelled) {
+                  setLoading(false);
+                  setData((prev) => ({ ...prev, ...metaFields } as StreamedData));
+                }
+              } else if (event.type === 'field') {
+                fieldsArrived = true;
+                const key = event.key as keyof AnalysisResult;
+                if (!cancelled) setData((prev) => ({ ...(prev ?? {}), [key]: event.value }));
+              } else if (event.type === 'field-updated') {
+                const key = event.key as keyof AnalysisResult;
+                if (!cancelled) {
+                  setData((prev) => ({ ...(prev ?? {}), [key]: event.value }));
+                  flashUpdated(key);
+                }
+              } else if (event.type === 'done') {
+                receivedDone = true;
+                if (!cancelled) setData((prev) => (prev ? { ...prev, createdAt: event.createdAt as string } : prev));
+              } else if (event.type === 'error') {
+                throw new Error((event.message as string) ?? 'stream-error');
+              }
+            }
+          }
+
+          if (!receivedDone) {
+            // 명시적 done 없이 스트림이 끊김(예: Vercel 함수 타임아웃) — 이미 보여준 필드가
+            // 있으면 부분실패로 처리하고 그 내용은 그대로 유지한다.
+            if (fieldsArrived) {
+              if (!cancelled) setPartialFailure(true);
+              return;
+            }
+            throw new Error('stream-ended-without-done');
+          }
+          return; // 성공 종료
         } catch {
-          if (attempt === 0 && !cancelled) await new Promise((r) => setTimeout(r, 2000));
+          if (fieldsArrived) {
+            if (!cancelled) setPartialFailure(true);
+            return;
+          }
+          // 첫 필드가 뜨기도 전에 실패했을 때만 조용히 1회 재시도(기존 동작과 동일)
+          if (attempt === 0 && !cancelled) { await new Promise((r) => setTimeout(r, 2000)); continue; }
         }
       }
       if (!cancelled) setError('AI 분석을 불러올 수 없습니다.');
     };
 
-    load().finally(() => { if (!cancelled) setLoading(false); });
+    run().finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [ticker]);
+  }, [ticker, retryToken]);
 
-  // ── 로딩
+  // ── 로딩 (meta 도착 전)
   if (loading) return <AiLoadingScreen />;
 
   // ── 로그인 필요
@@ -175,7 +257,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     );
   }
 
-  // ── 에러
+  // ── 전체 에러 (필드가 하나도 안 뜬 상태에서 실패)
   if (error || !data) {
     return (
       <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
@@ -188,7 +270,12 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     );
   }
 
-  const timeLabel  = `리포트 생성 시각: ${new Date(data.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`;
+  const timeLabel = data.createdAt
+    ? `리포트 생성 시각: ${new Date(data.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`
+    : '리포트 생성 중...';
+
+  const highlightClass = (key: string) =>
+    updatedKey === key ? 'bg-indigo-500/10 transition-colors duration-700' : 'transition-colors duration-700';
 
   return (
     <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden relative">
@@ -211,7 +298,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
           </div>
           <div className="flex items-center gap-2">
-            {data.tradingValueMultiple !== null && (
+            {data.tradingValueMultiple !== null && data.tradingValueMultiple !== undefined && (
               <span className="px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-slate-700 text-slate-200">
                 거래대금 20일 평균 대비 {data.tradingValueMultiple}배
               </span>
@@ -229,9 +316,13 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             </button>
           </div>
         </div>
-        <p className="text-[15px] font-semibold text-white leading-snug">
-          {data.headline}
-        </p>
+        <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('headline')}`}>
+          {data.headline !== undefined ? (
+            <p className="text-[15px] font-semibold text-white leading-snug">{data.headline}</p>
+          ) : (
+            <FieldSkeleton lines={1} />
+          )}
+        </div>
         <p className="text-[11px] text-slate-500 mt-1.5">{timeLabel}</p>
       </div>
 
@@ -243,37 +334,37 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
       <div className="px-6 py-4 space-y-5">
 
-        {/* 52주 최고가·최저가 (그대로 표시, 목표가·손절가 아님) */}
-        {(data.resistance > 0 || data.support > 0) && (
+        {/* 52주 최고가·최저가 (그대로 표시, 목표가·손절가 아님) — meta로 즉시 도착 */}
+        {((data.resistance ?? 0) > 0 || (data.support ?? 0) > 0) && (
           <div className="grid grid-cols-2 gap-3">
-            {data.resistance > 0 && (
+            {(data.resistance ?? 0) > 0 && (
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingUp className="w-3 h-3 text-slate-400" />
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">52주 최고가</span>
                 </div>
                 <p className="text-[16px] font-bold font-mono text-slate-200">
-                  ₩{fmtPrice(data.resistance)}
+                  ₩{fmtPrice(data.resistance!)}
                 </p>
-                {data.current_price > 0 && (
+                {(data.current_price ?? 0) > 0 && (
                   <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                    {priceDiff(data.current_price, data.resistance)}
+                    {priceDiff(data.current_price!, data.resistance!)}
                   </p>
                 )}
               </div>
             )}
-            {data.support > 0 && (
+            {(data.support ?? 0) > 0 && (
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingDown className="w-3 h-3 text-slate-400" />
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">52주 최저가</span>
                 </div>
                 <p className="text-[16px] font-bold font-mono text-slate-200">
-                  ₩{fmtPrice(data.support)}
+                  ₩{fmtPrice(data.support!)}
                 </p>
-                {data.current_price > 0 && (
+                {(data.current_price ?? 0) > 0 && (
                   <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                    {priceDiff(data.current_price, data.support)}
+                    {priceDiff(data.current_price!, data.support!)}
                   </p>
                 )}
               </div>
@@ -282,42 +373,68 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
         )}
 
         {/* 본문 */}
-        {data.mainAnalysis && (
-          <div>
-            <p className="text-[12px] font-bold text-slate-300 mb-2">
-              {data.reportType === 'news-driven' ? '📰 오늘의 분석' : '📊 오늘의 분석'}
-            </p>
-            <p className="text-[13px] text-slate-400 leading-relaxed">{data.mainAnalysis}</p>
+        <div>
+          <p className="text-[12px] font-bold text-slate-300 mb-2">
+            {data.reportType === 'news-driven' ? '📰 오늘의 분석' : '📊 오늘의 분석'}
+          </p>
+          <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('mainAnalysis')}`}>
+            {data.mainAnalysis !== undefined ? (
+              <p className="text-[13px] text-slate-400 leading-relaxed">{data.mainAnalysis}</p>
+            ) : (
+              <FieldSkeleton lines={4} />
+            )}
           </div>
-        )}
+        </div>
 
         {/* 어제 대비 */}
-        {data.yesterdayDelta && (
-          <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3">
-            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-1">🔄 어제 대비</p>
+        <div className={`bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3 ${highlightClass('yesterdayDelta')}`}>
+          <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-1">🔄 어제 대비</p>
+          {data.yesterdayDelta !== undefined ? (
             <p className="text-[13px] text-slate-300 leading-relaxed">{data.yesterdayDelta}</p>
-          </div>
-        )}
+          ) : (
+            <FieldSkeleton lines={2} />
+          )}
+        </div>
 
         {/* 리스크 요인 */}
-        {data.riskFactor && (
-          <div>
-            <p className="text-[12px] font-bold text-slate-300 mb-2">⚠️ 리스크 요인</p>
-            <p className="text-[13px] text-slate-400 leading-relaxed">{data.riskFactor}</p>
+        <div>
+          <p className="text-[12px] font-bold text-slate-300 mb-2">⚠️ 리스크 요인</p>
+          <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('riskFactor')}`}>
+            {data.riskFactor !== undefined ? (
+              <p className="text-[13px] text-slate-400 leading-relaxed">{data.riskFactor}</p>
+            ) : (
+              <FieldSkeleton lines={2} />
+            )}
           </div>
-        )}
+        </div>
 
         {/* 태그 */}
-        {data.tags?.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {data.tags.map((tag) => (
+        <div className={`flex flex-wrap gap-1.5 pt-1 min-h-[22px] rounded-md -mx-1.5 px-1.5 ${highlightClass('tags')}`}>
+          {data.tags === undefined ? (
+            <FieldSkeleton lines={1} />
+          ) : (
+            data.tags.map((tag) => (
               <span
                 key={tag}
                 className="px-2 py-0.5 bg-blue-950/60 text-blue-400/80 text-[11px] font-semibold rounded"
               >
                 #{tag}
               </span>
-            ))}
+            ))
+          )}
+        </div>
+
+        {/* 부분 실패 안내 */}
+        {partialFailure && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5">
+            <p className="text-[12px] text-amber-200/90">나머지 내용을 불러오지 못했습니다.</p>
+            <button
+              onClick={() => setRetryToken((t) => t + 1)}
+              className="flex items-center gap-1.5 shrink-0 px-3 py-1.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-[12px] font-semibold transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              다시 시도
+            </button>
           </div>
         )}
 

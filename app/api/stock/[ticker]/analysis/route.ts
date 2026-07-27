@@ -15,9 +15,10 @@ import {
 } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { selectRelevantNews } from '@/lib/news-selection';
-import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
+import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency, kstDateStr, daysBetween } from '@/lib/ai-grounding';
 import { getDomesticMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
+import { StreamingFieldParser, STOCK_ANALYSIS_FIELD_SPECS } from '@/lib/streaming-json-fields';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -176,40 +177,39 @@ function mapRowToResult(row: HistoryRow): Omit<AnalysisResult, 'isCached'> {
 // 구조화된 필드(current_price/resistance/support)는 서버가 직접 넣으므로 항상 정확하지만,
 // 자유 텍스트(headline/mainAnalysis/yesterdayDelta/riskFactor)는 AI 재량이라 유명 대형주에서
 // 실측값과 다른 숫자를 쓰는 경우가 확인됨(예: SK하이닉스 — 실제 2,987,000원을 "298,700원"으로 서술).
-function correctPriceMentions(
-  result: Omit<AnalysisResult, 'isCached'>,
-  ticker: string,
-): Omit<AnalysisResult, 'isCached'> {
-  const checks: { re: RegExp; truth: number; label: string }[] = [
-    { re: /현재가\s*([\d,]+)\s*원/g, truth: result.current_price, label: '현재가' },
-    { re: /52주\s*고[가점]\s*([\d,]+)\s*원/g, truth: result.resistance, label: '52주 고가' },
-    { re: /52주\s*저[가점]\s*([\d,]+)\s*원/g, truth: result.support, label: '52주 저가' },
+//
+// 2026-07-27 스트리밍 전환: 기존엔 완성된 결과 객체 전체에 한 번 적용했지만, 스트리밍은 필드가
+// 하나씩 완결되는 시점에 곧바로 교정해서 내보내야 한다 — 진실값(price.price 등)은 Claude 호출
+// 전에 이미 알고 있으므로 필드 단위 교정 함수로 분리해 재사용한다.
+interface PriceCheck { re: RegExp; truth: number; label: string }
+
+function buildPriceChecks(current_price: number, resistance: number, support: number): PriceCheck[] {
+  return [
+    { re: /현재가\s*([\d,]+)\s*원/g, truth: current_price, label: '현재가' },
+    { re: /52주\s*고[가점]\s*([\d,]+)\s*원/g, truth: resistance, label: '52주 고가' },
+    { re: /52주\s*저[가점]\s*([\d,]+)\s*원/g, truth: support, label: '52주 저가' },
   ];
-
-  const fixText = (text: string): string => {
-    let fixed = text;
-    for (const { re, truth, label } of checks) {
-      if (!(truth > 0)) continue;
-      fixed = fixed.replace(re, (match, numStr: string) => {
-        const extracted = parseInt(numStr.replace(/,/g, ''), 10);
-        if (!extracted || Math.abs(extracted - truth) / truth <= 0.05) return match;
-        console.warn(
-          `[ANALYSIS] ${ticker} ${label} 불일치 교정: "${extracted.toLocaleString()}원" → "${truth.toLocaleString()}원"`,
-        );
-        return match.replace(numStr, truth.toLocaleString());
-      });
-    }
-    return fixed;
-  };
-
-  return {
-    ...result,
-    headline: fixText(result.headline),
-    mainAnalysis: fixText(result.mainAnalysis),
-    yesterdayDelta: fixText(result.yesterdayDelta),
-    riskFactor: fixText(result.riskFactor),
-  };
 }
+
+function fixPriceText(text: string, checks: PriceCheck[], ticker: string): string {
+  let fixed = text;
+  for (const { re, truth, label } of checks) {
+    if (!(truth > 0)) continue;
+    fixed = fixed.replace(re, (match, numStr: string) => {
+      const extracted = parseInt(numStr.replace(/,/g, ''), 10);
+      if (!extracted || Math.abs(extracted - truth) / truth <= 0.05) return match;
+      console.warn(
+        `[ANALYSIS] ${ticker} ${label} 불일치 교정: "${extracted.toLocaleString()}원" → "${truth.toLocaleString()}원"`,
+      );
+      return match.replace(numStr, truth.toLocaleString());
+    });
+  }
+  return fixed;
+}
+
+// headline/mainAnalysis/yesterdayDelta/riskFactor만 가격 언급 교정 대상 — tags/reportType/signal은
+// 자유 텍스트가 아니라 교정할 대상이 없음.
+const PRICE_CORRECTED_KEYS = new Set(['headline', 'mainAnalysis', 'yesterdayDelta', 'riskFactor']);
 
 // 2026-07-10 발견: fetchStockPrice/fetchStockInfo(KIS inquire-price)와
 // fetchDailyChart(KIS inquire-daily-itemchartprice)의 "오늘" 행은 정규장 마감(15:30 KST)
@@ -354,6 +354,34 @@ async function getDailyStockAnalysisCount(
   return count ?? 0;
 }
 
+// 2026-07-27 스트리밍 파일럿 — portfolio-diagnosis(app/api/portfolio-diagnosis/route.ts)의
+// SSE 패턴을 그대로 재사용. run() 안에서 던진 예외는 여기서 잡아 { type:'error' } 프레임으로
+// 변환해 보낸다 — 이미 SSE 응답(200)이 시작된 뒤라 HTTP 상태코드로는 실패를 알릴 수 없다.
+function sseResponse(run: (send: (data: object) => void) => Promise<void>): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      try {
+        await run(send);
+      } catch (e) {
+        console.error('[ANALYSIS] 스트림 처리 중 예외:', e);
+        try { send({ type: 'error', message: 'AI 분석 생성 실패' }); } catch { /* 클라이언트가 이미 끊었으면 무시 */ }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ ticker: string }> },
@@ -440,7 +468,29 @@ export async function GET(
           console.log(`[ANALYSIS] ${ticker} 일일 재생성 상한(${MAX_DAILY_REGENS}) 도달 — 캐시 유지`);
         }
         recordUsage();
-        return NextResponse.json({ ...mapRowToResult(row), isCached: true });
+        const cached: AnalysisResult = { ...mapRowToResult(row), isCached: true };
+        // 캐시 히트도 신규 생성과 동일한 SSE 프로토콜로 응답 — 프론트가 응답 형태를
+        // 분기하지 않아도 되고, 이미 다 있는 값이라 사실상 한 번에 전부 쏟아붓는다.
+        return sseResponse(async (send) => {
+          send({
+            type: 'meta',
+            current_price: cached.current_price,
+            resistance: cached.resistance,
+            support: cached.support,
+            tradingValueMultiple: cached.tradingValueMultiple,
+            hasRelevantNews: cached.hasRelevantNews,
+            disclaimer: cached.disclaimer,
+            createdAt: cached.createdAt,
+            reportType: cached.reportType,
+            isCached: true,
+          });
+          send({ type: 'field', key: 'headline', value: cached.headline });
+          send({ type: 'field', key: 'mainAnalysis', value: cached.mainAnalysis });
+          send({ type: 'field', key: 'yesterdayDelta', value: cached.yesterdayDelta });
+          send({ type: 'field', key: 'riskFactor', value: cached.riskFactor });
+          send({ type: 'field', key: 'tags', value: cached.tags });
+          send({ type: 'done' });
+        });
       }
     }
   } catch (e) {
@@ -580,58 +630,140 @@ ${yesterdayComparisonBlock}
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 형식과 규칙에 따라 정리하세요.`;
 
   const newsText = relevantNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+  const priceChecks = buildPriceChecks(price.price, info.week52High, info.week52Low);
 
-  try {
-    type ParsedAnalysis = Omit<
-      AnalysisResult,
-      'current_price' | 'resistance' | 'support' | 'tradingValueMultiple' | 'hasRelevantNews' | 'disclaimer' | 'createdAt' | 'isCached'
-    >;
+  interface ParsedAnalysis {
+    reportType: ReportType;
+    headline: string;
+    mainAnalysis: string;
+    yesterdayDelta: string;
+    riskFactor: string;
+    tags: string[];
+    signal: string;
+  }
 
-    const analysis = await withTemporalRetry<ParsedAnalysis>(
-      async () => {
-        const message = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
-          system: [
-            { type: 'text', text: COMPLIANCE_PRINCIPLE },
-            { type: 'text', text: COMMON_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-            {
-              type: 'text',
-              text: (reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS)
-                + (marketDayContext.isTradingDay ? '' : `\n\n${NON_TRADING_DAY_NEWS_FRAMING}`),
-              cache_control: { type: 'ephemeral' },
-            },
-            { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
-          ],
-          messages: [{ role: 'user', content: prompt }],
-          // 2026-07-23: withTemporalRetry가 이미 최대 2회(초기+재생성) 이 함수를 호출하므로,
-          // SDK maxRetries까지 더하면 예산 계산이 불가능해진다(SDK는 타임아웃도 재시도
-          // 대상이라 timeout의 배수만큼 걸릴 수 있음) — maxRetries:0으로 앱 레벨 재시도와
-          // 중첩되지 않게 하고, timeout은 2회 호출 최악(2×28s=56s)이 maxDuration(60s) 안에
-          // 들어오도록 산정(실측 단일호출 최악 22.5초 대비 여유 있음).
-        }, { timeout: 28_000, maxRetries: 0 });
-        console.log('[TOKEN_USAGE]', {
-          route: 'stock-analysis', ticker, reportType,
-          input_tokens: message.usage.input_tokens,
-          output_tokens: message.usage.output_tokens,
-          cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
-          cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
-        });
-        const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
-        const parsed = JSON.parse(jsonMatch[0]) as ParsedAnalysis;
-        const reportText = [parsed.headline, parsed.mainAnalysis, parsed.yesterdayDelta, parsed.riskFactor].join(' ');
-        return { parsed, reportText };
-      },
-      newsText,
-      '[ANALYSIS]',
-    );
+  // 종목 데이터/뉴스 등 준비는 위에서 끝났으니 여기부터 SSE 응답 시작 — 아래 run() 안에서
+  // 던지는 예외는 sseResponse가 { type:'error' } 프레임으로 변환해 보낸다.
+  return sseResponse(async (send) => {
+    send({
+      type: 'meta',
+      current_price: price.price,
+      resistance: info.week52High,
+      support: info.week52Low,
+      tradingValueMultiple: tradingValueMultiple?.valid ? tradingValueMultiple.multiple : null,
+      hasRelevantNews: relevantNews.length > 0,
+      disclaimer: INVESTMENT_DISCLAIMER,
+      reportType,
+      isCached: false,
+    });
 
-    let result: Omit<AnalysisResult, 'isCached'> = {
-      ...analysis,
+    // 1회 Claude 스트리밍 호출 — 텍스트 델타를 고정 스키마 필드경계 파서(StreamingFieldParser)에
+    // 먹여 완결된 필드마다 onField로 통지한다. 스트림이 끝나면 전체 텍스트를 다시 통째로
+    // JSON.parse해서 "정합성 보정"을 한 번 더 통지한다 — 증분 파서가 뭔가 놓치거나 잘못
+    // 뽑았어도 최종 정확성은 이 전체 재파싱 결과가 항상 덮어써서 보장한다(2026-07-27
+    // 스트리밍 파일럿 설계 원칙: 지연시간은 일부 포기해도 최종 정확성은 타협하지 않음).
+    async function streamOneGeneration(
+      onField: (key: string, value: string | string[]) => void,
+    ): Promise<{ parsed: ParsedAnalysis; reportText: string }> {
+      const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+      let fullText = '';
+      const requestStart = Date.now();
+      let firstTokenLoggedAt = false;
+
+      const correctIfNeeded = (key: string, value: string | string[]): string | string[] =>
+        typeof value === 'string' && PRICE_CORRECTED_KEYS.has(key)
+          ? fixPriceText(value, priceChecks, ticker)
+          : value;
+
+      const claudeStream = client.messages.stream({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: [
+          { type: 'text', text: COMPLIANCE_PRINCIPLE },
+          { type: 'text', text: COMMON_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+          {
+            type: 'text',
+            text: (reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS)
+              + (marketDayContext.isTradingDay ? '' : `\n\n${NON_TRADING_DAY_NEWS_FRAMING}`),
+            cache_control: { type: 'ephemeral' },
+          },
+          { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
+        ],
+        messages: [{ role: 'user', content: prompt }],
+        // 2026-07-27: 재생성 메커니즘을 그대로 유지하기로 해서(withTemporalRetry와 동등한
+        // 로직을 스트리밍용으로 인라인 구현, 아래 호출부 참고) 최악 2회 호출 예산도 그대로다 —
+        // SDK maxRetries까지 더하면 예산 계산이 불가능해지므로 0으로 앱 레벨 재시도와 중첩
+        // 방지, timeout은 2회 호출 최악(2×28s=56s)이 maxDuration(60s) 안에 들어오도록 산정.
+      }, { timeout: 28_000, maxRetries: 0 });
+
+      claudeStream.on('text', (delta) => {
+        if (!firstTokenLoggedAt) {
+          firstTokenLoggedAt = true;
+          console.log(`[ANALYSIS] ${ticker} 첫 토큰 도착: ${Date.now() - requestStart}ms`);
+        }
+        fullText += delta;
+        for (const field of parser.feed(delta)) {
+          onField(field.key, correctIfNeeded(field.key, field.value));
+        }
+      });
+
+      const message = await claudeStream.finalMessage();
+      console.log('[TOKEN_USAGE]', {
+        route: 'stock-analysis', ticker, reportType,
+        input_tokens: message.usage.input_tokens,
+        output_tokens: message.usage.output_tokens,
+        cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
+      });
+
+      const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + fullText.slice(0, 100));
+      const parsed = JSON.parse(jsonMatch[0]) as ParsedAnalysis;
+
+      // 정합성 보정 — emit 대상 필드 전부를 전체 재파싱 결과로 한 번 더 통지(호출부의
+      // emitIfChanged가 이미 보낸 값과 같으면 알아서 무시하므로 중복 전송 걱정 없음).
+      for (const spec of STOCK_ANALYSIS_FIELD_SPECS) {
+        if (!spec.emit) continue;
+        const raw = (parsed as unknown as Record<string, string | string[] | undefined>)[spec.key];
+        if (raw === undefined) continue;
+        onField(spec.key, correctIfNeeded(spec.key, raw));
+      }
+
+      const reportText = [parsed.headline, parsed.mainAnalysis, parsed.yesterdayDelta, parsed.riskFactor].join(' ');
+      return { parsed, reportText };
+    }
+
+    const sentValues: Record<string, string | string[]> = {};
+    const emitIfChanged = (eventType: 'field' | 'field-updated') => (key: string, value: string | string[]) => {
+      if (JSON.stringify(sentValues[key]) === JSON.stringify(value)) return;
+      sentValues[key] = value;
+      send({ type: eventType, key, value });
+    };
+
+    const first = await streamOneGeneration(emitIfChanged('field'));
+    const check1 = checkTemporalConsistency(first.reportText, newsText);
+    let finalParsed = first.parsed;
+
+    if (check1.flagged) {
+      console.warn('[ANALYSIS] 시간적 사실관계 불일치 감지, 1회 재생성 시도:', check1);
+      const second = await streamOneGeneration(emitIfChanged('field-updated'));
+      const check2 = checkTemporalConsistency(second.reportText, newsText);
+      if (check2.flagged) {
+        console.error('[ANALYSIS] 재생성 후에도 불일치 감지 — 결과는 그대로 반환, 모니터링 필요:', check2);
+      } else {
+        console.log('[ANALYSIS] 재생성으로 불일치 해소됨');
+      }
+      finalParsed = second.parsed;
+    }
+
+    const result: Omit<AnalysisResult, 'isCached'> = {
       reportType, // 서버 결정값으로 덮어씀 — AI가 echo를 잘못했을 경우 대비
-      signal: clampSignal(analysis.signal), // AI가 지시된 4개 값을 벗어날 경우 대비
+      headline: sentValues.headline as string,
+      mainAnalysis: sentValues.mainAnalysis as string,
+      yesterdayDelta: sentValues.yesterdayDelta as string,
+      riskFactor: sentValues.riskFactor as string,
+      tags: sentValues.tags as string[],
+      signal: clampSignal(finalParsed.signal), // AI가 지시된 4개 값을 벗어날 경우 대비
       current_price: price.price,
       resistance: info.week52High, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
       support: info.week52Low,     // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
@@ -641,10 +773,7 @@ ${yesterdayComparisonBlock}
       createdAt: new Date().toISOString(),
     };
 
-    // 4-1. 본문 서술 중 현재가/52주 고저가 불일치 교정 (저장 전에 적용)
-    result = correctPriceMentions(result, ticker);
-
-    // 5. 히스토리 저장 — 하루 1건(ticker, report_date unique)만 남긴다. 장중 생성 캐시가
+    // 히스토리 저장 — 하루 1건(ticker, report_date unique)만 남긴다. 장중 생성 캐시가
     // 마감 후 재생성될 때는 같은 (ticker, report_date)에 대한 두 번째 저장이 되므로,
     // insert가 아니라 upsert로 덮어써야 unique 제약 충돌 없이 최신 결과로 갱신된다.
     // 응답을 기다리지 않는 비동기 저장(after()로 등록 — 응답 직후 실행 컨텍스트가 얼어붙어
@@ -679,9 +808,6 @@ ${yesterdayComparisonBlock}
     });
     recordUsage();
 
-    return NextResponse.json(result);
-  } catch (e) {
-    console.error('[ANALYSIS] Claude 오류:', e);
-    return NextResponse.json({ error: 'AI 분석 생성 실패' }, { status: 500 });
-  }
+    send({ type: 'done', createdAt: result.createdAt });
+  });
 }
