@@ -703,21 +703,30 @@ export function buildEmailHtml(params: {
         <tbody>${sorted.map(row).join('')}</tbody>
       </table>
 
-      <!-- 요약 통계 -->
-      <div style="display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid #1e2537">
-        <div style="flex:1;text-align:center;padding:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px">
-          <div style="color:#ef4444;font-size:18px;font-weight:700">${upStocks.length}</div>
-          <div style="color:#64748b;font-size:10px;margin-top:2px">상승</div>
-        </div>
-        <div style="flex:1;text-align:center;padding:8px;background:rgba(100,116,139,.08);border:1px solid rgba(100,116,139,.2);border-radius:8px">
-          <div style="color:#94a3b8;font-size:18px;font-weight:700">${flatStocks.length}</div>
-          <div style="color:#64748b;font-size:10px;margin-top:2px">보합</div>
-        </div>
-        <div style="flex:1;text-align:center;padding:8px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px">
-          <div style="color:#3b82f6;font-size:18px;font-weight:700">${downStocks.length}</div>
-          <div style="color:#64748b;font-size:10px;margin-top:2px">하락</div>
-        </div>
-      </div>
+      <!-- 요약 통계 — Outlook 등 flexbox 미지원 클라이언트에서도 3등분 폭이 깨지지 않도록
+           table 기반 레이아웃 사용(display:flex는 이메일 클라이언트 호환성이 낮음) -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;padding-top:14px;border-top:1px solid #1e2537">
+        <tr>
+          <td width="33.33%" align="center" valign="top" style="padding:0 5px 0 0">
+            <div style="text-align:center;padding:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px">
+              <div style="color:#ef4444;font-size:18px;font-weight:700">${upStocks.length}</div>
+              <div style="color:#64748b;font-size:10px;margin-top:2px">상승</div>
+            </div>
+          </td>
+          <td width="33.33%" align="center" valign="top" style="padding:0 5px">
+            <div style="text-align:center;padding:8px;background:rgba(100,116,139,.08);border:1px solid rgba(100,116,139,.2);border-radius:8px">
+              <div style="color:#94a3b8;font-size:18px;font-weight:700">${flatStocks.length}</div>
+              <div style="color:#64748b;font-size:10px;margin-top:2px">보합</div>
+            </div>
+          </td>
+          <td width="33.33%" align="center" valign="top" style="padding:0 0 0 5px">
+            <div style="text-align:center;padding:8px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px">
+              <div style="color:#3b82f6;font-size:18px;font-weight:700">${downStocks.length}</div>
+              <div style="color:#64748b;font-size:10px;margin-top:2px">하락</div>
+            </div>
+          </td>
+        </tr>
+      </table>
     </div>
 
     ${flowSection}
