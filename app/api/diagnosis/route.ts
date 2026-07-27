@@ -22,9 +22,10 @@ import { fetchRecentDisclosures, type DartDisclosure } from '@/lib/dart-api';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import {
-  nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency,
+  nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency,
   kstDateStr, daysBetween,
 } from '@/lib/ai-grounding';
+import { getDomesticMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic    = 'force-dynamic';
@@ -71,6 +72,7 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
 - sectorNarrative: [업종 대비]는 "판단이 아닌 수치 비교"입니다 — 시장(KOSPI) 대비 비교와 같은 어투로, 우열을 평가하는 뉘앙스 없이 사실만 전달하세요
 - sectorNarrative·financialsNarrative·disclosureNarrative는 mainAnalysis·riskFactors·shortTermOutlook·midTermOutlook과 내용이 겹치면 안 됩니다 — 업종/실적/공시 이야기는 각각 그 필드에서만
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
+- ${MARKET_DAY_GROUNDING_INSTRUCTION}
 - 52주 고점/저점을 언급할 때는 위에 제공된 수치를 그대로 활용하세요 (임의의 가격을 새로 만들지 마세요)
 - 순수 JSON만 출력하고 다른 텍스트는 절대 포함하지 마세요.
 - 마크다운 코드블록(\`\`\`json), 설명 텍스트, preamble 없이 { 로 시작하는 JSON만 출력하세요.`;
@@ -289,6 +291,13 @@ export async function POST(request: NextRequest) {
     const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
     const chartData    = chartResult.status    === 'fulfilled' ? chartResult.value    : [];
     const sectorPeers   = sectorResult.status     === 'fulfilled' ? sectorResult.value     : [];
+
+    // 거래일 상태 — 별도 KIS 재조회 없이 위에서 이미 받은 차트의 마지막 행 날짜를 재사용
+    // 해 휴장일(주말/공휴일)을 판정한다(lib/market-day-context.ts 참고).
+    const marketDayContext = getDomesticMarketDayContext(chartData);
+    if (!marketDayContext.isTradingDay) {
+      console.log(`[DIAGNOSIS] ${ticker} 휴장일 감지(${marketDayContext.reason}) — 마지막 거래일 ${marketDayContext.lastTradingDate} 기준으로 서술 지시`);
+    }
     const annualFinancials: AnnualFinancialRow[] = financialsResult.status === 'fulfilled' ? financialsResult.value : [];
     const disclosures: DartDisclosure[] = disclosuresResult.status === 'fulfilled' ? disclosuresResult.value : [];
 
@@ -334,9 +343,18 @@ export async function POST(request: NextRequest) {
     const changeRate = (priceData && typeof priceData.changeRate === 'number') ? priceData.changeRate : 0;
     const isBigMove   = Math.abs(changeRate) >= 5;
 
-    const newsInstruction = hasRelevantNews
+    // 2026-07-27: 휴장일이면 뉴스를 "오늘 이 뉴스로 움직였다"는 실시간 반응으로 서술하지
+    // 못하게 별도 문구를 덧붙인다(app/api/stock/[ticker]/analysis의 NON_TRADING_DAY_NEWS_
+    // FRAMING과 같은 취지 — 이 라우트는 뉴스 지침이 시스템 블록이 아니라 프롬프트 본문에
+    // 인라인으로 들어가는 구조라 여기서 직접 이어붙인다).
+    const marketDayNewsNote = marketDayContext.isTradingDay
+      ? ''
+      : ' 단, 오늘은 휴장일이므로 이 뉴스를 "오늘 이 뉴스로 주가가 움직였다"는 실시간 반응으로 서술하지 말고 "다음 거래일 개장 시 참고할 만한 소식"으로 다루세요.';
+
+    const newsInstruction = (hasRelevantNews
       ? '위 뉴스는 이 종목과 관련도가 높다고 판단되어 매칭된 실제 기사입니다. mainAnalysis를 작성할 때 반드시 이 뉴스를 근거로 최근 주가 변동 원인을 설명하고, 뉴스에 없는 내용을 지어내지 마세요.'
-      : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.';
+      : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.')
+      + marketDayNewsNote;
 
     const profitRate   = currentPrice > 0 && avgPrice > 0
       ? ((currentPrice - avgPrice) / avgPrice * 100)
@@ -481,6 +499,9 @@ export async function POST(request: NextRequest) {
 
 ## 기준 시각
 현재 시각: ${nowKstString()}
+
+## 거래일 상태
+${buildMarketDayBlock(marketDayContext)}
 
 ## 종목 기본정보
 - 종목명: ${stockName} (${ticker})

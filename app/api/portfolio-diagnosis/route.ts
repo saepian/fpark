@@ -19,9 +19,10 @@ import { fetchDailyChart, fetchIndexRangeChange } from '@/lib/kis-api';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import { COMPLIANCE_PRINCIPLE, clampSignal, type Signal } from '@/lib/ai-compliance';
 import {
-  nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency,
+  nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency,
   kstDateStr, daysBetween,
 } from '@/lib/ai-grounding';
+import { getDomesticMarketDayContext, buildMarketDayBlock, type MarketDayContext } from '@/lib/market-day-context';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic     = 'force-dynamic';
@@ -80,6 +81,7 @@ const PORTFOLIO_SUMMARY_INSTRUCTIONS = `{"summary":"5-7문장 종합 설명 — 
 - 벤치마크 수치는 별도 카드로 이미 표시되므로 summary·historyNarrative 등 어디에서도 다시 언급하지 마세요
 - summary·riskFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·coMovementNarrative·shortTermOutlook·midTermOutlook 서로 같은 사실을 반복 서술하지 마세요 — 각 필드는 서로 다른 내용을 담아야 합니다
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
+- ${MARKET_DAY_GROUNDING_INSTRUCTION}
 - summary·riskFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
 
 // 2026-07-13 "직전 진단과의 간격"에 따라 어조를 분기 — 기업분석과 동일한 이유(진단 빈도가
@@ -202,12 +204,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   return Promise.race([promise, timer]);
 }
 
+// 포트폴리오 전체가 공유하는 거래일 상태 문구(국내 단일 시장이라 종목마다 다르지 않음,
+// 2026-07-27) — Stage 1(종목별)·Stage 2(종합) 프롬프트에 그대로 삽입. 두 Stage 모두
+// 지침(STOCK_SIGNAL_SYSTEM/INSTRUCTIONS, PORTFOLIO_SUMMARY_SYSTEM/INSTRUCTIONS) 자체는
+// 캐싱 대상이라 손대지 않고, 어투 조정은 이 동적 프롬프트 문자열 쪽에서만 한다.
+function buildPortfolioMarketDayBlock(ctx: MarketDayContext): string {
+  return buildMarketDayBlock(ctx)
+    + (ctx.isTradingDay ? '' : ' 뉴스가 있는 종목은 "오늘 시장이 반응했다"가 아니라 "다음 거래일 참고 소식"으로 다루세요.');
+}
+
 // 종목 1개 프롬프트 — PER·52주위치·수급·관련도 상위 뉴스 포함
-function buildStockPrompt(h: EnrichedHolding): string {
+function buildStockPrompt(h: EnrichedHolding, marketDayBlock: string): string {
   const ad  = h.analysisData;
   const pr  = h.profitRate >= 0 ? '+' : '';
   const lines: string[] = [
     `현재 시각: ${nowKstString()}`,
+    marketDayBlock,
     `종목: ${h.name}(${h.ticker}) | 매입가:${h.avgPrice.toLocaleString()} | 현재가:${h.currentPrice.toLocaleString()} | 수익률:${pr}${h.profitRate.toFixed(1)}%`,
   ];
   if (ad) {
@@ -247,8 +259,8 @@ function buildStockPrompt(h: EnrichedHolding): string {
 
 // ── Stage 1: 종목 개별 분석 ─────────────────────────────────────────────────
 
-async function analyzeOneStock(h: EnrichedHolding): Promise<StockAiResult> {
-  const prompt = buildStockPrompt(h);
+async function analyzeOneStock(h: EnrichedHolding, marketDayBlock: string): Promise<StockAiResult> {
+  const prompt = buildStockPrompt(h, marketDayBlock);
 
   const newsBasis: 'news' | 'estimated' = h.relevantNews.length > 0 ? 'news' : 'estimated';
 
@@ -374,6 +386,7 @@ async function analyzePortfolioSummary(
   surgeFactsLine: string,
   coMovementFactsLine: string,
   gapTone: string,
+  marketDayBlock: string,
 ): Promise<{
   summary: string; sectors: unknown[];
   riskFactors: string[]; opportunityFactors: string[]; historyNarrative: string; contributionNarrative: string;
@@ -406,6 +419,7 @@ async function analyzePortfolioSummary(
   const prompt =
     `포트폴리오 관찰 데이터 정리 (JSON만 출력)\n\n` +
     `현재 시각: ${nowKstString()}\n\n` +
+    `## 거래일 상태\n${marketDayBlock}\n\n` +
     `[종목코드→종목명 매핑] ${mappingTable}\n\n` +
     `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개${benchmarkLine}\n` +
     `${lines}\n${riskFactsLine}\n\n` +
@@ -668,6 +682,18 @@ export async function POST(request: NextRequest) {
           };
         });
 
+        // 거래일 상태 — 포트폴리오는 현재 국내 종목만 지원하므로(app/portfolio-diagnosis/
+        // page.tsx: "국내 기업만 지원됩니다") 보유 종목 전체가 같은 국내 캘린더를 공유한다
+        // — 종목별로 따로 판정할 필요 없이 1회만 계산. 별도 KIS 재조회 없이 위에서 이미
+        // 받은 종목별 차트 중 하나(첫 성공 응답)를 재사용한다(lib/market-day-context.ts).
+        const firstAvailableChart = chartResults
+          .map(r => (r.status === 'fulfilled' && r.value) ? r.value : [])
+          .find(c => c.length > 0) ?? [];
+        const marketDayContext = getDomesticMarketDayContext(firstAvailableChart);
+        if (!marketDayContext.isTradingDay) {
+          console.log(`[PORTFOLIO-DIAGNOSIS] 휴장일 감지(${marketDayContext.reason}) — 마지막 거래일 ${marketDayContext.lastTradingDate} 기준으로 서술 지시`);
+        }
+
         // 벤치마크 비교: 편입 종목 평균 매수일 ~ 현재 KOSPI 등락률 (매수일 입력된 종목이 있을 때만)
         let benchmark: {
           portfolioProfitRate: number; kospiChangeRate: number;
@@ -780,7 +806,8 @@ export async function POST(request: NextRequest) {
         send(controller, { type: 'progress', label: `${enriched.length}개 종목 개별 분석 중...` });
         console.log(`[PORTFOLIO-DIAGNOSIS] Stage 1 시작 — ${enriched.length}개 병렬 분석`);
 
-        const stockResults = await Promise.all(enriched.map(h => analyzeOneStock(h)));
+        const portfolioMarketDayBlock = buildPortfolioMarketDayBlock(marketDayContext);
+        const stockResults = await Promise.all(enriched.map(h => analyzeOneStock(h, portfolioMarketDayBlock)));
 
         // 섹터 co-movement 사실 — 그룹핑·방향 판정은 AI 호출 없이 서버가 결정형으로 계산
         // (컴플라이언스 리스크 없는 순수 사실). 이 사실을 Stage 2 프롬프트에 넣어
@@ -811,7 +838,7 @@ export async function POST(request: NextRequest) {
           stockResults, nameMap, newsMap, totalProfitRate, enriched.length, benchmark,
           { lossCount, lossWeightPct, riskiestLines },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          surgeFactsLine, coMovementFactsLine, gapTone,
+          surgeFactsLine, coMovementFactsLine, gapTone, portfolioMarketDayBlock,
         );
 
         // 결과 병합

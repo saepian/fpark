@@ -18,7 +18,8 @@ import {
 import { overseasSearchName } from '@/lib/overseas-korean-names';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
-import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
+import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
+import { getOverseasMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
@@ -114,6 +115,7 @@ const COMMON_INSTRUCTIONS = `## 출력 형식 (JSON만)
 - 같은 종결 표현을 이 리포트 안에서 2회 이상 쓰지 말고 문장마다 종결을 다양하게 바꾸세요 ("~로 보임", "~때문임", "~로 풀이됨", "~라는 점이 눈에 띔" 등)
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
 - 본문에서 현재가·52주 고가·52주 저가를 언급할 때는 "종목 데이터"에 제시된 숫자와 통화 표기를 한 글자도 다르지 않게 그대로 쓰세요 — 익숙한 가격대와 다르다는 이유로 자릿수를 줄이거나 늘리지 말 것
+- ${MARKET_DAY_GROUNDING_INSTRUCTION}
 - tags에는 "매수"/"매도"/"순매수"/"순매도" 같은 단어를 넣지 말 것
 - "fpark", "당사", "본 서비스" 등 자기 서비스를 3인칭처럼 지칭하는 표현을 쓰지 말 것
 - "~기준으로", "~에 따르면"처럼 마치 외부 출처를 인용하는 어투로 내부 지표를 서술하지 말 것 (예: "fpark 기준 거래대금은..." 대신 "거래대금은 최근 20거래일 평균의 0.72배에 그쳤다"처럼 사실을 바로 서술)
@@ -138,6 +140,10 @@ const DATA_DRIVEN_INSTRUCTIONS = `## [리포트 유형] 뉴스가 없는 날 (da
 2. 특이한 지표가 없다면 "오늘은 뉴스도 없고 지표도 평소 범위 안에 있다"고 짧게 정리하세요. 억지로 리스크 요인이나 관찰 포인트를 지어내지 마세요
 
 이런 날의 mainAnalysis는 뉴스가 있는 날보다 확연히 짧아야 합니다 (목표: 3~5문장 이내). 짧다는 것 자체가 "오늘은 특별한 게 없다"는 정직한 신호입니다.`;
+
+// 2026-07-27 휴장일 리포트 재설계 — 국내물과 동일 문구(app/api/stock/[ticker]/analysis).
+const NON_TRADING_DAY_NEWS_FRAMING = `## [거래일 상태] 보충 — 뉴스 프레이밍
+오늘은 휴장일이므로, [오늘의 관련 뉴스]에 있는 기사들을 "오늘 이 뉴스로 주가가 움직였다"처럼 실시간 반응으로 서술하지 마세요. 대신 "다음 거래일 개장 시 참고할 만한 소식"이라는 틀로 언급하세요. 관련 뉴스가 없다면 억지로 다음 거래일 전망을 지어내지 말고, 마지막 거래일 마감 데이터를 사실 그대로 정리하는 데 집중하세요.`;
 
 const FIRST_REPORT_TONE = `## [직전 리포트와의 간격] 첫 리포트
 
@@ -476,6 +482,13 @@ export async function GET(
     console.warn('[OVERSEAS ANALYSIS] 차트 조회 실패, 급등이력/거래대금배수/리스크지표 생략:', e instanceof Error ? e.message : e);
   }
 
+  // 3-1-1. 거래일 상태 — Yahoo의 marketState(PRE/REGULAR/POST/CLOSED)를 그대로 재사용해
+  // 거래소 로컬 캘린더(시차·서머타임·현지 공휴일 포함) 기준으로 정확히 판정한다.
+  const marketDayContext = getOverseasMarketDayContext(chart, quote.marketState);
+  if (!marketDayContext.isTradingDay) {
+    console.log(`[OVERSEAS ANALYSIS] ${ticker} 휴장일 감지(marketState=${quote.marketState}) — 마지막 거래일 ${marketDayContext.lastTradingDate} 기준으로 서술 지시`);
+  }
+
   const surgeHistory         = chart.length ? computeSurgeHistory(chart) : null;
   const tradingValueMultiple = chart.length ? computeTradingValueMultiple(chart) : null;
   const riskMetrics          = chart.length ? computeRiskMetrics(chart.map((d) => d.close)) : null;
@@ -527,6 +540,9 @@ export async function GET(
 ## 기준 시각
 현재 시각: ${nowKstString()}
 
+## 거래일 상태
+${buildMarketDayBlock(marketDayContext)}
+
 ## [리포트 유형]
 ${reportType} — 이 값을 그대로 reportType 필드에 옮겨 적으세요.
 
@@ -571,7 +587,8 @@ ${yesterdayComparisonBlock}
             { type: 'text', text: COMMON_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
             {
               type: 'text',
-              text: reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS,
+              text: (reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS)
+                + (marketDayContext.isTradingDay ? '' : `\n\n${NON_TRADING_DAY_NEWS_FRAMING}`),
               cache_control: { type: 'ephemeral' },
             },
             { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
