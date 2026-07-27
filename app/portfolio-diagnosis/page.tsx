@@ -301,7 +301,6 @@ export default function PortfolioDiagnosisPage() {
   // submit
   const [loading,             setLoading]             = useState(false);
   const [loadingLabel,        setLoadingLabel]        = useState('');
-  const [loadingStep,         setLoadingStep]         = useState(0);
   const [error,               setError]               = useState('');
   const [result,      setResult]      = useState<StreamedResult | null>(null);
   const [generatedAt, setGeneratedAt] = useState('');
@@ -330,20 +329,6 @@ export default function PortfolioDiagnosisPage() {
         .catch(() => {});
     });
   }, []); // eslint-disable-line
-
-  // 로딩 단계 순차 표시 — 2초 간격 타이머 (SSE와 무관하게 순서대로 진행)
-  const PORT_LOADING_STEPS = ['종목 데이터 조회 중...', '뉴스 수집 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', 'AI 분석 중...'];
-  useEffect(() => {
-    if (!loading) { setLoadingStep(0); return; }
-    setLoadingStep(0);
-    const t = [
-      setTimeout(() => setLoadingStep(1), 2000),
-      setTimeout(() => setLoadingStep(2), 4000),
-      setTimeout(() => setLoadingStep(3), 6000),
-      setTimeout(() => setLoadingStep(4), 8000),
-    ];
-    return () => t.forEach(clearTimeout);
-  }, [loading]);
 
   // close watch popover on outside click
   useEffect(() => {
@@ -586,25 +571,30 @@ export default function PortfolioDiagnosisPage() {
         </div>
         <div className="text-center mb-2">
           <p className="text-white font-semibold text-lg mb-1">AI가 포트폴리오를 분석하고 있습니다...</p>
-          <p className="text-slate-400 text-sm">예상 소요 시간: 30~60초</p>
+          <p className="text-slate-400 text-sm">{loadingLabel || '예상 소요 시간: 30~60초'}</p>
         </div>
-        <div className="flex flex-col gap-3 min-w-[240px]">
-          {PORT_LOADING_STEPS.map((step, i) => (
-            <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${
-              i < loadingStep  ? 'text-emerald-400' :
-              i === loadingStep ? 'text-white' :
-              'text-slate-600'
-            }`}>
-              {i < loadingStep ? (
-                <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shrink-0 text-[10px]">✓</span>
-              ) : i === loadingStep ? (
-                <span className="w-5 h-5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
-              ) : (
-                <span className="w-5 h-5 rounded-full border border-slate-700 shrink-0" />
-              )}
-              <span className={`text-[13px] ${i === loadingStep ? 'font-semibold' : ''}`}>{step}</span>
-            </div>
-          ))}
+      </div>
+    );
+  }
+
+  // ── 초기 실패 (loading도 끝났고 result도 없음) ─────────────────────────────
+  // Stage0 실패나 meta 도착 전 연결 끊김 등 스트림이 아무 데이터도 못 준 채
+  // 끝난 경우 — 이 분기가 없으면 아래 입력 폼으로 그냥 떨어져 "화면이
+  // 이유 없이 되돌아간" 것처럼 보였다(2026-07-27 실사용 버그 리포트).
+  if (!loading && !result && error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <PageBackground />
+        <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-8 max-w-sm w-full text-center">
+          <p className="text-white font-semibold text-lg mb-2">분석에 실패했습니다</p>
+          <p className="text-slate-400 text-sm mb-6">{error}</p>
+          <button
+            onClick={handleRetry}
+            className="w-full py-3 rounded-xl text-[13px] font-semibold bg-indigo-600 hover:bg-indigo-500
+              text-white transition-colors cursor-pointer"
+          >
+            다시 시도
+          </button>
         </div>
       </div>
     );
@@ -749,8 +739,11 @@ export default function PortfolioDiagnosisPage() {
             />
           </div>
 
-          {/* 2행: AI 요약 (Stage2 실패 시 배너+재시도로 대체) */}
-          {stage2Failed ? (
+          {/* 2행: AI 요약 — Stage1이 끝나기 전까지는 이 영역 자체를 렌더링하지 않음
+              (스켈레톤도 안 보여줌). Stage1 완료(stage1-done) 시점에 비로소 나타나
+              타이핑이 시작된다 — "위는 계속 비어있는데 아래(기업별 관찰 지표)는
+              먼저 다 채워진다"는 역전 인상을 없애기 위한 조치(2026-07-27). */}
+          {stage1Complete && (stage2Failed ? (
             <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-6 py-5 mb-4">
               <div className="flex items-start gap-2.5">
                 <span className="text-amber-400 text-sm mt-0.5 shrink-0">ⓘ</span>
@@ -801,7 +794,7 @@ export default function PortfolioDiagnosisPage() {
                 )}
               </div>
             </div>
-          )}
+          ))}
 
           {/* 2-1행: 직전 진단 대비 (신설) */}
           <PortfolioHistoryCard result={result} typingKey={typingPortfolioKey} stage2Failed={stage2Failed} />
