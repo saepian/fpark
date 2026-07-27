@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { captureLastCloseSnapshot } from '@/lib/market-ranking';
+import { fetchDailyChart } from '@/lib/kis-api';
+import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -23,6 +25,25 @@ export async function GET(request: NextRequest) {
   if (authHeader !== `Bearer ${cronSecret}`) {
     console.warn('[cron/market-cache-warm] Unauthorized:', authHeader ? 'wrong token' : 'missing Authorization header');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // 0. 거래일 상태 — vercel.json 스케줄(평일 1-5만 실행)로 주말은 이미 제외되므로, 여기서는
+  // "평일인데 공휴일이라 국내장이 안 열린 날"만 걸러낸다. 휴장일에 이 크론을 그대로 돌리면
+  // captureLastCloseSnapshot()이 "라이브 파라미터로 항상 조회"하는 특성상(위 주석 참고)
+  // 데이터 없는 응답이나 공백 스냅샷으로 ranking_{tab}_lastclose 캐시를 덮어써, 정작
+  // 장전(다음 거래일 전) 폴백으로 보여줘야 할 "진짜 마지막 거래일 마감 데이터"가 사라질
+  // 위험이 있다 — 휴장일엔 아예 건드리지 않고 기존 캐시를 그대로 유지한다. 판정용 차트는
+  // daily-alert-email과 동일하게 앵커 종목(삼성전자) 1주치를 가볍게 조회(실행 시각 15:35도
+  // 마감 이후라 홀리데이 판정이 신뢰 가능한 구간). 조회 실패 시엔 안전하게 거래일로 간주해
+  // 정상 갱신을 진행한다(캐시 미갱신보다 과다 갱신이 덜 해로움).
+  const anchorChart = await fetchDailyChart('005930', '1W').catch(() => []);
+  const marketDayContext = getDomesticMarketDayContext(anchorChart);
+  if (!marketDayContext.isTradingDay) {
+    console.log(
+      `[cron/market-cache-warm] 오늘은 휴장일(${marketDayContext.reason})이라 캐시 갱신 생략, 기존 lastclose 유지 ` +
+      `— 마지막 거래일 ${marketDayContext.lastTradingDate}`,
+    );
+    return NextResponse.json({ done: true, skipped: true, reason: marketDayContext.reason });
   }
 
   const origin = new URL(request.url).origin;

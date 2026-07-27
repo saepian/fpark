@@ -91,6 +91,45 @@ describe('getDomesticMarketDayContext', () => {
   });
 });
 
+// daily-alert-email(15:45 KST)·market-cache-warm(15:35 KST) 크론은 vercel.json 스케줄로
+// 이미 평일(1-5)만 실행되므로 주말은 신경 쓸 필요가 없고, 이 크론들이 실제로 걱정하는
+// 케이스는 "평일인데 공휴일이라 장이 안 열린 날" 하나뿐이다 — 두 크론 모두 실행 시각이
+// 정규장 마감(15:30) 이후라 홀리데이 판정이 항상 신뢰 가능한 구간(위 2026-01-01 신정
+// 테스트가 이미 증명한 그 구간)에 들어간다. 한글날(2026-10-09, 금요일)로 다시 한번
+// 재현해 다른 날짜에서도 크론 시각 기준 판정이 정확한지 확인한다.
+describe('국내 크론(daily-alert-email/market-cache-warm) 휴장일 스킵 시나리오', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('한글날(2026-10-09, 금요일) 15:45 KST — daily-alert-email 실행 시각 기준 휴장 판정, 발송 생략 조건 충족', () => {
+    vi.setSystemTime(new Date('2026-10-09T15:45:00+09:00'));
+    const chart = [{ date: '2026-10-06' }, { date: '2026-10-07' }, { date: '2026-10-08' }];
+    const ctx = getDomesticMarketDayContext(chart);
+    expect(ctx.isTradingDay).toBe(false);
+    expect(ctx.reason).toBe('holiday');
+    expect(ctx.lastTradingDate).toBe('2026-10-08');
+    // 라우트의 실제 스킵 조건과 동일하게 검증 — !ctx.isTradingDay일 때만 발송을 건너뛴다.
+    expect(!ctx.isTradingDay).toBe(true);
+  });
+
+  it('한글날 15:35 KST — market-cache-warm 실행 시각 기준으로도 동일하게 휴장 판정된다', () => {
+    vi.setSystemTime(new Date('2026-10-09T15:35:00+09:00'));
+    const chart = [{ date: '2026-10-06' }, { date: '2026-10-07' }, { date: '2026-10-08' }];
+    const ctx = getDomesticMarketDayContext(chart);
+    expect(ctx.isTradingDay).toBe(false);
+    expect(ctx.reason).toBe('holiday');
+  });
+
+  it('평일 정상 거래일(신정 다음 거래일)에는 두 크론 모두 스킵하지 않는다', () => {
+    // 2026-01-02(금)는 신정 다음날 — 정상 개장일. 15:45 KST엔 이미 오늘 캔들이 확정돼 있음.
+    vi.setSystemTime(new Date('2026-01-02T15:45:00+09:00'));
+    const chart = [{ date: '2025-12-31' }, { date: '2026-01-02' }];
+    const ctx = getDomesticMarketDayContext(chart);
+    expect(ctx.isTradingDay).toBe(true);
+    expect(!ctx.isTradingDay).toBe(false);
+  });
+});
+
 describe('getOverseasMarketDayContext', () => {
   it('marketState가 REGULAR/PRE/POST면 거래일로 판정한다', () => {
     const chart = [{ date: '2026-07-23' }, { date: '2026-07-24' }];

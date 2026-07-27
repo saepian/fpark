@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminClient } from '@/lib/supabase-admin';
 import { Resend } from 'resend';
-import { fetchStockPrice, fetchInvestorFlowRanking, type InvestorFlowRankRow } from '@/lib/kis-api';
+import { fetchStockPrice, fetchInvestorFlowRanking, fetchDailyChart, type InvestorFlowRankRow } from '@/lib/kis-api';
 import { fetchTopTradingValueTickers } from '@/lib/market-ranking';
 import { listAllAuthUserEmails } from '@/lib/list-all-auth-users';
+import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 import {
   type StockResult,
   type DailyAiResult,
@@ -53,6 +54,24 @@ export async function GET(request: NextRequest) {
   if (authHeader !== `Bearer ${cronSecret}`) {
     console.warn('[cron/daily-alert-email] Unauthorized:', authHeader ? 'wrong token' : 'missing Authorization header');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // 0. 거래일 상태 — vercel.json 스케줄(평일 1-5만 실행)로 주말은 이미 제외되므로, 여기서는
+  // "평일인데 공휴일이라 국내장이 안 열린 날"만 추가로 걸러낸다. 별도 KIS 재조회 없이
+  // 프롬프트용으로 이미 검증된 lib/market-day-context.ts를 그대로 재사용 — 이 크론은
+  // 원래 daily 차트를 안 받아오므로, 판정용으로 앵커 종목(삼성전자) 1주치 차트만 가볍게
+  // 조회한다(AI 리포트 라우트처럼 "이미 fetch된 차트 재사용"은 불가능해서 이 크론만 예외).
+  // 실행 시각(15:45 KST)이 정규장 마감(15:30) 이후라 홀리데이 판정이 항상 신뢰 가능한
+  // 구간이다(lib/market-day-context.ts 상단 주석 참고). 조회 실패 시엔 안전하게 거래일로
+  // 간주해 정상 발송을 진행한다(발송 누락보다 과다 발송이 덜 해로움).
+  const anchorChart = await fetchDailyChart('005930', '1W').catch(() => []);
+  const marketDayContext = getDomesticMarketDayContext(anchorChart);
+  if (!marketDayContext.isTradingDay) {
+    console.log(
+      `[DAILY-EMAIL] 오늘은 휴장일(${marketDayContext.reason})이라 daily-alert-email 발송 생략 ` +
+      `— 마지막 거래일 ${marketDayContext.lastTradingDate}`,
+    );
+    return NextResponse.json({ ok: true, sent: 0, skipped: true, reason: marketDayContext.reason });
   }
 
   const { dateStr, notifDate, mm, dd } = getKstInfo();
