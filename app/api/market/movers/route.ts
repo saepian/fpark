@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAccessToken, fetchCuratedMovers, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 import { isKoreanMarketOpen, getTradingDateCandidates, findFirstNonEmptyByDate } from '@/lib/market-utils';
+import { EXCLUDE_PATTERN } from '@/lib/market-ranking';
 import type { MoversResponse, MoverStock } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -114,6 +115,7 @@ async function fetchNaverMovers(type: 'rise' | 'fall', count = 10): Promise<Move
     const changeRate = parseFloat(cells[4].replace('%', ''));
 
     if (!name || isNaN(price) || isNaN(changeRate)) continue;
+    if (EXCLUDE_PATTERN.test(name)) continue;
     raw.push({ ticker, name, price, changeRate });
     if (raw.length >= 50) break;
   }
@@ -169,12 +171,12 @@ export async function GET() {
       ]);
 
       const gainers = [...kospiGainers, ...kosdaqGainers]
-        .filter((s) => s.price > 0 && s.name)
+        .filter((s) => s.price > 0 && s.name && !EXCLUDE_PATTERN.test(s.name))
         .sort((a, b) => b.changeRate - a.changeRate)
         .slice(0, 20);
 
       const losers = [...kospiLosers, ...kosdaqLosers]
-        .filter((s) => s.price > 0 && s.name)
+        .filter((s) => s.price > 0 && s.name && !EXCLUDE_PATTERN.test(s.name))
         .sort((a, b) => a.changeRate - b.changeRate)
         .slice(0, 20);
 
@@ -208,8 +210,10 @@ export async function GET() {
     // 3순위: curated 종목 등락률 정렬
     try {
       const curated = await fetchCuratedMovers(20, { waitForLock: false });
-      if (curated.gainers.length > 0 || curated.losers.length > 0) {
-        const result: MoversResponse = { gainers: curated.gainers, losers: curated.losers };
+      const curatedGainers = curated.gainers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
+      const curatedLosers  = curated.losers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
+      if (curatedGainers.length > 0 || curatedLosers.length > 0) {
+        const result: MoversResponse = { gainers: curatedGainers, losers: curatedLosers };
         saveCache(result).catch(() => {});
         return NextResponse.json({ ...result, isCached: false, cachedAt: null, isPrevDay: false });
       }
@@ -238,12 +242,12 @@ export async function GET() {
         ]);
 
         const gainers = [...kospiGainers, ...kosdaqGainers]
-          .filter((s) => s.price > 0 && s.name)
+          .filter((s) => s.price > 0 && s.name && !EXCLUDE_PATTERN.test(s.name))
           .sort((a, b) => b.changeRate - a.changeRate)
           .slice(0, 20);
 
         const losers = [...kospiLosers, ...kosdaqLosers]
-          .filter((s) => s.price > 0 && s.name)
+          .filter((s) => s.price > 0 && s.name && !EXCLUDE_PATTERN.test(s.name))
           .sort((a, b) => a.changeRate - b.changeRate)
           .slice(0, 20);
 
@@ -286,8 +290,10 @@ export async function GET() {
     // 4순위: curated 종목 등락률 정렬 (최후 수단)
     try {
       const curated = await fetchCuratedMovers(20, { waitForLock: false });
-      if (curated.gainers.length > 0 || curated.losers.length > 0) {
-        return NextResponse.json({ gainers: curated.gainers, losers: curated.losers, isCached: false, cachedAt: null, isPrevDay: true, prevDateLabel });
+      const curatedGainers = curated.gainers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
+      const curatedLosers  = curated.losers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
+      if (curatedGainers.length > 0 || curatedLosers.length > 0) {
+        return NextResponse.json({ gainers: curatedGainers, losers: curatedLosers, isCached: false, cachedAt: null, isPrevDay: true, prevDateLabel });
       }
     } catch (e) {
       console.error('[MOVERS] curated movers 오류:', e instanceof Error ? e.message : e);
