@@ -223,7 +223,11 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
               } else if (event.type === 'done') {
                 receivedDone = true;
                 if (!cancelled) {
-                  setData((prev) => (prev ? { ...prev, createdAt: event.createdAt as string } : prev));
+                  // event.createdAt이 없는 경로가 있어도(방어적으로) meta에서 이미
+                  // 채워진 값을 덮어쓰지 않도록 fallback — 2026-07-30 발견: 캐시 히트
+                  // 경로의 done 이벤트가 createdAt을 안 보내 이 값이 undefined로
+                  // 덮어써지면서 "리포트 생성 중..."이 완료된 캐시 위에 잘못 표시됐다.
+                  setData((prev) => (prev ? { ...prev, createdAt: (event.createdAt as string) ?? prev.createdAt } : prev));
                   setTypingKey(null); // 정상 종료 시 커서 확실히 정리
                 }
               } else if (event.type === 'error') {

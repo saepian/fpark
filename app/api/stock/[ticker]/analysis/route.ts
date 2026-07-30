@@ -240,6 +240,15 @@ function isIntradayCacheStale(cachedCreatedAt: string): boolean {
 // 에도 바로 재트리거(thrashing)되므로 AND로 묶어 둘 다 회피한다. 가격 조회 자체가
 // KIS 호출 1회를 유발하므로 시간 조건을 먼저 걸러, 최소 시간 미경과 시엔 가격
 // 조회조차 하지 않는다(캐시 히트 시 대부분 KIS 호출 0회를 유지).
+//
+// 2026-07-30 발견: 위 단일 조건(2시간+2.5%)은 개장 직후처럼 리포트 생성 직후 큰
+// 갭이 열리는 경우를 놓쳤다 — SK하이닉스가 09:16 생성 후 1.5시간 만에 -5.28%→
+// +2.93%(8%p+)로 움직였는데도 2시간 미만이라 가격 확인 자체를 안 해서 재생성이
+// 전혀 트리거되지 않았다. 급격한 변동은 더 짧은 경과 시간에도 빠르게 잡도록
+// 2단 임계값으로 분리한다 — "느슨한 변동 + 긴 대기" 조합(기존 취지)은 그대로 두고,
+// "급격한 변동 + 짧은 대기" 조합을 추가해 개장 직후 큰 갭만 예외적으로 빠르게 잡는다.
+const INTRADAY_FAST_MIN_HOURS_ELAPSED = 0.5; // 30분
+const INTRADAY_FAST_PRICE_MOVE_THRESHOLD = 0.05; // ±5%
 const INTRADAY_MIN_HOURS_ELAPSED = 2;
 const INTRADAY_PRICE_MOVE_THRESHOLD = 0.025; // ±2.5%
 // 하루 재생성 총 상한(초기 생성 포함) — 변동이 잦은 종목이 무한정 비용을 늘리지
@@ -262,13 +271,19 @@ async function isIntradayRefreshDue(
   if (nowMinutes < MARKET_OPEN_MINUTES_KST || nowMinutes >= MARKET_CLOSE_MINUTES_KST) return { due: false };
 
   const hoursSinceCreated = (now.getTime() - new Date(cachedCreatedAt).getTime()) / (60 * 60 * 1000);
-  if (hoursSinceCreated < INTRADAY_MIN_HOURS_ELAPSED) return { due: false };
+  if (hoursSinceCreated < INTRADAY_FAST_MIN_HOURS_ELAPSED) return { due: false };
   if (!storedPrice) return { due: false };
+
+  // 2시간 이상 지났으면 완화된(2.5%) 기준, 그 전(30분~2시간)이면 급변만 잡는
+  // 엄격한(5%) 기준 — 경과 시간이 길수록 "낡았다"고 판단하는 기준을 낮춘다.
+  const threshold = hoursSinceCreated >= INTRADAY_MIN_HOURS_ELAPSED
+    ? INTRADAY_PRICE_MOVE_THRESHOLD
+    : INTRADAY_FAST_PRICE_MOVE_THRESHOLD;
 
   try {
     const price = await fetchStockPrice(ticker);
     const movePct = Math.abs(price.price - storedPrice) / storedPrice;
-    if (movePct < INTRADAY_PRICE_MOVE_THRESHOLD) return { due: false };
+    if (movePct < threshold) return { due: false };
     return { due: true, reason: `${hoursSinceCreated.toFixed(1)}h 경과·가격 ${(movePct * 100).toFixed(1)}% 변동` };
   } catch (e) {
     console.warn('[ANALYSIS] 장중 신선도 가격 조회 실패, 기존 캐시 유지:', ticker, e instanceof Error ? e.message : e);
@@ -489,7 +504,7 @@ export async function GET(
           send({ type: 'field', key: 'yesterdayDelta', value: cached.yesterdayDelta });
           send({ type: 'field', key: 'riskFactor', value: cached.riskFactor });
           send({ type: 'field', key: 'tags', value: cached.tags });
-          send({ type: 'done' });
+          send({ type: 'done', createdAt: cached.createdAt });
         });
       }
     }
