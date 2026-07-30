@@ -252,6 +252,32 @@ describe('computePortfolioPeriodChange', () => {
 
     expect(byLabel['1개월 전'].pastValue).toBe(700 * 10 + 300 * 5); // 8500
     expect(byLabel['1주일 전'].pastValue).toBe(750 * 10 + 320 * 5); // 9100
+
+    // 날짜별 포트폴리오 평가금액 시계열: 6000(1년전) → 7250(6개월전) → 8500(1개월전)
+    // → 9100(1주일전) → 9450(오늘) — 단조 증가라 각 기간의 최고=오늘(9450), 최저=그
+    // 기간의 시작값 그대로.
+    expect(byLabel['1년 전']).toMatchObject({ periodHigh: 9450, periodLow: 6000 });
+    expect(byLabel['6개월 전']).toMatchObject({ periodHigh: 9450, periodLow: 7250 });
+    expect(byLabel['1개월 전']).toMatchObject({ periodHigh: 9450, periodLow: 8500 });
+    expect(byLabel['1주일 전']).toMatchObject({ periodHigh: 9450, periodLow: 9100 });
+  });
+
+  it('기간 중 최고/최저 평가금액은 구간 내 중간 스파이크도 반영한다(끝값이 아님)', () => {
+    const holding = {
+      ticker: 'AAA', quantity: 10,
+      points: [
+        pt('2026-06-29', 100), // 1개월 전과 정확히 일치(=pastValue 1000)
+        pt('2026-07-05', 200), // 중간 스파이크(고점)
+        pt('2026-07-10', 50),  // 중간 저점
+        pt('2026-07-30', 120),
+      ],
+    };
+    const rows = computePortfolioPeriodChange([holding], 1200, now);
+    const oneMonthAgo = rows.find(r => r.label === '1개월 전')!;
+
+    expect(oneMonthAgo.pastValue).toBe(1000);
+    expect(oneMonthAgo.periodHigh).toBe(2000); // 07-05 스파이크(200*10), 끝값(120*10=1200)이 아님
+    expect(oneMonthAgo.periodLow).toBe(500);   // 07-10 저점(50*10), 시작값(1000)도 아님
   });
 
   it('일부 종목 조회 실패(points: null)는 그 종목만 제외하고 나머지로 계산한다', () => {

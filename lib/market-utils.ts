@@ -168,6 +168,31 @@ export function computePortfolioPeriodChange(
   now: Date = new Date(),
 ): PortfolioPeriodChange[] {
   const targets = getPriceChangeTargets(now);
+
+  // 종목별 points의 날짜 합집합(오름차순) — 포트폴리오 평가금액 시계열의 x축.
+  // 종목마다 상장일/휴장일이 달라 그대로 합치면 특정 날짜에 일부 종목만 값이 있을 수
+  // 있으므로, 아래에서 각 종목별 findClosestPastClose로 보정(직전 거래일 종가 사용)한다.
+  const allDates = Array.from(new Set(
+    holdings.flatMap((h) => h.points?.map((p) => p.date) ?? [])
+  )).sort();
+
+  // 날짜별 포트폴리오 평가금액 시계열을 여기서 딱 1번만 만들어 두고, 아래 4개 기간이
+  // 전부 이걸 슬라이스해서 재사용한다 — 기간마다(1년전/6개월전/...) 처음부터 다시
+  // 순회하면 겹치는 날짜 구간을 최대 4번 재계산하게 되는 걸 피한다.
+  const dailyValues: { date: string; value: number }[] = [];
+  for (const d of allDates) {
+    let value = 0;
+    let matched = false;
+    for (const h of holdings) {
+      const close = h.points ? findClosestPastClose(h.points, d)?.close : null;
+      if (close && close > 0) {
+        value += close * h.quantity;
+        matched = true;
+      }
+    }
+    if (matched) dailyValues.push({ date: d, value });
+  }
+
   return targets
     .map(({ label, date }) => {
       const targetStr = kstDateStr(date);
@@ -181,11 +206,18 @@ export function computePortfolioPeriodChange(
           missingTickers.push(h.ticker);
         }
       }
+
+      const series = dailyValues.filter((dv) => dv.date >= targetStr);
+      const periodHigh = series.length ? Math.max(...series.map((dv) => dv.value)) : 0;
+      const periodLow = series.length ? Math.min(...series.map((dv) => dv.value)) : 0;
+
       return {
         label,
         pastValue,
         changeRate: pastValue > 0 ? ((currentTotalValue - pastValue) / pastValue) * 100 : 0,
         missingTickers,
+        periodHigh,
+        periodLow,
       };
     })
     .filter((r) => r.missingTickers.length < holdings.length); // 전 종목 실패한 기간은 행 자체를 생략

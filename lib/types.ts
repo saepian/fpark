@@ -48,6 +48,8 @@ export interface PortfolioPeriodChange {
   pastValue: number;         // Σ(그 시점 종가를 찾은 종목의 quantity × 종가)
   changeRate: number;        // (currentTotalValue - pastValue) / pastValue * 100
   missingTickers: string[];  // 그 시점 종가를 못 찾은 종목(ticker) — 조회 실패/상장 전 등
+  periodHigh: number;        // 기간 중(목표일~오늘) 포트폴리오 평가금액 시계열의 최고치
+  periodLow: number;         // 기간 중(목표일~오늘) 포트폴리오 평가금액 시계열의 최저치
 }
 
 export interface MarketIndexData {

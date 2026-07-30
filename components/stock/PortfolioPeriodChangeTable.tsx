@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { ChartDataPoint, PortfolioPeriodChange } from '../../lib/types';
+import type { ChartDataPoint, PortfolioPeriodChange, PriceChangeBadge, StockPrice } from '../../lib/types';
 import { computePortfolioPeriodChange } from '../../lib/market-utils';
 
 interface HoldingInput {
@@ -10,9 +10,14 @@ interface HoldingInput {
   quantity: number;
 }
 
+type Market = 'KOSPI' | 'KOSDAQ';
+type BenchmarkRates = Partial<Record<PriceChangeBadge['label'], number>>;
+
 interface TableData {
   rows: PortfolioPeriodChange[];
   nameByTicker: Map<string, string>;
+  market: Market;
+  benchmark: BenchmarkRates;
 }
 
 type TableState = TableData | 'error' | null;
@@ -20,47 +25,71 @@ type TableState = TableData | 'error' | null;
 const BATCH_SIZE = 3;      // lib/kis-api.ts:1084 "3개씩 배치 처리 (rate limit 회피)"와 동일
 const BATCH_DELAY_MS = 300;
 
-async function fetchTickerPoints(ticker: string): Promise<ChartDataPoint[] | null> {
+interface TickerData {
+  points: ChartDataPoint[] | null;
+  market: Market | null;
+  currentPrice: number | null;
+}
+
+// 종목당 4개 병렬 호출(1Y 메인·1년전 근접·6개월전 근접·현재가). market/currentPrice는
+// 지수 대비 컬럼의 "우세 시장" 판정에만 쓰고, 포트폴리오 평가금액 계산 자체는 여전히
+// 상위(page.tsx)가 넘겨주는 currentTotalValue를 그대로 쓴다(중복 산정 아님).
+async function fetchTickerData(ticker: string): Promise<TickerData> {
+  let points: ChartDataPoint[] | null = null;
+  let market: Market | null = null;
+  let currentPrice: number | null = null;
+
   try {
-    const [mainRes, near12Res, near6Res] = await Promise.all([
+    const [mainRes, near12Res, near6Res, priceRes] = await Promise.all([
       fetch(`/api/stock/${ticker}/chart?period=1Y`),
       fetch(`/api/stock/${ticker}/chart-near?monthsAgo=12`).catch(() => null),
       fetch(`/api/stock/${ticker}/chart-near?monthsAgo=6`).catch(() => null),
+      fetch(`/api/stock/${ticker}/price`).catch(() => null),
     ]);
 
     const mainBody = await mainRes.json().catch(() => null);
-    if (!mainRes.ok || !Array.isArray(mainBody)) return null;
+    if (mainRes.ok && Array.isArray(mainBody)) {
+      // near12(1년 전 근방) → near6(6개월 전 근방) → main(최근 ~5개월) 순으로 겹치지
+      // 않고 시간순 정렬되므로 단순 concat으로 전체 시간순이 유지된다
+      // (PriceChangeTable.tsx와 동일 성질 — /chart?period=1Y는 KIS 100건 캡 때문에
+      // 1년 전·6개월 전에 닿지 못해 근접 조회가 따로 필요함).
+      const parseNear = async (res: Response | null) => {
+        if (!res?.ok) return [] as ChartDataPoint[];
+        const parsed = await res.json().catch(() => null);
+        return Array.isArray(parsed) ? (parsed as ChartDataPoint[]) : [];
+      };
+      const [near12Body, near6Body] = await Promise.all([parseNear(near12Res), parseNear(near6Res)]);
+      points = [...near12Body, ...near6Body, ...(mainBody as ChartDataPoint[])];
+    }
 
-    const parseNear = async (res: Response | null) => {
-      if (!res?.ok) return [] as ChartDataPoint[];
-      const parsed = await res.json().catch(() => null);
-      return Array.isArray(parsed) ? (parsed as ChartDataPoint[]) : [];
-    };
-    const [near12Body, near6Body] = await Promise.all([parseNear(near12Res), parseNear(near6Res)]);
-
-    // near12(1년 전 근방) → near6(6개월 전 근방) → main(최근 ~5개월) 순으로 겹치지 않고
-    // 시간순 정렬되므로 단순 concat으로 전체 시간순이 유지된다(PriceChangeTable과 동일 성질).
-    return [...near12Body, ...near6Body, ...(mainBody as ChartDataPoint[])];
+    if (priceRes?.ok) {
+      const priceBody = await priceRes.json().catch(() => null) as StockPrice | null;
+      if (priceBody && typeof priceBody.price === 'number') {
+        currentPrice = priceBody.price;
+        market = priceBody.market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+      }
+    }
   } catch (e) {
     console.error(`[PortfolioPeriodChangeTable] ${ticker} 조회 실패:`, e);
-    return null;
   }
+
+  return { points, market, currentPrice };
 }
 
 // 최대 10종목(MAX_HOLDINGS) 전부를 한 번에 병렬 호출하면 KIS 동시성 장애 이력이 있어
 // (app/api/portfolio-diagnosis/route.ts Stage 0 주석 — 4종목 동시 요청에서도 랜덤 누락
 // 실측됨) 3종목씩 배치 + 배치 간 300ms 대기로 스태거링한다. 종목 하나 실패해도
 // null로 기록하고 계속 진행 — 부분 실패로 전체를 막지 않는다.
-async function fetchAllTickerPoints(
+async function fetchAllTickerData(
   holdings: HoldingInput[],
-): Promise<Map<string, ChartDataPoint[] | null>> {
-  const result = new Map<string, ChartDataPoint[] | null>();
+): Promise<Map<string, TickerData>> {
+  const result = new Map<string, TickerData>();
   for (let i = 0; i < holdings.length; i += BATCH_SIZE) {
     const batch = holdings.slice(i, i + BATCH_SIZE);
-    const batchResults = await Promise.allSettled(batch.map((h) => fetchTickerPoints(h.ticker)));
+    const batchResults = await Promise.allSettled(batch.map((h) => fetchTickerData(h.ticker)));
     batch.forEach((h, idx) => {
       const r = batchResults[idx];
-      result.set(h.ticker, r.status === 'fulfilled' ? r.value : null);
+      result.set(h.ticker, r.status === 'fulfilled' ? r.value : { points: null, market: null, currentPrice: null });
     });
     if (i + BATCH_SIZE < holdings.length) {
       await new Promise((res) => setTimeout(res, BATCH_DELAY_MS));
@@ -95,17 +124,41 @@ export default function PortfolioPeriodChangeTable({ holdings, currentTotalValue
 
     (async () => {
       try {
-        const pointsByTicker = await fetchAllTickerPoints(holdings);
+        const dataByTicker = await fetchAllTickerData(holdings);
         if (cancelled) return;
+
+        // 지수 대비 컬럼의 기준 시장 — 종목 수가 아니라 현재 평가금액이 더 큰 쪽 시장을
+        // 채택한다(코스닥 종목이 개수는 많아도 비중은 작은 경우가 흔해 금액 기준이 더
+        // 대표성 있음). market/currentPrice 조회에 실패한 종목은 가중치 0으로 제외.
+        let kospiValue = 0;
+        let kosdaqValue = 0;
+        for (const h of holdings) {
+          const d = dataByTicker.get(h.ticker);
+          if (!d?.market || d.currentPrice == null) continue;
+          const weight = d.currentPrice * h.quantity;
+          if (d.market === 'KOSDAQ') kosdaqValue += weight;
+          else kospiValue += weight;
+        }
+        const market: Market = kosdaqValue > kospiValue ? 'KOSDAQ' : 'KOSPI';
+
+        // 지수 등락률도 부가 데이터 — 실패해도 나머지 컬럼은 그대로 보여준다.
+        // 시장 단위로 캐싱된 라우트라(app/api/market/benchmark-change) 종목 수와
+        // 무관하게 호출 1회.
+        let benchmark: BenchmarkRates = {};
+        const benchmarkRes = await fetch(`/api/market/benchmark-change?market=${market}`).catch(() => null);
+        if (benchmarkRes?.ok) {
+          const parsed = await benchmarkRes.json().catch(() => null);
+          if (parsed && typeof parsed === 'object') benchmark = parsed;
+        }
 
         const withPoints = holdings.map((h) => ({
           ticker: h.ticker,
           quantity: h.quantity,
-          points: pointsByTicker.get(h.ticker) ?? null,
+          points: dataByTicker.get(h.ticker)?.points ?? null,
         }));
         const rows = computePortfolioPeriodChange(withPoints, currentTotalValue);
         const nameByTicker = new Map(holdings.map((h) => [h.ticker, h.name]));
-        setState({ rows, nameByTicker });
+        if (!cancelled) setState({ rows, nameByTicker, market, benchmark });
       } catch (e) {
         console.error('[PortfolioPeriodChangeTable] 집계 실패:', e);
         if (!cancelled) setState('error');
@@ -130,7 +183,8 @@ export default function PortfolioPeriodChangeTable({ holdings, currentTotalValue
 
   if (state === 'error' || state.rows.length === 0) return null;
 
-  const { rows, nameByTicker } = state;
+  const { rows, nameByTicker, market, benchmark } = state;
+  const indexLabel = market === 'KOSDAQ' ? '코스닥' : '코스피';
   const missingNotes = rows
     .filter((r) => r.missingTickers.length > 0)
     .map((r) => {
@@ -146,18 +200,26 @@ export default function PortfolioPeriodChangeTable({ holdings, currentTotalValue
         <span className="text-[10px] text-slate-500 font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>
       <div className="overflow-x-auto">
-        <table className="min-w-[420px] w-full text-xs">
+        <table className="min-w-[660px] w-full text-xs">
           <thead>
             <tr className="text-slate-500 border-b border-slate-800">
               <th className="text-left pb-2.5 font-medium">기간</th>
               <th className="text-right pb-2.5 font-medium">해당 시점 평가금액</th>
               <th className="text-right pb-2.5 font-medium">변동률</th>
+              <th className="text-right pb-2.5 font-medium">{indexLabel} 대비</th>
+              <th className="text-right pb-2.5 font-medium">기간중 최고평가금액</th>
+              <th className="text-right pb-2.5 font-medium">기간중 최저평가금액</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
               const isUp = row.changeRate >= 0;
               const color = isUp ? 'text-red-400' : 'text-blue-400';
+
+              const indexRate = benchmark[row.label];
+              const vsIndex = indexRate === undefined ? null : row.changeRate - indexRate;
+              const vsColor = vsIndex === null ? 'text-slate-600' : vsIndex >= 0 ? 'text-red-400' : 'text-blue-400';
+
               return (
                 <tr key={row.label} className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors">
                   <td className="py-2.5 text-slate-400 whitespace-nowrap">{row.label}</td>
@@ -167,6 +229,17 @@ export default function PortfolioPeriodChangeTable({ holdings, currentTotalValue
                   <td className={`py-2.5 text-right font-mono font-semibold ${color} whitespace-nowrap`}>
                     {isUp ? '+' : ''}
                     {row.changeRate.toFixed(2)}%
+                  </td>
+                  <td className={`py-2.5 text-right font-mono whitespace-nowrap ${vsColor}`}>
+                    {vsIndex === null
+                      ? '-'
+                      : `${vsIndex > 0 ? '+' : ''}${vsIndex.toFixed(1)}%p`}
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-red-400/70 whitespace-nowrap">
+                    {Math.round(row.periodHigh).toLocaleString()}원
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-blue-400/70 whitespace-nowrap">
+                    {Math.round(row.periodLow).toLocaleString()}원
                   </td>
                 </tr>
               );
