@@ -15,7 +15,10 @@ interface TableData {
 
 type TableState = TableData | 'error' | null;
 
-// DailyPriceTable(일별 주가 동향)과 같은 카드 형태 — 그 밑에 나란히 배치된다.
+// DailyPriceTable(일별 주가 동향)과 같은 카드 형태이되, 바로 위에 붙어 있어 배경색이
+// 같으면 두 카드가 구분이 안 된다는 피드백(2026-07-30)으로 배경만 StockChart/
+// StockMetrics와 같은 계열(#122131 + #2d313e 테두리)로 분리했다 — 상승/하락 폰트
+// 색(red-400/blue-400)은 그대로 유지.
 // 현재가·시장(KOSPI/KOSDAQ)은 /api/stock/[ticker]/price(StockHeader가 이미 폴링 중인
 // 것과 같은, TTL 캐시가 있는 엔드포인트)를 1회만 조회해서 쓴다 — DailyPriceTable도
 // ticker만 받아 스스로 데이터를 가져오는 동일한 패턴.
@@ -86,10 +89,10 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
 
   if (state === null) {
     return (
-      <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4 animate-pulse">
-        <div className="h-4 bg-slate-700 rounded w-32 mb-4" />
+      <div className="rounded-xl bg-[#122131] border border-[#2d313e] p-4 animate-pulse">
+        <div className="h-4 bg-[#2d313e] rounded w-32 mb-4" />
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-8 bg-slate-700 rounded mb-2" />
+          <div key={i} className="h-8 bg-[#2d313e] rounded mb-2" />
         ))}
       </div>
     );
@@ -101,15 +104,15 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
   const indexLabel = market === 'KOSDAQ' ? '코스닥' : '코스피';
 
   return (
-    <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4">
-      <h3 className="text-sm font-bold text-slate-300 mb-3">
+    <div className="rounded-xl bg-[#122131] border border-[#2d313e] p-4">
+      <h3 className="text-sm font-bold text-[#d4e4fa] mb-3">
         기간별 등락률
-        <span className="text-[10px] text-slate-500 font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
+        <span className="text-[10px] text-[#8c909f] font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>
       <div className="overflow-x-auto">
         <table className="min-w-[660px] w-full text-xs">
           <thead>
-            <tr className="text-slate-500 border-b border-slate-800">
+            <tr className="text-[#8c909f] border-b border-[#2d313e]">
               <th className="text-left pb-2.5 font-medium">기간</th>
               <th className="text-right pb-2.5 font-medium">해당 시점 가격</th>
               <th className="text-right pb-2.5 font-medium">변동률</th>
@@ -125,16 +128,16 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
 
               const indexRate = benchmark[row.label];
               const vsIndex = indexRate === undefined ? null : row.changeRate - indexRate;
-              const vsColor = vsIndex === null ? 'text-slate-600' : vsIndex >= 0 ? 'text-red-400' : 'text-blue-400';
+              const vsColor = vsIndex === null ? 'text-[#8c909f]' : vsIndex >= 0 ? 'text-red-400' : 'text-blue-400';
 
               return (
                 <tr
                   key={row.label}
                   title={row.pastDate}
-                  className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors"
+                  className="border-b border-[#2d313e]/60 hover:bg-[#2d313e]/30 transition-colors"
                 >
-                  <td className="py-2.5 text-slate-400 whitespace-nowrap">{row.label}</td>
-                  <td className="py-2.5 text-right font-mono text-slate-300 whitespace-nowrap">
+                  <td className="py-2.5 text-[#8c909f] whitespace-nowrap">{row.label}</td>
+                  <td className="py-2.5 text-right font-mono text-[#d4e4fa] whitespace-nowrap">
                     {row.pastClose.toLocaleString()}원
                   </td>
                   <td className={`py-2.5 text-right font-mono font-semibold ${color} whitespace-nowrap`}>
