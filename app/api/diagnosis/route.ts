@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
 import { checkPlan, resolveDiagnosisLimit, getUsageCycleStart } from '@/lib/plan';
-import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchAnnualFinancials, type AnnualFinancialRow } from '@/lib/kis-api';
+import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchAnnualFinancials, type AnnualFinancialRow, fetchDividendHistory, type DividendHistoryRow } from '@/lib/kis-api';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -18,7 +18,7 @@ import {
   buildRiskMetricsBlock,
 } from '@/lib/stock-analysis-data';
 import { fetchSectorPeers, computeSectorRelativeChange } from '@/lib/sector-peers';
-import { fetchRecentDisclosures, type DartDisclosure } from '@/lib/dart-api';
+import { fetchRecentDisclosures, type DartDisclosure, fetchDividendSummary, type DartDividendSummary } from '@/lib/dart-api';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import {
@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
       () => [],
     );
 
-    const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult] = await Promise.allSettled([
+    const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult] = await Promise.allSettled([
       fetchStockPrice(ticker),
       analysisDataPromise,
       selectRelevantNews(ticker, name, dbNewsExtraPromise),
@@ -274,6 +274,8 @@ export async function POST(request: NextRequest) {
       fetchSectorPeers(ticker),
       fetchAnnualFinancials(ticker),
       fetchRecentDisclosures(ticker),
+      fetchDividendSummary(ticker),
+      fetchDividendHistory(ticker),
     ]);
 
     console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
@@ -284,6 +286,8 @@ export async function POST(request: NextRequest) {
       sector:   sectorResult.status,
       financials: financialsResult.status,
       disclosures: disclosuresResult.status,
+      dividendSummary: dividendSummaryResult.status,
+      dividendHistory: dividendHistoryResult.status,
       priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
       analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
       newsErr:     newsSelectionResult.status === 'rejected' ? String(newsSelectionResult.reason): null,
@@ -291,6 +295,8 @@ export async function POST(request: NextRequest) {
       sectorErr:   sectorResult.status   === 'rejected' ? String(sectorResult.reason)   : null,
       financialsErr: financialsResult.status === 'rejected' ? String(financialsResult.reason) : null,
       disclosuresErr: disclosuresResult.status === 'rejected' ? String(disclosuresResult.reason) : null,
+      dividendSummaryErr: dividendSummaryResult.status === 'rejected' ? String(dividendSummaryResult.reason) : null,
+      dividendHistoryErr: dividendHistoryResult.status === 'rejected' ? String(dividendHistoryResult.reason) : null,
     });
 
     // ── 2단계: 결과 추출 ──────────────────────────────────────────────────────
@@ -307,6 +313,8 @@ export async function POST(request: NextRequest) {
     }
     const annualFinancials: AnnualFinancialRow[] = financialsResult.status === 'fulfilled' ? financialsResult.value : [];
     const disclosures: DartDisclosure[] = disclosuresResult.status === 'fulfilled' ? disclosuresResult.value : [];
+    const dividendSummary: DartDividendSummary | null = dividendSummaryResult.status === 'fulfilled' ? dividendSummaryResult.value : null;
+    const dividendHistory: DividendHistoryRow[] = dividendHistoryResult.status === 'fulfilled' ? dividendHistoryResult.value : [];
 
     const currentPrice = (priceData?.price && priceData.price > 0)
       ? priceData.price
@@ -640,6 +648,8 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysis에서 판단 없이 사실 
       financialsNarrative: '',
       disclosures,        // 서버 계산값 — AI 응답과 무관하게 항상 채움
       disclosureNarrative: '',
+      dividendSummary,    // 서버 계산값 — AI 응답과 무관하게 항상 채움
+      dividendHistory,    // 서버 계산값 — AI 응답과 무관하게 항상 채움
     });
 
     if (!jsonMatch) {
@@ -687,6 +697,8 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysis에서 판단 없이 사실 
       sectorComparison,   // 서버 계산 — peer 평균 등락률과의 차이 (동종업계 없으면 null)
       annualFinancials,   // 서버 계산 — 최근 3개년 확정 연간 실적 (없으면 빈 배열)
       disclosures,        // 서버 계산 — DART 최근 14일 주요 공시 (없으면 빈 배열, UI는 있을 때만 강조 카드)
+      dividendSummary,    // 서버 계산 — DART 최신 사업연도 배당 요약 (무배당이면 null)
+      dividendHistory,    // 서버 계산 — KIS 최근 5년 배당 지급 이력 (없으면 빈 배열)
       // Claude 응답 필드 (정규화)
       mainAnalysis:       typeof result.mainAnalysis      === 'string' ? result.mainAnalysis      : '',
       riskFactors:        toArr(result.riskFactors),

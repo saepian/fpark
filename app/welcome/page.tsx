@@ -60,6 +60,12 @@ const SAMPLE_DIAGNOSIS: DiagnosisResult = {
     { title: '자기주식처분결정', date: '2026-07-10', url: 'https://dart.fss.or.kr', filer: '예시전자' },
   ],
   disclosureNarrative: '7월 10일 자기주식 처분을 공시했으며, 이는 유동성 확보 목적으로 풀이됩니다.',
+  dividendSummary: { year: '2025', dividendYield: 1.8, dividendPerShare: 1350, payoutRatio: 24.5 },
+  dividendHistory: [
+    { recordDate: '2026-03-31', kind: '분기', kindLabel: '분기배당', perShareAmount: 361, dividendRate: 0.48, payDate: '2026-05-15' },
+    { recordDate: '2025-12-31', kind: '결산', kindLabel: '결산배당', perShareAmount: 500, dividendRate: 0.68, payDate: '2026-04-20' },
+    { recordDate: '2025-09-30', kind: '분기', kindLabel: '분기배당', perShareAmount: 361, dividendRate: 0.52, payDate: '2025-11-14' },
+  ],
   history: {
     daysSince: 1,
     prevProfitRate: 8.1,

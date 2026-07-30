@@ -4,6 +4,7 @@ import { Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown, AlertCircle, 
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
+import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 
 export interface DiagnosisHistory {
@@ -56,6 +57,8 @@ export interface DiagnosisResult {
   financialsNarrative: string; // 실적 추이 해석, 데이터 없으면 빈 문자열
   disclosures: DartDisclosure[]; // DART 최근 14일 주요 공시, 없으면 빈 배열 — 카드 생략
   disclosureNarrative: string; // 공시 해석, 데이터 없으면 빈 문자열
+  dividendSummary: DartDividendSummary | null; // DART 최신 사업연도 배당 요약, 무배당이면 null
+  dividendHistory: DividendHistoryRow[]; // KIS 최근 5년 배당 지급 이력, 없으면 빈 배열
   resistance: number; // 52주 고점 기준 저항선 관찰 (목표가 아님)
   support: number;    // 52주 저가 기준 지지선 관찰 (손절가 아님)
   benchmark?: {
@@ -464,6 +467,9 @@ export default function DiagnosisReport({
         <div className="mb-4">
           <PriceChangeTable ticker={ticker} />
         </div>
+
+        {/* ── 3-2행: 배당 정보 (DART 최신 사업연도 요약 + KIS 최근 5년 지급이력) ── */}
+        <DividendInfo summary={result.dividendSummary} history={result.dividendHistory} />
 
         {/* ── 4행: 기관/외국인 동향 도넛 + 업종 대비 + 리스크 요인 ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">

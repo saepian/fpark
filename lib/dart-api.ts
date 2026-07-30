@@ -197,3 +197,97 @@ export async function fetchRecentDisclosures(ticker: string, days = 14): Promise
     return [];
   }
 }
+
+// ── 배당 요약 (기업분석 "배당 정보" 섹션 — DART 최신 사업연도) ────────────────
+// alotMatter.json(배당에 관한 사항)은 항목명이 같아도 stock_knd로 보통주/우선주
+// 행이 분리돼 있다(2026-07-30 실측, 삼성전자 예: 현금배당수익률(%) 보통주=1.50,
+// 우선주=1.90 — 서로 다른 행). stock_knd가 없는 항목(현금배당성향 등)은 단일 행.
+const DIVIDEND_SUMMARY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 사업보고서는 연 1회 제출 — corp_code 맵과 동일 주기
+
+export type DartDividendSummary = {
+  year:             string;        // 사업연도(예: "2025")
+  dividendYield:    number | null; // 현금배당수익률(%), 보통주 기준
+  dividendPerShare: number | null; // 주당 현금배당금(원), 보통주 기준
+  payoutRatio:      number | null; // (연결)현금배당성향(%)
+};
+
+function parseDartNumber(v: string | undefined): number | null {
+  if (!v || v === '-') return null;
+  const n = Number(v.replace(/,/g, ''));
+  return isNaN(n) ? null : n;
+}
+
+async function fetchAlotMatter(corpCode: string, bsnsYear: string): Promise<Record<string, string>[] | null> {
+  const apiKey = process.env.DART_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const url = new URL(`${DART_BASE}/alotMatter.json`);
+    url.searchParams.set('crtfc_key', apiKey);
+    url.searchParams.set('corp_code', corpCode);
+    url.searchParams.set('bsns_year', bsnsYear);
+    url.searchParams.set('reprt_code', '11011'); // 사업보고서(연간)
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status !== '000' || !Array.isArray(data.list)) return null;
+    return data.list;
+  } catch {
+    return null;
+  }
+}
+
+// 무배당 종목도 정상적인 결과라 null을 그대로 캐싱한다("row 없음"=캐시 미스,
+// "row 있는데 data가 null"=확정된 무배당) — 조회 성공 여부를 cache row 존재 자체로
+// 판별해야 하며 cache.data의 참/거짓으로 판별하면 안 된다(무배당 캐시가 매번
+// 미스로 오판되어 매 요청마다 재조회하게 됨).
+export async function fetchDividendSummary(ticker: string): Promise<DartDividendSummary | null> {
+  const cacheKey = `dart_dividend_${ticker}`;
+  try {
+    const { data: cache } = await getSb()
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', cacheKey)
+      .single();
+    if (cache && Date.now() - new Date(cache.updated_at as string).getTime() < DIVIDEND_SUMMARY_CACHE_TTL_MS) {
+      return cache.data as DartDividendSummary | null;
+    }
+  } catch {
+    // 캐시 조회 실패 시 새로 계산
+  }
+
+  let summary: DartDividendSummary | null = null;
+  try {
+    const corpCode = await fetchCorpCode(ticker);
+    if (corpCode) {
+      const thisYear = new Date().getFullYear();
+      // 사업보고서는 회계연도 종료 후 90일 내 제출이라 연초엔 최신 완료연도 데이터가
+      // 아직 없을 수 있음 — 작년 실패 시 재작년으로 폴백.
+      for (const y of [thisYear - 1, thisYear - 2]) {
+        const rows = await fetchAlotMatter(corpCode, String(y));
+        if (!rows || rows.length === 0) continue;
+
+        const find = (se: string, stockKnd?: string) =>
+          rows.find((r) => r.se === se && (stockKnd ? r.stock_knd === stockKnd : true));
+
+        const dividendYield    = parseDartNumber(find('현금배당수익률(%)', '보통주')?.thstrm);
+        const dividendPerShare = parseDartNumber(find('주당 현금배당금(원)', '보통주')?.thstrm);
+        const payoutRatio      = parseDartNumber(find('(연결)현금배당성향(%)')?.thstrm);
+
+        if (dividendYield !== null || dividendPerShare !== null || payoutRatio !== null) {
+          summary = { year: String(y), dividendYield, dividendPerShare, payoutRatio };
+        }
+        break; // 데이터가 있는 최신 연도를 찾았으면(배당 유무와 무관) 더 과거로 가지 않음
+      }
+    }
+  } catch (e) {
+    console.error(`[DART] fetchDividendSummary 실패 ${ticker}:`, e instanceof Error ? e.message : e);
+  }
+
+  try {
+    await getSb().from('market_cache').upsert({ key: cacheKey, data: summary, updated_at: new Date().toISOString() });
+  } catch (e) {
+    console.warn(`[DART] ${ticker} 배당 요약 캐시 저장 실패:`, e instanceof Error ? e.message : e);
+  }
+
+  return summary;
+}

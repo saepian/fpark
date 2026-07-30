@@ -1,5 +1,7 @@
 import type { StockPrice, StockInfo, ChartDataPoint, MarketIndexData, MoverStock, AlertStock } from './types';
 import { adminClient as supabaseAdmin } from './supabase-admin';
+import { supabase } from './supabase';
+import { findClosestPastClose } from './market-utils';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
@@ -1180,4 +1182,131 @@ export async function fetchAnnualFinancials(ticker: string): Promise<AnnualFinan
       roe:             roeMap.get(r.stac_yymm) ?? null,
     };
   });
+}
+
+// ── 배당 지급 이력 (기업분석 "배당 정보" 섹션) ──────────────────────────────
+// 2026-07-30 실측: ksdinfo/dividend(HHKDB669102C0)의 divi_rate는 액면가 기준이라
+// 실제 시가배당률이 아니다(예: 삼성전자 per_sto_divi_amt=372, face_val=100일 때
+// divi_rate=372.00 — 372/100 그대로). 실제 배당율은 배당기준일(record_date) 종가
+// 대비로 fpark이 직접 계산한다. 같은 실측에서 divi_kind는 "분기"/"결산" 두 값만
+// 확인됨(005930/000660/005380/105560/017670/051910, 5년 범위 — 중간배당 등 다른
+// 값 없음). per_sto_divi_amt가 "0"인 행은 아직 확정되지 않은 분기/연도의 placeholder
+// (카카오 035720 실측: 매 결산기마다 12/31 기준 0원 행과 이사회 확정 후 실제 기준일의
+// 확정 금액 행이 별도로 잡힘) — 반드시 걸러내야 "배당 없음"과 "아직 미확정"이 섞이지 않는다.
+export type DividendKind = '분기' | '결산';
+
+export type DividendHistoryRow = {
+  recordDate:     string;        // 배당기준일 YYYY-MM-DD
+  kind:           DividendKind;
+  kindLabel:      string;        // '분기배당' | '결산배당'
+  perShareAmount: number;        // 주당배당금(원)
+  dividendRate:   number | null; // 배당기준일 종가 대비 실제 배당율(%) — 종가 조회 실패 시 null(0으로 표시하지 않음)
+  payDate:        string | null; // 배당금 지급일 YYYY-MM-DD, 미지급이면 null
+};
+
+const DIVIDEND_HISTORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 배당 이벤트는 분기 단위로만 발생 — 24시간이면 충분
+const dividendHistoryCacheKey = (ticker: string) => `kis_dividend_history_${ticker}`;
+
+async function fetchDividendHistoryRaw(ticker: string): Promise<
+  { recordDate: string; kind: DividendKind; perShareAmount: number; payDate: string | null }[]
+> {
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setFullYear(startDate.getFullYear() - 5);
+    const fmt = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/ksdinfo/dividend`);
+    url.searchParams.set('CTS', '');
+    url.searchParams.set('GB1', '0');
+    url.searchParams.set('F_DT', fmt(startDate));
+    url.searchParams.set('T_DT', fmt(now));
+    url.searchParams.set('SHT_CD', ticker);
+    url.searchParams.set('HIGH_GB', '');
+
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'HHKDB669102C0'),
+      cache:   'no-store',
+      signal:  AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`ksdinfo/dividend HTTP ${res.status}`);
+    const data = await res.json();
+    assertKisTokenValid(data, `fetchDividendHistory(${ticker})`);
+    if (data.rt_cd !== '0') throw new Error(data.msg1 ?? 'ksdinfo/dividend 실패');
+
+    type RawRow = { record_date: string; divi_kind: string; per_sto_divi_amt: string; divi_pay_dt: string };
+    return ((data.output1 ?? []) as RawRow[])
+      .filter((r) => r.per_sto_divi_amt && Number(r.per_sto_divi_amt) > 0)
+      .filter((r): r is RawRow & { divi_kind: DividendKind } => r.divi_kind === '분기' || r.divi_kind === '결산')
+      .map((r) => ({
+        recordDate:     `${r.record_date.slice(0, 4)}-${r.record_date.slice(4, 6)}-${r.record_date.slice(6, 8)}`,
+        kind:           r.divi_kind,
+        perShareAmount: Number(r.per_sto_divi_amt),
+        payDate:        r.divi_pay_dt ? r.divi_pay_dt.replace(/\//g, '-') : null,
+      }));
+  });
+}
+
+// 종가는 market_cache HTTP 라우트(/api/stock/[ticker]/chart-near)가 아니라 그 밑단의
+// fetchChartNear를 서버에서 직접 호출한다 — 배당기준일은 "몇 개월 전" 같은 고정
+// 버킷이 아니라 임의의 과거 날짜라 그 라우트의 캐시 키(monthsAgo 단위)와 맞지도 않고,
+// 어차피 이 함수 전체 결과(배당율 계산까지 끝난 상태)를 24시간 통째로 캐싱하므로
+// 종가만 따로 또 캐싱하면 이중 캐싱이 된다.
+export async function fetchDividendHistory(ticker: string): Promise<DividendHistoryRow[]> {
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', dividendHistoryCacheKey(ticker))
+      .single();
+    if (cache?.data && Date.now() - new Date(cache.updated_at as string).getTime() < DIVIDEND_HISTORY_CACHE_TTL_MS) {
+      return cache.data as DividendHistoryRow[];
+    }
+  } catch {
+    // 캐시 조회 실패 시 새로 계산
+  }
+
+  try {
+    const rawRows = await fetchDividendHistoryRaw(ticker);
+
+    // 3개씩 배치 처리 (rate limit 회피, 기존 관례)
+    const enriched: DividendHistoryRow[] = [];
+    for (let i = 0; i < rawRows.length; i += 3) {
+      const batch = rawRows.slice(i, i + 3);
+      const results = await Promise.allSettled(
+        batch.map(async (r) => {
+          const points = await fetchChartNear(ticker, new Date(r.recordDate));
+          const close = findClosestPastClose(points, r.recordDate)?.close ?? null;
+          const dividendRate = close && close > 0 ? (r.perShareAmount / close) * 100 : null;
+          return {
+            recordDate:     r.recordDate,
+            kind:           r.kind,
+            kindLabel:      r.kind === '분기' ? '분기배당' : '결산배당',
+            perShareAmount: r.perShareAmount,
+            dividendRate,
+            payDate:        r.payDate,
+          };
+        })
+      );
+      for (const result of results) if (result.status === 'fulfilled') enriched.push(result.value);
+    }
+
+    enriched.sort((a, b) => b.recordDate.localeCompare(a.recordDate));
+
+    try {
+      const { error } = await supabase
+        .from('market_cache')
+        .upsert({ key: dividendHistoryCacheKey(ticker), data: enriched, updated_at: new Date().toISOString() });
+      if (error) console.warn(`[KIS] ${ticker} 배당이력 캐시 저장 실패:`, error.message);
+    } catch (e) {
+      console.warn(`[KIS] ${ticker} 배당이력 캐시 저장 실패:`, e instanceof Error ? e.message : e);
+    }
+
+    return enriched;
+  } catch (e) {
+    console.error(`[KIS] fetchDividendHistory 실패 ${ticker}:`, e instanceof Error ? e.message : e);
+    return [];
+  }
 }
