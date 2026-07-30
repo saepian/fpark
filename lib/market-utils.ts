@@ -120,6 +120,7 @@ export function computePriceChangeBadges(
   const { year, month, day } = kstYearMonthDay(now);
   const targets: { label: PriceChangeBadge['label']; date: Date }[] = [
     { label: '1년 전',   date: kstMidnight(year - 1, month, day) },
+    { label: '6개월 전', date: kstMidnight(year, month - 6, day) },
     { label: '1개월 전', date: kstMidnight(year, month - 1, day) },
     { label: '1주일 전', date: kstMidnight(year, month, day - 7) },
   ];

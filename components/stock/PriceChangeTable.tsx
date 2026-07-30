@@ -9,7 +9,6 @@ type BenchmarkRates = Partial<Record<PriceChangeBadge['label'], number>>;
 
 interface TableData {
   rows: PriceChangeBadge[];
-  currentPrice: number;
   market: Market;
   benchmark: BenchmarkRates;
 }
@@ -38,9 +37,10 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
         const currentPrice = (priceBody as StockPrice).price;
         const market: Market = (priceBody as StockPrice).market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
 
-        const [mainRes, nearRes, benchmarkRes] = await Promise.all([
+        const [mainRes, near12Res, near6Res, benchmarkRes] = await Promise.all([
           fetch(`/api/stock/${ticker}/chart?period=1Y`),
-          fetch(`/api/stock/${ticker}/chart-near-1y`).catch(() => null),
+          fetch(`/api/stock/${ticker}/chart-near?monthsAgo=12`).catch(() => null),
+          fetch(`/api/stock/${ticker}/chart-near?monthsAgo=6`).catch(() => null),
           fetch(`/api/market/benchmark-change?market=${market}`).catch(() => null),
         ]);
 
@@ -53,16 +53,18 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
           );
         }
 
-        // 1년 전 근방 조회는 부가 데이터라 실패해도 1개월/1주일 행은 그대로 보여준다.
-        // /chart?period=1Y는 KIS가 요청 범위와 무관하게 최근 100건(≈5개월)으로 응답을
-        // 잘라서 "1년 전"에 닿지 못한다(lib/kis-api.ts fetchChartRangeRaw 주석 참고).
-        // 두 응답 모두 오래된순이고 근방 창이 1Y 응답의 가장 이른 날짜보다 항상 앞서므로
-        // 단순 concat으로 시간순이 유지된다.
-        let nearBody: ChartDataPoint[] = [];
-        if (nearRes?.ok) {
-          const parsed = await nearRes.json().catch(() => null);
-          if (Array.isArray(parsed)) nearBody = parsed;
-        }
+        // 1년 전/6개월 전 근방 조회는 부가 데이터라 실패해도 1개월/1주일 행은 그대로
+        // 보여준다. /chart?period=1Y는 KIS가 요청 범위와 무관하게 최근 100건(≈5개월)으로
+        // 응답을 잘라서 "1년 전"·"6개월 전"에 닿지 못한다(lib/kis-api.ts
+        // fetchChartRangeRaw 주석 참고). 세 응답 모두 오래된순이고, near12(1년 전 근방) →
+        // near6(6개월 전 근방) → main(최근 ~5개월) 순으로 겹치지 않고 시간순 정렬되므로
+        // 단순 concat으로 전체 시간순이 유지된다.
+        const parseNear = async (res: Response | null) => {
+          if (!res?.ok) return [] as ChartDataPoint[];
+          const parsed = await res.json().catch(() => null);
+          return Array.isArray(parsed) ? (parsed as ChartDataPoint[]) : [];
+        };
+        const [near12Body, near6Body] = await Promise.all([parseNear(near12Res), parseNear(near6Res)]);
 
         // 지수 대비 등락률도 부가 데이터 — 실패해도 나머지 컬럼은 그대로 보여준다.
         let benchmark: BenchmarkRates = {};
@@ -71,8 +73,8 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
           if (parsed && typeof parsed === 'object') benchmark = parsed;
         }
 
-        const rows = computePriceChangeBadges([...nearBody, ...mainBody], currentPrice);
-        if (!cancelled) setState({ rows, currentPrice, market, benchmark });
+        const rows = computePriceChangeBadges([...near12Body, ...near6Body, ...mainBody], currentPrice);
+        if (!cancelled) setState({ rows, market, benchmark });
       } catch (e) {
         console.error(`[PriceChangeTable] ${ticker} 조회 실패:`, e);
         if (!cancelled) setState('error');
@@ -86,7 +88,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
     return (
       <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4 animate-pulse">
         <div className="h-4 bg-slate-700 rounded w-32 mb-4" />
-        {[...Array(3)].map((_, i) => (
+        {[...Array(4)].map((_, i) => (
           <div key={i} className="h-8 bg-slate-700 rounded mb-2" />
         ))}
       </div>
@@ -95,23 +97,22 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
 
   if (state === 'error' || state.rows.length === 0) return null;
 
-  const { rows, currentPrice, market, benchmark } = state;
+  const { rows, market, benchmark } = state;
   const indexLabel = market === 'KOSDAQ' ? '코스닥' : '코스피';
 
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4">
       <h3 className="text-sm font-bold text-slate-300 mb-3">
         기간별 등락률
-        <span className="text-[10px] text-slate-500 font-normal ml-2">1년 전 · 1개월 전 · 1주일 전 대비</span>
+        <span className="text-[10px] text-slate-500 font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>
       <div className="overflow-x-auto">
-        <table className="min-w-[780px] w-full text-xs">
+        <table className="min-w-[660px] w-full text-xs">
           <thead>
             <tr className="text-slate-500 border-b border-slate-800">
               <th className="text-left pb-2.5 font-medium">기간</th>
               <th className="text-right pb-2.5 font-medium">해당 시점 가격</th>
               <th className="text-right pb-2.5 font-medium">변동률</th>
-              <th className="text-right pb-2.5 font-medium">수익(원/주)</th>
               <th className="text-right pb-2.5 font-medium">{indexLabel} 대비</th>
               <th className="text-right pb-2.5 font-medium">기간 중 최고가</th>
               <th className="text-right pb-2.5 font-medium">기간 중 최저가</th>
@@ -121,9 +122,6 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
             {rows.map((row) => {
               const isUp = row.changeRate >= 0;
               const color = isUp ? 'text-red-400' : 'text-blue-400';
-
-              const profitPerShare = currentPrice - row.pastClose;
-              const profitColor = profitPerShare >= 0 ? 'text-red-400' : 'text-blue-400';
 
               const indexRate = benchmark[row.label];
               const vsIndex = indexRate === undefined ? null : row.changeRate - indexRate;
@@ -142,10 +140,6 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
                   <td className={`py-2.5 text-right font-mono font-semibold ${color} whitespace-nowrap`}>
                     {isUp ? '+' : ''}
                     {row.changeRate.toFixed(2)}%
-                  </td>
-                  <td className={`py-2.5 text-right font-mono font-semibold ${profitColor} whitespace-nowrap`}>
-                    {profitPerShare >= 0 ? '+' : ''}
-                    {profitPerShare.toLocaleString()}원
                   </td>
                   <td className={`py-2.5 text-right font-mono whitespace-nowrap ${vsColor}`}>
                     {vsIndex === null

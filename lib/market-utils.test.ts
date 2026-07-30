@@ -134,19 +134,22 @@ describe('findClosestPastClose', () => {
 describe('computePriceChangeBadges', () => {
   const now = new Date('2026-07-30T12:00:00+09:00'); // KST 2026-07-30
 
-  it('1년치 데이터가 모두 있으면 배지 3개를 정확한 등락률로 반환한다', () => {
+  it('1년치 데이터가 모두 있으면 배지 4개를 정확한 등락률로 반환한다', () => {
     const points = [
       pt('2025-07-30', 50000), // 1년 전과 정확히 일치
+      pt('2026-01-30', 60000), // 6개월 전과 정확히 일치
       pt('2026-06-30', 68000), // 1개월 전과 정확히 일치
       pt('2026-07-23', 71000), // 1주일 전과 정확히 일치
       pt('2026-07-30', 70000),
     ];
     const badges = computePriceChangeBadges(points, 72000, now);
 
-    expect(badges).toHaveLength(3);
+    expect(badges).toHaveLength(4);
     expect(badges.find(b => b.label === '1년 전')).toMatchObject({
       pastClose: 50000, changeRate: 44, periodHigh: 71000, periodLow: 50000,
     });
+    expect(badges.find(b => b.label === '6개월 전')?.changeRate).toBeCloseTo(20, 10);
+    expect(badges.find(b => b.label === '6개월 전')).toMatchObject({ periodHigh: 71000, periodLow: 60000 });
     expect(badges.find(b => b.label === '1개월 전')?.changeRate).toBeCloseTo(5.882352941176471, 10);
     expect(badges.find(b => b.label === '1개월 전')).toMatchObject({ periodHigh: 71000, periodLow: 68000 });
     expect(badges.find(b => b.label === '1주일 전')?.changeRate).toBeCloseTo(1.408450704225352, 10);
@@ -167,7 +170,7 @@ describe('computePriceChangeBadges', () => {
   });
 
   it('상장 1년 미만 등으로 목표일 이전 데이터가 없으면 해당 배지를 생략한다', () => {
-    // 최근 11일치 데이터만 존재(2026-07-20~2026-07-30) — 1년 전/1개월 전은 매칭 불가
+    // 최근 11일치 데이터만 존재(2026-07-20~2026-07-30) — 1년 전/6개월 전/1개월 전은 매칭 불가
     const points = Array.from({ length: 11 }, (_, i) =>
       pt(`2026-07-${String(20 + i).padStart(2, '0')}`, 60000 + i * 100)
     );
@@ -183,6 +186,7 @@ describe('computePriceChangeBadges', () => {
     const badges = computePriceChangeBadges(points, 72000, now);
 
     expect(badges.find(b => b.label === '1년 전')).toBeUndefined();
+    expect(badges.find(b => b.label === '6개월 전')).toBeUndefined();
     expect(badges).toHaveLength(2);
   });
 

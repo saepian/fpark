@@ -7,7 +7,7 @@ import { kstYearMonthDay, kstMidnight } from '../../../../lib/ai-grounding';
 export const dynamic = 'force-dynamic';
 
 type Market = 'KOSPI' | 'KOSDAQ';
-type BenchmarkLabel = '1년 전' | '1개월 전' | '1주일 전';
+type BenchmarkLabel = '1년 전' | '6개월 전' | '1개월 전' | '1주일 전';
 
 // PriceChangeTable "지수 대비" 컬럼 전용 — 같은 시장(KOSPI/KOSDAQ) 안의 모든 종목이
 // 같은 지수 등락률을 참조하므로 종목별이 아니라 시장별로 캐싱한다. 종목 페이지를
@@ -15,7 +15,7 @@ type BenchmarkLabel = '1년 전' | '1개월 전' | '1주일 전';
 // KIS 호출이 훨씬 적게 든다.
 const cacheKey = (market: Market) => `benchmark_change_${market}`;
 
-// chart-near-1y와 동일한 이유로 장중/장외 TTL을 나눈다 — 오늘 지수 값만 장중에
+// chart-near와 동일한 이유로 장중/장외 TTL을 나눈다 — 오늘 지수 값만 장중에
 // 바뀌고 과거 구간 등락률은 하루 단위로만 갱신되면 충분하다.
 const CACHE_TTL_MS_OPEN = 5 * 60_000;
 const CACHE_TTL_MS_CLOSED = 60 * 60_000;
@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
   const { year, month, day } = kstYearMonthDay(now);
   const targets: { label: BenchmarkLabel; from: Date }[] = [
     { label: '1년 전', from: kstMidnight(year - 1, month, day) },
+    { label: '6개월 전', from: kstMidnight(year, month - 6, day) },
     { label: '1개월 전', from: kstMidnight(year, month - 1, day) },
     { label: '1주일 전', from: kstMidnight(year, month, day - 7) },
   ];
