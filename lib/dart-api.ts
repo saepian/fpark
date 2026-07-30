@@ -237,9 +237,17 @@ async function fetchAlotMatter(corpCode: string, bsnsYear: string): Promise<Reco
 }
 
 // 무배당 종목도 정상적인 결과라 null을 그대로 캐싱한다("row 없음"=캐시 미스,
-// "row 있는데 data가 null"=확정된 무배당) — 조회 성공 여부를 cache row 존재 자체로
-// 판별해야 하며 cache.data의 참/거짓으로 판별하면 안 된다(무배당 캐시가 매번
-// 미스로 오판되어 매 요청마다 재조회하게 됨).
+// "row 있는데 dividendSummary가 null"=확정된 무배당) — 조회 성공 여부를 cache row
+// 존재 자체로 판별해야 하며 언래핑한 값의 참/거짓으로 판별하면 안 된다(무배당
+// 캐시가 매번 미스로 오판되어 매 요청마다 재조회하게 됨).
+// market_cache.data는 NOT NULL 컬럼이라, summary가 null일 때 그대로 upsert하면
+// PostgREST가 JS null을 "JSON null 값"이 아니라 "SQL NULL"로 해석해 23502(not-null
+// constraint violation)로 매번 조용히 거부된다(2026-07-30 실측 확인 — try/catch로도
+// 못 잡힘: supabase-js는 이 경우 reject가 아니라 {error} 필드로만 반환하기 때문에
+// 기존 코드의 catch가 애초에 발동하지 않았다). null도 유효한 JSON 값인 래퍼 객체로
+// 감싸 저장하고 읽을 때 언래핑한다.
+type DividendSummaryCacheValue = { dividendSummary: DartDividendSummary | null };
+
 export async function fetchDividendSummary(ticker: string): Promise<DartDividendSummary | null> {
   const cacheKey = `dart_dividend_${ticker}`;
   try {
@@ -249,7 +257,13 @@ export async function fetchDividendSummary(ticker: string): Promise<DartDividend
       .eq('key', cacheKey)
       .single();
     if (cache && Date.now() - new Date(cache.updated_at as string).getTime() < DIVIDEND_SUMMARY_CACHE_TTL_MS) {
-      return cache.data as DartDividendSummary | null;
+      const cached = cache.data as Partial<DividendSummaryCacheValue> | null;
+      // 이번 수정 이전에 언래핑 없이 저장된 구버전 캐시 행(무배당이 아닌 실제 값이
+      // DartDividendSummary 형태로 그대로 저장돼 있음)은 dividendSummary 키가 없다 —
+      // 캐시 미스로 취급해 아래에서 재계산하고 새 포맷으로 덮어써 자연스럽게 마이그레이션한다.
+      if (cached && typeof cached === 'object' && 'dividendSummary' in cached) {
+        return cached.dividendSummary ?? null;
+      }
     }
   } catch {
     // 캐시 조회 실패 시 새로 계산
@@ -284,7 +298,11 @@ export async function fetchDividendSummary(ticker: string): Promise<DartDividend
   }
 
   try {
-    await getSb().from('market_cache').upsert({ key: cacheKey, data: summary, updated_at: new Date().toISOString() });
+    const cacheValue: DividendSummaryCacheValue = { dividendSummary: summary };
+    const { error } = await getSb()
+      .from('market_cache')
+      .upsert({ key: cacheKey, data: cacheValue, updated_at: new Date().toISOString() });
+    if (error) console.warn(`[DART] ${ticker} 배당 요약 캐시 저장 실패:`, error.message);
   } catch (e) {
     console.warn(`[DART] ${ticker} 배당 요약 캐시 저장 실패:`, e instanceof Error ? e.message : e);
   }
