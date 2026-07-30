@@ -110,7 +110,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
               <th className="text-left pb-2.5 font-medium">기간</th>
               <th className="text-right pb-2.5 font-medium">해당 시점 가격</th>
               <th className="text-right pb-2.5 font-medium">변동률</th>
-              <th className="text-right pb-2.5 font-medium">지수 대비</th>
+              <th className="text-right pb-2.5 font-medium">{indexLabel} 대비</th>
               <th className="text-right pb-2.5 font-medium">기간 중 최고가</th>
               <th className="text-right pb-2.5 font-medium">기간 중 최저가</th>
             </tr>
@@ -141,7 +141,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
                   <td className={`py-2.5 text-right font-mono whitespace-nowrap ${vsColor}`}>
                     {vsIndex === null
                       ? '-'
-                      : `${indexLabel} 대비 ${vsIndex > 0 ? '+' : ''}${vsIndex.toFixed(1)}%p`}
+                      : `${vsIndex > 0 ? '+' : ''}${vsIndex.toFixed(1)}%p`}
                   </td>
                   <td className="py-2.5 text-right font-mono text-red-400/70 whitespace-nowrap">
                     {row.periodHigh.toLocaleString()}원
