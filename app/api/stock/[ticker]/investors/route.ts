@@ -29,6 +29,32 @@ const toAuk = (v: string | number | undefined) => Math.round(Number(v || 0) / 10
 // 원 → 억원
 const wonToAuk = (v: string | number | undefined) => Math.round(Number(v || 0) / 1_0000_0000);
 
+// 2026-07-30 발견: KIS inquire-investor는 당일 데이터가 아직 없으면 관련 필드를 전부
+// 빈 문자열("")로 주지만, 드물게는 수량(qty) 필드만 실측치로 먼저 채워지고 금액
+// (tr_pbmn) 필드는 아직 "0" placeholder로 남는 중간 상태로도 응답한다 — 기존에는
+// frgn_ntby_tr_pbmn 하나만 빈 문자열인지 확인해서 이 "0" placeholder를 정상 데이터로
+// 오인, 위젯에 "수량은 정상, 금액은 0원"으로 표시되는 버그가 있었다. 종가(stck_clpr)로
+// 그 행이 실제 거래일 데이터인지 먼저 확인하고, 세 주체 수량·금액 필드가 전부 채워져
+// 있는지, 그리고 수량이 0이 아닌데 금액이 정확히 0인(현실적으로 불가능 — 0주가 아닌
+// 순매매가 정확히 0원일 수 없음) 조합이 없는지까지 교차 검증한다.
+const INVESTOR_ENTITY_FIELDS = [
+  ['frgn_ntby_qty', 'frgn_ntby_tr_pbmn'],
+  ['orgn_ntby_qty', 'orgn_ntby_tr_pbmn'],
+  ['prsn_ntby_qty', 'prsn_ntby_tr_pbmn'],
+] as const;
+
+function isUsableInvestorRow(d: Record<string, string>): boolean {
+  if (!d.stck_clpr) return false; // 종가 없음 — 실제 거래일 데이터가 아님
+  for (const [qtyKey, amtKey] of INVESTOR_ENTITY_FIELDS) {
+    if (d[qtyKey] === '' || d[qtyKey] === undefined) return false;
+    if (d[amtKey] === '' || d[amtKey] === undefined) return false;
+    // 수량은 0이 아닌데 금액이 정확히 0이면 금액이 아직 집계 안 된 placeholder일
+    // 가능성이 높다 — 이 행 전체를 무효 처리하고 이전 유효 행으로 폴백시킨다.
+    if (Number(d[qtyKey]) !== 0 && Number(d[amtKey]) === 0) return false;
+  }
+  return true;
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ ticker: string }> }
@@ -68,9 +94,10 @@ export async function GET(
   }
 
   const invOutput: Record<string, string>[] = investorRes.value?.output ?? [];
-  // 오늘 날짜 데이터 우선, 없으면 가장 최신 유효 데이터
-  const todayRow = invOutput.find((d) => d.stck_bsop_date === todayStr && d.frgn_ntby_tr_pbmn !== '');
-  const recent   = todayRow ?? invOutput.find((d) => d.frgn_ntby_tr_pbmn !== '');
+  // 오늘 날짜 데이터 우선, 없으면 가장 최신 유효 데이터 — isUsableInvestorRow로 "값이
+  // 있음"과 "값이 실제로 집계 완료됨"을 구분한다(위 주석 참고).
+  const todayRow = invOutput.find((d) => d.stck_bsop_date === todayStr && isUsableInvestorRow(d));
+  const recent   = todayRow ?? invOutput.find(isUsableInvestorRow);
 
   if (!recent) {
     return Response.json({ error: '데이터 없음' }, { status: 404 });
@@ -137,8 +164,15 @@ export async function GET(
       ? wonToAuk(priceRes.value?.output?.acml_tr_pbmn)
       : 0;
 
+    // 2026-07-30 발견: 여기서 kospiRes에 썼던 toAuk(백만원 가정, ÷100)는 단위가
+    // 틀렸다 — kospiRes도 stockAmount와 동일한 inquire-daily-itemchartprice 계열
+    // 엔드포인트(FID_COND_MRKT_DIV_CODE=U로 지수 조회)라서 acml_tr_pbmn이 원 단위다
+    // (lib/kis-api.ts의 formatTradingValue/fetchDailyChart가 이미 이 필드를 원 단위로
+    // 다루고 있음 — 같은 tr_id·같은 필드라 종목 조회든 지수 조회든 단위가 같다).
+    // 실측: 라이브로 확인한 값 기준 이전 코드는 marketAmount를 약 100만 배 부풀려
+    // "KOSPI 대비" 비율이 실제보다 훨씬 작게(극단적으로는 0.00%까지) 나오는 문제가 있었다.
     const marketAmount = kospiRes.status === 'fulfilled'
-      ? toAuk(kospiRes.value?.output1?.acml_tr_pbmn)
+      ? wonToAuk(kospiRes.value?.output1?.acml_tr_pbmn)
       : 0;
 
     if (stockAmount > 0 && marketAmount > 0) {
