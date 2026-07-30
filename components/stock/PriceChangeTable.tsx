@@ -9,6 +9,7 @@ type BenchmarkRates = Partial<Record<PriceChangeBadge['label'], number>>;
 
 interface TableData {
   rows: PriceChangeBadge[];
+  currentPrice: number;
   market: Market;
   benchmark: BenchmarkRates;
 }
@@ -71,7 +72,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
         }
 
         const rows = computePriceChangeBadges([...nearBody, ...mainBody], currentPrice);
-        if (!cancelled) setState({ rows, market, benchmark });
+        if (!cancelled) setState({ rows, currentPrice, market, benchmark });
       } catch (e) {
         console.error(`[PriceChangeTable] ${ticker} 조회 실패:`, e);
         if (!cancelled) setState('error');
@@ -94,7 +95,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
 
   if (state === 'error' || state.rows.length === 0) return null;
 
-  const { rows, market, benchmark } = state;
+  const { rows, currentPrice, market, benchmark } = state;
   const indexLabel = market === 'KOSDAQ' ? '코스닥' : '코스피';
 
   return (
@@ -104,12 +105,13 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
         <span className="text-[10px] text-slate-500 font-normal ml-2">1년 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>
       <div className="overflow-x-auto">
-        <table className="min-w-[680px] w-full text-xs">
+        <table className="min-w-[780px] w-full text-xs">
           <thead>
             <tr className="text-slate-500 border-b border-slate-800">
               <th className="text-left pb-2.5 font-medium">기간</th>
               <th className="text-right pb-2.5 font-medium">해당 시점 가격</th>
               <th className="text-right pb-2.5 font-medium">변동률</th>
+              <th className="text-right pb-2.5 font-medium">수익(원/주)</th>
               <th className="text-right pb-2.5 font-medium">{indexLabel} 대비</th>
               <th className="text-right pb-2.5 font-medium">기간 중 최고가</th>
               <th className="text-right pb-2.5 font-medium">기간 중 최저가</th>
@@ -119,6 +121,9 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
             {rows.map((row) => {
               const isUp = row.changeRate >= 0;
               const color = isUp ? 'text-red-400' : 'text-blue-400';
+
+              const profitPerShare = currentPrice - row.pastClose;
+              const profitColor = profitPerShare >= 0 ? 'text-red-400' : 'text-blue-400';
 
               const indexRate = benchmark[row.label];
               const vsIndex = indexRate === undefined ? null : row.changeRate - indexRate;
@@ -137,6 +142,10 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
                   <td className={`py-2.5 text-right font-mono font-semibold ${color} whitespace-nowrap`}>
                     {isUp ? '+' : ''}
                     {row.changeRate.toFixed(2)}%
+                  </td>
+                  <td className={`py-2.5 text-right font-mono font-semibold ${profitColor} whitespace-nowrap`}>
+                    {profitPerShare >= 0 ? '+' : ''}
+                    {profitPerShare.toLocaleString()}원
                   </td>
                   <td className={`py-2.5 text-right font-mono whitespace-nowrap ${vsColor}`}>
                     {vsIndex === null

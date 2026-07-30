@@ -3,6 +3,7 @@
 import { Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown, AlertCircle, RefreshCw } from 'lucide-react';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
+import PriceChangeTable from '@/components/stock/PriceChangeTable';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 
 export interface DiagnosisHistory {
@@ -453,6 +454,11 @@ export default function DiagnosisReport({
               )}
             </div>
           </div>
+        </div>
+
+        {/* ── 3-1행: 기간별 등락률 (종목분석 페이지와 동일 컴포넌트 재사용) ── */}
+        <div className="mb-4">
+          <PriceChangeTable ticker={ticker} />
         </div>
 
         {/* ── 4행: 기관/외국인 동향 도넛 + 업종 대비 + 리스크 요인 ── */}
