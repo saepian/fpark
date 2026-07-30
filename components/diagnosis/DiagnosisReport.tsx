@@ -134,7 +134,11 @@ function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
         ? `🔄 ${h.daysSince}일 전 진단 대비`
         : '🔄 오랜만에 재조회';
 
-  const rateDelta   = !isFirst && typeof h.prevProfitRate === 'number' ? result.profitRate - h.prevProfitRate : null;
+  // 2026-07-30 발견: 매입평균가가 직전 진단과 달라지면 수익률(%)도 손익 금액과 마찬가지로
+  // 서로 다른 기준(분모)으로 계산된 값이라 단순 차감이 무의미해진다(실측 사례 —
+  // avgPrice 70,000→290,000일 때 rateDelta가 -313.12%p로 왜곡됨). amountDelta와
+  // 동일하게 holdingsChanged로 게이팅. priceDelta는 매입가와 무관해 계속 유효.
+  const rateDelta   = !isFirst && !h.holdingsChanged && typeof h.prevProfitRate === 'number' ? result.profitRate - h.prevProfitRate : null;
   const amountDelta = !isFirst && !h.holdingsChanged && typeof h.prevProfitAmount === 'number' ? result.profitAmount - h.prevProfitAmount : null;
   const priceDelta  = !isFirst && typeof h.prevCurrentPrice === 'number' ? result.currentPrice - h.prevCurrentPrice : null;
 
@@ -153,7 +157,7 @@ function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
             <StatDelta label="주가" value={`${priceDelta >= 0 ? '+' : ''}${fmt(Math.round(priceDelta))}원`} positive={priceDelta >= 0} />
           )}
           {h.holdingsChanged && (
-            <span className="text-[11px] text-amber-500/80">보유정보 변경으로 손익 금액 비교 제외</span>
+            <span className="text-[11px] text-amber-500/80">보유정보 변경으로 수익률·손익 금액 비교 제외</span>
           )}
         </div>
       )}

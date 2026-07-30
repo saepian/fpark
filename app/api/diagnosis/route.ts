@@ -133,13 +133,20 @@ function buildDiagnosisHistoryBlock(
     `- 직전 진단과의 간격: ${daysSinceLastReport}일`,
     `- 직전 진단일: ${prev.report_date}`,
   ];
-  if (typeof prev.result?.profitRate === 'number') {
-    lines.push(`- 수익률: 그날 ${prev.result.profitRate >= 0 ? '+' : ''}${prev.result.profitRate}% → 오늘 ${current.profitRate >= 0 ? '+' : ''}${current.profitRate.toFixed(2)}%`);
-  }
+  // 2026-07-30 발견: 매입평균가가 직전 진단과 달라지면(추가매수 등) 수익률(%)도
+  // 손익 금액과 마찬가지로 서로 다른 기준(분모)으로 계산된 값이라 단순 비교가
+  // 무의미해진다(실측 사례 — avgPrice 70,000→290,000, rateDelta가 -313.12%p로
+  // 왜곡됨). 손익 금액과 동일하게 holdingsChanged면 둘 다 생략하고 AI에게도
+  // 언급하지 말라고 명시한다 — 주가는 매입가와 무관해 계속 비교 가능.
   if (holdingsChanged) {
-    lines.push('- 매입평균가 또는 보유수량이 직전 진단과 달라짐 — 평가손익 금액 비교는 의미가 없으므로 수익률(%) 변화만 근거로 쓸 것');
-  } else if (typeof prev.result?.profitAmount === 'number') {
-    lines.push(`- 평가손익: 그날 ${prev.result.profitAmount >= 0 ? '+' : ''}${Math.round(prev.result.profitAmount).toLocaleString()}원 → 오늘 ${current.profitAmount >= 0 ? '+' : ''}${Math.round(current.profitAmount).toLocaleString()}원`);
+    lines.push('- 매입평균가 또는 보유수량이 직전 진단과 달라짐 — 평가손익 금액·수익률(%) 비교 모두 서로 다른 기준으로 계산된 값이라 의미가 없으므로 절대 언급하지 말 것. 주가 변화만 사실로 언급할 것');
+  } else {
+    if (typeof prev.result?.profitRate === 'number') {
+      lines.push(`- 수익률: 그날 ${prev.result.profitRate >= 0 ? '+' : ''}${prev.result.profitRate}% → 오늘 ${current.profitRate >= 0 ? '+' : ''}${current.profitRate.toFixed(2)}%`);
+    }
+    if (typeof prev.result?.profitAmount === 'number') {
+      lines.push(`- 평가손익: 그날 ${prev.result.profitAmount >= 0 ? '+' : ''}${Math.round(prev.result.profitAmount).toLocaleString()}원 → 오늘 ${current.profitAmount >= 0 ? '+' : ''}${Math.round(current.profitAmount).toLocaleString()}원`);
+    }
   }
   if (typeof prev.result?.currentPrice === 'number') {
     lines.push(`- 주가: 그날 ${prev.result.currentPrice.toLocaleString()}원 → 오늘 ${Math.round(current.currentPrice).toLocaleString()}원`);
