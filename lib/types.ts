@@ -39,6 +39,8 @@ export interface PriceChangeBadge {
   pastDate: string;   // 실제 매칭된 거래일(YYYY-MM-DD), 휴장일 보정으로 목표일과 다를 수 있음
   pastClose: number;
   changeRate: number; // (currentPrice - pastClose) / pastClose * 100
+  periodHigh: number; // pastDate~오늘 구간의 최고가
+  periodLow: number;  // pastDate~오늘 구간의 최저가
 }
 
 export interface MarketIndexData {

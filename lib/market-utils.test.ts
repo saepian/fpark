@@ -144,9 +144,26 @@ describe('computePriceChangeBadges', () => {
     const badges = computePriceChangeBadges(points, 72000, now);
 
     expect(badges).toHaveLength(3);
-    expect(badges.find(b => b.label === '1년 전')).toMatchObject({ pastClose: 50000, changeRate: 44 });
+    expect(badges.find(b => b.label === '1년 전')).toMatchObject({
+      pastClose: 50000, changeRate: 44, periodHigh: 71000, periodLow: 50000,
+    });
     expect(badges.find(b => b.label === '1개월 전')?.changeRate).toBeCloseTo(5.882352941176471, 10);
+    expect(badges.find(b => b.label === '1개월 전')).toMatchObject({ periodHigh: 71000, periodLow: 68000 });
     expect(badges.find(b => b.label === '1주일 전')?.changeRate).toBeCloseTo(1.408450704225352, 10);
+    expect(badges.find(b => b.label === '1주일 전')).toMatchObject({ periodHigh: 71000, periodLow: 70000 });
+  });
+
+  it('기간 중 최고가/최저가는 종가가 아니라 high/low 필드를 기준으로 계산한다', () => {
+    const points: ChartDataPoint[] = [
+      { date: '2026-07-23', open: 100, high: 130, low: 95, close: 100, volume: 0 },
+      { date: '2026-07-27', open: 100, high: 110, low: 80, close: 105, volume: 0 },
+      { date: '2026-07-30', open: 105, high: 108, low: 100, close: 106, volume: 0 },
+    ];
+    const badges = computePriceChangeBadges(points, 106, now);
+
+    const oneWeekAgo = badges.find(b => b.label === '1주일 전');
+    // pastDate가 2026-07-23으로 매칭되어 세 봉 전체가 구간에 포함됨
+    expect(oneWeekAgo).toMatchObject({ pastDate: '2026-07-23', periodHigh: 130, periodLow: 80 });
   });
 
   it('상장 1년 미만 등으로 목표일 이전 데이터가 없으면 해당 배지를 생략한다', () => {

@@ -127,11 +127,21 @@ export function computePriceChangeBadges(
   for (const { label, date } of targets) {
     const past = findClosestPastClose(points, kstDateStr(date));
     if (!past || past.close <= 0) continue;
+
+    // pastDate(포함)~오늘 구간의 최고가/최저가 — 같은 points 배열에서 뽑으므로 추가
+    // 조회 없음. periodPoints는 past 본인도 포함하므로 seed 없이 reduce해도 항상
+    // 최소 1개 원소가 있어 안전하다.
+    const periodPoints = points.filter((p) => p.date >= past.date);
+    const periodHigh = periodPoints.reduce((max, p) => Math.max(max, p.high), -Infinity);
+    const periodLow = periodPoints.reduce((min, p) => Math.min(min, p.low), Infinity);
+
     out.push({
       label,
       pastDate: past.date,
       pastClose: past.close,
       changeRate: ((currentPrice - past.close) / past.close) * 100,
+      periodHigh,
+      periodLow,
     });
   }
   return out;

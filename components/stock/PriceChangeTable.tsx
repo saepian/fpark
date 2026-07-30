@@ -4,30 +4,44 @@ import { useEffect, useState } from 'react';
 import type { ChartDataPoint, PriceChangeBadge, StockPrice } from '../../lib/types';
 import { computePriceChangeBadges } from '../../lib/market-utils';
 
+type Market = 'KOSPI' | 'KOSDAQ';
+type BenchmarkRates = Partial<Record<PriceChangeBadge['label'], number>>;
+
+interface TableData {
+  rows: PriceChangeBadge[];
+  market: Market;
+  benchmark: BenchmarkRates;
+}
+
+type TableState = TableData | 'error' | null;
+
 // DailyPriceTable(일별 주가 동향)과 같은 카드 형태 — 그 밑에 나란히 배치된다.
-// 현재가는 /api/stock/[ticker]/price(StockHeader가 이미 30초 폴링 중인 것과 같은
-// 엔드포인트, 서버에 TTL 캐시가 있어 추가 호출 비용이 사실상 없음)를 1회만 조회해서
-// 쓴다 — DailyPriceTable도 ticker만 받아 스스로 데이터를 가져오는 동일한 패턴.
+// 현재가·시장(KOSPI/KOSDAQ)은 /api/stock/[ticker]/price(StockHeader가 이미 폴링 중인
+// 것과 같은, TTL 캐시가 있는 엔드포인트)를 1회만 조회해서 쓴다 — DailyPriceTable도
+// ticker만 받아 스스로 데이터를 가져오는 동일한 패턴.
 export default function PriceChangeTable({ ticker }: { ticker: string }) {
-  const [rows, setRows] = useState<PriceChangeBadge[] | null>(null);
+  const [state, setState] = useState<TableState>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setRows(null);
+    setState(null);
 
     (async () => {
       try {
-        const [priceRes, mainRes, nearRes] = await Promise.all([
-          fetch(`/api/stock/${ticker}/price`),
-          fetch(`/api/stock/${ticker}/chart?period=1Y`),
-          fetch(`/api/stock/${ticker}/chart-near-1y`).catch(() => null),
-        ]);
-
+        // market을 알아야 지수 대비 라우트를 호출할 수 있어 price만 먼저 기다린다.
+        const priceRes = await fetch(`/api/stock/${ticker}/price`);
         const priceBody = await priceRes.json().catch(() => null) as StockPrice | { error?: string } | null;
         if (!priceRes.ok || !priceBody || typeof (priceBody as StockPrice).price !== 'number') {
           throw new Error('현재가 조회 실패');
         }
         const currentPrice = (priceBody as StockPrice).price;
+        const market: Market = (priceBody as StockPrice).market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
+
+        const [mainRes, nearRes, benchmarkRes] = await Promise.all([
+          fetch(`/api/stock/${ticker}/chart?period=1Y`),
+          fetch(`/api/stock/${ticker}/chart-near-1y`).catch(() => null),
+          fetch(`/api/market/benchmark-change?market=${market}`).catch(() => null),
+        ]);
 
         const mainBody = await mainRes.json().catch(() => null) as ChartDataPoint[] | { error?: string } | null;
         if (!mainRes.ok || !Array.isArray(mainBody)) {
@@ -49,17 +63,25 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
           if (Array.isArray(parsed)) nearBody = parsed;
         }
 
-        if (!cancelled) setRows(computePriceChangeBadges([...nearBody, ...mainBody], currentPrice));
+        // 지수 대비 등락률도 부가 데이터 — 실패해도 나머지 컬럼은 그대로 보여준다.
+        let benchmark: BenchmarkRates = {};
+        if (benchmarkRes?.ok) {
+          const parsed = await benchmarkRes.json().catch(() => null);
+          if (parsed && typeof parsed === 'object') benchmark = parsed;
+        }
+
+        const rows = computePriceChangeBadges([...nearBody, ...mainBody], currentPrice);
+        if (!cancelled) setState({ rows, market, benchmark });
       } catch (e) {
         console.error(`[PriceChangeTable] ${ticker} 조회 실패:`, e);
-        if (!cancelled) setRows([]);
+        if (!cancelled) setState('error');
       }
     })();
 
     return () => { cancelled = true; };
   }, [ticker]);
 
-  if (rows === null) {
+  if (state === null) {
     return (
       <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4 animate-pulse">
         <div className="h-4 bg-slate-700 rounded w-32 mb-4" />
@@ -70,7 +92,10 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
     );
   }
 
-  if (rows.length === 0) return null;
+  if (state === 'error' || state.rows.length === 0) return null;
+
+  const { rows, market, benchmark } = state;
+  const indexLabel = market === 'KOSDAQ' ? '코스닥' : '코스피';
 
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4">
@@ -79,32 +104,50 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
         <span className="text-[10px] text-slate-500 font-normal ml-2">1년 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>
       <div className="overflow-x-auto">
-        <table className="min-w-[320px] w-full text-xs">
+        <table className="min-w-[680px] w-full text-xs">
           <thead>
             <tr className="text-slate-500 border-b border-slate-800">
               <th className="text-left pb-2.5 font-medium">기간</th>
               <th className="text-right pb-2.5 font-medium">해당 시점 가격</th>
               <th className="text-right pb-2.5 font-medium">변동률</th>
+              <th className="text-right pb-2.5 font-medium">지수 대비</th>
+              <th className="text-right pb-2.5 font-medium">기간 중 최고가</th>
+              <th className="text-right pb-2.5 font-medium">기간 중 최저가</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
               const isUp = row.changeRate >= 0;
               const color = isUp ? 'text-red-400' : 'text-blue-400';
-              const cellBg = isUp ? 'bg-red-500/10' : 'bg-blue-500/10';
+
+              const indexRate = benchmark[row.label];
+              const vsIndex = indexRate === undefined ? null : row.changeRate - indexRate;
+              const vsColor = vsIndex === null ? 'text-slate-600' : vsIndex >= 0 ? 'text-red-400' : 'text-blue-400';
+
               return (
                 <tr
                   key={row.label}
                   title={row.pastDate}
                   className="border-b border-slate-800/40 hover:bg-slate-800/30 transition-colors"
                 >
-                  <td className="py-2.5 text-slate-400">{row.label}</td>
-                  <td className="py-2.5 text-right font-mono text-slate-300">
+                  <td className="py-2.5 text-slate-400 whitespace-nowrap">{row.label}</td>
+                  <td className="py-2.5 text-right font-mono text-slate-300 whitespace-nowrap">
                     {row.pastClose.toLocaleString()}원
                   </td>
-                  <td className={`py-2.5 text-right font-mono font-semibold ${color} ${cellBg}`}>
+                  <td className={`py-2.5 text-right font-mono font-semibold ${color} whitespace-nowrap`}>
                     {isUp ? '+' : ''}
                     {row.changeRate.toFixed(2)}%
+                  </td>
+                  <td className={`py-2.5 text-right font-mono whitespace-nowrap ${vsColor}`}>
+                    {vsIndex === null
+                      ? '-'
+                      : `${indexLabel} 대비 ${vsIndex > 0 ? '+' : ''}${vsIndex.toFixed(1)}%p`}
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-red-400/70 whitespace-nowrap">
+                    {row.periodHigh.toLocaleString()}원
+                  </td>
+                  <td className="py-2.5 text-right font-mono text-blue-400/70 whitespace-nowrap">
+                    {row.periodLow.toLocaleString()}원
                   </td>
                 </tr>
               );
