@@ -567,24 +567,22 @@ export async function fetchStockInfo(ticker: string): Promise<StockInfo> {
   };
 }
 
-export async function fetchDailyChart(
+// inquire-daily-itemchartprice 실제 호출 — FID_INPUT_DATE_1/2로 넓은 범위를 요청해도
+// KIS가 응답을 최근 100건(거래일)으로 잘라서 돌려준다(2026-07-30 실측 확인: 1년 범위로
+// 요청해도 최근 ~5개월치만 옴). fetchDailyChart(기간 탭)와 fetchChartNear(특정 과거일
+// 근방 조회) 둘 다 이 100건 캡 안에서만 신뢰할 수 있으므로, 넓은 범위가 필요한 쪽은
+// 호출부가 알아서 좁은 창을 골라 요청해야 한다.
+async function fetchChartRangeRaw(
   ticker: string,
-  period: '1W' | '1M' | '3M' | '1Y'
+  startDate: Date,
+  endDate: Date,
+  label: string,
 ): Promise<ChartDataPoint[]> {
   // 토큰 조기 만료 감지가 없던 함수 — 만료된 토큰으로 J/Q를 번갈아 시도해봐야 둘 다
   // 같은 이유로 실패할 뿐이라, 감지 즉시 상위 withKisTokenRetry가 재발급 후 한 번
   // 다시 시도하게 한다(2026-07-10 코드 리뷰에서 발견).
   return withKisTokenRetry(async () => {
     const token = await getAccessToken();
-
-    const endDate = new Date();
-    const startDate = new Date();
-    switch (period) {
-      case '1W': startDate.setDate(endDate.getDate() - 7); break;
-      case '1M': startDate.setMonth(endDate.getMonth() - 1); break;
-      case '3M': startDate.setMonth(endDate.getMonth() - 3); break;
-      case '1Y': startDate.setFullYear(endDate.getFullYear() - 1); break;
-    }
 
     const fmt = (d: Date) =>
       `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
@@ -606,7 +604,7 @@ export async function fetchDailyChart(
       if (!res.ok) continue;
 
       const data = await res.json();
-      assertKisTokenValid(data, `fetchDailyChart(${ticker})`);
+      assertKisTokenValid(data, label);
       if (data.rt_cd !== '0' || !Array.isArray(data.output2) || data.output2.length === 0) continue;
 
       // KIS는 최신순 → 오래된순으로 반환. 차트용으로 역순 정렬
@@ -626,6 +624,37 @@ export async function fetchDailyChart(
 
     throw new Error(`차트 데이터를 찾을 수 없습니다: ${ticker}`);
   });
+}
+
+export async function fetchDailyChart(
+  ticker: string,
+  period: '1W' | '1M' | '3M' | '1Y'
+): Promise<ChartDataPoint[]> {
+  const endDate = new Date();
+  const startDate = new Date();
+  switch (period) {
+    case '1W': startDate.setDate(endDate.getDate() - 7); break;
+    case '1M': startDate.setMonth(endDate.getMonth() - 1); break;
+    case '3M': startDate.setMonth(endDate.getMonth() - 3); break;
+    case '1Y': startDate.setFullYear(endDate.getFullYear() - 1); break;
+  }
+  return fetchChartRangeRaw(ticker, startDate, endDate, `fetchDailyChart(${ticker})`);
+}
+
+// 종목분석 페이지 "1년 전 대비" 배지 전용 — fetchDailyChart('1Y')는 100건 캡 때문에
+// 실제로는 최근 ~5개월치만 반환해 1년 전 시점에 닿지 못한다(위 fetchChartRangeRaw 주석
+// 참고). targetDate 좌우로 좁은 창만 요청해 100건 캡 안에서 정확히 그 근방 종가를 받는다.
+// 과거 방향 14일 여유는 설/추석 등 최대 5일 연휴 + 주말이 겹쳐도 직전 거래일을 찾기에
+// 충분하다.
+export async function fetchChartNear(ticker: string, targetDate: Date): Promise<ChartDataPoint[]> {
+  const endDate = new Date(targetDate);
+  const startDate = new Date(targetDate);
+  startDate.setDate(startDate.getDate() - 14);
+  try {
+    return await fetchChartRangeRaw(ticker, startDate, endDate, `fetchChartNear(${ticker})`);
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchMarketIndex(

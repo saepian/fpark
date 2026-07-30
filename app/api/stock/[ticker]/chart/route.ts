@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { fetchDailyChart } from '../../../../../lib/kis-api';
 import { supabase } from '../../../../../lib/supabase';
+import { isKoreanMarketOpen } from '../../../../../lib/market-utils';
 import type { ChartDataPoint } from '../../../../../lib/types';
 
 export const dynamic = 'force-dynamic';
 
 const VALID_PERIODS = ['1W', '1M', '3M', '1Y'] as const;
 type Period = (typeof VALID_PERIODS)[number];
+
+// PriceChangeBadges(종목분석 1년/1개월/1주일 전 대비 배지)가 페이지 로드마다 1Y를
+// 새로 호출하게 되면서 추가된 TTL — 이전엔 1Y를 포함해 모든 period가 캐시 없이 매 요청
+// KIS 라이브 호출이었다. 과거 봉(어제 이전)은 하루 1회만 바뀌므로 장외 TTL은 price
+// 라우트(30분)보다 훨씬 길게 잡아도 안전 — 당일 형성 중인 봉만 장중 갱신되면 되고,
+// "1년 전 대비" 배지는 분 단위 정밀도가 필요 없다. 1W/1M/3M는 기존 동작(캐시 없음) 유지.
+const CHART_1Y_CACHE_TTL_MS_OPEN   = 5 * 60_000;  // 장중 5분
+const CHART_1Y_CACHE_TTL_MS_CLOSED = 60 * 60_000; // 장외 1시간
 
 // app/api/stock/[ticker]/info/route.ts와 동일한 market_cache 패턴 재사용
 const cacheKey = (ticker: string, period: Period) => `stock_chart_${ticker}_${period}`;
@@ -45,6 +54,14 @@ export async function GET(
 
   if (!VALID_PERIODS.includes(period)) {
     return NextResponse.json({ error: '유효하지 않은 기간입니다.' }, { status: 400 });
+  }
+
+  if (period === '1Y') {
+    const ttlMs = isKoreanMarketOpen() ? CHART_1Y_CACHE_TTL_MS_OPEN : CHART_1Y_CACHE_TTL_MS_CLOSED;
+    const fresh = await loadCache(ticker, period);
+    if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs) {
+      return NextResponse.json(fresh.data);
+    }
   }
 
   let lastErr: unknown;

@@ -1,4 +1,5 @@
-import type { MarketIndexData } from './types';
+import type { MarketIndexData, ChartDataPoint, PriceChangeBadge } from './types';
+import { kstYearMonthDay, kstMidnight, kstDateStr } from './ai-grounding';
 
 // Yahoo Finance Chart API로 해외 지수/환율 조회 — KIS 인증 불필요, 무료.
 // app/api/market/route.ts(국내증시 카드)와 cron/morning-briefing(미국증시 개장 전 요약)이 공유한다.
@@ -88,4 +89,50 @@ export async function findFirstNonEmptyByDate<T>(
     }
   }
   return null;
+}
+
+// 오름차순(과거→최신) 차트에서 targetDateStr 이하인 가장 최근 거래일 봉을 찾는다.
+// KIS 일별시세는 휴장일 row 자체가 없으므로 "이전 마지막 거래일 찾기"로 공휴일이
+// 자동 처리된다 — 별도 공휴일 캘린더 불필요.
+export function findClosestPastClose(
+  points: ChartDataPoint[],
+  targetDateStr: string,
+): ChartDataPoint | null {
+  let result: ChartDataPoint | null = null;
+  for (const p of points) {
+    if (p.date <= targetDateStr) result = p;
+    else break;
+  }
+  return result;
+}
+
+// 현재가 대비 1년/1개월/1주일 전 종가 등락률. points는 fetchDailyChart(ticker, '1Y')
+// 결과(오름차순)를 그대로 전달. 상장 1년 미만 등으로 기준일 이전 데이터가 없으면 해당
+// 항목은 생략(호출부가 있는 것만 렌더링). Date.setFullYear/setMonth/setDate 같은 서버
+// 런타임 로컬 타임존 연산 대신 kstYearMonthDay/kstMidnight/kstDateStr을 쓰는 이유는
+// Vercel 기본 UTC 런타임에서 KST 00:00~08:59 호출 시 날짜가 하루 밀리는 문제를 피하기
+// 위함(ai-grounding.ts의 kstYearMonthDay 주석에 있는 동일 클래스 회귀 사례 참고).
+export function computePriceChangeBadges(
+  points: ChartDataPoint[],
+  currentPrice: number,
+  now: Date = new Date(),
+): PriceChangeBadge[] {
+  const { year, month, day } = kstYearMonthDay(now);
+  const targets: { label: PriceChangeBadge['label']; date: Date }[] = [
+    { label: '1년 전',   date: kstMidnight(year - 1, month, day) },
+    { label: '1개월 전', date: kstMidnight(year, month - 1, day) },
+    { label: '1주일 전', date: kstMidnight(year, month, day - 7) },
+  ];
+  const out: PriceChangeBadge[] = [];
+  for (const { label, date } of targets) {
+    const past = findClosestPastClose(points, kstDateStr(date));
+    if (!past || past.close <= 0) continue;
+    out.push({
+      label,
+      pastDate: past.date,
+      pastClose: past.close,
+      changeRate: ((currentPrice - past.close) / past.close) * 100,
+    });
+  }
+  return out;
 }

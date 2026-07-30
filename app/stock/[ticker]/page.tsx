@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import StockHeader from '../../../components/stock/StockHeader';
+import StockHeaderSection from '../../../components/stock/StockHeaderSection';
 import StockMetrics from '../../../components/stock/StockMetrics';
 import StockChart from '../../../components/stock/StockChart';
 import DailyPriceTable from '../../../components/stock/DailyPriceTable';
@@ -30,7 +30,7 @@ export default async function StockDetailPage({ params }: PageProps) {
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-6">
-      <StockHeader ticker={ticker} />
+      <StockHeaderSection key={ticker} ticker={ticker} />
       <div className="grid grid-cols-12 gap-8">
         {/* 좌측: 지표 + 차트 + 일별동향 + AI분석 */}
         <div className="col-span-12 lg:col-span-8 space-y-6">

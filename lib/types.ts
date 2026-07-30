@@ -34,6 +34,13 @@ export interface ChartDataPoint {
   tradingValue?: number;
 }
 
+export interface PriceChangeBadge {
+  label: '1년 전' | '1개월 전' | '1주일 전';
+  pastDate: string;   // 실제 매칭된 거래일(YYYY-MM-DD), 휴장일 보정으로 목표일과 다를 수 있음
+  pastClose: number;
+  changeRate: number; // (currentPrice - pastClose) / pastClose * 100
+}
+
 export interface MarketIndexData {
   value: number;
   change: number;

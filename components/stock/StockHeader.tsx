@@ -8,6 +8,7 @@ import WatchlistButton from './WatchlistButton';
 
 interface StockHeaderProps {
   ticker: string;
+  onPriceUpdate?: (data: StockPrice) => void;
 }
 
 // 장중 30초 / 장외 10분 — 장외에도 완전히 멈추지 않는 이유는 동시호가 직후
@@ -16,7 +17,7 @@ const POLL_TICK_MS = 30_000;
 const POLL_OPEN_MS = 30_000;
 const POLL_CLOSED_MS = 10 * 60_000;
 
-export default function StockHeader({ ticker }: StockHeaderProps) {
+export default function StockHeader({ ticker, onPriceUpdate }: StockHeaderProps) {
   const [data, setData] = useState<StockPrice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
         throw new Error(message);
       }
       setData(body as StockPrice);
+      onPriceUpdate?.(body as StockPrice);
     } catch (e) {
       // 백그라운드 갱신 실패는 기존 화면을 유지하고 콘솔에만 남긴다(스켈레톤/에러 화면으로 갈아치우지 않음)
       if (!opts?.silent) {
