@@ -106,9 +106,15 @@ export async function GET(
   const dataDate = recent.stck_bsop_date || todayStr;
   const date = `${dataDate.slice(0, 4)}.${dataDate.slice(4, 6)}.${dataDate.slice(6, 8)}`;
 
-  const foreign     = { qty: Number(recent.frgn_ntby_qty || 0), amount: toAuk(recent.frgn_ntby_tr_pbmn) };
-  const institution = { qty: Number(recent.orgn_ntby_qty || 0), amount: toAuk(recent.orgn_ntby_tr_pbmn) };
-  const individual  = { qty: Number(recent.prsn_ntby_qty || 0), amount: toAuk(recent.prsn_ntby_tr_pbmn) };
+  // 2026-07-30 발견: toAuk가 억원 단위로 반올림하다 보니 저가·소형주(하루 순매매가
+  // 50백만원 미만인 경우, 예 012860)는 실제 값이 있어도 전부 "0"으로 뭉개져 위젯에
+  // "0원"으로 표시됐다(실측 — 모베이스전자 -9/+2/+7백만원이 전부 0억원으로 반올림).
+  // amount(억원, 반올림)는 대형주 표시 그대로 유지하되, 클라이언트가 "반올림으로 0"과
+  // "진짜 무변동 0"을 구분할 수 있도록 원본(백만원, 미반올림) 값을 amountRaw로 같이
+  // 내려준다 — KIS 필드 자체가 이미 백만원 단위라 별도 변환 없이 그대로 전달.
+  const foreign     = { qty: Number(recent.frgn_ntby_qty || 0), amount: toAuk(recent.frgn_ntby_tr_pbmn), amountRaw: Number(recent.frgn_ntby_tr_pbmn || 0) };
+  const institution = { qty: Number(recent.orgn_ntby_qty || 0), amount: toAuk(recent.orgn_ntby_tr_pbmn), amountRaw: Number(recent.orgn_ntby_tr_pbmn || 0) };
+  const individual  = { qty: Number(recent.prsn_ntby_qty || 0), amount: toAuk(recent.prsn_ntby_tr_pbmn), amountRaw: Number(recent.prsn_ntby_tr_pbmn || 0) };
 
   // ── 2. 프로그램 매매 ──────────────────────────────────────────
   // investor API에서 먼저 시도, 없으면 별도 API 호출

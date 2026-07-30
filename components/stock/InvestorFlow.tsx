@@ -14,9 +14,17 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       .finally(() => setLoading(false));
   }, [ticker]);
 
-  // 금액 포맷 (억원 단위 입력)
-  const fmtAmt = (v: number) => {
-    if (v === 0) return '0';
+  // 금액 포맷 (억원 단위 입력). 저가·소형주는 하루 순매매가 50백만원 미만이면 억원
+  // 반올림(서버 toAuk)에서 전부 0으로 뭉개진다 — raw(백만원, 미반올림 원본)가 있고
+  // 실제로 0이 아니면 "0원"이 아니라 백만원 단위로 표시해 진짜 무변동과 구분한다.
+  const fmtAmt = (v: number, raw?: number) => {
+    if (v === 0) {
+      if (raw) {
+        const sign = raw > 0 ? '+' : '';
+        return `${sign}${raw.toFixed(0)}백만`;
+      }
+      return '0';
+    }
     const sign = v > 0 ? '+' : '';
     const abs = Math.abs(v);
     if (abs >= 10000) return `${sign}${(v / 10000).toFixed(1)}조`;
@@ -47,9 +55,9 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
   if (!data || data.error) return null;
 
   const investors = [
-    { label: '외국인', icon: '🌍', qty: data.foreign?.qty,     amount: data.foreign?.amount },
-    { label: '기관',   icon: '🏢', qty: data.institution?.qty, amount: data.institution?.amount },
-    { label: '개인',   icon: '👤', qty: data.individual?.qty,  amount: data.individual?.amount },
+    { label: '외국인', icon: '🌍', qty: data.foreign?.qty,     amount: data.foreign?.amount,     amountRaw: data.foreign?.amountRaw },
+    { label: '기관',   icon: '🏢', qty: data.institution?.qty, amount: data.institution?.amount, amountRaw: data.institution?.amountRaw },
+    { label: '개인',   icon: '👤', qty: data.individual?.qty,  amount: data.individual?.amount,  amountRaw: data.individual?.amountRaw },
   ];
 
   const maxAbs = Math.max(
@@ -92,7 +100,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
                     <span className={`text-xs font-bold font-mono ${
                       isUp ? 'text-red-400' : (inv.qty || 0) < 0 ? 'text-blue-400' : 'text-slate-500'
                     }`}>
-                      {fmtAmt(inv.amount || 0)}원
+                      {fmtAmt(inv.amount || 0, inv.amountRaw)}원
                     </span>
                     <span className={`text-[10px] font-mono ml-1 ${
                       isUp ? 'text-red-400/60' : 'text-blue-400/60'
