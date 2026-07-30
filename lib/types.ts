@@ -43,6 +43,13 @@ export interface PriceChangeBadge {
   periodLow: number;  // pastDate~오늘 구간의 최저가
 }
 
+export interface PortfolioPeriodChange {
+  label: PriceChangeBadge['label'];
+  pastValue: number;         // Σ(그 시점 종가를 찾은 종목의 quantity × 종가)
+  changeRate: number;        // (currentTotalValue - pastValue) / pastValue * 100
+  missingTickers: string[];  // 그 시점 종가를 못 찾은 종목(ticker) — 조회 실패/상장 전 등
+}
+
 export interface MarketIndexData {
   value: number;
   change: number;

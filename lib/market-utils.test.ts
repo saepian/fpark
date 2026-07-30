@@ -10,6 +10,8 @@ import {
   findFirstNonEmptyByDate,
   findClosestPastClose,
   computePriceChangeBadges,
+  getPriceChangeTargets,
+  computePortfolioPeriodChange,
 } from './market-utils';
 import type { ChartDataPoint } from './types';
 
@@ -192,5 +194,99 @@ describe('computePriceChangeBadges', () => {
 
   it('데이터가 전혀 없으면 빈 배열을 반환한다', () => {
     expect(computePriceChangeBadges([], 72000, now)).toEqual([]);
+  });
+});
+
+// 포트폴리오진단 "기간별 포트폴리오 전체 평가금액 변동"이 쓰는 유틸.
+describe('getPriceChangeTargets', () => {
+  it('1년 전/6개월 전/1개월 전/1주일 전 4개 타겟을 순서대로 정확한 날짜로 반환한다', () => {
+    const now = new Date('2026-07-30T12:00:00+09:00'); // KST 2026-07-30
+    const targets = getPriceChangeTargets(now);
+
+    expect(targets.map(t => t.label)).toEqual(['1년 전', '6개월 전', '1개월 전', '1주일 전']);
+    expect(targets.map(t => t.date.toISOString().slice(0, 10))).toEqual(
+      // kstMidnight은 KST 00:00에 해당하는 UTC 시각(전날 15:00)을 반환하므로
+      // ISO 날짜는 하루 전으로 찍힌다 — computePriceChangeBadges가 kstDateStr로
+      // 다시 KST 기준 문자열로 바꿔 쓰는 것과 같은 이유.
+      ['2025-07-29', '2026-01-29', '2026-06-29', '2026-07-22']
+    );
+  });
+});
+
+describe('computePortfolioPeriodChange', () => {
+  const now = new Date('2026-07-30T12:00:00+09:00'); // KST 2026-07-30
+
+  it('전 종목 데이터가 있으면 4개 기간 모두 수량 가중 합산으로 계산한다', () => {
+    const holdingA = {
+      ticker: 'AAA', quantity: 10,
+      points: [
+        pt('2025-07-30', 500),  // 1년 전
+        pt('2026-01-30', 600),  // 6개월 전
+        pt('2026-06-30', 700),  // 1개월 전
+        pt('2026-07-23', 750),  // 1주일 전
+        pt('2026-07-30', 780),
+      ],
+    };
+    const holdingB = {
+      ticker: 'BBB', quantity: 5,
+      points: [
+        pt('2025-07-30', 200),
+        pt('2026-01-30', 250),
+        pt('2026-06-30', 300),
+        pt('2026-07-23', 320),
+        pt('2026-07-30', 330),
+      ],
+    };
+    const currentTotalValue = 10000;
+    const rows = computePortfolioPeriodChange([holdingA, holdingB], currentTotalValue, now);
+
+    expect(rows).toHaveLength(4);
+    const byLabel = Object.fromEntries(rows.map(r => [r.label, r]));
+
+    expect(byLabel['1년 전'].pastValue).toBe(500 * 10 + 200 * 5); // 6000
+    expect(byLabel['1년 전'].changeRate).toBeCloseTo(((10000 - 6000) / 6000) * 100, 10);
+    expect(byLabel['1년 전'].missingTickers).toEqual([]);
+
+    expect(byLabel['6개월 전'].pastValue).toBe(600 * 10 + 250 * 5); // 7250
+    expect(byLabel['6개월 전'].changeRate).toBeCloseTo(((10000 - 7250) / 7250) * 100, 10);
+
+    expect(byLabel['1개월 전'].pastValue).toBe(700 * 10 + 300 * 5); // 8500
+    expect(byLabel['1주일 전'].pastValue).toBe(750 * 10 + 320 * 5); // 9100
+  });
+
+  it('일부 종목 조회 실패(points: null)는 그 종목만 제외하고 나머지로 계산한다', () => {
+    const holdingA = {
+      ticker: 'AAA', quantity: 10,
+      points: [pt('2025-07-30', 500), pt('2026-07-30', 780)],
+    };
+    const holdingB = { ticker: 'BBB', quantity: 5, points: null }; // 조회 실패
+
+    const rows = computePortfolioPeriodChange([holdingA, holdingB], 10000, now);
+    const oneYearAgo = rows.find(r => r.label === '1년 전')!;
+
+    expect(oneYearAgo.pastValue).toBe(500 * 10); // BBB 제외
+    expect(oneYearAgo.missingTickers).toEqual(['BBB']);
+  });
+
+  it('특정 기간에 전 종목이 실패하면 그 기간 행만 결과에서 생략한다', () => {
+    // 두 종목 모두 최근 40일치만 있음(2026-06-20~2026-07-30) — 1년 전/6개월 전은
+    // 두 종목 다 매칭 실패, 1개월 전/1주일 전은 매칭 성공
+    const recentPoints = (base: number) =>
+      Array.from({ length: 41 }, (_, i) => {
+        const d = new Date('2026-06-20T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + i);
+        return pt(d.toISOString().slice(0, 10), base + i);
+      });
+
+    const holdingA = { ticker: 'AAA', quantity: 10, points: recentPoints(700) };
+    const holdingB = { ticker: 'BBB', quantity: 5, points: recentPoints(300) };
+
+    const rows = computePortfolioPeriodChange([holdingA, holdingB], 10000, now);
+
+    expect(rows.map(r => r.label)).toEqual(['1개월 전', '1주일 전']);
+  });
+
+  it('holdings가 비어있으면 빈 배열을 반환한다', () => {
+    expect(computePortfolioPeriodChange([], 10000, now)).toEqual([]);
   });
 });

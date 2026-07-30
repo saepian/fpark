@@ -11,6 +11,7 @@ import {
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
+import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChangeTable';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
@@ -798,6 +799,14 @@ export default function PortfolioDiagnosisPage() {
 
           {/* 2-1행: 직전 진단 대비 (신설) */}
           <PortfolioHistoryCard result={result} typingKey={typingPortfolioKey} stage2Failed={stage2Failed} />
+
+          {/* 2-2행: 기간별 포트폴리오 평가금액 변동 (신설, 종목분석 PriceChangeTable과
+              동일 lib 함수 재사용) — AI 텍스트를 기다리지 않고 holdings/totalValue가
+              도착하는 즉시 독립적으로 로딩된다 */}
+          <PortfolioPeriodChangeTable
+            holdings={(result.holdings ?? []).map(h => ({ ticker: h.ticker, name: h.name, quantity: h.quantity }))}
+            currentTotalValue={result.totalValue ?? 0}
+          />
 
           {/* 3행: 벤치마크 비교 (사실 수치만, 판단 없음) */}
           {result.benchmark && (

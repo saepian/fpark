@@ -1,4 +1,4 @@
-import type { MarketIndexData, ChartDataPoint, PriceChangeBadge } from './types';
+import type { MarketIndexData, ChartDataPoint, PriceChangeBadge, PortfolioPeriodChange } from './types';
 import { kstYearMonthDay, kstMidnight, kstDateStr } from './ai-grounding';
 
 // Yahoo Finance Chart API로 해외 지수/환율 조회 — KIS 인증 불필요, 무료.
@@ -106,24 +106,31 @@ export function findClosestPastClose(
   return result;
 }
 
-// 현재가 대비 1년/1개월/1주일 전 종가 등락률. points는 fetchDailyChart(ticker, '1Y')
-// 결과(오름차순)를 그대로 전달. 상장 1년 미만 등으로 기준일 이전 데이터가 없으면 해당
-// 항목은 생략(호출부가 있는 것만 렌더링). Date.setFullYear/setMonth/setDate 같은 서버
-// 런타임 로컬 타임존 연산 대신 kstYearMonthDay/kstMidnight/kstDateStr을 쓰는 이유는
-// Vercel 기본 UTC 런타임에서 KST 00:00~08:59 호출 시 날짜가 하루 밀리는 문제를 피하기
-// 위함(ai-grounding.ts의 kstYearMonthDay 주석에 있는 동일 클래스 회귀 사례 참고).
-export function computePriceChangeBadges(
-  points: ChartDataPoint[],
-  currentPrice: number,
-  now: Date = new Date(),
-): PriceChangeBadge[] {
+// 1년/6개월/1개월/1주일 전 타겟 날짜. computePriceChangeBadges와 computePortfolioPeriodChange가
+// 공유한다(포트폴리오 집계도 "같은 4개 시점"을 종목별로 반복 적용하는 것뿐이라 별도
+// 타겟 정의가 필요 없음). Date.setFullYear/setMonth/setDate 같은 서버 런타임 로컬
+// 타임존 연산 대신 kstYearMonthDay/kstMidnight을 쓰는 이유는 Vercel 기본 UTC 런타임에서
+// KST 00:00~08:59 호출 시 날짜가 하루 밀리는 문제를 피하기 위함(ai-grounding.ts의
+// kstYearMonthDay 주석에 있는 동일 클래스 회귀 사례 참고).
+export function getPriceChangeTargets(now: Date = new Date()): { label: PriceChangeBadge['label']; date: Date }[] {
   const { year, month, day } = kstYearMonthDay(now);
-  const targets: { label: PriceChangeBadge['label']; date: Date }[] = [
+  return [
     { label: '1년 전',   date: kstMidnight(year - 1, month, day) },
     { label: '6개월 전', date: kstMidnight(year, month - 6, day) },
     { label: '1개월 전', date: kstMidnight(year, month - 1, day) },
     { label: '1주일 전', date: kstMidnight(year, month, day - 7) },
   ];
+}
+
+// 현재가 대비 1년/6개월/1개월/1주일 전 종가 등락률. points는 fetchDailyChart(ticker, '1Y')
+// 결과(오름차순)를 그대로 전달. 상장 1년 미만 등으로 기준일 이전 데이터가 없으면 해당
+// 항목은 생략(호출부가 있는 것만 렌더링).
+export function computePriceChangeBadges(
+  points: ChartDataPoint[],
+  currentPrice: number,
+  now: Date = new Date(),
+): PriceChangeBadge[] {
+  const targets = getPriceChangeTargets(now);
   const out: PriceChangeBadge[] = [];
   for (const { label, date } of targets) {
     const past = findClosestPastClose(points, kstDateStr(date));
@@ -146,4 +153,40 @@ export function computePriceChangeBadges(
     });
   }
   return out;
+}
+
+// 포트폴리오진단 "기간별 포트폴리오 전체 평가금액 변동" 집계. holdings의 points는
+// 종목별로 이미 조회해온 병합 차트(near12+near6+main1Y, computePriceChangeBadges와
+// 동일 소스)를 그대로 받는다 — 이 함수 자체는 신규 조회를 하지 않는다.
+// currentTotalValue는 항상 호출부가 전달한 값(포트폴리오 전체 현재 평가금액)을 그대로
+// 쓴다 — 일부 종목의 과거 종가를 못 찾아도 "현재" 쪽은 깎지 않으므로, missingTickers가
+// 있는 기간의 changeRate는 "조회된 종목의 과거가치 대비 전체 종목의 현재가치"라는
+// 비대칭 비교가 된다(호출부가 UI에 이 사실을 명시해야 함).
+export function computePortfolioPeriodChange(
+  holdings: { ticker: string; quantity: number; points: ChartDataPoint[] | null }[],
+  currentTotalValue: number,
+  now: Date = new Date(),
+): PortfolioPeriodChange[] {
+  const targets = getPriceChangeTargets(now);
+  return targets
+    .map(({ label, date }) => {
+      const targetStr = kstDateStr(date);
+      let pastValue = 0;
+      const missingTickers: string[] = [];
+      for (const h of holdings) {
+        const past = h.points ? findClosestPastClose(h.points, targetStr) : null;
+        if (past && past.close > 0) {
+          pastValue += past.close * h.quantity;
+        } else {
+          missingTickers.push(h.ticker);
+        }
+      }
+      return {
+        label,
+        pastValue,
+        changeRate: pastValue > 0 ? ((currentTotalValue - pastValue) / pastValue) * 100 : 0,
+        missingTickers,
+      };
+    })
+    .filter((r) => r.missingTickers.length < holdings.length); // 전 종목 실패한 기간은 행 자체를 생략
 }
