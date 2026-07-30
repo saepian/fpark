@@ -8,16 +8,13 @@ import { NewsItem } from '@/lib/types';
 
 const PAGE_SIZE = 10;
 
-const CATEGORIES = ['전체', '국내시장', '해외시장', '경제', '부동산', '원자재'] as const;
+const CATEGORIES = ['전체', '국내시장', '해외시장'] as const;
 type Category = typeof CATEGORIES[number];
 
 const CATEGORY_CODE: Record<Category, string> = {
   '전체':   '',
   '국내시장': 'domestic',
   '해외시장': 'global',
-  '경제':   'macro',
-  '부동산':  'real_estate',
-  '원자재':  'commodity',
 };
 
 const RANK_BADGE: Record<number, string> = {
