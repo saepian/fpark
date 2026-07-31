@@ -132,11 +132,16 @@ export async function GET(request: NextRequest) {
   const priceMap = await fetchPricesInChunks(uniqueTickers);
 
   // 5. 오늘 알림 일괄 조회
+  // 2026-08-01: stock-alerts 크론이 "조건 미충족 시 DELETE"에서 "is_active=false로
+  // 비활성화"로 바뀌면서(재알림 버그 수정), 이 쿼리도 is_active 필터를 명시해야 예전과
+  // 동일하게 "지금은 더 이상 유효하지 않은 알림"이 다이제스트 이메일에 안 섞여 들어간다
+  // (예전엔 DELETE라 자동으로 빠졌음 — soft-delete로 바뀐 만큼 여기서 직접 걸러야 함).
   const { data: todayNotifs } = await adminClient
     .from('notifications')
     .select('user_id, message, type')
     .in('user_id', activeUserIds)
-    .eq('notif_date', notifDate);
+    .eq('notif_date', notifDate)
+    .eq('is_active', true);
 
   const notifMap = new Map<string, { message: string }[]>();
   for (const n of (todayNotifs ?? [])) {

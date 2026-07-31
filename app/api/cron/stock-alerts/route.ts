@@ -233,7 +233,8 @@ export async function GET(request: NextRequest) {
       });
     };
 
-    // 주가 변동 — 임계값 오름차순 순회, Map에 덮어쓰므로 가장 높은 임계값이 최종 저장됨
+    // 주가 변동 — threshold가 setAlert 키에 포함되므로(229번 줄) 5/10/20/30%는 서로
+    // 덮어쓰지 않고 전부 독립적으로 저장됨(예: +12%면 5%·10% 알림이 각각 별도로 생성)
     for (const thr of PRICE_THRESHOLDS) {
       if (changeRate >= thr) {
         setAlert('price_up', thr, `[${stockName}] +${thr}% 상승 | 현재가 ${price.toLocaleString()}원`, price);
@@ -258,9 +259,17 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 5. 조건 미충족 알림 정리 → Upsert (읽은 알림도 같은 조건 재충족 시 갱신)
-  //    예전엔 "읽은 알림 보존" 때문에 unique index와 충돌해 배치 전체가 롤백되는 버그가 있었음.
-  //    이제는 upsert로 동일 알림(user+stock+type+threshold+날짜)은 갱신, 새 임계값 돌파는 새 row로 처리.
+  // 5. 조건 미충족 알림 비활성화 → 신규/유지 알림만 Upsert
+  //    2026-08-01 재설계: "조건 미충족 시 DELETE"가 재알림 버그의 원인이었음 — row를
+  //    지워버리면 나중에 같은 임계값을 재돌파했을 때 유니크 인덱스 충돌이 없어 INSERT로
+  //    처리되고, is_read가 payload에 없어 기본값(false)으로 "새 안읽음 알림"이 생겨버림
+  //    (예: +10% 알림 → -7%로 회복 → +11%로 재돌파 시 재알림됨, 실측 확인된 버그).
+  //    정책: 일 단위 리셋 유지(오늘 안엔 같은 임계값 재알림 안 함, 자정 이후엔 다시 알림) —
+  //    DELETE 대신 is_active=false로 "오늘 이 임계값은 이미 알렸음"을 표시만 하고 row는
+  //    보존한다. is_active=false row는 그 다음 사이클에 조건을 다시 만족해도 upsert
+  //    대상에서 제외해 재활성화하지 않는다(= 재알림 안 함). /api/notifications의 목록
+  //    조회는 이미 is_active=true만 걸러서 보여주므로(변경 없음), 화면에서 "꺼진" 알림이
+  //    다시 보이는 일도 없다 — 예전 DELETE가 자동으로 숨겨주던 것과 동일한 결과.
   const alerts = [...alertMap.values()];
   console.log(`[STOCK-ALERTS] 알림 대상: ${alerts.length}건 — ${alerts.map(a => `${a.stock_code}/${a.type}/${a.threshold}`).join(', ')}`);
   let upserted = 0;
@@ -271,11 +280,11 @@ export async function GET(request: NextRequest) {
     const affectedStocks  = [...new Set(alerts.map(a => a.stock_code))];
     const stillValidKeys  = new Set(alerts.map(a => `${a.user_id}:${a.stock_code}:${a.type}:${a.threshold}`));
 
-    // 5-1. 더 이상 조건을 충족하지 않는 (user, stock, type, threshold) 오늘자 알림 정리
-    //      (예: 10분 전엔 -10%였다가 지금은 -7%로 회복 → -10% 티어 알림은 제거, -5%는 유지/갱신)
+    // 오늘자 기존 row를 (is_active 여부까지) 조회 — 5-1(비활성화 대상 판별)과
+    // 5-2(신규/재활성화 여부 판별)가 같은 조회 결과를 공유한다.
     const { data: existingRows, error: selErr } = await supabase
       .from('notifications')
-      .select('id, user_id, stock_code, type, threshold')
+      .select('id, user_id, stock_code, type, threshold, is_active')
       .in('user_id', affectedUserIds)
       .in('stock_code', affectedStocks)
       .eq('notif_date', notifDate);
@@ -284,50 +293,70 @@ export async function GET(request: NextRequest) {
       console.error('[STOCK-ALERTS] 기존 알림 조회 실패:', selErr.message);
       errors++;
     } else {
-      const staleIds = (existingRows ?? [])
-        .filter(row => !stillValidKeys.has(`${row.user_id}:${row.stock_code}:${row.type}:${row.threshold}`))
+      const rows = existingRows ?? [];
+      const existingByKey = new Map(
+        rows.map(row => [`${row.user_id}:${row.stock_code}:${row.type}:${row.threshold}`, row]),
+      );
+
+      // 5-1. 더 이상 조건을 충족하지 않는 (user, stock, type, threshold)의 "오늘 활성" 알림을
+      //      비활성화(is_active=false) — 이미 비활성인 row는 건드릴 필요 없음.
+      //      (예: 10분 전엔 -10%였다가 지금은 -7%로 회복 → -10% 티어는 비활성화, -5%는 유지/갱신)
+      const staleIds = rows
+        .filter(row => row.is_active && !stillValidKeys.has(`${row.user_id}:${row.stock_code}:${row.type}:${row.threshold}`))
         .map(row => row.id);
 
       if (staleIds.length > 0) {
-        const { error: delErr } = await supabase.from('notifications').delete().in('id', staleIds);
-        if (delErr) {
-          console.error('[STOCK-ALERTS] 조건 미충족 알림 삭제 실패:', delErr.message);
+        const { error: deactErr } = await supabase.from('notifications').update({ is_active: false }).in('id', staleIds);
+        if (deactErr) {
+          console.error('[STOCK-ALERTS] 조건 미충족 알림 비활성화 실패:', deactErr.message);
           errors++;
         } else {
-          console.log(`[STOCK-ALERTS] 조건 미충족 알림 ${staleIds.length}건 정리`);
+          console.log(`[STOCK-ALERTS] 조건 미충족 알림 ${staleIds.length}건 비활성화`);
         }
       }
-    }
 
-    // 5-2. Upsert: 같은 알림(동일 threshold)이면 가격·등락률·발생시각만 갱신 (is_read는 건드리지 않음 —
-    //      이미 읽은 알림이 같은 조건으로 계속 유지될 때 매 사이클 다시 안읽음으로 리셋되는 것을 방지).
-    //      새 임계값을 처음 돌파한 경우는 유니크 인덱스(threshold 포함)상 충돌이 없어 INSERT되며,
-    //      is_read를 payload에 넣지 않으므로 컬럼 기본값(false)으로 자연히 안읽음 생성됨.
-    const { data: upsertData, error: upsertErr } = await supabase
-      .from('notifications')
-      .upsert(
-        alerts.map(alert => ({
-          user_id:       alert.user_id,
-          stock_code:    alert.stock_code,
-          stock_name:    alert.stock_name,
-          type:          alert.type,
-          message:       alert.message,
-          threshold:     alert.threshold,
-          current_value: alert.current_value,
-          is_active:     true,
-          notif_date:    notifDate,
-          created_at:    new Date().toISOString(),
-        })),
-        { onConflict: 'user_id,stock_code,type,threshold,notif_date', ignoreDuplicates: false },
-      )
-      .select('id');
+      // 5-2. Upsert 대상 필터링 — 오늘 해당 키로 이미 비활성화된 row가 있으면(= 오늘 한 번
+      //      알렸다가 조건 미충족으로 꺼진 뒤 재돌파한 경우) upsert에서 제외해 재알림/재활성화를
+      //      막는다. 대상: (a) 오늘 처음 돌파(기존 row 없음) → INSERT, (b) 오늘 계속 활성 상태로
+      //      유지 중(is_active=true) → 가격·시각만 갱신(is_read는 건드리지 않음 — 이미 읽은
+      //      알림이 조건 유지 중 매 사이클 다시 안읽음으로 리셋되는 것 방지).
+      const toUpsert = alerts.filter(alert => {
+        const existing = existingByKey.get(`${alert.user_id}:${alert.stock_code}:${alert.type}:${alert.threshold}`);
+        return !existing || existing.is_active;
+      });
+      const skipped = alerts.length - toUpsert.length;
+      if (skipped > 0) {
+        console.log(`[STOCK-ALERTS] 오늘 이미 알린 뒤 비활성화된 임계값 재돌파 ${skipped}건 — 재알림 생략(일 단위 리셋 정책)`);
+      }
 
-    if (upsertErr) {
-      console.error('[STOCK-ALERTS] upsert 실패:', upsertErr.message);
-      errors++;
-    } else {
-      upserted = upsertData?.length ?? alerts.length;
-      console.log(`[STOCK-ALERTS] ✓ upsert 완료: ${upserted}건`);
+      if (toUpsert.length > 0) {
+        const { data: upsertData, error: upsertErr } = await supabase
+          .from('notifications')
+          .upsert(
+            toUpsert.map(alert => ({
+              user_id:       alert.user_id,
+              stock_code:    alert.stock_code,
+              stock_name:    alert.stock_name,
+              type:          alert.type,
+              message:       alert.message,
+              threshold:     alert.threshold,
+              current_value: alert.current_value,
+              is_active:     true,
+              notif_date:    notifDate,
+              created_at:    new Date().toISOString(),
+            })),
+            { onConflict: 'user_id,stock_code,type,threshold,notif_date', ignoreDuplicates: false },
+          )
+          .select('id');
+
+        if (upsertErr) {
+          console.error('[STOCK-ALERTS] upsert 실패:', upsertErr.message);
+          errors++;
+        } else {
+          upserted = upsertData?.length ?? toUpsert.length;
+          console.log(`[STOCK-ALERTS] ✓ upsert 완료: ${upserted}건`);
+        }
+      }
     }
   }
 
