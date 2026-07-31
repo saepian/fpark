@@ -300,6 +300,10 @@ export default function DomesticMarketPage() {
   const canvasRef                          = useRef<HTMLCanvasElement>(null);
   const activeTabRef                       = useRef<Tab>(activeTab);
   useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  const lastUpdatedRef                     = useRef<Date | null>(null);
+  useEffect(() => { lastUpdatedRef.current = lastUpdated; }, [lastUpdated]);
+  const isRefreshingRef                    = useRef(false);
+  useEffect(() => { isRefreshingRef.current = isRefreshing; }, [isRefreshing]);
 
   // 지수/차트/인기종목/뉴스 — 최초 로드와 5분 자동 새로고침이 공유하는 로직.
   // 값이 갱신될 때만 state가 바뀌므로(기존 값을 지우고 스켈레톤으로 되돌리지 않음)
@@ -377,14 +381,37 @@ export default function DomesticMarketPage() {
   // 5분 자동 새로고침 — refreshTick 증가가 곧 "갱신 신호". 장중(09:00~15:30 KST)이면서
   // 탭이 활성 상태일 때만 실제로 데이터를 다시 받아온다(장마감 후엔 가격이 안 바뀌므로
   // 불필요한 API 호출 차단, 백그라운드 탭에서도 불필요한 호출 차단).
+  //
+  // 고정 5분 틱 대신 짧은 체크 틱(30초)마다 "마지막 갱신 이후 5분이 지났는가"를
+  // 확인하는 방식 — 체크 시점에 탭이 숨겨져 있어 한두 틱을 건너뛰어도(브라우저의
+  // 백그라운드 타이머 스로틀링 포함) 다음 체크에서 곧바로 따라잡는다.
+  // 여기에 visibilitychange로 탭 복귀 시 즉시 한 번 더 확인해, 탭을 5분+ 벗어났다
+  // 돌아왔을 때 다음 체크 틱까지 기다리지 않고 바로 갱신되게 한다.
   useEffect(() => {
-    const POLL_MS = 5 * 60 * 1000;
-    const id = setInterval(() => {
-      if (!isKoreanMarketOpen()) return;
+    const POLL_MS  = 5 * 60 * 1000;
+    const CHECK_MS = 30 * 1000;
+
+    const dueForRefresh = () => {
+      if (!isKoreanMarketOpen()) return false;
+      if (isRefreshingRef.current) return false; // 이전 갱신이 아직 진행 중이면 중복 트리거 방지
+      const last = lastUpdatedRef.current;
+      if (!last) return false;
+      return Date.now() - last.getTime() >= POLL_MS;
+    };
+
+    const tick = () => {
       if (document.visibilityState !== 'visible') return;
-      setRefreshTick(t => t + 1);
-    }, POLL_MS);
-    return () => clearInterval(id);
+      if (dueForRefresh()) setRefreshTick(t => t + 1);
+    };
+
+    const id = setInterval(tick, CHECK_MS);
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, []);
 
   // refreshTick 신호 발생 시 조용히 갱신 — 랭킹 테이블은 setLoading(true)를 타지 않는
