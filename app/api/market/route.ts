@@ -248,6 +248,26 @@ async function getCache(): Promise<MarketResponse | null> {
 const CACHE_TTL_MS_OPEN   = 30_000;      // 장중 30초
 const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
 
+// 2026-07-31 발견: 코스피/코스닥 종가 단일가 매매 구간(15:20~15:30 KST)에 잡힌 캐시가
+// 확정 종가가 아닌 잠정치인데, 장마감(15:30) 직후엔 "장마감 후 확정치로 한 번 더 갱신"하는
+// 로직이 없어 그 잠정치가 CACHE_TTL_MS_CLOSED(30분) 동안 그대로 굳는 버그를 실측 확인
+// (KOSPI 20p·KOSDAQ 0.78p 오차). app/api/stock/[ticker]/analysis/route.ts의
+// isIntradayCacheStale()과 동일한 패턴 — "캐시가 장마감 전에 생성됐고 지금은 장마감
+// 이후"면 TTL과 무관하게 1회 강제 갱신한다. 강제 갱신된 새 캐시는 updated_at이 장마감
+// 이후 시각이 되므로 이 조건이 다시 참이 되지 않는다(자연히 1회로 그침, 별도 플래그 불필요).
+const MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30; // 15:30
+
+function kstMinutesSinceMidnight(d: Date): number {
+  const kst = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  return kst.getHours() * 60 + kst.getMinutes();
+}
+
+function isPostCloseCacheStale(cachedUpdatedAt: string): boolean {
+  const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedUpdatedAt)) < MARKET_CLOSE_MINUTES_KST;
+  const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= MARKET_CLOSE_MINUTES_KST;
+  return generatedBeforeClose && nowIsAfterClose;
+}
+
 export async function GET() {
   const marketOpen  = isKoreanMarketOpen();
   const prevDate    = marketOpen ? null : getLastTradingDate();
@@ -263,10 +283,15 @@ export async function GET() {
       .eq('key', CACHE_KEY)
       .single();
     if (cache) {
-      const age = Date.now() - new Date(cache.updated_at).getTime();
-      if (age < ttlMs) {
-        console.log(`[MARKET] TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s) — 라이브 호출 생략`);
-        return NextResponse.json({ ...(cache.data as MarketResponse), isCached: true, cachedAt: cache.updated_at, isPrevDay, prevDateLabel });
+      const staleAcrossClose = !marketOpen && isPostCloseCacheStale(cache.updated_at);
+      if (staleAcrossClose) {
+        console.log(`[MARKET] 장마감 전 캐시(${cache.updated_at}) 감지 — 장마감 후 첫 조회라 TTL 무시하고 확정치로 강제 갱신`);
+      } else {
+        const age = Date.now() - new Date(cache.updated_at).getTime();
+        if (age < ttlMs) {
+          console.log(`[MARKET] TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s) — 라이브 호출 생략`);
+          return NextResponse.json({ ...(cache.data as MarketResponse), isCached: true, cachedAt: cache.updated_at, isPrevDay, prevDateLabel });
+        }
       }
     }
   } catch (e) {

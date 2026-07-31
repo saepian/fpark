@@ -7,6 +7,17 @@ import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import WatchlistSection from '../../../components/main/WatchlistSection';
 import { isKoreanMarketOpen } from '../../../lib/market-utils';
 
+// 2026-07-31: 장마감과 동시에 폴링이 완전히 멈추는 기존 설계라, 마지막 갱신이 장중
+// 잠정치였어도(예: 종가 단일가 매매 구간에 잡힌 값) 이미 열려 있는 탭은 영구히 정정될
+// 기회가 없었다(app/api/market/route.ts의 서버 사이드 강제 갱신과 짝을 맞춤). 장마감
+// 경계를 막 넘은 시점을 감지해 1회만 캐치업 갱신을 트리거한다.
+const MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30; // 15:30
+
+function kstMinutesSinceMidnight(d: Date): number {
+  const kst = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  return kst.getHours() * 60 + kst.getMinutes();
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 const TABS = ['급등', '급락'] as const;
@@ -398,11 +409,15 @@ export default function DomesticMarketPage() {
     const CHECK_MS = 30 * 1000;
 
     const dueForRefresh = () => {
-      if (!isKoreanMarketOpen()) return false;
       if (isRefreshingRef.current) return false; // 이전 갱신이 아직 진행 중이면 중복 트리거 방지
       const last = lastUpdatedRef.current;
       if (!last) return false;
-      return Date.now() - last.getTime() >= POLL_MS;
+      if (isKoreanMarketOpen()) return Date.now() - last.getTime() >= POLL_MS;
+      // 장마감 이후 — 마지막 갱신이 장중(장마감 전) 값이면 확정치로 1회만 캐치업.
+      // 이 갱신이 성공하면 lastUpdated가 장마감 이후 시각으로 바뀌어 다음부터는
+      // 다시 false가 되므로(서버 사이드 강제 갱신과 동일한 자기 제한적 구조) 별도
+      // "이미 캐치업했는지" 플래그가 필요 없다.
+      return kstMinutesSinceMidnight(last) < MARKET_CLOSE_MINUTES_KST;
     };
 
     const tick = () => {
