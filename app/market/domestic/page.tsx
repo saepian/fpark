@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import WatchlistSection from '../../../components/main/WatchlistSection';
 import { isKoreanMarketOpen } from '../../../lib/market-utils';
+import { kstDateStr } from '../../../lib/ai-grounding';
 
 // 2026-07-31: 장마감과 동시에 폴링이 완전히 멈추는 기존 설계라, 마지막 갱신이 장중
 // 잠정치였어도(예: 종가 단일가 매매 구간에 잡힌 값) 이미 열려 있는 탭은 영구히 정정될
@@ -663,7 +664,15 @@ export default function DomesticMarketPage() {
           {!loading && stocks.length > 0 && stocks[0].isPrevDayClose && (
             <p className="mb-2 text-[11px] text-amber-400/90 flex items-center gap-1.5">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/70" />
-              전일{stocks[0].asOfDate ? ` (${stocks[0].asOfDate})` : ''} 15:35 마감 기준 · 실시간 데이터가 아닙니다
+              {/* 2026-07-31: /api/market/ranking은 "장 시작 전"과 "오늘 장마감 후"를
+                  모두 isPrevDayClose=true로 취급한다(둘 다 !isKoreanMarketOpen()이라
+                  같은 15:35 스냅샷 캐시를 서빙 — app/api/market/ranking/route.ts 참고).
+                  전자는 asOfDate가 진짜 지난 거래일이라 "전일"이 맞지만, 후자는
+                  asOfDate가 오늘 날짜라 "전일"이 오늘을 가리키는 모순된 표현이 된다.
+                  asOfDate가 오늘(KST)이면 "전일"을 빼고 날짜+마감 시각만 표시. */}
+              {stocks[0].asOfDate && stocks[0].asOfDate === kstDateStr()
+                ? `${stocks[0].asOfDate} 15:35 마감 기준 · 실시간 데이터가 아닙니다`
+                : `전일${stocks[0].asOfDate ? ` (${stocks[0].asOfDate})` : ''} 15:35 마감 기준 · 실시간 데이터가 아닙니다`}
             </p>
           )}
           <div className="rounded-2xl bg-[#13161f] overflow-hidden mb-4">
