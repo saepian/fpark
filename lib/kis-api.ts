@@ -566,6 +566,7 @@ export async function fetchStockInfo(ticker: string): Promise<StockInfo> {
     marketCap: formatMarketCap(parseInt(o.hts_avls, 10)),
     per: parseFloat(o.per) || 0,
     pbr: parseFloat(o.pbr) || 0,
+    sector: (o.bstp_kor_isnm ?? '').trim(),
   };
 }
 

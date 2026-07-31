@@ -15,6 +15,7 @@ import {
 } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { selectRelevantNews } from '@/lib/news-selection';
+import { selectSectorMacroNews } from '@/lib/sector-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency, kstDateStr, daysBetween } from '@/lib/ai-grounding';
 import { getDomesticMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
@@ -73,16 +74,19 @@ const NEWS_DRIVEN_INSTRUCTIONS = `## [리포트 유형] 뉴스가 있는 날 (ne
 2. 이 뉴스가 오늘 주가/거래대금 움직임과 실제로 연결되는지, 무관하게 따로 노는지 판단하고 이유를 서술 — 데이터가 뒷받침하지 않으면 "뉴스와 가격 움직임이 아직 명확히 연동되지 않고 있다"처럼 솔직하게 쓸 것, "뉴스 때문에 올랐다"고 무조건 단정하지 말 것
 3. 이 뉴스가 하루짜리 이슈인지 앞으로 며칠/몇 주 지켜봐야 할 이슈인지 판단해서 언급 (실적 발표는 후속 이슈, 단발성 공시는 하루짜리 등)
 
-금지: 기사 문장을 15단어 이상 그대로 인용하지 말 것(자체 요약·재구성만). 뉴스 요약이 mainAnalysis 절반을 넘지 않게, "왜 중요한지/어떻게 해석해야 하는지"에 더 많은 분량을 쓸 것`;
+금지: 기사 문장을 15단어 이상 그대로 인용하지 말 것(자체 요약·재구성만). 뉴스 요약이 mainAnalysis 절반을 넘지 않게, "왜 중요한지/어떻게 해석해야 하는지"에 더 많은 분량을 쓸 것
+
+[업종/시장 배경]에 기사가 있다면 이 종목만의 개별 뉴스와 구분해서 참고하세요 — 오늘 움직임이 업종·시장 전체 흐름과 함께 설명된다면 그 배경도 근거로 같이 써도 됩니다. 다만 [오늘의 관련 뉴스]가 있는 이상 mainAnalysis의 중심은 어디까지나 그 종목 개별 뉴스입니다.`;
 
 const DATA_DRIVEN_INSTRUCTIONS = `## [리포트 유형] 뉴스가 없는 날 (data-driven)
 
 오늘은 이 종목과 직접 관련된 뉴스가 없습니다. 억지로 mainAnalysis를 길게 채우지 마세요. 뉴스가 없다는 사실 자체를 숨기지 말고 인정하되, 아래에 집중하세요:
 
-1. [내부 계산 지표]에서 오늘 특이한 값(평소 대비 벗어난 값)이 있는지 확인하고, 있다면 그것을 mainAnalysis의 중심으로 삼으세요 (예: 거래대금이 20일 평균 대비 유의미하게 높거나 낮은 경우, 과거 급등/급락 이력과 오늘 상황이 겹치는 경우 등)
-2. 특이한 지표가 없다면 "오늘은 뉴스도 없고 지표도 평소 범위 안에 있다"고 짧게 정리하세요. 억지로 리스크 요인이나 관찰 포인트를 지어내지 마세요
+1. [업종/시장 배경]에 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스가 있다면(이 종목명이 직접 언급되지 않아도 됨), 그것을 mainAnalysis의 중심으로 삼아 오늘 움직임의 배경을 서술하세요 — 이 경우에도 reportType은 data-driven 그대로 두되(이 종목 개별 뉴스는 없다는 판정 자체는 안 바뀜), "이 종목만의 뉴스는 없지만 업종 전체가 영향을 받고 있다"는 취지를 명확히 밝히세요
+2. 업종 배경도 없다면 [내부 계산 지표]에서 오늘 특이한 값(평소 대비 벗어난 값)이 있는지 확인하고, 있다면 그것을 mainAnalysis의 중심으로 삼으세요 (예: 거래대금이 20일 평균 대비 유의미하게 높거나 낮은 경우, 과거 급등/급락 이력과 오늘 상황이 겹치는 경우 등)
+3. 특이한 지표도 없다면 "오늘은 뉴스도 없고 지표도 평소 범위 안에 있다"고 짧게 정리하세요. 억지로 리스크 요인이나 관찰 포인트를 지어내지 마세요
 
-이런 날의 mainAnalysis는 뉴스가 있는 날보다 확연히 짧아야 합니다 (목표: 3~5문장 이내). 짧다는 것 자체가 "오늘은 특별한 게 없다"는 정직한 신호입니다.`;
+이런 날의 mainAnalysis는 뉴스가 있는 날보다 확연히 짧아야 합니다 (목표: 3~5문장 이내, 단 업종 배경으로 서술하는 경우는 예외). 짧다는 것 자체가 "오늘은 특별한 게 없다"는 정직한 신호입니다.`;
 
 // 2026-07-27 휴장일 리포트 재설계: reportType(news-driven/data-driven) 판단은 그대로
 // 두되(휴장일 동안 나온 뉴스도 relevantNews에 그대로 잡힘 — 뉴스 파이프라인 자체는 손댈
@@ -548,8 +552,16 @@ export async function GET(
     date:    n.published_at ? new Date(n.published_at).toLocaleDateString('ko-KR') : undefined,
   })));
 
-  const { items: relevantNews } = await selectRelevantNews(ticker, price.name, dbNewsPromise);
+  // 3-1. 업종 매크로 뉴스 — 종목명이 전혀 언급되지 않는 순수 업종 뉴스(예: "필라델피아
+  // 반도체지수 8% 상승")는 위 selectRelevantNews의 종목명+종목코드 검색 후보에 애초에
+  // 안 걸린다. price.sector(KIS bstp_kor_isnm)를 키로 별도 조회해 그 사각지대를 메운다
+  // (lib/sector-news.ts 참고). relevantNews와 독립적이라 병렬로 실행.
+  const [{ items: relevantNews }, { items: sectorMacroNews }] = await Promise.all([
+    selectRelevantNews(ticker, price.name, dbNewsPromise),
+    selectSectorMacroNews(price.sector),
+  ]);
   const newsBlock = buildNewsBlock(relevantNews);
+  const sectorNewsBlock = buildNewsBlock(sectorMacroNews);
 
   // 이 종목과 직접 관련된 뉴스 유무로 리포트 유형을 서버가 먼저 결정한다 — AI가 스스로
   // 판단하게 두지 않고 애초에 다른 지시문을 태운다(2026-07-10 리포트 재설계).
@@ -634,6 +646,9 @@ ${reportType} — 이 값을 그대로 reportType 필드에 옮겨 적으세요.
 ## 오늘의 관련 뉴스 (${buildNewsFreshnessLine(relevantNews)})
 ${newsBlock}
 
+## 업종/시장 배경 (${price.sector || '업종 정보 없음'}, ${buildNewsFreshnessLine(sectorMacroNews)})
+${sectorNewsBlock}
+
 ## 직전 리포트와의 차이
 ${yesterdayComparisonBlock}
 
@@ -644,7 +659,7 @@ ${yesterdayComparisonBlock}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 형식과 규칙에 따라 정리하세요.`;
 
-  const newsText = relevantNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+  const newsText = [...relevantNews, ...sectorMacroNews].map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
   const priceChecks = buildPriceChecks(price.price, info.week52High, info.week52Low);
 
   interface ParsedAnalysis {

@@ -21,6 +21,7 @@ import { fetchSectorPeers, computeSectorRelativeChange } from '@/lib/sector-peer
 import { fetchRecentDisclosures, type DartDisclosure, fetchDividendSummary, type DartDividendSummary } from '@/lib/dart-api';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
+import { selectSectorMacroNews } from '@/lib/sector-news';
 import {
   nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency,
   kstDateStr, daysBetween,
@@ -46,7 +47,7 @@ const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 // cache_control 적용). 종목별로 바뀌는 데이터(가격/수급/뉴스/히스토리)는 messages 쪽에 둔다.
 const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아래 구조 그대로 출력)
 {
-  "mainAnalysis": "【500~700자, 아래 순서로 하나의 흐름으로 이어 쓸 것 — 항목을 나열하지 말 것】[1] 첫 문장: 현재 상태를 관찰형으로 — 예) '지금 삼성전자는 수익이 충분히 난 상태이며 외국인 자금 유출이 나타나고 있습니다.' [2] 밸류에이션 한 줄 코멘트: PER/PBR이 업종 평균 대비 어느 수준인지 관찰형으로 — 예) 'PER 44배 수준은 반도체 업종 평균 대비 높은 밸류에이션 구간으로 풀이됩니다.' (52주 고저가·PER 숫자 자체를 다시 나열하지 말고 해석 문장으로만) [3] 수급 해석: 외국인·기관 5일 추이의 방향과 규모를 관찰형으로 서술 — 개인과 방향이 실제로 반대일 때만 그 대립 구도를 사실로 명시(같으면 생략, 미래 가격을 예측하는 문구 절대 금지) [4] (관련 뉴스가 있으면) 뉴스의 핵심 사실을 '누가/무엇을/왜'가 드러나게 재구성하고, 그 뉴스가 실제 주가·수급 움직임과 연결되는지, 선반영된 것인지, 하루짜리 이슈인지 지속될 이슈인지까지 해석 (기사 문장을 15단어 이상 그대로 인용 금지). 뉴스가 없으면 이 문단은 생략하고 '특별한 뉴스 없이 수급·기술적 요인으로 추정된다' 정도로 짧게만 정리 [5] (뉴스 논조와 실제 주가 흐름이 실제로 반대일 때만) 그 괴리를 강조 — 괴리가 없으면 생략 [6] [내부 계산 지표] 중 최소 1개를 보유 정보(매입가 대비 관점·평가손익)와 엮어 서술하세요 — **[급등이력]에 hasMatches:true인 사례가 있으면 반드시 그것을 우선 활용**(과거 유사 규모 등락 이후 실제 수익률 흐름을 사실로 제시, 예측 아님), 사례가 없을 때만 거래대금배수·MDD/변동성 중에서 고르세요. 예) '이 종목은 매입가 대비 10% 수익 구간인데, 오늘 같은 규모의 급락은 최근 5개월 내 한 차례 더 있었고 그때는 이후 5일간 +3% 반등했습니다' 같이 종목 리포트와는 다르게 '내 포지션 관점'에서 풀어 쓸 것(종목 리포트의 문장을 그대로 옮기지 말 것). **업종 대비·실적 추이는 이 필드에서 언급하지 마세요** — 각각 sectorNarrative/financialsNarrative 필드에서 별도로 다룹니다. [7] 데이터 사실로 마무리 — 52주 고점·저점 대비 위치는 관찰 사실로 짧게 언급 가능하나 그 숫자로 결론을 유도하지 말 것. 금지: 매수/매도/홀딩 같은 지시나 권유, '~하세요'/'~하는 게 좋습니다'/'권고'/'~전략이 현실적입니다' 같은 1인칭 조언 문장, 목표가·손절가 언급, 저항선·지지선·매물대 같은 기술적 분석 용어, 미래 가격 예측 표현, ①②③ 번호 나열, 데이터를 bullet처럼 툭툭 끊어 나열하는 문장(반드시 서술형으로 연결). 스타일: 편하게 설명하는 관찰형 어조를 쓰되 문장마다 종결 표현을 다양하게 바꾸고 같은 어미를 반복하지 마세요",
+  "mainAnalysis": "【500~700자, 아래 순서로 하나의 흐름으로 이어 쓸 것 — 항목을 나열하지 말 것】[1] 첫 문장: 현재 상태를 관찰형으로 — 예) '지금 삼성전자는 수익이 충분히 난 상태이며 외국인 자금 유출이 나타나고 있습니다.' [2] 밸류에이션 한 줄 코멘트: PER/PBR이 업종 평균 대비 어느 수준인지 관찰형으로 — 예) 'PER 44배 수준은 반도체 업종 평균 대비 높은 밸류에이션 구간으로 풀이됩니다.' (52주 고저가·PER 숫자 자체를 다시 나열하지 말고 해석 문장으로만) [3] 수급 해석: 외국인·기관 5일 추이의 방향과 규모를 관찰형으로 서술 — 개인과 방향이 실제로 반대일 때만 그 대립 구도를 사실로 명시(같으면 생략, 미래 가격을 예측하는 문구 절대 금지) [4] (관련 뉴스가 있으면) 뉴스의 핵심 사실을 '누가/무엇을/왜'가 드러나게 재구성하고, 그 뉴스가 실제 주가·수급 움직임과 연결되는지, 선반영된 것인지, 하루짜리 이슈인지 지속될 이슈인지까지 해석 (기사 문장을 15단어 이상 그대로 인용 금지). 이 종목만의 뉴스는 없지만 [업종/시장 배경]에 업종·시장 전체 매크로 뉴스가 있다면, 그것을 근거로 "이 종목만의 뉴스는 없지만 업종 전체가 영향을 받고 있다"는 취지로 서술 — 이때도 종목 개별 뉴스가 있는 것처럼 단정하지 말 것. 둘 다 없으면 이 문단은 생략하고 '특별한 뉴스 없이 수급·기술적 요인으로 추정된다' 정도로 짧게만 정리 [5] (뉴스 논조와 실제 주가 흐름이 실제로 반대일 때만) 그 괴리를 강조 — 괴리가 없으면 생략 [6] [내부 계산 지표] 중 최소 1개를 보유 정보(매입가 대비 관점·평가손익)와 엮어 서술하세요 — **[급등이력]에 hasMatches:true인 사례가 있으면 반드시 그것을 우선 활용**(과거 유사 규모 등락 이후 실제 수익률 흐름을 사실로 제시, 예측 아님), 사례가 없을 때만 거래대금배수·MDD/변동성 중에서 고르세요. 예) '이 종목은 매입가 대비 10% 수익 구간인데, 오늘 같은 규모의 급락은 최근 5개월 내 한 차례 더 있었고 그때는 이후 5일간 +3% 반등했습니다' 같이 종목 리포트와는 다르게 '내 포지션 관점'에서 풀어 쓸 것(종목 리포트의 문장을 그대로 옮기지 말 것). **업종 대비·실적 추이는 이 필드에서 언급하지 마세요** — 각각 sectorNarrative/financialsNarrative 필드에서 별도로 다룹니다. [7] 데이터 사실로 마무리 — 52주 고점·저점 대비 위치는 관찰 사실로 짧게 언급 가능하나 그 숫자로 결론을 유도하지 말 것. 금지: 매수/매도/홀딩 같은 지시나 권유, '~하세요'/'~하는 게 좋습니다'/'권고'/'~전략이 현실적입니다' 같은 1인칭 조언 문장, 목표가·손절가 언급, 저항선·지지선·매물대 같은 기술적 분석 용어, 미래 가격 예측 표현, ①②③ 번호 나열, 데이터를 bullet처럼 툭툭 끊어 나열하는 문장(반드시 서술형으로 연결). 스타일: 편하게 설명하는 관찰형 어조를 쓰되 문장마다 종결 표현을 다양하게 바꾸고 같은 어미를 반복하지 마세요",
   "historyNarrative": "【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로 서술",
   "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~3문장 — 없으면 빈 문자열 \"\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석. 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' mainAnalysis·riskFactors와 겹치는 내용 반복 금지, 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중",
   "financialsNarrative": "【[실적 추이]에 데이터가 있을 때만 2~3문장 — 없으면 빈 문자열 \"\"】최근 3개년 매출·영업이익·순이익·ROE 추세와 함의를 짧게. 예) '2023년 적자에서 2024·2025년 연속 흑자 전환했고, 영업이익도 확대되는 흐름입니다. 이 개선 궤도가 이어지는지는 다음 실적 발표에서 확인될 예정입니다.' 숫자를 전부 나열하지 말고 추세(개선/악화/횡보)와 그 의미 위주로, 향후 실적을 예측하지 말고 '다음 실적에서 확인될 예정' 같은 관찰형으로 마무리",
@@ -263,8 +264,16 @@ export async function POST(request: NextRequest) {
       (ad) => (ad.news ?? []).map((n) => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
       () => [],
     );
+    // 업종 매크로 뉴스 — 종목분석(app/api/stock/[ticker]/analysis/route.ts)과 동일한
+    // lib/sector-news.ts 재사용. collectStockAnalysisData가 이미 계산하는 sector(KIS
+    // bstp_kor_isnm)를 그대로 키로 쓰므로 신규 KIS 호출 없음. dbNewsExtraPromise와 같은
+    // 방식으로 analysisDataPromise 완료를 체이닝해 나머지 병렬 조회와 동시에 진행한다.
+    const sectorMacroPromise = analysisDataPromise.then(
+      (ad) => selectSectorMacroNews(ad.sector ?? ''),
+      () => selectSectorMacroNews(''),
+    );
 
-    const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult] = await Promise.allSettled([
+    const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult] = await Promise.allSettled([
       fetchStockPrice(ticker),
       analysisDataPromise,
       selectRelevantNews(ticker, name, dbNewsExtraPromise),
@@ -276,6 +285,7 @@ export async function POST(request: NextRequest) {
       fetchRecentDisclosures(ticker),
       fetchDividendSummary(ticker),
       fetchDividendHistory(ticker),
+      sectorMacroPromise,
     ]);
 
     console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
@@ -288,6 +298,7 @@ export async function POST(request: NextRequest) {
       disclosures: disclosuresResult.status,
       dividendSummary: dividendSummaryResult.status,
       dividendHistory: dividendHistoryResult.status,
+      sectorMacro: sectorMacroResult.status,
       priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
       analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
       newsErr:     newsSelectionResult.status === 'rejected' ? String(newsSelectionResult.reason): null,
@@ -303,6 +314,8 @@ export async function POST(request: NextRequest) {
     const priceData    = priceResult.status    === 'fulfilled' ? priceResult.value    : null;
     const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
     const chartData    = chartResult.status    === 'fulfilled' ? chartResult.value    : [];
+    const sectorMacroNews = sectorMacroResult.status === 'fulfilled' ? sectorMacroResult.value.items : [];
+    const sectorNameForMacro = analysisData?.sector || priceData?.sector || '';
     const sectorPeers   = sectorResult.status     === 'fulfilled' ? sectorResult.value     : [];
 
     // 거래일 상태 — 별도 KIS 재조회 없이 위에서 이미 받은 차트의 마지막 행 날짜를 재사용
@@ -332,6 +345,7 @@ export async function POST(request: NextRequest) {
     let technicalBlock = '데이터 없음';
     let investorBlock  = '데이터 없음';
     let newsBlockStr   = '관련 뉴스 없음';
+    let sectorNewsBlockStr = '업종 관련 매크로 뉴스 없음';
 
     try {
       if (analysisData) technicalBlock = buildTechnicalBlock(analysisData);
@@ -348,6 +362,10 @@ export async function POST(request: NextRequest) {
     try {
       newsBlockStr = buildNewsBlock(relevantNews);
     } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock 실패:', e); }
+
+    try {
+      sectorNewsBlockStr = buildNewsBlock(sectorMacroNews);
+    } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock(업종) 실패:', e); }
 
     const combinedNews = relevantNews.map(n => ({
       title:       n.title,
@@ -366,9 +384,12 @@ export async function POST(request: NextRequest) {
       ? ''
       : ' 단, 오늘은 휴장일이므로 이 뉴스를 "오늘 이 뉴스로 주가가 움직였다"는 실시간 반응으로 서술하지 말고 "다음 거래일 개장 시 참고할 만한 소식"으로 다루세요.';
 
+    const hasSectorMacroNews = sectorMacroNews.length > 0;
     const newsInstruction = (hasRelevantNews
       ? '위 뉴스는 이 종목과 관련도가 높다고 판단되어 매칭된 실제 기사입니다. mainAnalysis를 작성할 때 반드시 이 뉴스를 근거로 최근 주가 변동 원인을 설명하고, 뉴스에 없는 내용을 지어내지 마세요.'
-      : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.')
+      : hasSectorMacroNews
+        ? '이 종목과 직접 관련된 뉴스는 매칭되지 않았지만, 아래 [업종/시장 배경]에 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스가 있습니다. mainAnalysis를 작성할 때 "이 종목만의 뉴스는 없지만 업종 전체가 영향을 받고 있다"는 취지를 밝히고, 그 배경을 근거로 오늘 움직임을 서술하세요 — 이 종목 개별 뉴스가 있는 것처럼 단정하지 마세요.'
+        : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.')
       + marketDayNewsNote;
 
     const profitRate   = currentPrice > 0 && avgPrice > 0
@@ -544,6 +565,10 @@ ${financialsBlock}
 ${newsBlockStr}
 ${newsInstruction}
 
+## 업종/시장 배경 (${sectorNameForMacro || '업종 정보 없음'}, ${buildNewsFreshnessLine(sectorMacroNews)})
+※ 위 [관련 뉴스]와는 별개로, 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스입니다. 이 종목명이 직접 언급되지 않을 수 있습니다.
+${sectorNewsBlockStr}
+
 ## 직전 기업분석과의 차이
 ${historyComparisonBlock}
 
@@ -591,7 +616,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysis에서 판단 없이 사실 
 
     console.log('[DIAGNOSIS] 5. Claude 응답 수신');
     console.log('[TOKEN_USAGE]', {
-      route: 'diagnosis', ticker, hasRelevantNews, disclosureCount: disclosures.length,
+      route: 'diagnosis', ticker, hasRelevantNews, hasSectorMacroNews, disclosureCount: disclosures.length,
       input_tokens: message.usage.input_tokens,
       output_tokens: message.usage.output_tokens,
       cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
@@ -718,7 +743,8 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysis에서 판단 없이 사실 
       finalResult.shortTermOutlook, finalResult.midTermOutlook,
       finalResult.sectorNarrative, finalResult.financialsNarrative, finalResult.disclosureNarrative,
     ].filter(Boolean).join(' ');
-    const diagnosisNewsText = combinedNews.map((n) => `${n.title} ${n.description}`).join(' ');
+    const diagnosisNewsText = combinedNews.map((n) => `${n.title} ${n.description}`).join(' ')
+      + ' ' + sectorMacroNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
     const temporalCheck = checkTemporalConsistency(diagnosisReportText, diagnosisNewsText);
     if (temporalCheck.flagged) {
       console.warn('[DIAGNOSIS] 시간적 사실관계 불일치 감지 (재생성 없음, 모니터링용):', temporalCheck);

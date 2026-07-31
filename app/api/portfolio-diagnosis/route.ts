@@ -17,6 +17,7 @@ import {
 import type { StockAnalysisData } from '@/lib/stock-analysis-data';
 import { fetchDailyChart, fetchIndexRangeChange } from '@/lib/kis-api';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
+import { selectSectorMacroNews } from '@/lib/sector-news';
 import { COMPLIANCE_PRINCIPLE, clampSignal, type Signal } from '@/lib/ai-compliance';
 import {
   nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency,
@@ -53,7 +54,8 @@ const STOCK_SIGNAL_INSTRUCTIONS = `다음 한국 주식의 관찰된 데이터�
 
 signal은 매매 지시가 아니라 현재 수급·가격 패턴에 대한 관찰 결과입니다 — 외국인·기관의 순매수 자금 유입이 우위면 "순유입 우위", 순매도로 자금이 빠져나가는 흐름이 우위면 "순유출 우위", 수익률이 높고 밸류에이션 부담이 겹쳐 차익실현 패턴이 관찰되면 "차익실현 관찰", 그 외에는 "중립·관망"을 선택하세요. 뉴스 기사 제목에 "목표가"라는 단어가 있어도 reason에서는 그 단어를 그대로 쓰지 말고 "영업이익 추정치 상향" 같은 실적 전망치 표현으로만 언급하세요.
 - 관련 뉴스가 주어지면(최우선) 제목만 스치듯 언급하지 말고 "누가/무엇을/왜"가 드러나게 재구성하고, 그 뉴스가 오늘 주가·수급과 실제로 연결되는지까지 한 문장 이상 써서 해석하세요. 예) '외국인이 3거래일 연속 순매도한 것은 최근 발표된 2분기 실적 컨센서스 하향 조정 때문으로 풀이되며, 이는 실적 자체보다 장기공급계약 구조 변화에 따른 일시적 조정에 가깝습니다.'
-- "참고 - 거래대금"이 주어지면 여유가 될 때 reason에 반영하세요 — 다만 뉴스 해석을 밀어내면서까지 우선하지는 마세요. 뉴스가 없는 종목에서는 거래대금·급등이력이 핵심 근거가 됩니다.
+- 이 종목만의 뉴스는 없지만 "업종 배경"이 주어지면, "이 종목만의 뉴스는 없지만 업종 전체가 영향받고 있다"는 취지로 그 배경을 근거로 해석하세요 — 종목 개별 뉴스가 있는 것처럼 단정하지 마세요.
+- "참고 - 거래대금"이 주어지면 여유가 될 때 reason에 반영하세요 — 다만 뉴스 해석을 밀어내면서까지 우선하지는 마세요. 뉴스도 업종 배경도 없는 종목에서는 거래대금·급등이력이 핵심 근거가 됩니다.
 - "참고 - 과거 유사 급등락 이력"이 오늘 상황과 관련 있다고 판단되면 "이전에도 비슷한 급락이 있었고 그때는 ~했다" 식으로 비교 판단을 녹이세요.
 아래에 주어지는 실제 종목 데이터를 분석 대상으로 삼아, 응답의 "ticker" 필드에는 위 플레이스홀더 대신 그 종목의 실제 코드를 채워 넣으세요. ${TEMPORAL_GROUNDING_INSTRUCTION}`;
 
@@ -158,6 +160,7 @@ interface EnrichedHolding extends HoldingInput {
   profit: number; profitRate: number;
   analysisData: StockAnalysisData | null;
   relevantNews: { title: string; summary?: string; date?: string; url?: string }[];
+  sectorMacroNews: NewsCandidate[]; // 이 종목 업종의 매크로 뉴스(종목명 언급 없어도 잡힘) — 업종별 1회만 조회, distinct sector Set 기반
   mdd: number | null;         // 최근 3개월 최대낙폭(%), 음수
   volatility: number | null;  // 최근 3개월 일별 변동성(표준편차, %)
   todayChangeRate: number | null;  // 오늘 vs 전일 종가 등락률(%) — 차트 마지막 2행에서 계산, 신규 API 호출 없음
@@ -239,6 +242,11 @@ function buildStockPrompt(h: EnrichedHolding, marketDayBlock: string): string {
         .join(' / ');
       lines.push(`뉴스: ${newsLines}`);
       lines.push('(위 뉴스를 근거로 reason을 작성하되, 뉴스에 없는 내용은 지어내지 말 것)');
+    } else if (h.sectorMacroNews.length > 0) {
+      const macroLines = h.sectorMacroNews.map(n => n.title).join(' / ');
+      lines.push('뉴스: 이 종목만의 뉴스는 없음');
+      lines.push(`업종 배경(${ad.sector || '업종'}): ${macroLines}`);
+      lines.push('(이 종목 개별 뉴스는 없지만 업종 전체에 영향을 줄 매크로 뉴스가 있음 — reason에서 "이 종목만의 뉴스는 없지만 업종 전체가 영향받고 있다"는 취지로 이 배경을 근거로 활용하되, 종목 개별 뉴스가 있는 것처럼 단정하지 말 것)');
     } else {
       lines.push('뉴스: 관련 뉴스 없음 — reason은 수급·기술적 요인으로만 작성하고 뉴스를 지어내지 말 것');
     }
@@ -328,7 +336,7 @@ async function analyzeOneStock(
     }
 
     // 시간적 사실관계 사후 검증 — N개 종목 병렬 호출이라 재생성은 비용이 커서 로그만 남긴다.
-    const newsText = h.relevantNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+    const newsText = [...h.relevantNews, ...h.sectorMacroNews].map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
     const check = checkTemporalConsistency(parsed.reason ?? '', newsText);
     if (check.flagged) {
       console.warn(`[PORTFOLIO-DIAGNOSIS] ${h.ticker} 시간적 사실관계 불일치 감지 (재생성 없음):`, check);
@@ -393,11 +401,13 @@ function buildCoMovementText(
   // (실측: 삼성전자·SK하이닉스 둘 다 KIS 분류는 "전기·전자"로 동일). KIS 원천 데이터
   // (analysisData.sector)를 우선 쓰고, 없을 때만 AI 라벨로 폴백한다.
   const bySector = new Map<string, { name: string; changeRate: number }[]>();
+  const sectorMacroBySector = new Map<string, NewsCandidate[]>();
   enriched.forEach((h, i) => {
     const sector = h.analysisData?.sector || stockResults[i]?.sector || '';
     if (!sector || h.todayChangeRate === null) return;
     if (!bySector.has(sector)) bySector.set(sector, []);
     bySector.get(sector)!.push({ name: h.name, changeRate: h.todayChangeRate });
+    if (!sectorMacroBySector.has(sector)) sectorMacroBySector.set(sector, h.sectorMacroNews);
   });
 
   const sentences: string[] = [];
@@ -408,7 +418,11 @@ function buildCoMovementText(
     if (!allUp && !allDown) continue;
     const dir   = allUp ? '상승' : '하락';
     const names = items.map(it => `${it.name}(${it.changeRate >= 0 ? '+' : ''}${it.changeRate.toFixed(1)}%)`).join(', ');
-    sentences.push(`${sector} 섹터 비중 종목(${names})이 오늘 같은 방향(${dir})으로 움직였습니다.`);
+    // 이 섹터의 매크로 뉴스가 있으면 "왜 동조화됐는지"의 직접적 근거로 같이 제시 —
+    // coMovementNarrative 지시문("왜 그런 동조화가 생겼는지")이 바로 답할 수 있는 재료.
+    const macroNews = sectorMacroBySector.get(sector) ?? [];
+    const macroNote = macroNews.length > 0 ? ` (참고 — 이 업종 관련 매크로 뉴스: "${macroNews[0].title}")` : '';
+    sentences.push(`${sector} 섹터 비중 종목(${names})이 오늘 같은 방향(${dir})으로 움직였습니다.${macroNote}`);
   }
   return sentences.length > 0 ? sentences.join(' ') : null;
 }
@@ -427,6 +441,7 @@ async function analyzePortfolioSummary(
   stockResults: StockAiResult[],
   nameMap: Record<string, string>,   // ticker → 종목명
   newsMap: Record<string, { title: string; summary?: string }[]>, // ticker → 관련도 상위 뉴스
+  sectorMacroNewsFlat: NewsCandidate[], // 시간적 사실관계 검증용 — coMovementFactsLine에 이미 반영된 매크로 뉴스(중복 제거됨)
   totalProfitRate: number,
   holdingCount: number,
   benchmark: { portfolioProfitRate: number; kospiChangeRate: number } | null,
@@ -538,7 +553,7 @@ async function analyzePortfolioSummary(
 
     // 시간적 사실관계 사후 검증 — 포트폴리오 요약은 1회 호출이지만, 종목별 뉴스가 이미
     // Stage 1에서 개별 검증되므로 여기서는 종합 텍스트만 가볍게 로그로 남긴다(재생성 없음).
-    const allNewsText = Object.values(newsMap).flat().map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+    const allNewsText = [...Object.values(newsMap).flat(), ...sectorMacroNewsFlat].map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
     const summaryText = [parsed.summary, parsed.historyNarrative, parsed.contributionNarrative, parsed.holdingPeriodNarrative, parsed.coMovementNarrative, parsed.shortTermOutlook, parsed.midTermOutlook].filter(Boolean).join(' ');
     const check = checkTemporalConsistency(summaryText, allNewsText);
     if (check.flagged) {
@@ -680,7 +695,31 @@ export async function POST(request: NextRequest) {
           withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
         );
 
-        const [analysisResults, chartResults, newsSelectionResults] = await Promise.all([
+        // 업종 매크로 뉴스 — 종목분석/기업분석과 동일한 lib/sector-news.ts 재사용.
+        // holdings 수가 아니라 "distinct 업종 수"만큼만 fan-out(같은 업종 종목이 여러
+        // 개면 1번만 조회) — analysisDataPromises가 전부 resolve된 뒤에야 각 종목의
+        // sector(KIS bstp_kor_isnm)를 알 수 있으므로 그 결과를 체이닝한다. 단,
+        // analysisDataPromises 자체는 위 analysisResults와 같은 promise 객체를
+        // 재사용하므로(참조 동일) collectStockAnalysisData가 중복 호출되지는 않는다.
+        const sectorMacroMapPromise: Promise<Map<string, NewsCandidate[]>> = Promise.allSettled(analysisDataPromises)
+          .then(async (results) => {
+            const sectors = new Set<string>();
+            results.forEach((r) => {
+              const s = (r.status === 'fulfilled' ? r.value?.sector : '') ?? '';
+              if (s.trim().length >= 2) sectors.add(s.trim());
+            });
+            const sectorList = [...sectors];
+            const settled = await Promise.allSettled(sectorList.map((s) => selectSectorMacroNews(s)));
+            const map = new Map<string, NewsCandidate[]>();
+            sectorList.forEach((s, i) => {
+              const r = settled[i];
+              map.set(s, r.status === 'fulfilled' ? r.value.items : []);
+            });
+            console.log(`[PORTFOLIO-DIAGNOSIS] 업종 매크로 뉴스 fan-out: 종목 ${holdings.length}개 → 업종 ${sectorList.length}개 (${sectorList.join(', ') || '없음'})`);
+            return map;
+          });
+
+        const [analysisResults, chartResults, newsSelectionResults, sectorMacroMap] = await Promise.all([
           Promise.allSettled(analysisDataPromises),
           Promise.allSettled(
             // '3M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
@@ -712,6 +751,7 @@ export async function POST(request: NextRequest) {
               );
             }),
           ),
+          sectorMacroMapPromise,
         ]);
 
         const enriched: EnrichedHolding[] = holdings.map((h, i) => {
@@ -723,6 +763,7 @@ export async function POST(request: NextRequest) {
           const value        = currentPrice * h.quantity;
           const profit       = value - invested;
           const profitRate   = h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : 0;
+          const sectorMacroNews = sectorMacroMap.get((ad?.sector ?? '').trim()) ?? [];
 
           const newsRes = newsSelectionResults[i];
           const relevantNews = newsRes.status === 'fulfilled' ? newsRes.value.items : [];
@@ -754,7 +795,7 @@ export async function POST(request: NextRequest) {
 
           return {
             ...h, name: resolvedName, currentPrice, invested, value, profit, profitRate,
-            analysisData: ad, relevantNews,
+            analysisData: ad, relevantNews, sectorMacroNews,
             mdd:        risk?.mdd        ?? null,
             volatility: risk?.volatility ?? null,
             todayChangeRate, todayContribution, surgeHistoryBlock, tradingValueBlock,
@@ -985,8 +1026,15 @@ export async function POST(request: NextRequest) {
         const emitPortfolioPartial = (key: string, value: string) =>
           send(controller, { type: 'portfolio-field-partial', key, value });
 
+        // 시간적 사실관계 검증용 — 업종별로 이미 중복 제거된 sectorMacroNews를 다시
+        // 제목 기준으로 dedup(같은 업종 종목이 여러 개면 동일 배열이 여러 번 들어옴).
+        const seenSectorMacroTitles = new Set<string>();
+        const sectorMacroNewsFlat = enriched
+          .flatMap(h => h.sectorMacroNews)
+          .filter(n => (seenSectorMacroTitles.has(n.title) ? false : (seenSectorMacroTitles.add(n.title), true)));
+
         const summary = await analyzePortfolioSummary(
-          stockResults, nameMap, newsMap, totalProfitRate, enriched.length, benchmark,
+          stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, benchmark,
           { lossCount, lossWeightPct, riskiestLines },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
           surgeFactsLine, coMovementFactsLine, gapTone, portfolioMarketDayBlock,

@@ -20,6 +20,7 @@ export interface StockInfo {
   marketCap: string;
   per: number;
   pbr: number;
+  sector: string;
   isCached?: boolean;
   cachedAt?: string;
 }
