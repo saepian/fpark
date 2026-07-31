@@ -396,9 +396,18 @@ export default function DomesticMarketPage() {
     return () => { cancelled = true; };
   }, [activeTab]);
 
-  // 5분 자동 새로고침 — refreshTick 증가가 곧 "갱신 신호". 장중(09:00~15:30 KST)이면서
-  // 탭이 활성 상태일 때만 실제로 데이터를 다시 받아온다(장마감 후엔 가격이 안 바뀌므로
-  // 불필요한 API 호출 차단, 백그라운드 탭에서도 불필요한 호출 차단).
+  // 5분 자동 새로고침 — refreshTick 증가가 곧 "갱신 신호". dueForRefresh()는 두 트리거를
+  // OR로 합친 것이고, 둘 다 결국 같은 fetch('/api/market') 호출(loadAll)로 이어지며
+  // isRefreshingRef로 중복 호출을 막는다.
+  //
+  // 1) KOSPI/KOSDAQ 장마감 확정치 1회성 캐치업 — 마지막 갱신이 장중(장마감 전) 값이면
+  //    TTL과 무관하게 즉시 한 번 갱신한다. 이 갱신이 성공하면 lastUpdated가 장마감
+  //    이후 시각이 되어 이 조건은 다시 참이 되지 않는다(자기 제한적, 별도 플래그 불필요).
+  // 2) USD/KRW용 상시 5분 폴링 — 장중이든 장외든 상관없이 마지막 갱신 후 5분이 지나면
+  //    갱신한다. KOSPI/KOSDAQ은 장마감 후 안 바뀌니 이 폴링으로는 사실상 안 바뀌지만,
+  //    USD/KRW는 24시간 움직이므로 이 탭이 계속 열려있는 동안 계속 최신을 유지해야 한다.
+  //    서버(market/route.ts)의 market_fx_usdkrw가 이미 장 상태 무관 5분 독립 TTL이라,
+  //    클라이언트는 시장개장 여부를 따질 필요 없이 그냥 5분마다 호출만 하면 된다.
   //
   // 고정 5분 틱 대신 짧은 체크 틱(30초)마다 "마지막 갱신 이후 5분이 지났는가"를
   // 확인하는 방식 — 체크 시점에 탭이 숨겨져 있어 한두 틱을 건너뛰어도(브라우저의
@@ -414,11 +423,10 @@ export default function DomesticMarketPage() {
       const last = lastUpdatedRef.current;
       if (!last) return false;
       if (isKoreanMarketOpen()) return Date.now() - last.getTime() >= POLL_MS;
-      // 장마감 이후 — 마지막 갱신이 장중(장마감 전) 값이면 확정치로 1회만 캐치업.
-      // 이 갱신이 성공하면 lastUpdated가 장마감 이후 시각으로 바뀌어 다음부터는
-      // 다시 false가 되므로(서버 사이드 강제 갱신과 동일한 자기 제한적 구조) 별도
-      // "이미 캐치업했는지" 플래그가 필요 없다.
-      return kstMinutesSinceMidnight(last) < MARKET_CLOSE_MINUTES_KST;
+      // 장마감 이후: (1) KOSPI/KOSDAQ 확정치 1회성 캐치업이 아직 안 됐으면 즉시 트리거,
+      // 아니면 (2) USD/KRW를 위해 5분 경과 여부로 계속 트리거.
+      if (kstMinutesSinceMidnight(last) < MARKET_CLOSE_MINUTES_KST) return true;
+      return Date.now() - last.getTime() >= POLL_MS;
     };
 
     const tick = () => {
