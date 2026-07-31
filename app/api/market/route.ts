@@ -12,11 +12,27 @@ const CACHE_KEY = 'market_indices';
 // 1순위 시도를 제거함 — EXCD=FX/SYMB=USDKRW뿐 아니라 정상 동작해야 할 해외주식 심볼
 // (EXCD=NAS/SYMB=AAPL)로도 동일하게 404(빈 바디)가 나는 것을 실계좌로 확인, 이 KIS 계정에
 // 해외주식 API 권한 자체가 없는 것으로 보임(코드 문제가 아니라 KIS Developers 콘솔에서
-// 별도 신청/승인이 필요한 계정 설정 문제). 이 함수는 처음부터 한 번도 성공한 적이 없어
-// 보이고(git log 기준 원본 커밋 이후 수정 이력 없음) 매 요청마다 확실히 실패하는 호출을
-// 반복할 이유가 없어 제거 — open.er-api.com이 이미 안정적으로 동작 중이라 1순위로 승격.
+// 별도 신청/승인이 필요한 계정 설정 문제 — 2026-07-31 재확인 시점에도 동일하게 404,
+// 아직 미해결). open.er-api.com이 이미 안정적으로 동작 중이라 1순위로 승격.
+//
+// 2026-07-31: 위 "1순위 open.er-api.com" 문구와 실제 동작이 어긋나 있던 버그 정리 —
+// open.er-api.com이 성공해도, 뒤이어 Yahoo FX가 성공하면 change/changeRate만 "보완"하는
+// 게 아니라 value까지 통째로 Yahoo 값으로 덮어썼다(`return yahoo`). 즉 Yahoo가 정상
+// 응답하는 한(대부분의 경우) 실제 화면엔 항상 Yahoo 값이 떴고, open.er-api.com의 환율은
+// Yahoo가 실패할 때만 쓰이는 사실상의 폴백이었다 — 실측(fpark 표시값 1,436.70원)이 Yahoo
+// KRW=X의 regularMarketPrice와 정확히 일치, open.er-api.com의 rates.KRW(1,429.51원)와는
+// 무관함을 확인. 게다가 open.er-api.com 무료 티어는 하루 1회만 갱신되는 소스라(공식 확인,
+// exchangerate-api.com 문서) 애초에 "실시간 1순위"로는 부적합하다. 실제 동작대로 Yahoo를
+// 1순위로 정직하게 재작성하고, open.er-api.com은 Yahoo 실패 시에만 쓰는 순수 폴백으로
+// 남긴다(단, 이 경우 change/changeRate는 계산 근거가 없어 0으로 반환 — 기존과 동일).
 async function fetchUsdKrwWithFallback(): Promise<MarketIndexData | null> {
-  // 1순위: open.er-api.com (무료, 안정적, API 키 불필요)
+  // 1순위: Yahoo Finance — 실측상 약 15~20분 지연(무인증 크로스 시세의 한계, 완전한
+  // 실시간은 아님). 화면 표시부에는 이 지연을 고지한다(domestic/global 페이지, MarketSummary).
+  const yahoo = await fetchYahooFX('KRW=X').catch(() => null);
+  if (yahoo) return yahoo;
+
+  // 2순위: open.er-api.com (무료, API 키 불필요, 단 하루 1회 갱신 — Yahoo가 실패했을
+  // 때만 쓰는 최후 폴백. change/changeRate 계산 근거가 없어 0으로 채움).
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/USD', {
       cache: 'no-store',
@@ -24,17 +40,13 @@ async function fetchUsdKrwWithFallback(): Promise<MarketIndexData | null> {
     });
     const data = await res.json();
     if (data.result === 'success' && data.rates?.KRW) {
-      // Yahoo FX로 change/changeRate 보완 시도
-      const yahoo = await fetchYahooFX('KRW=X').catch(() => null);
-      if (yahoo) return yahoo;
       return { value: data.rates.KRW, change: 0, changeRate: 0 };
     }
   } catch (e) {
     console.warn('[MARKET] open.er-api.com 환율 조회 실패:', e instanceof Error ? e.message : e);
   }
 
-  // 2순위: Yahoo Finance
-  return fetchYahooFX('KRW=X').catch(() => null);
+  return null;
 }
 
 // 국고채 3년: Yahoo Reuters RIC 'KR3YT=RR' (1순위) → 네이버 스크래핑 (2순위)

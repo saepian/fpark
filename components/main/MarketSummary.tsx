@@ -197,6 +197,14 @@ export default function MarketSummary() {
             {' '}({changeSign}{item.changeRate.toFixed(2)}%)
           </div>
 
+          {/* USD/KRW만 KOSPI/KOSDAQ(KIS)와 소스가 달라(Yahoo Finance) 별도 지연 고지 —
+              app/market/global/page.tsx 상단 고지와 같은 톤 */}
+          {item.label === 'USD/KRW' && (
+            <p className="text-[10px] text-slate-600 -mt-2 mb-3 leading-tight">
+              Yahoo Finance 기준 · 실시간 대비 약 15~20분 지연
+            </p>
+          )}
+
           {/* 미니 스파크차트 (KOSPI/KOSDAQ만) */}
           {item.showChart && (
             <div className="h-14">

@@ -57,10 +57,12 @@ const RANK_BADGE: Record<number, string> = {
   3: 'bg-orange-800/20 text-orange-400 border border-orange-700/30',
 };
 
-const INDEX_CARDS: { label: string; key: string; isYield?: boolean }[] = [
+const INDEX_CARDS: { label: string; key: string; isYield?: boolean; disclaimer?: string }[] = [
   { label: 'KOSPI',      key: 'KOSPI' },
   { label: 'KOSDAQ',     key: 'KOSDAQ' },
-  { label: 'USD/KRW',    key: 'USD_KRW' },
+  // USD/KRW만 KOSPI/KOSDAQ(KIS)와 소스가 달라(Yahoo Finance) 별도 지연 고지 —
+  // app/market/global/page.tsx의 페이지 상단 고지와 같은 톤, 카드 단위로 스코프.
+  { label: 'USD/KRW',    key: 'USD_KRW', disclaimer: 'Yahoo Finance 기준 · 실시간 대비 약 15~20분 지연' },
   { label: '국고채 3년',  key: 'BOND_3Y', isYield: true },
 ];
 
@@ -111,13 +113,14 @@ function Sparkline({ closes, isUp, uid }: { closes: number[]; isUp: boolean; uid
 // ── Index Card ─────────────────────────────────────────────────────────────────
 
 function IndexCardView({
-  label, data, closes, uid, isYield = false,
+  label, data, closes, uid, isYield = false, disclaimer,
 }: {
   label: string;
   data: IndexData | null | undefined;
   closes: number[];
   uid: string;
   isYield?: boolean;
+  disclaimer?: string;
 }) {
   if (!data) {
     return (
@@ -149,6 +152,9 @@ function IndexCardView({
             ({isUp ? '+' : ''}{data.changeRate.toFixed(2)}%)
           </span>
         </p>
+        {disclaimer && (
+          <p className="text-[9.5px] text-slate-600 mt-1 leading-tight">{disclaimer}</p>
+        )}
       </div>
       {closes.length >= 2 && (
         <div className="h-12 w-full">
@@ -603,7 +609,7 @@ export default function DomesticMarketPage() {
 
       {/* 지수 카드 4개 — 모바일 2x2 그리드, md 이상은 기존 가로 배치 */}
       <div className="grid grid-cols-2 gap-3 mb-6 md:flex">
-        {INDEX_CARDS.map(({ label, key, isYield }) => (
+        {INDEX_CARDS.map(({ label, key, isYield, disclaimer }) => (
           <IndexCardView
             key={key}
             label={label}
@@ -611,6 +617,7 @@ export default function DomesticMarketPage() {
             closes={getCloses(key)}
             uid={key}
             isYield={isYield}
+            disclaimer={disclaimer}
           />
         ))}
       </div>
