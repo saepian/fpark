@@ -177,7 +177,26 @@ export async function selectRelevantNews(
     selected = fallback();
   }
 
-  selected = selected.slice(0, NEWS_SELECTION_MAX);
+  // 2026-07-31: 선별("이 5건을 고를지")과 표시 순서("고른 걸 어떤 순서로 보여줄지")는
+  // 별개 문제인데, 후자를 정하는 로직이 아예 없어서 Haiku가 반환한 인덱스 순서(선택
+  // 우선순위 판단 과정의 부산물일 뿐 시간순이 아님)가 그대로 화면 표시 순서가 되고
+  // 있었다 — 관련 뉴스 위젯에서 "18분 전 → 5시간 전 → 25분 전"처럼 뒤섞여 보이는
+  // 버그로 실측 확인. 최신순으로 재정렬한다.
+  // date가 없거나 파싱 불가(NaN)면 가장 오래된 것으로 취급해 맨 뒤로 보낸다 — 호출부
+  // 4곳 중 3곳(app/api/stock/[ticker]/analysis, lib/stock-analysis-data.ts 경유 기업분석/
+  // 포트폴리오진단)이 date를 toLocaleDateString('ko-KR')("2026. 7. 31." 형식)으로 넘겨
+  // 시각 정보 없이 자정으로 뭉개지는데, 이 값 자체는 Node(V8)가 관대하게 파싱해 NaN은
+  // 안 나지만 다른 포맷이 섞이거나 완전히 깨진 문자열이 들어와도 정렬이 깨지지 않도록
+  // NaN까지 명시적으로 방어한다(Array.sort는 비교 함수가 NaN을 반환하면 동작이
+  // 명세상 정의돼 있지 않음).
+  const dateValue = (d?: string): number => {
+    if (!d) return -Infinity;
+    const t = new Date(d).getTime();
+    return isNaN(t) ? -Infinity : t;
+  };
+  selected = selected
+    .slice(0, NEWS_SELECTION_MAX)
+    .sort((a, b) => dateValue(b.date) - dateValue(a.date));
   await saveToCache(ticker, selected);
   return { items: selected, isCached: false, apiError: false };
 }

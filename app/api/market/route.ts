@@ -3,10 +3,21 @@ import { fetchMarketIndex } from '../../../lib/kis-api';
 import { supabase } from '../../../lib/supabase';
 import { isKoreanMarketOpen, getLastTradingDate, fetchYahooIndex } from '../../../lib/market-utils';
 import type { MarketResponse, MarketIndexData } from '../../../lib/types';
+import type { Database } from '../../../lib/database.types';
 
 export const dynamic = 'force-dynamic';
 
 const CACHE_KEY = 'market_indices';
+
+// 2026-07-31: USD_KRW가 market_indices와 같은 row/TTL을 썼던 게 문제였음 — KOSPI/KOSDAQ
+// 전용으로 설계된 isPostCloseCacheStale()(장마감 후 1회 강제갱신) 발동 이후엔 다시
+// CACHE_TTL_MS_CLOSED(30분)로 돌아가는데, 이건 "한국 증시는 마감 후 안 움직인다"는
+// 전제라 KOSPI/KOSDAQ엔 맞지만 24시간 움직이는 환율엔 안 맞았다(실측: 장마감 후
+// 12분 만에 이미 캐시 값이 실제 환율과 어긋남). USD_KRW만 별도 캐시 row로 분리해
+// 장중/장외/주말 구분 없이 항상 5분 TTL을 적용한다. USDJPY 등 다른 환율·해외지수도
+// 구조적으로 같은 문제가 있지만 이번 스코프에서는 USD_KRW만 분리(별도 작업으로 남김).
+const FX_CACHE_KEY = 'market_fx_usdkrw';
+const FX_TTL_MS = 5 * 60_000; // 항상 5분 — 장 상태 무관
 
 // 2026-07-09: KIS 해외주식 당일체결(inquire-price, HHDFS00000300)로 USD/KRW를 가져오던
 // 1순위 시도를 제거함 — EXCD=FX/SYMB=USDKRW뿐 아니라 정상 동작해야 할 해외주식 심볼
@@ -268,11 +279,53 @@ function isPostCloseCacheStale(cachedUpdatedAt: string): boolean {
   return generatedBeforeClose && nowIsAfterClose;
 }
 
+// USD_KRW 전용 캐시 — market_indices와 독립적으로 항상 FX_TTL_MS(5분)만 본다.
+// isKoreanMarketOpen()을 아예 참조하지 않으므로 장중/장외/주말 구분이 없다.
+async function getFreshUsdKrw(): Promise<MarketIndexData | null> {
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', FX_CACHE_KEY)
+      .single();
+    if (cache) {
+      const age = Date.now() - new Date(cache.updated_at).getTime();
+      if (age < FX_TTL_MS) return cache.data as unknown as MarketIndexData;
+    }
+  } catch (e) {
+    console.warn('[MARKET] USD/KRW 캐시 조회 실패, 라이브로 진행:', e instanceof Error ? e.message : e);
+  }
+  return null;
+}
+
+// 단독 갱신 — market_indices는 캐시 히트라 fetchLive() 전체를 돌릴 필요는 없고
+// USD_KRW만 새로 조회해야 하는 경우에 씀.
+async function refreshUsdKrw(): Promise<MarketIndexData | null> {
+  const usdKrw = await fetchUsdKrwWithFallback();
+  if (usdKrw) {
+    after(async () => {
+      const { error } = await supabase.from('market_cache').upsert({
+        key: FX_CACHE_KEY,
+        data: usdKrw as unknown as Database['public']['Tables']['market_cache']['Row']['data'],
+        updated_at: new Date().toISOString(),
+      });
+      if (error) console.warn('[MARKET] USD/KRW 캐시 저장 실패:', error.message);
+    });
+  }
+  return usdKrw;
+}
+
 export async function GET() {
   const marketOpen  = isKoreanMarketOpen();
   const prevDate    = marketOpen ? null : getLastTradingDate();
   const isPrevDay   = !marketOpen;
   const prevDateLabel = prevDate?.label;
+
+  // USD_KRW는 market_indices와 완전히 독립적으로 5분 TTL만 본다(장 상태 무관, 위
+  // FX_CACHE_KEY 설명 참고). 여기서 신선하면 확보해두고, 아래에서 market_indices가
+  // 캐시 히트로 끝나는 경우 그대로 쓴다 — market_indices가 라이브로 가는 경우엔
+  // fetchLive()가 어차피 USD_KRW도 같이 가져오므로 그 값(항상 더 최신)으로 덮어쓴다.
+  let usdKrwValue = await getFreshUsdKrw();
 
   // TTL 이내면 라이브 호출 없이 캐시 재사용
   const ttlMs = marketOpen ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
@@ -290,7 +343,11 @@ export async function GET() {
         const age = Date.now() - new Date(cache.updated_at).getTime();
         if (age < ttlMs) {
           console.log(`[MARKET] TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s) — 라이브 호출 생략`);
-          return NextResponse.json({ ...(cache.data as MarketResponse), isCached: true, cachedAt: cache.updated_at, isPrevDay, prevDateLabel });
+          // market_indices는 캐시로 충분하지만, USD_KRW는 별도 5분 TTL이 지났을 수
+          // 있으니 이 경우에만 USD_KRW 하나만 단독 갱신(무거운 fetchLive() 전체를
+          // 다시 돌리지 않음).
+          if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
+          return NextResponse.json({ ...(cache.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cache.updated_at, isPrevDay, prevDateLabel });
         }
       }
     }
@@ -331,13 +388,25 @@ export async function GET() {
       });
       if (error) console.warn('[MARKET] 캐시 저장 실패:', error.message);
     });
-    return NextResponse.json({ ...live, isCached: false, cachedAt: null, isPrevDay, prevDateLabel });
+    // fetchLive()가 이미 USD_KRW도 같이 가져왔으므로, 이 기회에 USD_KRW 전용 캐시도
+    // 같이 최신화한다(market_indices와 별개 row).
+    if (live.USD_KRW) {
+      after(async () => {
+        const { error } = await supabase.from('market_cache').upsert({
+          key: FX_CACHE_KEY,
+          data: live.USD_KRW as unknown as Database['public']['Tables']['market_cache']['Row']['data'],
+          updated_at: new Date().toISOString(),
+        });
+        if (error) console.warn('[MARKET] USD/KRW 캐시 저장 실패:', error.message);
+      });
+    }
+    return NextResponse.json({ ...live, USD_KRW: live.USD_KRW ?? usdKrwValue, isCached: false, cachedAt: null, isPrevDay, prevDateLabel });
   } catch (e) {
     console.error('[MARKET] 지수 조회 실패, 캐시로 폴백:', e instanceof Error ? e.message : e);
   }
 
   const cached = await getCache();
-  if (cached) return NextResponse.json({ ...cached, isPrevDay, prevDateLabel });
+  if (cached) return NextResponse.json({ ...cached, USD_KRW: usdKrwValue ?? cached.USD_KRW, isPrevDay, prevDateLabel });
 
   return NextResponse.json({ error: '시장 데이터를 불러올 수 없습니다.' }, { status: 503 });
 }
