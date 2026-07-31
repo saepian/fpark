@@ -730,7 +730,7 @@ export default function DomesticMarketPage() {
       </div>
 
       {/* 관심종목 */}
-      <WatchlistSection />
+      <WatchlistSection refreshTick={refreshTick} />
 
     </div>
     </div>

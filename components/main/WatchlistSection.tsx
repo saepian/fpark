@@ -45,7 +45,7 @@ async function refetchPrices(tickers: string[]): Promise<Map<string, { price: nu
   return result;
 }
 
-export default function WatchlistSection() {
+export default function WatchlistSection({ refreshTick = 0 }: { refreshTick?: number } = {}) {
   const router = useRouter();
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const [items, setItems]       = useState<WatchItem[]>([]);
@@ -59,6 +59,7 @@ export default function WatchlistSection() {
   const retryTimerRef             = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleRetry = useCallback((failed: string[]) => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     if (failed.length === 0) return;
     setRetrying(new Set(failed));
     retryTimerRef.current = setTimeout(async () => {
@@ -73,29 +74,41 @@ export default function WatchlistSection() {
     }, 3000);
   }, []);
 
-  useEffect(() => {
+  const loadWatchlist = useCallback(async () => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) { setLoggedIn(false); setLoading(false); return; }
-      setLoggedIn(true);
-      fetch('/api/watchlist')
-        .then(r => r.json())
-        .then(data => {
-          if (Array.isArray(data)) {
-            setItems(data);
-            const failed = (data as WatchItem[])
-              .filter(i => i.price === 0)
-              .map(i => i.ticker);
-            scheduleRetry(failed);
-          }
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    });
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoggedIn(false); setLoading(false); return; }
+    setLoggedIn(true);
+    try {
+      const data = await fetch('/api/watchlist').then(r => r.json());
+      if (Array.isArray(data)) {
+        setItems(data);
+        const failed = (data as WatchItem[])
+          .filter(i => i.price === 0)
+          .map(i => i.ticker);
+        scheduleRetry(failed);
+      }
+    } catch {
+      // 조회 실패 — 기존 목록 유지
+    } finally {
+      setLoading(false);
+    }
+  }, [scheduleRetry]);
+
+  // 최초 로드
+  useEffect(() => {
+    loadWatchlist();
     return () => {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
-  }, [scheduleRetry]);
+  }, [loadWatchlist]);
+
+  // domestic 페이지의 5분 자동 새로고침 캐치업 신호 — 랭킹 테이블과 동일하게
+  // refreshTick 변화 시에만(0은 최초 마운트이므로 스킵) 조용히 재조회한다.
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    loadWatchlist();
+  }, [refreshTick, loadWatchlist]);
 
   const n            = items.length;
   const needCarousel = n > VISIBLE;
