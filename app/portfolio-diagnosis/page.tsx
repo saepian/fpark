@@ -14,6 +14,7 @@ import PageBackground from '@/components/layout/PageBackground';
 import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChangeTable';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -73,12 +74,17 @@ interface PortfolioHistory {
   narrative: string;
 }
 
+interface PortfolioSummarySections {
+  background: string; newsInterpretation: string; historicalComparison: string; judgment: string;
+}
+
 interface PortfolioResult {
   totalInvested:    number;
   totalValue:       number;
   totalProfit:      number;
   totalProfitRate:  number;
   summary:          string;
+  summarySections?: PortfolioSummarySections; // 있으면 소제목별 렌더링, 없으면(과거 레코드) summary 문자열로 폴백
   sectors:          Sector[];
   holdings:         HoldingResult[];
   riskFactors?:        string[];
@@ -175,7 +181,7 @@ function applyPortfolioField(prev: StreamedResult | null, key: string, value: un
 function Card({ title, children, className = '', ...rest }: { title?: string; children: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`} {...rest}>
-      {title && <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">{title}</p>}
+      {title && <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>{title}</p>}
       {children}
     </div>
   );
@@ -250,7 +256,7 @@ function PortfolioHistoryCard({ result, typingKey, stage2Failed }: { result: Str
 
   return (
     <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
-      <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
+      <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-wide mb-2`}>{label}</p>
       {!isFirst && (
         <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
           {rateDelta !== null && (
@@ -769,30 +775,55 @@ export default function PortfolioDiagnosisPage() {
               <div className="px-8 py-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Sparkles className="w-4 h-4 text-indigo-400" />
-                  <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
+                  <p className={`${SECTION_TITLE_CLASS} text-indigo-400/70 uppercase tracking-widest`}>AI 종합 평가</p>
                 </div>
-                {result.summary !== undefined ? (
-                  <div className="flex flex-col gap-3">
-                    {result.summary
-                      .replace(/([.!?])\s+/g, '$1\n')
-                      .split('\n')
-                      .filter(Boolean)
-                      .reduce<string[][]>((acc, s, i) => {
-                        if (i % 2 === 0) acc.push([s]);
-                        else acc[acc.length - 1].push(s);
-                        return acc;
-                      }, [])
-                      .map((group, i) => (
-                        <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>
-                          {group.join(' ')}
-                        </p>
-                      ))
-                    }
-                    {typingPortfolioKey === 'summary' && <TypingCursor />}
-                  </div>
-                ) : (
-                  <FieldSkeleton lines={4} />
-                )}
+                {(() => {
+                  const sections = result.summarySections;
+                  const hasSections = sections && Object.values(sections).some(Boolean);
+                  if (hasSections) {
+                    const blocks = [
+                      { label: '구조적 배경', text: sections.background },
+                      { label: '뉴스 해석',   text: sections.newsInterpretation },
+                      { label: '과거 유사 이력', text: sections.historicalComparison },
+                      { label: '종합 판단',   text: sections.judgment },
+                    ].filter((b) => b.text);
+                    return (
+                      <div className="flex flex-col gap-4">
+                        {blocks.map((b) => (
+                          <div key={b.label}>
+                            <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                            <p className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+                  if (result.summary !== undefined) {
+                    // 2026-08-03 이전 방식 폴백 — summarySections가 없을 때(예상 밖 실패
+                    // 케이스 등)만 예전처럼 문장 2개씩 묶어 단락처럼 보여준다.
+                    return (
+                      <div className="flex flex-col gap-3">
+                        {result.summary
+                          .replace(/([.!?])\s+/g, '$1\n')
+                          .split('\n')
+                          .filter(Boolean)
+                          .reduce<string[][]>((acc, s, i) => {
+                            if (i % 2 === 0) acc.push([s]);
+                            else acc[acc.length - 1].push(s);
+                            return acc;
+                          }, [])
+                          .map((group, i) => (
+                            <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>
+                              {group.join(' ')}
+                            </p>
+                          ))
+                        }
+                        {typingPortfolioKey === 'summary' && <TypingCursor />}
+                      </div>
+                    );
+                  }
+                  return <FieldSkeleton lines={4} />;
+                })()}
               </div>
             </div>
           ))}
@@ -879,7 +910,7 @@ export default function PortfolioDiagnosisPage() {
             <div className={`grid grid-cols-1 ${result.coMovementText ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
               {(topContributors.positive.length > 0 || topContributors.negative.length > 0) && (
                 <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                  <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-1`}>
                     오늘 손익 영향이 가장 큰 {topContributors.n}종목
                   </p>
                   <p className="text-[10px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
@@ -907,7 +938,7 @@ export default function PortfolioDiagnosisPage() {
               )}
               {result.coMovementText && (
                 <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">섹터 동조화 관찰</p>
+                  <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-3`}>섹터 동조화 관찰</p>
                   <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>
                   {result.coMovementNarrative !== undefined && (
                     <p className="text-[13px] text-slate-300 leading-relaxed">
@@ -997,7 +1028,7 @@ export default function PortfolioDiagnosisPage() {
               {(result.riskFactors?.length ?? 0) > 0 && (
                 <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-4">
-                    <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                    <span className={`px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       Risk Factors
                     </span>
                   </div>
@@ -1014,7 +1045,7 @@ export default function PortfolioDiagnosisPage() {
               {(result.opportunityFactors?.length ?? 0) > 0 && (
                 <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-4">
-                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                    <span className={`px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       Opportunity Factors
                     </span>
                   </div>
@@ -1037,7 +1068,7 @@ export default function PortfolioDiagnosisPage() {
               {result.shortTermOutlook && (
                 <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
+                    <span className={`px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       단기 관찰 변수
                     </span>
                   </div>
@@ -1049,7 +1080,7 @@ export default function PortfolioDiagnosisPage() {
               {result.midTermOutlook && (
                 <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
+                    <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       중기 관찰 변수
                     </span>
                   </div>

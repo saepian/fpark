@@ -243,7 +243,12 @@ describe('StreamingFieldParser.feedWithPartial (문자단위 타이핑 효과)',
 
 describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors)", () => {
   const PORTFOLIO_SAMPLE = {
-    summary: '포트폴리오는 반도체 섹터에 집중돼 있으며 오늘 소폭 하락했다.',
+    summarySections: {
+      background: '포트폴리오는 반도체 섹터에 집중돼 있으며 오늘 소폭 하락했다.',
+      newsInterpretation: '',
+      historicalComparison: '',
+      judgment: '이번 하락은 업종 전체 심리 위축에 가깝다.',
+    },
     sectors: [
       { name: '반도체', tickers: ['005930', '000660'], weight: 60, warning: true },
       { name: '제약', tickers: ['185750'], weight: 40, warning: false },
@@ -304,7 +309,7 @@ describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors)", (
     expect(fields.find(f => f.key === 'riskFactors')?.value).toEqual(PORTFOLIO_SAMPLE.riskFactors);
   });
 
-  it('문자 단위로 흘려도 summary/sectors/riskFactors 이후 모든 문자열 필드가 순서대로 정확히 완결된다(엔드투엔드)', () => {
+  it('문자 단위로 흘려도 summarySections/sectors/riskFactors 이후 모든 문자열 필드가 순서대로 정확히 완결된다(엔드투엔드)', () => {
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const full = JSON.stringify(PORTFOLIO_SAMPLE);
     const collected: Record<string, unknown> = {};

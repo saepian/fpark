@@ -257,9 +257,12 @@ export const PORTFOLIO_STOCK_FIELD_SPECS: FieldSpec[] = [
 ];
 
 // 포트폴리오 종합 분석(Stage 2) 스키마 — PORTFOLIO_SUMMARY_INSTRUCTIONS 키 순서와
-// 반드시 일치해야 한다. sectors만 'json'(중첩 객체 배열) — partial 없이 완결 시에만 노출.
+// 반드시 일치해야 한다. sectors·summarySections는 'json'(중첩 객체) — partial 없이
+// 완결 시에만 노출(2026-08-03: summary가 summarySections로 바뀌며 문자열 typing
+// 효과는 사라지고 sectors처럼 완결 시 한 번에 노출되는 방식이 됨 — 소제목 구조를
+// 얻는 대신 감수한 트레이드오프).
 export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
-  { key: 'summary', type: 'string', emit: true },
+  { key: 'summarySections', type: 'json', emit: true },
   { key: 'sectors', type: 'json', emit: true },
   { key: 'riskFactors', type: 'string[]', emit: true },
   { key: 'opportunityFactors', type: 'string[]', emit: true },
