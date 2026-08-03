@@ -78,6 +78,7 @@ const PORTFOLIO_SUMMARY_INSTRUCTIONS = `{"summarySections":{"background":"【1~2
 위 JSON 스키마를 반드시 준수하세요. summarySections의 4개 하위 필드(background/newsInterpretation/historicalComparison/judgment)를 포함해 각 필드는 반드시 포함되어야 합니다(newsInterpretation·historicalComparison은 데이터 없으면 빈 문자열 허용, background·judgment는 필수).
 규칙:
 - sectors weight 합계=100
+- sectors[].warning은 오직 그 섹터의 weight(비중) 숫자만으로 기계적으로 판정하세요 — weight가 40 이상이면 true, 40 미만이면 false입니다. 종목의 MDD·변동성·"포트폴리오 리스크 참고 데이터"에 언급된 고변동성 종목 여부는 이 판정과 완전히 무관하니 절대 근거로 삼지 마세요 — 그 섹터에 아무리 변동성이 큰 종목이 있어도 weight가 40 미만이면 반드시 false여야 합니다. 같은 weight를 가진 섹터는 항상 같은 warning 값을 가져야 합니다.
 - riskFactors는 개별 종목이 아니라 포트폴리오 전체 구조(손실 비중·섹터 편중·벤치마크 대비·변동성)를 보는 관점으로 작성하세요
 - opportunityFactors는 riskFactors와 동일한 컴플라이언스 원칙이 적용됩니다 — "매수 신호"·"지금이 기회"처럼 투자를 유인하는 표현이 아니라 어디까지나 "관찰 가능한 긍정적 데이터 포인트" 수준으로 서술하세요. 목표가·매수 추천·"상승 여력" 같은 표현 절대 금지
 - shortTermOutlook/midTermOutlook은 반드시 "이 포트폴리오 구조가~" 식으로 시작하는 상위 종합 문장이어야 하며, "삼성전자는 ~, SK하이닉스는 ~" 식으로 종목을 순서대로 나열하는 문장은 금지입니다. 목표가·손절가·매수매도 지시·저항선·지지선·가격 방향 예측 금지 — 관찰된 사실만 서술하고 그 사실이 앞으로 수익률에 어떤 영향을 줄지 예측하지 마세요

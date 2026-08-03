@@ -738,56 +738,116 @@ export async function fetchMarketIndex(
   });
 }
 
-// 지수(예: KOSPI 0001)의 특정 기간 등락률 — 벤치마크 비교용 (판단 없이 수치만 제공)
+interface IndexPoint { date: string; close: number }
+
+// inquire-daily-indexchartprice 실제 호출 1회 — inquire-daily-itemchartprice(종목 차트)와
+// 마찬가지로 요청 범위와 무관하게 KIS가 최근 일부 구간만 반환할 수 있다(2026-08-03 실측
+// 확인: KOSPI 1년 전/6개월 전을 각각 요청해도 실제 반환 startDate가 둘 다 동일하게
+// ~2.5개월 전 — fetchChartRangeRaw와 동일한 부류의 문제). 이 함수는 "한 번의 요청"만
+// 담당하고, 실제 반환 범위가 요청과 다를 수 있다는 판단은 호출부(fetchIndexBackTo)가 한다.
+async function fetchIndexRangeRaw(
+  indexCode: string,
+  startDate: Date,
+  endDate: Date,
+  label: string,
+): Promise<IndexPoint[]> {
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+    const fmt = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice`);
+    url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
+    url.searchParams.set('FID_INPUT_ISCD', indexCode);
+    url.searchParams.set('FID_INPUT_DATE_1', fmt(startDate));
+    url.searchParams.set('FID_INPUT_DATE_2', fmt(endDate));
+    url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
+
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'FHKUP03500100'),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    assertKisTokenValid(data, label);
+    if (data.rt_cd !== '0') return [];
+
+    return (data.output2 ?? [])
+      .filter((r: any) => r.bstp_nmix_prpr && r.stck_bsop_date)
+      .reverse() // 오래된순 정렬
+      .map((r: any) => ({
+        date: `${r.stck_bsop_date.slice(0,4)}-${r.stck_bsop_date.slice(4,6)}-${r.stck_bsop_date.slice(6,8)}`,
+        close: parseFloat(r.bstp_nmix_prpr),
+      }));
+  });
+}
+
+// fetchChartBackTo(종목 차트)와 동일한 방식 — endDate를 과거로 옮겨가며 연쇄 호출해
+// targetDate까지 빈틈없이 이어붙인다. 청크 길이를 하드코딩으로 가정하지 않고 실제
+// 응답의 최초 날짜를 다음 앵커로 쓴다. 포트폴리오/기업분석의 벤치마크 비교는 매수일이
+// 몇 년 전일 수도 있어 종목 차트(maxChunks=4)보다 상한을 넉넉히(8청크 ≈ 3년 안팎) 둔다.
+async function fetchIndexBackTo(
+  indexCode: string,
+  targetDate: Date,
+  maxChunks = 8,
+): Promise<IndexPoint[]> {
+  const targetStr = targetDate.toISOString().slice(0, 10);
+  const merged = new Map<string, IndexPoint>();
+  let cursorEnd = new Date();
+
+  for (let i = 0; i < maxChunks; i++) {
+    const cursorStart = new Date(cursorEnd);
+    cursorStart.setFullYear(cursorStart.getFullYear() - 2);
+    let chunk: IndexPoint[];
+    try {
+      chunk = await fetchIndexRangeRaw(indexCode, cursorStart, cursorEnd, `fetchIndexBackTo(${indexCode})#${i}`);
+    } catch {
+      break;
+    }
+    if (chunk.length === 0) break;
+
+    for (const p of chunk) merged.set(p.date, p);
+
+    const earliest = chunk[0].date;
+    if (earliest <= targetStr) break;
+
+    const nextEnd = new Date(earliest);
+    nextEnd.setDate(nextEnd.getDate() - 1);
+    cursorEnd = nextEnd;
+  }
+
+  return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// 지수(예: KOSPI 0001)의 특정 기간 등락률 — 벤치마크 비교용 (판단 없이 수치만 제공).
+// 2026-08-03: 예전엔 단일 호출로 fromDate~toDate를 요청해 KIS가 뭘 반환하든 그대로
+// "요청한 라벨"(1년 전/6개월 전 등)을 붙여 반환했다 — 요청 범위가 넓을수록 KIS가
+// 조용히 잘라서 실제로는 훨씬 짧은 구간(~2.5개월)만 오는데도 라벨은 그대로였다.
+// fetchIndexBackTo로 fromDate까지 연쇄 백필한 뒤, 실제 fromDate 이후 데이터 중 가장
+// 이른 지점을 "시작점"으로 써서 라벨과 실제 데이터 범위가 항상 일치하게 한다.
 export async function fetchIndexRangeChange(
   indexCode: string,
   fromDate: Date,
   toDate: Date,
 ): Promise<{ startValue: number; endValue: number; changeRate: number; startDate: string; endDate: string } | null> {
-  // 토큰 조기 만료 감지가 없던 함수(2026-07-10 코드 리뷰에서 발견) — withKisTokenRetry로
-  // 한 번은 재시도하되, 이 데이터는 원래도 선택적(벤치마크 비교용)이라 그래도 실패하면
-  // 기존처럼 조용히 null을 반환한다.
   try {
-    return await withKisTokenRetry(async () => {
-      const token = await getAccessToken();
-      const fmt = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const fromStr = fromDate.toISOString().slice(0, 10);
+    const toStr = toDate.toISOString().slice(0, 10);
+    const rows = await fetchIndexBackTo(indexCode, fromDate);
+    const inRange = rows.filter((r) => r.date >= fromStr && r.date <= toStr);
+    if (inRange.length < 2) return null;
 
-      const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice`);
-      url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
-      url.searchParams.set('FID_INPUT_ISCD', indexCode);
-      url.searchParams.set('FID_INPUT_DATE_1', fmt(fromDate));
-      url.searchParams.set('FID_INPUT_DATE_2', fmt(toDate));
-      url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
+    const first = inRange[0];
+    const last  = inRange[inRange.length - 1];
+    if (!(first.close > 0) || !(last.close > 0)) return null;
 
-      const res = await fetch(url.toString(), {
-        headers: headers(token, 'FHKUP03500100'),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      assertKisTokenValid(data, `fetchIndexRangeChange(${indexCode})`);
-      if (data.rt_cd !== '0') return null;
-
-      const rows: any[] = (data.output2 ?? [])
-        .filter((r: any) => r.bstp_nmix_prpr && r.stck_bsop_date)
-        .reverse(); // 오래된순 정렬
-      if (rows.length < 2) return null;
-
-      const first = rows[0];
-      const last  = rows[rows.length - 1];
-      const startValue = parseFloat(first.bstp_nmix_prpr);
-      const endValue    = parseFloat(last.bstp_nmix_prpr);
-      if (!(startValue > 0) || !(endValue > 0)) return null;
-
-      return {
-        startValue,
-        endValue,
-        changeRate: ((endValue - startValue) / startValue) * 100,
-        startDate: `${first.stck_bsop_date.slice(0,4)}-${first.stck_bsop_date.slice(4,6)}-${first.stck_bsop_date.slice(6,8)}`,
-        endDate:   `${last.stck_bsop_date.slice(0,4)}-${last.stck_bsop_date.slice(4,6)}-${last.stck_bsop_date.slice(6,8)}`,
-      };
-    });
+    return {
+      startValue: first.close,
+      endValue: last.close,
+      changeRate: ((last.close - first.close) / first.close) * 100,
+      startDate: first.date,
+      endDate: last.date,
+    };
   } catch (e) {
     console.error('[KIS] fetchIndexRangeChange 실패:', e);
     return null;
