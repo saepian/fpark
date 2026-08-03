@@ -41,11 +41,21 @@ interface DartDisclosure {
   filer: string;
 }
 
+interface MainAnalysisSections {
+  background: string;
+  flowSummary: string;
+  valuationNote: string;
+  watchPoint: string;
+}
+
 interface DiagnosisData {
   stockName: string;
   ticker: string;
   generatedAt: string;
   mainAnalysis: string;
+  // 2026-08-03 신설 — 이전에 저장된 공유 리포트에는 없어 optional. 있으면 소제목별로
+  // 렌더링하고, 없으면(과거 레코드) mainAnalysis 문자열을 그대로 한 문단으로 렌더링한다.
+  mainAnalysisSections?: MainAnalysisSections;
   currentPrice: number;
   avgPrice: number;
   quantity: number;
@@ -177,6 +187,33 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
       <text x="74" y="69" textAnchor="middle" fill={color} fontSize="22" fontWeight="800" fontFamily="monospace">{percent}%</text>
       <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="600" letterSpacing="1">{label}</text>
     </svg>
+  );
+}
+
+// components/diagnosis/DiagnosisReport.tsx의 MainAnalysisBody와 동일한 로직 —
+// 이 페이지는 그 파일과 손복제돼 있어(파일 상단 주석) 함께 갱신해야 한다.
+function MainAnalysisBody({ d }: { d: DiagnosisData }) {
+  const s = d.mainAnalysisSections;
+  if (!s) {
+    return <p className="text-[13px] text-slate-300 leading-relaxed">{d.mainAnalysis}</p>;
+  }
+
+  const blocks = [
+    { label: '오늘의 주가 배경', text: s.background },
+    { label: '수급 동향',       text: s.flowSummary },
+    { label: '밸류에이션',       text: s.valuationNote },
+    { label: '관찰 포인트',      text: s.watchPoint },
+  ].filter((b) => b.text);
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {blocks.map((b) => (
+        <div key={b.label}>
+          <p className="text-[10px] font-bold text-indigo-400/80 uppercase tracking-wide mb-1">{b.label}</p>
+          <p className="text-[13px] text-slate-300 leading-relaxed">{b.text}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -401,7 +438,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                   <p className="text-[10px] text-slate-500 uppercase tracking-widest">오늘의 기업 분석</p>
                 </div>
               </div>
-              <p className="text-[13px] text-slate-300 leading-relaxed">{d.mainAnalysis}</p>
+              <MainAnalysisBody d={d} />
             </div>
           </div>
 

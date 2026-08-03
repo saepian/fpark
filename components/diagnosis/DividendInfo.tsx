@@ -1,3 +1,7 @@
+'use client';
+
+import { useState } from 'react';
+
 export interface DartDividendSummary {
   year:             string;
   dividendYield:    number | null;
@@ -17,6 +21,8 @@ export interface DividendHistoryRow {
 // 기업분석 "배당 정보" 섹션 — DART 최신 사업연도 요약(미니 카드) + KIS 최근 5년
 // 배당 지급 이력(표). 무배당 종목(summary도 없고 history도 빈 배열)이어도 섹션
 // 자체는 숨기지 않고 "배당이 없는 종목입니다"를 보여준다(사용자 확정 사양).
+// 요약/이력 둘 다 있을 때만 탭으로 전환하고, 하나만 있으면 굳이 탭 UI를 보여줄
+// 이유가 없어(탭이 1개면 무의미) 기존처럼 단일 블록으로 바로 보여준다.
 export default function DividendInfo({
   summary,
   history,
@@ -25,18 +31,40 @@ export default function DividendInfo({
   history: DividendHistoryRow[];
 }) {
   const isEmpty = !summary && history.length === 0;
+  const hasBoth = !!summary && history.length > 0;
+  const [tab, setTab] = useState<'summary' | 'history'>('summary');
+
+  const showSummary = !!summary && (!hasBoth || tab === 'summary');
+  const showHistory = history.length > 0 && (!hasBoth || tab === 'history');
 
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center justify-between gap-2 mb-4">
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">배당 정보</p>
+        {hasBoth && (
+          <div className="flex items-center gap-1">
+            {(['summary', 'history'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                  tab === t
+                    ? 'bg-indigo-500/15 border border-indigo-500/30 text-indigo-300'
+                    : 'border border-transparent text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {t === 'summary' ? '요약' : '이력'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {isEmpty ? (
         <p className="text-[13px] text-slate-500">배당이 없는 종목입니다.</p>
       ) : (
         <>
-          {summary && (
+          {showSummary && summary && (
             <div className="mb-4">
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-slate-800/40 rounded-xl p-3 text-center">
@@ -62,7 +90,7 @@ export default function DividendInfo({
             </div>
           )}
 
-          {history.length > 0 && (
+          {showHistory && (
             <div className="overflow-x-auto">
               <table className="min-w-[480px] w-full text-xs">
                 <thead>

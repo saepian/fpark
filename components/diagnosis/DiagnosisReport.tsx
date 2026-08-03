@@ -39,8 +39,16 @@ export interface DartDisclosure {
   filer: string;
 }
 
+export interface MainAnalysisSections {
+  background: string;    // 오늘의 주가 배경 — 현재상태+뉴스해석
+  flowSummary: string;    // 수급 동향 — 외국인·기관 5일 해석
+  valuationNote: string;  // 밸류에이션(PER/PBR 업종대비) — 데이터 없으면 빈 문자열
+  watchPoint: string;     // 관찰 포인트 — 내부지표/급등이력 포지션 관점
+}
+
 export interface DiagnosisResult {
-  mainAnalysis: string; // 현재 상태·밸류에이션·수급·뉴스 해석을 하나로 합친 서술형 본문
+  mainAnalysis: string; // 현재 상태·밸류에이션·수급·뉴스 해석을 하나로 합친 서술형 본문(mainAnalysisSections를 서버가 이어붙인 값 — 공유페이지 등 과거 소비처 호환용)
+  mainAnalysisSections?: MainAnalysisSections; // 소제목별 렌더링용(신규 리포트만 존재, 과거 레코드는 undefined → mainAnalysis 문자열로 폴백)
   currentPrice: number;
   avgPrice: number;
   quantity: number;
@@ -119,6 +127,35 @@ function StatDelta({ label, value, positive }: { label: string; value: string; p
     <div className="flex items-center gap-1.5">
       <span className="text-[11px] text-slate-500">{label}</span>
       <span className={`text-[13px] font-bold font-mono ${positive ? 'text-red-400' : 'text-blue-400'}`}>{value}</span>
+    </div>
+  );
+}
+
+// "오늘의 기업 분석" 본문 — mainAnalysisSections가 있으면(신규 리포트) 소제목별로 나눠
+// 렌더링하고, 없으면(과거 레코드/JSON 파싱 실패 fallback) 기존처럼 mainAnalysis 문자열을
+// 그대로 한 문단으로 렌더링한다. 두 경로가 항상 공존해야 과거 저장된 stock_diagnosis
+// 레코드도 계속 정상적으로 보인다.
+function MainAnalysisBody({ result }: { result: DiagnosisResult }) {
+  const s = result.mainAnalysisSections;
+  if (!s) {
+    return <p className="text-[13px] text-slate-300 leading-relaxed">{result.mainAnalysis}</p>;
+  }
+
+  const blocks = [
+    { label: '오늘의 주가 배경', text: s.background },
+    { label: '수급 동향',       text: s.flowSummary },
+    { label: '밸류에이션',       text: s.valuationNote },
+    { label: '관찰 포인트',      text: s.watchPoint },
+  ].filter((b) => b.text);
+
+  return (
+    <div className="flex flex-col gap-3.5">
+      {blocks.map((b) => (
+        <div key={b.label}>
+          <p className="text-[10px] font-bold text-indigo-400/80 uppercase tracking-wide mb-1">{b.label}</p>
+          <p className="text-[13px] text-slate-300 leading-relaxed">{b.text}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -312,7 +349,7 @@ export default function DiagnosisReport({
                   <p className="text-[10px] text-slate-500 uppercase tracking-widest">오늘의 기업 분석</p>
                 </div>
               </div>
-              <p className="text-[13px] text-slate-300 leading-relaxed">{result.mainAnalysis}</p>
+              <MainAnalysisBody result={result} />
             </div>
           </div>
 
