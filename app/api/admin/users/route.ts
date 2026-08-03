@@ -1,11 +1,13 @@
-// 관리자용 — 전체 회원 목록 + 계좌이체 결제 이력 조회
+// 관리자용 — 전체 회원 목록 + 계좌이체/카드결제 이력 조회
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { adminClient } from '@/lib/supabase-admin';
 import { isAdminEmail } from '@/lib/admin-auth';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
-import { getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
+import { isStockAnalysisDaily, type Plan } from '@/lib/plan';
+import { aggregateUsageCounts, minCycleStart, type UsageAggregationUser } from '@/lib/usage-aggregation';
+import { listAllAuthUsers } from '@/lib/list-all-auth-users';
 import type { Database } from '@/lib/database.types';
 
 function makeSupabase() {
@@ -27,6 +29,7 @@ function makeSupabase() {
 const USER_COLS = 'id, email, created_at, plan, subscription_plan, subscription_status, next_billed_at, subscription_start_date, stock_credits, portfolio_credits';
 const REQUEST_COLS = 'id, user_id, plan, is_annual, amount, depositor_name, depositor_real_name, status, request_type, requested_at, processed_at';
 const REFUND_COLS = 'id, user_id, plan, paid_amount, elapsed_days, refund_amount, refund_status, requested_at, processed_at';
+const PAYMENT_COLS = 'id, user_id, plan, is_annual, amount, status, payment_method, created_at';
 
 export async function GET() {
   const supabase = makeSupabase();
@@ -35,59 +38,77 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const [usersRes, requestsRes, refundsRes, authUsersRes] = await Promise.all([
+  // 1단계: 유저 수와 무관한 고정 쿼리 5개 — listUsers는 listAllAuthUsers로 페이지네이션해
+  // 1000명 상한에서 조용히 잘리던 문제를 해결(lib/list-all-auth-users.ts).
+  const [usersRes, requestsRes, refundsRes, paymentsRes, authUsers] = await Promise.all([
     adminClient.from('users').select(USER_COLS).order('created_at', { ascending: false }),
     adminClient.from('bank_transfer_requests').select(REQUEST_COLS).order('requested_at', { ascending: false }),
     adminClient.from('refund_requests').select(REFUND_COLS).order('requested_at', { ascending: false }),
-    adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+    adminClient.from('payments').select(PAYMENT_COLS).order('created_at', { ascending: false }),
+    listAllAuthUsers('[admin/users]'),
   ]);
 
-  if (usersRes.error || requestsRes.error || refundsRes.error) {
-    console.error('[admin/users] 조회 실패:', usersRes.error ?? requestsRes.error ?? refundsRes.error);
+  if (usersRes.error || requestsRes.error || refundsRes.error || paymentsRes.error) {
+    console.error('[admin/users] 조회 실패:', usersRes.error ?? requestsRes.error ?? refundsRes.error ?? paymentsRes.error);
     return NextResponse.json({ error: '조회 실패' }, { status: 500 });
-  }
-
-  const lastSignInById = new Map<string, string | null>();
-  for (const u of authUsersRes.data?.users ?? []) {
-    lastSignInById.set(u.id, u.last_sign_in_at ?? null);
   }
 
   const now = new Date();
   const todayKst = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  // 2026-07-14 요금제 재구성으로 기업분석도 월간 한도로 전환 — 포트폴리오와 동일하게
-  // 이번 결제 사이클 누적치만 집계하면 된다(예전엔 "일일" 한도라 오늘 자정 기준 별도
-  // 집계가 필요했으나 더 이상 아님). 종목분석 이용 현황도 함께 집계.
-  // 2026-07-15 정정: 종목분석은 무료 등급만 예외적으로 일간 한도라(lib/plan.ts의
-  // isStockAnalysisDaily), 무료 회원은 오늘(KST) 건수, 그 외엔 이번 사이클 누적을 센다.
-  const users = await Promise.all((usersRes.data ?? []).map(async (u) => {
-    const plan = (u.plan as 'free' | 'basic' | 'pro') ?? 'free';
-    const { cycleStart } = getUsageCycleStart(u.subscription_start_date, now);
-    const [{ count: diagnosisMonth }, { count: portfolioUsed }, { count: stockAnalysisUsed }] = await Promise.all([
-      adminClient.from('stock_diagnosis').select('*', { count: 'exact', head: true })
-        .eq('user_id', u.id).gte('created_at', cycleStart.toISOString()),
-      adminClient.from('portfolio_diagnosis').select('*', { count: 'exact', head: true })
-        .eq('user_id', u.id).gte('created_at', cycleStart.toISOString()),
-      isStockAnalysisDaily(plan)
-        ? adminClient.from('stock_analysis_usage').select('*', { count: 'exact', head: true })
-            .eq('user_id', u.id).eq('usage_date', todayKst)
-        : adminClient.from('stock_analysis_usage').select('*', { count: 'exact', head: true })
-            .eq('user_id', u.id).gte('usage_date', cycleStart.toISOString().split('T')[0]),
+  const rawUsers = usersRes.data ?? [];
+  const userIds = rawUsers.map((u) => u.id);
+  const aggregationUsers: UsageAggregationUser[] = rawUsers.map((u) => ({
+    id:                     u.id,
+    plan:                   (u.plan as Plan) ?? 'free',
+    subscriptionStartDate:  u.subscription_start_date,
+  }));
+
+  // 2단계: 사용량 집계용 벌크 쿼리 3개(유저 수와 무관) — 예전엔 유저 1명당 3개씩(N+1)
+  // 날리던 것을, 전체 유저의 로우를 한 번씩만 가져와 lib/usage-aggregation.ts에서
+  // user_id별로 그룹핑 후 각자의 사이클 경계로 재필터링하는 방식으로 대체.
+  // minCycleStart(전체 유저 중 가장 이른 cycleStart)를 하한으로 걸어 불필요한 과거
+  // 데이터 스캔을 줄인다 — 모든 유저의 실제 cycleStart보다 항상 이르거나 같으므로
+  // 정확도 손실 없음(집계 단계에서 유저별로 다시 정확히 필터링됨).
+  let diagnosisRows: { user_id: string | null; created_at: string | null }[] = [];
+  let portfolioRows: { user_id: string | null; created_at: string | null }[] = [];
+  let stockAnalysisRows: { user_id: string | null; usage_date: string }[] = [];
+
+  if (userIds.length > 0) {
+    const bulkFrom = minCycleStart(aggregationUsers, now).toISOString();
+    const [diagnosisRes, portfolioRes, stockAnalysisRes] = await Promise.all([
+      adminClient.from('stock_diagnosis').select('user_id, created_at').in('user_id', userIds).gte('created_at', bulkFrom),
+      adminClient.from('portfolio_diagnosis').select('user_id, created_at').in('user_id', userIds).gte('created_at', bulkFrom),
+      adminClient.from('stock_analysis_usage').select('user_id, usage_date').in('user_id', userIds).gte('usage_date', bulkFrom.split('T')[0]),
     ]);
+    if (diagnosisRes.error || portfolioRes.error || stockAnalysisRes.error) {
+      console.error('[admin/users] 사용량 조회 실패:', diagnosisRes.error ?? portfolioRes.error ?? stockAnalysisRes.error);
+      return NextResponse.json({ error: '조회 실패' }, { status: 500 });
+    }
+    diagnosisRows = diagnosisRes.data ?? [];
+    portfolioRows = portfolioRes.data ?? [];
+    stockAnalysisRows = stockAnalysisRes.data ?? [];
+  }
+
+  const usageCounts = aggregateUsageCounts(aggregationUsers, diagnosisRows, portfolioRows, stockAnalysisRows, now, todayKst);
+
+  const users = rawUsers.map((u) => {
+    const plan = (u.plan as 'free' | 'basic' | 'pro') ?? 'free';
     const limits = PLAN_USAGE_LIMITS[plan] ?? PLAN_USAGE_LIMITS.free;
+    const counts = usageCounts.get(u.id) ?? { diagnosisUsed: 0, portfolioUsed: 0, stockAnalysisUsed: 0 };
 
     return {
       ...u,
-      last_sign_in_at:        lastSignInById.get(u.id) ?? null,
-      diagnosis_used_month:   diagnosisMonth ?? 0,
+      last_sign_in_at:        authUsers.get(u.id)?.lastSignInAt ?? null,
+      diagnosis_used_month:   counts.diagnosisUsed,
       diagnosis_limit:        limits.diagnosis,
-      portfolio_used:         portfolioUsed ?? 0,
+      portfolio_used:         counts.portfolioUsed,
       portfolio_limit:        limits.portfolio,
-      stock_analysis_used:    stockAnalysisUsed ?? 0,
+      stock_analysis_used:    counts.stockAnalysisUsed,
       stock_analysis_limit:   limits.stockAnalysis,
       stock_analysis_daily:   isStockAnalysisDaily(plan),
     };
-  }));
+  });
 
   const paymentHistory: Record<string, (typeof requestsRes.data)> = {};
   for (const r of requestsRes.data ?? []) {
@@ -99,5 +120,10 @@ export async function GET() {
     (refundHistory[r.user_id] ??= []).push(r);
   }
 
-  return NextResponse.json({ ok: true, users, paymentHistory, refundHistory });
+  const cardPaymentHistory: Record<string, (typeof paymentsRes.data)> = {};
+  for (const p of paymentsRes.data ?? []) {
+    (cardPaymentHistory[p.user_id] ??= []).push(p);
+  }
+
+  return NextResponse.json({ ok: true, users, paymentHistory, refundHistory, cardPaymentHistory });
 }

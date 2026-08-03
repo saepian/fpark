@@ -350,11 +350,15 @@ async function getMonthlyStockAnalysisCount(
     .maybeSingle();
   const { cycleStart } = getUsageCycleStart(userRow?.subscription_start_date ?? null, new Date());
 
+  // 2026-08-03 버그 수정: cycleStart(KST 자정 절대시각)를 그냥 .toISOString().split('T')[0]로
+  // 바꾸면 UTC로 하루 당겨져(예: KST 7/1 00:00 → "6/30") 사이클 시작 전날 사용분까지
+  // 한도 계산에 포함되던 과다집계 버그 — 유료 회원이 실제 한도보다 일찍 429를 맞았다.
+  // kstDateStr()로 정확한 KST 날짜를 구한다.
   const { count } = await authedSupabase
     .from('stock_analysis_usage')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
-    .gte('usage_date', cycleStart.toISOString().split('T')[0]);
+    .gte('usage_date', kstDateStr(cycleStart));
   return count ?? 0;
 }
 

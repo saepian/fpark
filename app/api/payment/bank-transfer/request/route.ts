@@ -19,6 +19,7 @@ import { computeDepositorName } from '@/lib/bank-transfer';
 import { calculateUpgradeChargeAmount } from '@/lib/upgrade-credit';
 import { getLastActualPayment, deriveMonthlyPriceFromPayment } from '@/lib/subscription-pricing';
 import { getUsageCycleStart } from '@/lib/plan';
+import { kstDateStr } from '@/lib/ai-grounding';
 import type { Database } from '@/lib/database.types';
 
 function makeSupabase() {
@@ -97,11 +98,15 @@ async function computeUpgradeQuote(
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .gte('created_at', cycleStart.toISOString()),
+    // 2026-08-03 버그 수정: cycleStart를 그냥 .toISOString().split('T')[0]로 바꾸면 UTC로
+    // 하루 당겨져(KST 자정 절대시각 특성상) 사이클 시작 전날 사용분까지 포함되던 과다집계
+    // 버그 — 업그레이드 크레딧(이용률) 계산이 실제보다 사용량을 부풀려 크레딧을 깎았다.
+    // kstDateStr()로 정확한 KST 날짜를 구한다.
     adminClient
       .from('stock_analysis_usage')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .gte('usage_date', cycleStart.toISOString().split('T')[0]),
+      .gte('usage_date', kstDateStr(cycleStart)),
     getLastActualPayment(userId),
   ]);
 

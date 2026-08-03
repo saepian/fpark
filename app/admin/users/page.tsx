@@ -18,6 +18,7 @@ interface UserRow {
   id:                 string;
   email:              string | null;
   created_at:         string | null;
+  subscription_start_date: string | null;
   plan:               string;
   subscription_plan:  string | null;
   subscription_status: string | null;
@@ -57,6 +58,16 @@ interface RefundHistoryItem {
   processed_at:  string | null;
 }
 
+interface CardPaymentHistoryItem {
+  id:             string;
+  plan:           string;
+  is_annual:      boolean;
+  amount:         number;
+  status:         string;
+  payment_method: string | null;
+  created_at:     string;
+}
+
 const PLAN_LABEL: Record<string, string> = { free: '무료', basic: 'Basic', pro: 'Pro', admin: '관리자' };
 const PLAN_COLOR: Record<string, string> = { free: '#64748b', basic: '#818cf8', pro: '#fbbf24', admin: '#f472b6' };
 const STATUS_LABEL: Record<StatusBucket, string> = { active: '활성', pending_renewal: '갱신대기', pending_cancellation: '해지예약', expired: '만료', free: '무료' };
@@ -64,6 +75,9 @@ const STATUS_COLOR: Record<StatusBucket, string> = { active: '#34d399', pending_
 const REQ_STATUS_LABEL: Record<string, string> = { pending: '대기중', approved: '승인됨', rejected: '거절됨', expired: '만료됨' };
 const REFUND_STATUS_LABEL: Record<string, string> = { none: '환불없음(해지예약)', requested: '환불대기', completed: '환불완료', rejected: '환불거절' };
 const REFUND_STATUS_COLOR: Record<string, string> = { none: '#94a3b8', requested: '#fbbf24', completed: '#34d399', rejected: '#f87171' };
+const PAYMENT_METHOD_LABEL: Record<string, string> = { DODO: '카드(Dodo)', VIRTUAL_ACCOUNT: '가상계좌(PortOne)', BILLING_KEY: '카드(PortOne)' };
+const PAYMENT_STATUS_LABEL: Record<string, string> = { pending: '대기중', paid: '결제완료', failed: '실패', expired: '만료됨' };
+const PAYMENT_STATUS_COLOR: Record<string, string> = { pending: '#fbbf24', paid: '#34d399', failed: '#f87171', expired: '#94a3b8' };
 
 type PlanFilter = 'all' | Plan;
 type StatusFilter = 'all' | StatusBucket;
@@ -96,11 +110,19 @@ function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
+// 가입일과 사이클 기준일(subscription_start_date)이 KST 날짜 기준으로 다르면
+// 재구독/플랜변경 등으로 기준일이 갱신됐다는 신호라 강조 표시한다.
+function cycleAnchorDiffersFromSignup(createdAt: string | null, cycleAnchor: string | null): boolean {
+  if (!createdAt || !cycleAnchor) return false;
+  return formatDate(createdAt) !== formatDate(cycleAnchor);
+}
+
 export default function AdminUsersPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[] | null>(null);
   const [paymentHistory, setPaymentHistory] = useState<Record<string, PaymentHistoryItem[]>>({});
   const [refundHistory, setRefundHistory] = useState<Record<string, RefundHistoryItem[]>>({});
+  const [cardPaymentHistory, setCardPaymentHistory] = useState<Record<string, CardPaymentHistoryItem[]>>({});
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -126,6 +148,7 @@ export default function AdminUsersPage() {
       setUsers(json.users);
       setPaymentHistory(json.paymentHistory ?? {});
       setRefundHistory(json.refundHistory ?? {});
+      setCardPaymentHistory(json.cardPaymentHistory ?? {});
     } catch (e) {
       setError(e instanceof Error ? e.message : '목록을 불러오지 못했습니다.');
     } finally {
@@ -186,11 +209,10 @@ export default function AdminUsersPage() {
 
   function PaymentHistoryPanel({ userId }: { userId: string }) {
     const history = paymentHistory[userId] ?? [];
-    if (history.length === 0) {
-      return <p className="text-[12.5px] text-slate-500 px-4 py-3">결제 이력이 없습니다.</p>;
-    }
+    if (history.length === 0) return null;
     return (
       <div className="px-4 py-3 flex flex-col gap-1.5">
+        <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">계좌이체</p>
         {history.map((h) => (
           <div key={h.id} className="flex items-center gap-2.5 text-[12px] py-1.5 flex-wrap">
             <span className="font-semibold text-slate-300 w-14 shrink-0">
@@ -208,6 +230,35 @@ export default function AdminUsersPage() {
               }}
             >
               {REQ_STATUS_LABEL[h.status] ?? h.status}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function CardPaymentHistoryPanel({ userId }: { userId: string }) {
+    const history = cardPaymentHistory[userId] ?? [];
+    if (history.length === 0) return null;
+    return (
+      <div className="px-4 py-3 flex flex-col gap-1.5 border-t border-slate-800/60">
+        <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">카드결제</p>
+        {history.map((h) => (
+          <div key={h.id} className="flex items-center gap-2.5 text-[12px] py-1.5 flex-wrap">
+            <span
+              className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full w-28 shrink-0 text-center"
+              style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8' }}
+            >
+              {PAYMENT_METHOD_LABEL[h.payment_method ?? ''] ?? h.payment_method ?? '-'}
+            </span>
+            <span className="text-slate-400 w-16 shrink-0">{PLAN_LABEL[h.plan] ?? h.plan}{h.is_annual ? '·연' : '·월'}</span>
+            <span className="text-white font-medium w-20 shrink-0">{h.amount.toLocaleString()}원</span>
+            <span className="text-slate-500 whitespace-nowrap">{formatDateTime(h.created_at)}</span>
+            <span
+              className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ml-auto"
+              style={{ background: `${PAYMENT_STATUS_COLOR[h.status] ?? '#94a3b8'}1f`, color: PAYMENT_STATUS_COLOR[h.status] ?? '#94a3b8' }}
+            >
+              {PAYMENT_STATUS_LABEL[h.status] ?? h.status}
             </span>
           </div>
         ))}
@@ -330,6 +381,12 @@ export default function AdminUsersPage() {
                   <tr className="border-b border-slate-700/50" style={{ background: '#12151f' }}>
                     <SortHeader label="이메일" k="email" />
                     <SortHeader label="가입일" k="created_at" />
+                    <th
+                      className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+                      title="사용량 리셋 기준일 — 매달 이 날짜에 기업분석/포트폴리오/종목분석(유료) 사용량이 초기화됨. 가입일과 다르면 재구독/플랜변경 등으로 갱신된 것."
+                    >
+                      사이클 기준일
+                    </th>
                     <SortHeader label="플랜" k="plan" />
                     <th className="text-left px-4 py-3 text-[11.5px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">구독 상태</th>
                     <SortHeader label="다음 결제일" k="next_billed_at" />
@@ -360,7 +417,7 @@ export default function AdminUsersPage() {
                 <tbody>
                   {paged.map((u, i) => {
                     const status = normalizeStatus(u);
-                    const historyCount = (paymentHistory[u.id] ?? []).length;
+                    const historyCount = (paymentHistory[u.id] ?? []).length + (cardPaymentHistory[u.id] ?? []).length;
                     const refundCount = (refundHistory[u.id] ?? []).length;
                     const expanded = expandedId === u.id;
                     return (
@@ -371,6 +428,14 @@ export default function AdminUsersPage() {
                         >
                           <td className="px-4 py-3 text-[13.5px] text-white font-medium max-w-[220px] truncate" title={u.email ?? ''}>{u.email ?? '-'}</td>
                           <td className="px-4 py-3 text-[13px] text-slate-400 whitespace-nowrap tabular-nums">{formatDate(u.created_at)}</td>
+                          <td className="px-4 py-3 text-[13px] whitespace-nowrap tabular-nums">
+                            <span
+                              className={cycleAnchorDiffersFromSignup(u.created_at, u.subscription_start_date) ? 'text-amber-400 font-medium' : 'text-slate-400'}
+                              title={cycleAnchorDiffersFromSignup(u.created_at, u.subscription_start_date) ? '가입일과 다름 (재구독/플랜변경 등으로 갱신됨)' : undefined}
+                            >
+                              {formatDate(u.subscription_start_date)}
+                            </span>
+                          </td>
                           <td className="px-4 py-3">
                             <span className="text-[11.5px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap" style={{ background: `${PLAN_COLOR[u.plan] ?? PLAN_COLOR.free}22`, color: PLAN_COLOR[u.plan] ?? PLAN_COLOR.free }}>
                               {PLAN_LABEL[u.plan] ?? u.plan}
@@ -419,8 +484,9 @@ export default function AdminUsersPage() {
                         </tr>
                         {expanded && (
                           <tr className="border-b border-slate-800/60" style={{ background: 'rgba(99,102,241,0.04)' }}>
-                            <td colSpan={11}>
+                            <td colSpan={12}>
                               <PaymentHistoryPanel userId={u.id} />
+                              <CardPaymentHistoryPanel userId={u.id} />
                               <RefundHistoryPanel userId={u.id} />
                             </td>
                           </tr>
@@ -436,7 +502,7 @@ export default function AdminUsersPage() {
             <div className="md:hidden flex flex-col gap-2.5">
               {paged.map((u) => {
                 const status = normalizeStatus(u);
-                const historyCount = (paymentHistory[u.id] ?? []).length;
+                const historyCount = (paymentHistory[u.id] ?? []).length + (cardPaymentHistory[u.id] ?? []).length;
                 const refundCount = (refundHistory[u.id] ?? []).length;
                 const expanded = expandedId === u.id;
                 return (
@@ -451,6 +517,12 @@ export default function AdminUsersPage() {
                       <span className="text-[10.5px] text-slate-500 ml-auto">가입 {formatDate(u.created_at)}</span>
                     </div>
                     <p className="text-[13px] font-semibold text-white truncate mb-1.5">{u.email ?? '-'}</p>
+                    <p
+                      className={`text-[11px] mb-1.5 ${cycleAnchorDiffersFromSignup(u.created_at, u.subscription_start_date) ? 'text-amber-400 font-medium' : 'text-slate-500'}`}
+                      title={cycleAnchorDiffersFromSignup(u.created_at, u.subscription_start_date) ? '가입일과 다름 (재구독/플랜변경 등으로 갱신됨)' : undefined}
+                    >
+                      사이클 기준일 {formatDate(u.subscription_start_date)}
+                    </p>
                     <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
                       <span>
                         기업분석 <span className={usageColorClass(u.diagnosis_used_month, u.diagnosis_limit)}>{u.diagnosis_used_month}/{u.diagnosis_limit}</span>
@@ -489,6 +561,7 @@ export default function AdminUsersPage() {
                     {expanded && (
                       <div className="mt-2 rounded-lg" style={{ background: 'rgba(99,102,241,0.06)' }}>
                         <PaymentHistoryPanel userId={u.id} />
+                        <CardPaymentHistoryPanel userId={u.id} />
                         <RefundHistoryPanel userId={u.id} />
                       </div>
                     )}
