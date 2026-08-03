@@ -5,6 +5,7 @@ import { fetchInvestorTrend, pickRelevantNews } from '@/lib/stock-analysis-data'
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry } from '@/lib/ai-grounding';
+import { getLastTradingDate } from '@/lib/market-utils';
 import type { Database } from '@/lib/database.types';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
@@ -19,6 +20,21 @@ const MIN_ABS_TODAY_AUK = 20;       // 오늘 순매수 절대금액이 이 정�
 const MIN_BASELINE_AUK = 5;         // 20일 평균 흐름 자체가 이보다 작으면 배수를 신뢰하지 않음(분모 과소 방지)
 const MIN_BASELINE_DAYS = 15;       // 신규상장 등으로 과거 데이터가 부족하면 배수 계산 보류
 const UNUSUAL_MULTIPLE_THRESHOLD = 2.5; // 오늘 순매수가 평소 흐름의 이 배수 이상이면 "이례적"
+
+// 2026-08-04 — 주말·공휴일에도 크론이 매일 도는데(vercel.json: 0 0 * * *, 매일 09:00 KST)
+// KIS 수급 데이터는 거래일에만 갱신돼, "새 거래일 데이터가 없는데도" 재선정을 강행해 완전히
+// 같은 종목·수치가 3일 연속(토/일/월) 반복 저장되던 문제의 원인 수정. 실측: 2026-08-01~03
+// 삼성전자가 foreign_net_buy_auk=20999로 3일 내내 완전 동일, data_reference_date도 08-01부터
+// 08-03까지 전부 07-31로 고정돼 있었음 — 크론이 장 시작 직후(09:00)에 돌아 "오늘" 데이터가
+// 애초에 나올 수 없다는 점 때문에, 평일에도 항상 "직전 완료 거래일"을 봐야 정확하다.
+function toDashedDate(yyyymmdd: string): string {
+  return `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
+}
+
+// 최근 재선정 다양성 확보 — 완전 배제가 아니라 감점만 해서, 진짜 장기 연속유입 종목(예:
+// HMM처럼 6~13일 스트릭)이 정말 압도적이면 그래도 통과하게 한다(2026-08-04, 신고 대응).
+const RECENT_PICK_WINDOW_DAYS = 7;  // 이 기간 내 이미 선정된 티커는 감점 대상
+const RECENT_PICK_PENALTY = 0.5;    // 점수를 절반으로 할인 — 다른 후보가 2배 이상 차이나지 않는 한 순위를 뒤집기에 충분하고, 압도적 1위는 할인돼도 여전히 1위 유지
 
 // 일별 순매수(부호 있음) 배열 → 최근 20거래일 평균 "흐름 강도"(절대값 평균) 대비 오늘의 배수.
 // 절대값으로 평균을 잡는 이유: 매수/매도가 번갈아 나오는 종목은 부호 있는 값을 그대로
@@ -181,9 +197,8 @@ async function scanFlowCandidates(): Promise<{ candidates: FlowCandidate[]; apiE
 const DAILY_PICK_OUTPUT_INSTRUCTIONS = `## 출력 형식 (JSON만)
 {
   "summary": "수급 데이터 관찰 한줄 요약, 구체적 수치 포함 (예: '외국인 5거래일 연속 자금 유입, 누적 320억원 유입이 관찰됨') — 50자 이내, 지시형 표현 금지",
-  "analysis": "수급 데이터를 중심으로 한 관찰 서술 (3-4문장). 뉴스는 참고 정보로만 보조적으로 언급",
-  "reference_info": ["뉴스·실적 등 참고 정보 1-3개 (보조적 위치, 없으면 빈 배열)"],
-  "risks": ["리스크 요인 1-2개"],
+  "analysis": "수급 데이터를 중심으로 한 관찰 서술 (1-2문장). 뉴스는 참고 정보로만 보조적으로 언급",
+  "reference_info": ["뉴스·실적 등 참고 정보 0-1개 (보조적 위치, 없으면 빈 배열)"],
   "keywords": ["3~4개 핵심 키워드"]
 }
 
@@ -228,6 +243,31 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
   }
   if (existing) return existing;
 
+  // 가장 최근 선정 기록 — 아래 두 가드(1차: 스캔 전 저비용 사전체크, 2차: 스캔 후 확정체크)가
+  // 공통으로 참조한다.
+  const { data: lastPick } = await supabase
+    .from('daily_picks')
+    .select('ticker, name, data_reference_date')
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // 1차 가드(저비용, 스캔 전) — getLastTradingDate()는 요일만으로 "가장 최근 완료된 거래일"을
+  // 추정한다(공휴일은 못 잡음). 이 크론은 매일 09:00 KST(장 시작 직후)에 도는데, 이 시각엔
+  // "오늘" 데이터가 KIS에 애초에 존재할 수 없으므로 평일에도 이 추정이 항상 정확하다 — 공휴일만
+  // 못 잡고(그래도 안전하게 아래 90종목 스캔으로 넘어갈 뿐, 오탐으로 스킵되진 않음) 나머지
+  // 케이스(주말 포함)는 이 사전체크만으로 충분히 걸러져 무거운 스캔·Claude 호출 자체를 아낀다.
+  if (lastPick?.data_reference_date) {
+    const expectedRefDate = toDashedDate(getLastTradingDate().yyyymmdd);
+    if (expectedRefDate === lastPick.data_reference_date) {
+      console.log(
+        `[DAILY-PICK] 새 거래일 데이터 없음(예상 기준일 ${expectedRefDate}이 이미 사용됨) — ` +
+        `재선정 생략, 기존 픽 유지: ${lastPick.name}(${lastPick.ticker})`,
+      );
+      return { ticker: lastPick.ticker, name: lastPick.name };
+    }
+  }
+
   // 1. 외국인·기관 수급 기준 스크리닝
   console.log('[DAILY-PICK] 수급 스크리닝 시작');
   const { candidates, apiErrorCount, totalCount } = await scanFlowCandidates();
@@ -260,17 +300,45 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
     return null;
   }
 
+  // 최근 RECENT_PICK_WINDOW_DAYS일 내 이미 선정된 티커 — 완전 배제가 아니라 아래 정렬에서
+  // 감점만 한다(HMM처럼 정말 장기 연속유입이면 감점돼도 압도적 1위를 유지할 수 있게).
+  const recentWindowStart = new Date(Date.now() - RECENT_PICK_WINDOW_DAYS * 86_400_000).toISOString().split('T')[0];
+  const { data: recentPicks } = await supabase
+    .from('daily_picks')
+    .select('ticker')
+    .gte('date', recentWindowStart);
+  const recentTickers = new Set((recentPicks ?? []).map((r) => r.ticker));
+
   // 우선순위: 동반 자금 유입 > 이례성 배수(절대금액이 아니라 "평소 대비 얼마나 튀는지") 합산.
   // 절대금액으로 정렬하면 시가총액 큰 종목이 항상 이기므로(재설계 이전 문제), 배수 기준으로 바꾼다.
+  // 2026-08-04: 최근 선정 티커는 RECENT_PICK_PENALTY만큼 점수를 할인해 다양성을 확보하되,
+  // 곱셈 할인이라 상대적 우열은 유지된다 — 다른 후보와 격차가 크지 않으면 순위가 뒤집히고,
+  // 압도적으로 앞서면(예: 진짜 장기 스트릭) 할인돼도 여전히 1위를 유지한다.
   classified.sort((a, b) => {
     const aBonus = a.reason === '외국인·기관 동반 자금 유입' ? 1000 : 0;
     const bBonus = b.reason === '외국인·기관 동반 자금 유입' ? 1000 : 0;
-    const aScore = aBonus + Math.max(a.foreignMultiple ?? 0, 0) + Math.max(a.institutionMultiple ?? 0, 0);
-    const bScore = bBonus + Math.max(b.foreignMultiple ?? 0, 0) + Math.max(b.institutionMultiple ?? 0, 0);
+    let aScore = aBonus + Math.max(a.foreignMultiple ?? 0, 0) + Math.max(a.institutionMultiple ?? 0, 0);
+    let bScore = bBonus + Math.max(b.foreignMultiple ?? 0, 0) + Math.max(b.institutionMultiple ?? 0, 0);
+    if (recentTickers.has(a.ticker)) aScore *= RECENT_PICK_PENALTY;
+    if (recentTickers.has(b.ticker)) bScore *= RECENT_PICK_PENALTY;
     return bScore - aScore;
   });
   const selected = classified[0];
-  console.log(`[DAILY-PICK] 선정: ${selected.name}(${selected.ticker}) — ${selected.reason}`);
+  const wasRecentlyPicked = recentTickers.has(selected.ticker);
+  console.log(
+    `[DAILY-PICK] 선정: ${selected.name}(${selected.ticker}) — ${selected.reason}` +
+    (wasRecentlyPicked ? ` (최근 ${RECENT_PICK_WINDOW_DAYS}일 내 재선정 — 감점 후에도 1위)` : ''),
+  );
+
+  // 2차 가드(확정, 스캔 후) — 1차 가드가 못 잡는 공휴일 등, 실제 KIS 데이터의 기준일이
+  // 결과적으로 지난번과 같다면(스캔까지 했지만 새 거래일이 아니었던 경우) 여기서 건너뛴다.
+  if (lastPick?.data_reference_date && selected.dataReferenceDate === lastPick.data_reference_date) {
+    console.log(
+      `[DAILY-PICK] 스캔 결과도 기준일 동일(${selected.dataReferenceDate}) — ` +
+      `재선정 생략, 기존 픽 유지: ${lastPick.name}(${lastPick.ticker})`,
+    );
+    return { ticker: lastPick.ticker, name: lastPick.name };
+  }
 
   const token = await getAccessToken();
   const detail = await fetchStockDetail(selected.ticker, token);
@@ -332,7 +400,6 @@ ${newsText}
     summary: `${selected.name} — ${selected.reason} 관찰됨`,
     analysis: '수급 데이터 기반 관찰 정보를 준비 중입니다.',
     reference_info: [],
-    risks: ['시장 변동성'],
     keywords: [selected.name],
   };
 
@@ -371,7 +438,6 @@ ${newsText}
     analysis: analysisResult.analysis,
     summary: analysisResult.summary,
     catalysts: analysisResult.reference_info ?? [], // 참고 정보 (뉴스/실적 등, 보조적)
-    risks: analysisResult.risks,
     keywords: analysisResult.keywords,
     target_price: null, // 목표가 개념 제거
     pick_reason: selected.reason,

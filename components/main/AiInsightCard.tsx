@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { TrendingUp, TrendingDown, AlertTriangle, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 
 interface DailyPick {
@@ -13,7 +13,6 @@ interface DailyPick {
   summary: string;
   analysis: string;
   catalysts: string[]; // 참고 정보 (뉴스·실적 등, 보조적)
-  risks: string[];
   keywords: string[];
   pick_reason: string;
   foreign_net_buy_auk: number;
@@ -184,24 +183,6 @@ export default function AiInsightCard() {
           </div>
         )}
 
-        {/* 리스크 */}
-        {(pick.risks?.length ?? 0) > 0 && (
-          <div>
-            <p className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              리스크 요인
-            </p>
-            <ul className="space-y-1.5">
-              {pick.risks.map((r, i) => (
-                <li key={i} className="text-sm text-slate-400 flex items-start gap-1.5">
-                  <span className="text-amber-400 mt-0.5 shrink-0">•</span>
-                  {r}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         {/* 키워드 */}
         {(pick.keywords?.length ?? 0) > 0 && (
           <div className="flex flex-wrap gap-1.5">
@@ -214,6 +195,7 @@ export default function AiInsightCard() {
         )}
 
         {/* CTA 버튼 */}
+        <p className="text-xs text-slate-500 text-center">더 자세한 분석은 기업 리포트에서 확인하세요</p>
         <button
           onClick={() => router.push(`/stock/${pick.ticker}`)}
           className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-colors cursor-pointer"
