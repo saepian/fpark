@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 interface FinanceRow {
   year: string;
@@ -54,7 +55,7 @@ export default function FinanceSummary({ ticker }: { ticker: string }) {
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       <div className="px-4 pt-4 pb-2.5 border-b border-slate-800">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+        <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 uppercase tracking-wider`}>
           재무 요약
         </h3>
       </div>

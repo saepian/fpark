@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 export default function InvestorFlow({ ticker }: { ticker: string }) {
   const [data, setData] = useState<any>(null);
@@ -73,7 +74,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       {/* 헤더 */}
       <div className="px-4 pt-4 pb-3 border-b border-slate-800">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+          <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 uppercase tracking-wider`}>
             주체별 수급 동향
           </h3>
           <span className="text-[10px] text-slate-500">{data.date} 기준</span>
@@ -130,7 +131,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       {/* 섹션 2: 프로그램 매매 */}
       {data.program !== null && data.program !== undefined && (
         <div className="px-4 py-3 border-b border-slate-800">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+          <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-wider mb-2`}>
             프로그램 매매
           </p>
           <div className="grid grid-cols-3 gap-2">
@@ -154,7 +155,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       {/* 섹션 3: 공매도 현황 */}
       {data.shortSell !== null && data.shortSell !== undefined && (
         <div className="px-4 py-3 border-b border-slate-800">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+          <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-wider mb-2`}>
             공매도 현황
           </p>
           <div className="flex items-center justify-between mb-2">
@@ -180,7 +181,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
       {/* 섹션 4: 거래대금 비중 */}
       {data.marketShare !== null && data.marketShare !== undefined && (
         <div className="px-4 py-3">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+          <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-wider mb-2`}>
             시장 거래대금 비중
           </p>
           <div className="flex items-center justify-between mb-2">

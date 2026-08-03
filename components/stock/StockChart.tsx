@@ -11,6 +11,7 @@ import {
   ISeriesApi,
 } from 'lightweight-charts';
 import type { ChartDataPoint } from '../../lib/types';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 interface StockChartProps {
   ticker: string;
@@ -158,7 +159,7 @@ export default function StockChart({ ticker }: StockChartProps) {
       className="bg-[#122131] dark:bg-[#122131] border border-gray-200 dark:border-[#2d313e] p-5 rounded-lg space-y-4"
     >
       <div className="flex justify-between items-center border-b border-gray-100 dark:border-[#2d313e]/40 pb-3">
-        <h3 className="text-sm font-bold text-gray-900 dark:text-[#d4e4fa] tracking-wider uppercase">
+        <h3 className={`${SECTION_TITLE_CLASS} text-gray-900 dark:text-[#d4e4fa] tracking-wider uppercase`}>
           Price Chart
         </h3>
         <div className="flex bg-gray-100 dark:bg-[#010f1f] rounded-lg p-0.5 border border-gray-200 dark:border-[#2d313e]/60">

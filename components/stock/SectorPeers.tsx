@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 interface Peer {
   ticker: string;
@@ -45,7 +46,7 @@ export default function SectorPeers({ ticker }: { ticker: string }) {
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       <div className="px-4 pt-4 pb-2.5 border-b border-slate-800">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+        <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 uppercase tracking-wider`}>
           동일업종 기업
         </h3>
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 interface DayData {
   date: string;
@@ -45,7 +46,7 @@ export default function DailyPriceTable({ ticker }: { ticker: string }) {
 
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4">
-      <h3 className="text-sm font-bold text-slate-300 mb-3">
+      <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 mb-3`}>
         일별 주가 동향
         <span className="text-[10px] text-slate-500 font-normal ml-2">최근 5거래일</span>
       </h3>

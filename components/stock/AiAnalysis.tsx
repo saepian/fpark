@@ -5,6 +5,7 @@ import { Sparkles, AlertCircle, TrendingUp, TrendingDown, RefreshCw } from 'luci
 import type { AnalysisResult } from '@/app/api/stock/[ticker]/analysis/route';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
+import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
 const ANALYSIS_STEPS = [
   '📊 시장 데이터 수집 중...',
@@ -403,7 +404,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
         {/* 본문 */}
         <div>
-          <p className="text-[12px] font-bold text-slate-300 mb-2">
+          <p className={`${SECTION_TITLE_CLASS} text-slate-300 mb-2`}>
             {data.reportType === 'news-driven' ? '📰 오늘의 분석' : '📊 오늘의 분석'}
           </p>
           <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('mainAnalysis')}`}>
@@ -419,7 +420,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
         {/* 어제 대비 */}
         <div className={`bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3 ${highlightClass('yesterdayDelta')}`}>
-          <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-1">🔄 어제 대비</p>
+          <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-wide mb-1`}>🔄 어제 대비</p>
           {data.yesterdayDelta !== undefined ? (
             <p className="text-[13px] text-slate-300 leading-relaxed">
               {data.yesterdayDelta}{typingKey === 'yesterdayDelta' && <TypingCursor />}
@@ -431,7 +432,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
         {/* 리스크 요인 */}
         <div>
-          <p className="text-[12px] font-bold text-slate-300 mb-2">⚠️ 리스크 요인</p>
+          <p className={`${SECTION_TITLE_CLASS} text-slate-300 mb-2`}>⚠️ 리스크 요인</p>
           <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('riskFactor')}`}>
             {data.riskFactor !== undefined ? (
               <p className="text-[13px] text-slate-400 leading-relaxed">

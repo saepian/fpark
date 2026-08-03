@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { fetchChartNear } from '../../../../../lib/kis-api';
+import { fetchChartBackTo } from '../../../../../lib/kis-api';
 import { supabase } from '../../../../../lib/supabase';
 import { kstYearMonthDay, kstMidnight } from '../../../../../lib/ai-grounding';
 import type { ChartDataPoint } from '../../../../../lib/types';
@@ -8,8 +8,14 @@ export const dynamic = 'force-dynamic';
 
 // PriceChangeTable의 "1년 전"/"6개월 전" 칸 전용 — /api/stock/[ticker]/chart?period=1Y는
 // KIS의 100건 캡 때문에 실제로는 최근 ~5개월치만 주므로(lib/kis-api.ts fetchChartRangeRaw
-// 주석 참고) 그 이전 시점은 이 라우트로 목표일 근방만 좁게 따로 조회한다. monthsAgo로
-// 몇 개월 전을 볼지 파라미터화해 1년 전(12)·6개월 전(6) 등 여러 시점에 재사용한다.
+// 주석 참고) 그 이전 시점은 이 라우트로 따로 조회한다. monthsAgo로 몇 개월 전까지
+// 커버할지 파라미터화.
+// 2026-08-03: 예전엔 목표일 근방 14일만 좁게 조회해 반환했는데, 이러면 그 스냅샷과
+// main(1Y)/다른 monthsAgo 스냅샷 사이에 큰 공백이 생겨 그 구간의 실제 고점/저점이
+// 누락되는 버그가 있었다(S-Oil 2026-03-04 고가 177,100원 누락 사례로 실측 확인).
+// fetchChartBackTo로 교체해 오늘부터 목표월까지 빈틈없이 연쇄 조회한다 — near12
+// 하나만으로 6개월 전 시점도 포함하는 연속 데이터가 되므로, PriceChangeTable은
+// 더 이상 near6를 따로 부르지 않아도 된다.
 const cacheKey = (ticker: string, monthsAgo: number) => `stock_chart_near_${monthsAgo}m_${ticker}`;
 
 // 목표일이 매일 하루씩 밀리긴 하지만, 하루 단위로 갱신되면 충분히 정확하다 — price처럼
@@ -56,7 +62,7 @@ export async function GET(
   const { year, month, day } = kstYearMonthDay(new Date());
   const targetDate = kstMidnight(year, month - monthsAgo, day);
 
-  const data = await fetchChartNear(ticker, targetDate);
+  const data = await fetchChartBackTo(ticker, targetDate);
   if (data.length > 0) {
     saveCache(ticker, monthsAgo, data);
     return NextResponse.json(data);

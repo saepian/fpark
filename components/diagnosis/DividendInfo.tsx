@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
 export interface DartDividendSummary {
   year:             string;
@@ -40,7 +41,7 @@ export default function DividendInfo({
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
       <div className="flex items-center justify-between gap-2 mb-4">
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">배당 정보</p>
+        <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>배당 정보</p>
         {hasBoth && (
           <div className="flex items-center gap-1">
             {(['summary', 'history'] as const).map((t) => (

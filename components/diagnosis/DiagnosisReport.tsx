@@ -6,6 +6,7 @@ import PageBackground from '@/components/layout/PageBackground';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
+import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
 export interface DiagnosisHistory {
   daysSince: number | null; // null = 첫 기업분석(비교 대상 없음)
@@ -152,7 +153,7 @@ function MainAnalysisBody({ result }: { result: DiagnosisResult }) {
     <div className="flex flex-col gap-3.5">
       {blocks.map((b) => (
         <div key={b.label}>
-          <p className="text-[10px] font-bold text-indigo-400/80 uppercase tracking-wide mb-1">{b.label}</p>
+          <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
           <p className="text-[13px] text-slate-300 leading-relaxed">{b.text}</p>
         </div>
       ))}
@@ -184,7 +185,7 @@ function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
 
   return (
     <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
-      <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
+      <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-wide mb-2`}>{label}</p>
       {!isFirst && (
         <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
           {rateDelta !== null && (
@@ -218,7 +219,7 @@ function FinancialsTrendCard({ result }: { result: DiagnosisResult }) {
   return (
     <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5 mb-4">
       <div className="flex items-center gap-2 mb-4">
-        <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
+        <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
           실적 추이 (연간 확정치)
         </span>
       </div>
@@ -346,7 +347,7 @@ export default function DiagnosisReport({
                   <Sparkles className="w-4 h-4 text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">오늘의 기업 분석</p>
+                  <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>오늘의 기업 분석</p>
                 </div>
               </div>
               <MainAnalysisBody result={result} />
@@ -356,7 +357,7 @@ export default function DiagnosisReport({
           {/* PERFORMANCE SNAPSHOT */}
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl overflow-hidden">
             <div className="px-5 pt-4 pb-2 border-b border-slate-700/50">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Performance Snapshot</p>
+              <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>Performance Snapshot</p>
             </div>
             {result.isCached && (
               <div className="flex items-center gap-1.5 px-5 pt-3 text-[11px] text-amber-500">
@@ -431,7 +432,7 @@ export default function DiagnosisReport({
           <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-5 mb-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">주요 공시 (DART)</span>
+              <span className={`${SECTION_TITLE_CLASS} text-amber-400 uppercase tracking-widest`}>주요 공시 (DART)</span>
             </div>
             <div className="flex flex-col gap-2 mb-3">
               {result.disclosures.map((d, i) => (
@@ -461,7 +462,7 @@ export default function DiagnosisReport({
               <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
                 <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최고가</p>
+              <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>52주 최고가</p>
             </div>
             <div className="px-5 py-4">
               {result.resistance > 0 ? (
@@ -483,7 +484,7 @@ export default function DiagnosisReport({
               <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
                 <TrendingDown className="w-3.5 h-3.5 text-slate-400" />
               </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최저가</p>
+              <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>52주 최저가</p>
             </div>
             <div className="px-5 py-4">
               {result.support > 0 ? (
@@ -517,7 +518,7 @@ export default function DiagnosisReport({
               <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
                 <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">기관/외국인 동향</p>
+              <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>기관/외국인 동향</p>
             </div>
 
             {/* 도넛 차트 */}
@@ -543,7 +544,7 @@ export default function DiagnosisReport({
           {result.sectorComparison && (
             <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">업종 대비</p>
+                <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>업종 대비</p>
               </div>
               <div className="flex flex-col divide-y divide-slate-700/40 mb-3">
                 <div className="flex items-center justify-between py-2 first:pt-0">
@@ -566,7 +567,7 @@ export default function DiagnosisReport({
           {/* 리스크 요인 */}
           <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
-              <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">
+              <span className={`px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                 Risk Factors
               </span>
             </div>
@@ -587,7 +588,7 @@ export default function DiagnosisReport({
             {result.shortTermOutlook && (
               <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
+                  <span className={`px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                     단기 관찰 변수
                   </span>
                 </div>
@@ -597,7 +598,7 @@ export default function DiagnosisReport({
             {result.midTermOutlook && (
               <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
+                  <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                     중기 관찰 변수
                   </span>
                 </div>
@@ -613,7 +614,7 @@ export default function DiagnosisReport({
         {/* ── 6행: 참고 기사 (본문에서 이미 해석했으므로 출처 링크만) ── */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
           <div className="flex items-center gap-2 mb-4">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">참고 기사</p>
+            <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>참고 기사</p>
             {result.newsBasis === 'news' ? (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
                 📰 뉴스 기반 분석

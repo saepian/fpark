@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { ChartDataPoint, PriceChangeBadge, StockPrice } from '../../lib/types';
 import { computePriceChangeBadges } from '../../lib/market-utils';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 type Market = 'KOSPI' | 'KOSDAQ';
 type BenchmarkRates = Partial<Record<PriceChangeBadge['label'], number>>;
@@ -40,10 +41,9 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
         const currentPrice = (priceBody as StockPrice).price;
         const market: Market = (priceBody as StockPrice).market === 'KOSDAQ' ? 'KOSDAQ' : 'KOSPI';
 
-        const [mainRes, near12Res, near6Res, benchmarkRes] = await Promise.all([
+        const [mainRes, near12Res, benchmarkRes] = await Promise.all([
           fetch(`/api/stock/${ticker}/chart?period=1Y`),
           fetch(`/api/stock/${ticker}/chart-near?monthsAgo=12`).catch(() => null),
-          fetch(`/api/stock/${ticker}/chart-near?monthsAgo=6`).catch(() => null),
           fetch(`/api/market/benchmark-change?market=${market}`).catch(() => null),
         ]);
 
@@ -56,18 +56,28 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
           );
         }
 
-        // 1년 전/6개월 전 근방 조회는 부가 데이터라 실패해도 1개월/1주일 행은 그대로
-        // 보여준다. /chart?period=1Y는 KIS가 요청 범위와 무관하게 최근 100건(≈5개월)으로
-        // 응답을 잘라서 "1년 전"·"6개월 전"에 닿지 못한다(lib/kis-api.ts
-        // fetchChartRangeRaw 주석 참고). 세 응답 모두 오래된순이고, near12(1년 전 근방) →
-        // near6(6개월 전 근방) → main(최근 ~5개월) 순으로 겹치지 않고 시간순 정렬되므로
-        // 단순 concat으로 전체 시간순이 유지된다.
+        // 1년 전 근방 조회(near12)는 부가 데이터라 실패해도 1개월/1주일 행은 그대로
+        // 보여준다. /chart?period=1Y(main)는 KIS가 요청 범위와 무관하게 최근 100건
+        // (≈5개월)으로 응답을 잘라서 "1년 전"·"6개월 전"에 닿지 못하므로, near12를
+        // /api/stock/[ticker]/chart-near에서 fetchChartBackTo로 오늘부터 12개월 전까지
+        // 빈틈없이 연쇄 조회해온다(2026-08-03 — 예전엔 near12/near6가 각각 목표일 근방
+        // 14일짜리 스냅샷이라 서로 이어지지 않는 공백이 있었고, 그 공백에 실제 52주
+        // 고점이 있으면 조용히 누락됐다. S-Oil 2026-03-04 고가 177,100원 누락 사례로
+        // 실측 확인 — near12 하나가 6개월 전 시점도 포함하는 연속 데이터가 되므로
+        // near6는 더 이상 따로 부르지 않는다).
+        // near12는 오늘 날짜까지 이어붙이므로 main과 최근 구간이 겹친다 — main(5분/1시간
+        // 캐시, 더 신선함)을 우선해 날짜 기준으로 병합 후 오름차순 정렬한다(단순 concat은
+        // 겹치는 구간 때문에 정렬이 깨져 findClosestPastClose의 "오름차순 가정"을 위반함).
         const parseNear = async (res: Response | null) => {
           if (!res?.ok) return [] as ChartDataPoint[];
           const parsed = await res.json().catch(() => null);
           return Array.isArray(parsed) ? (parsed as ChartDataPoint[]) : [];
         };
-        const [near12Body, near6Body] = await Promise.all([parseNear(near12Res), parseNear(near6Res)]);
+        const near12Body = await parseNear(near12Res);
+        const byDate = new Map<string, ChartDataPoint>();
+        for (const p of near12Body) byDate.set(p.date, p);
+        for (const p of mainBody) byDate.set(p.date, p);
+        const points = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 
         // 지수 대비 등락률도 부가 데이터 — 실패해도 나머지 컬럼은 그대로 보여준다.
         let benchmark: BenchmarkRates = {};
@@ -76,7 +86,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
           if (parsed && typeof parsed === 'object') benchmark = parsed;
         }
 
-        const rows = computePriceChangeBadges([...near12Body, ...near6Body, ...mainBody], currentPrice);
+        const rows = computePriceChangeBadges(points, currentPrice);
         if (!cancelled) setState({ rows, market, benchmark });
       } catch (e) {
         console.error(`[PriceChangeTable] ${ticker} 조회 실패:`, e);
@@ -105,7 +115,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
 
   return (
     <div className="rounded-xl bg-[#122131] border border-[#2d313e] p-4">
-      <h3 className="text-sm font-bold text-[#d4e4fa] mb-3">
+      <h3 className={`${SECTION_TITLE_CLASS} text-[#d4e4fa] mb-3`}>
         기간별 등락률
         <span className="text-[10px] text-[#8c909f] font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>

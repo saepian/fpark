@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 interface DayData {
   date: string;
@@ -40,7 +41,7 @@ export default function WeeklyChart({ ticker }: { ticker: string }) {
 
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4">
-      <h3 className="text-xs font-bold text-slate-400 mb-3">5일 등락률 추이</h3>
+      <h3 className={`${SECTION_TITLE_CLASS} text-slate-400 mb-3`}>5일 등락률 추이</h3>
       <ResponsiveContainer width="100%" height={80}>
         <BarChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
           <XAxis

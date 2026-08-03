@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NewsItem } from '../../lib/types';
+import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -32,7 +33,7 @@ export default function RelatedNews({ ticker }: RelatedNewsProps) {
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       <div className="px-4 pt-4 pb-2.5 border-b border-slate-800">
-        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">관련 뉴스</h3>
+        <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 uppercase tracking-wider`}>관련 뉴스</h3>
       </div>
 
       {loading ? (

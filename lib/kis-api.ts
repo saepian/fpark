@@ -660,6 +660,49 @@ export async function fetchChartNear(ticker: string, targetDate: Date): Promise<
   }
 }
 
+// 2026-08-03: PriceChangeTable "기간 중 최고가/최저가"가 near12(12개월 전 근방 14일
+// 창)·near6(6개월 전 근방 14일 창)·main(1Y 요청해도 실제로는 최근 ~100거래일)을
+// 병합해서 max/min을 구하는데, 세 조각이 서로 이어지지 않아 사이 구간(near12~near6
+// 사이 약 6개월, near6~main 사이 약 1개월)에 공백이 생기고 그 구간의 실제 고점/저점이
+// 조용히 누락되는 버그를 S-Oil(010950)로 실측 확인(2026-03-04 고가 177,100원이 세
+// 조각 어디에도 없어 156,500원으로 낮게 계산됨). fetchChartNear가 endDate를 과거로
+// 옮겨도 "그 endDate 기준 최근 ~100거래일"을 정확히 돌려준다는 점(오늘 기준이 아님)을
+// 이용해, 오늘부터 targetDate까지 청크의 시작일을 다음 청크의 종료일로 삼아 뒤로
+// 연쇄 호출하면 빈틈없이 이어붙일 수 있다. 청크당 거래일 수를 하드코딩으로 가정하지
+// 않고 실제 응답의 최초 날짜를 다음 앵커로 쓰므로 종목별 캡 편차에 안전하다.
+export async function fetchChartBackTo(
+  ticker: string,
+  targetDate: Date,
+  maxChunks = 4,
+): Promise<ChartDataPoint[]> {
+  const targetStr = targetDate.toISOString().slice(0, 10);
+  const merged = new Map<string, ChartDataPoint>();
+  let cursorEnd = new Date();
+
+  for (let i = 0; i < maxChunks; i++) {
+    const cursorStart = new Date(cursorEnd);
+    cursorStart.setFullYear(cursorStart.getFullYear() - 2); // 넉넉히 잡아도 KIS가 알아서 최근 구간으로 잘라 반환
+    let chunk: ChartDataPoint[];
+    try {
+      chunk = await fetchChartRangeRaw(ticker, cursorStart, cursorEnd, `fetchChartBackTo(${ticker})#${i}`);
+    } catch {
+      break;
+    }
+    if (chunk.length === 0) break;
+
+    for (const p of chunk) merged.set(p.date, p);
+
+    const earliest = chunk[0].date; // fetchChartRangeRaw는 이미 오름차순 정렬
+    if (earliest <= targetStr) break; // targetDate까지 도달 완료
+
+    const nextEnd = new Date(earliest);
+    nextEnd.setDate(nextEnd.getDate() - 1);
+    cursorEnd = nextEnd;
+  }
+
+  return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export async function fetchMarketIndex(
   indexCode: string,
   signal?: AbortSignal,

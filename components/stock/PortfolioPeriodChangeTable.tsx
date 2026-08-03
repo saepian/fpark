@@ -31,7 +31,7 @@ interface TickerData {
   currentPrice: number | null;
 }
 
-// 종목당 4개 병렬 호출(1Y 메인·1년전 근접·6개월전 근접·현재가). market/currentPrice는
+// 종목당 3개 병렬 호출(1Y 메인·1년전 근접 연쇄백필·현재가). market/currentPrice는
 // 지수 대비 컬럼의 "우세 시장" 판정에만 쓰고, 포트폴리오 평가금액 계산 자체는 여전히
 // 상위(page.tsx)가 넘겨주는 currentTotalValue를 그대로 쓴다(중복 산정 아님).
 async function fetchTickerData(ticker: string): Promise<TickerData> {
@@ -40,26 +40,31 @@ async function fetchTickerData(ticker: string): Promise<TickerData> {
   let currentPrice: number | null = null;
 
   try {
-    const [mainRes, near12Res, near6Res, priceRes] = await Promise.all([
+    const [mainRes, near12Res, priceRes] = await Promise.all([
       fetch(`/api/stock/${ticker}/chart?period=1Y`),
       fetch(`/api/stock/${ticker}/chart-near?monthsAgo=12`).catch(() => null),
-      fetch(`/api/stock/${ticker}/chart-near?monthsAgo=6`).catch(() => null),
       fetch(`/api/stock/${ticker}/price`).catch(() => null),
     ]);
 
     const mainBody = await mainRes.json().catch(() => null);
     if (mainRes.ok && Array.isArray(mainBody)) {
-      // near12(1년 전 근방) → near6(6개월 전 근방) → main(최근 ~5개월) 순으로 겹치지
-      // 않고 시간순 정렬되므로 단순 concat으로 전체 시간순이 유지된다
-      // (PriceChangeTable.tsx와 동일 성질 — /chart?period=1Y는 KIS 100건 캡 때문에
-      // 1년 전·6개월 전에 닿지 못해 근접 조회가 따로 필요함).
+      // 2026-08-03: /api/stock/[ticker]/chart-near가 fetchChartBackTo로 교체되면서
+      // near12(1년 전~오늘까지 연쇄 백필)가 이제 main(최근 ~5개월)과 크게 겹치는 연속
+      // 데이터를 반환한다 — 예전엔 서로 안 겹치는 좁은 스냅샷이라 단순 concat이 우연히
+      // 오름차순을 유지했지만, 지금은 그대로 이어붙이면 순서가 깨져(near12가 오늘까지
+      // 갔다가 main이 다시 5개월 전으로 되돌아감) findClosestPastClose의 "오름차순 가정"이
+      // 깨지는 회귀가 실제로 발생했다(PriceChangeTable.tsx와 동일 문제, 같은 방식으로
+      // 수정). near12 하나가 6개월 전 시점도 포함하므로 near6는 더 이상 호출하지 않는다.
       const parseNear = async (res: Response | null) => {
         if (!res?.ok) return [] as ChartDataPoint[];
         const parsed = await res.json().catch(() => null);
         return Array.isArray(parsed) ? (parsed as ChartDataPoint[]) : [];
       };
-      const [near12Body, near6Body] = await Promise.all([parseNear(near12Res), parseNear(near6Res)]);
-      points = [...near12Body, ...near6Body, ...(mainBody as ChartDataPoint[])];
+      const near12Body = await parseNear(near12Res);
+      const byDate = new Map<string, ChartDataPoint>();
+      for (const p of near12Body) byDate.set(p.date, p);
+      for (const p of mainBody as ChartDataPoint[]) byDate.set(p.date, p);
+      points = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
     }
 
     if (priceRes?.ok) {
