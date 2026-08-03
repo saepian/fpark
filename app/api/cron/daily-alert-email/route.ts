@@ -294,6 +294,7 @@ export async function GET(request: NextRequest) {
           otherStockNotes: userGroupC.filter(hasNews).map((s) => ({ ticker: s.ticker, comment: '관련 뉴스가 확인되었습니다.' })),
           marketSection: '오늘의 시장 전체 분석을 생성하지 못했습니다.',
           outlookSection: '',
+          usedFallback: true,
         };
     const html = buildEmailHtml({
       userName:      ctx.userName,

@@ -39,6 +39,10 @@ export interface DailyAiResult {
   otherStockNotes: { ticker: string; comment: string }[]; // 조건 미달이지만 뉴스는 있는 종목 — 서버가 마무리 멘트를 덧붙임
   marketSection: string;
   outlookSection: string;
+  // 2026-08-03: AI 호출이 재시도까지 모두 실패해 otherStockNotes가 뉴스 제목 그대로인
+  // 폴백(newsHeadlineFallback)인지 표시. true면 buildEmailHtml이 "오늘 주목 종목 기준
+  // 미달" 마무리 문구를 붙이지 않는다 — 제목만 던진 문장에 괄호 설명이 이어지면 어색함.
+  usedFallback: boolean;
 }
 
 // "이상 매매 활동" 판정 — 거래대금 상위 30위 종목코드 집합 OR 등락률이 비대칭 임계값을
@@ -79,7 +83,7 @@ const DAILY_EMAIL_SYSTEM_INSTRUCTIONS = `당신은 국내 주식 시장 데이�
 
 focusedStockAnalysis 작성 지침: 아래 "오늘 주목 대상 종목"으로 명시된 종목은 모두 실제 관련 뉴스가 조회된 종목입니다(뉴스가 없는 종목은 이미 제외되고 여기 전달되지 않습니다) — 명시된 종목 전부에 대해, 그 종목의 뉴스를 근거로 "[뉴스 핵심 내용] 영향으로 상승/하락한 것으로 풀이됩니다"처럼 구체적으로 인용해 설명하세요(실제 등락 방향에 맞게 "상승"/"하락" 단어를 고르세요). 대상 종목이 없다고 표시되면 빈 배열 []을 반환하세요. comment는 1~2문장으로 간결하게 작성하세요.
 
-otherStockNotes 작성 지침: 아래 "그 외 관심종목(뉴스 있음)"으로 명시된 종목에 대해서만 작성하세요 — 이 종목들은 오늘 주목 대상 조건(거래대금 상위30/등락률 기준)에는 해당하지 않지만 관련 뉴스는 확인된 종목입니다. 그 뉴스를 근거로 무슨 일이 있었는지만 1문장으로 짧게 요약하세요("영향으로 상승/하락했다" 같은 인과 판단이나 "다만 주가 흐름에는 큰 영향이 없는 것으로 보입니다" 같은 마무리 문구는 붙이지 마세요 — 서버가 자동으로 붙입니다). 대상 종목이 없다고 표시되면 빈 배열 []을 반환하세요.
+otherStockNotes 작성 지침: 아래 "그 외 관심종목(뉴스 있음)"으로 명시된 종목에 대해서만 작성하세요 — 이 종목들은 오늘 주목 대상 조건(거래대금 상위30/등락률 기준)에는 해당하지 않지만 관련 뉴스는 확인된 종목입니다. 그 뉴스를 근거로 무슨 일이 있었는지만 1문장으로 짧게 요약하세요("영향으로 상승/하락했다" 같은 인과 판단이나 오늘 주목 종목 기준에 해당하는지 여부에 대한 문구는 붙이지 마세요 — 서버가 자동으로 붙입니다). 대상 종목이 없다고 표시되면 빈 배열 []을 반환하세요.
 
 marketSection 작성 지침: 시장 전체 뉴스가 오늘 관심종목 전반의 등락과 관련 있다고 판단되면 그 영향 가능성을 짚고, 그것이 개별 종목의 반대 방향 뉴스를 상쇄했는지도 함께 판단하세요 (예: "오늘 [뉴스 내용]으로 시장 전반이 하락 압력을 받았고, 이것이 [종목]의 개별 호재를 상쇄한 것으로 추정됩니다" 또는 반대로 시장 훈풍이 개별 악재를 상쇄한 경우도 동일하게). 여러 종목에 공통으로 매칭된 뉴스가 있다면 이 필드에서 함께 언급하세요. 시장 전체 뉴스가 없거나 관련이 없다면 "특별한 시장 전체 이슈는 확인되지 않아 개별 종목 수급 요인으로 추정됩니다"라고 정직하게 명시하세요. 오늘 관심종목 전반의 등락 흐름도 한 문장으로 요약하세요.
 
@@ -358,6 +362,17 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
   // 문제를 실제 발송 로그(15종목 유저만 그날 실패)로 확인 — 30초로 상향하고, 실패 시
   // 조용히 넘기지 않고 1회 재시도한다(유저별 독립 호출이라 재시도해도 다른 유저 발송에
   // 영향 없음, 전체 크론 maxDuration=300이라 여유 충분).
+  // 2026-08-03 재발: 30초 고정도 15종목 유저에서 다시 부족해 실제 발송(15:45 KST)에서
+  // marketSection 생성 실패로 폴백된 사례를 email_send_logs로 직접 확인. 고정값 대신
+  // AI가 실제로 코멘트를 써야 하는 종목 수(groupAStocks+otherNewsStocks — focusedStock
+  // Analysis/otherStockNotes 각 항목이 이 수만큼 생성됨, marketSection/outlookSection은
+  // 종목 수와 무관한 고정 오버헤드)에 비례해 동적으로 늘린다. 유저별 호출은
+  // Promise.allSettled로 전부 병렬 실행되므로(daily-alert-email/route.ts) 개별 타임아웃을
+  // 늘려도 전체 크론 소요시간은 "가장 느린 유저 1명" 기준으로만 늘어나고 유저 수에
+  // 비례해 누적되지 않는다 — maxDuration=300 대비 상한(cap)을 둬서 극단적으로 큰
+  // 워치리스트(60종목+)에서도 2회 재시도 합산이 예산을 넘지 않게 방어한다.
+  const targetStockCount = groupAStocks.length + otherNewsStocks.length;
+  const timeoutMs = Math.min(20_000 + targetStockCount * 1_750, 60_000);
   const attempt = async (): Promise<DailyAiResult | null> => {
     try {
       const message = await Promise.race([
@@ -370,7 +385,7 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
           ],
           messages: [{ role: 'user', content: prompt }],
         }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
       ]);
       const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
       if (!text) return null;
@@ -412,6 +427,7 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
         otherStockNotes: toCommentArray(parsed.otherStockNotes),
         marketSection: typeof parsed.marketSection === 'string' ? parsed.marketSection : '',
         outlookSection: typeof parsed.outlookSection === 'string' ? parsed.outlookSection : '',
+        usedFallback: false,
       };
     } catch (e) {
       console.warn(`[DAILY-EMAIL] ${userName} AI 코멘트 생성 시도 실패:`, e instanceof Error ? e.message : e);
@@ -438,6 +454,7 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
       otherStockNotes: otherNewsStocks.map((s) => ({ ticker: s.ticker, comment: newsHeadlineFallback(s) })),
       marketSection: '오늘의 시장 전체 분석을 생성하지 못했습니다.',
       outlookSection: '',
+      usedFallback: true,
     };
   }
 
@@ -561,6 +578,14 @@ export function buildEmailHtml(params: {
   // 짧은 코멘트 뒤에 서버가 마무리 멘트를 고정으로 덧붙이고, 확인 결과 뉴스가 없는
   // 종목만 기존처럼 AI 관여 없이 정형 문구를 표시한다. 확인 자체를 못한(apiError)
   // 종목은 위 둘과 다른 별도 문구로 구분한다.
+  // 2026-08-03 수정: 마무리 멘트가 "다만 주가 흐름에는 큰 영향이 없는 것으로 보입니다"
+  // 였는데, 뉴스 내용과 무관하게 항상 붙어 성격이 전혀 다른 뉴스(중동 공급난·MSCI
+  // 편입 등)에도 매번 "영향 없음"이라 단정하는 모순이 실제 발송에서 확인됐다 —
+  // "영향 여부"에 대한 주장을 아예 하지 않는, 그룹 C의 정의 자체(오늘 주목 종목
+  // 기준 미달)를 짚는 문장으로 교체해 뉴스 내용과 절대 모순되지 않게 한다. 또한
+  // AI 호출이 재시도까지 실패해 note가 뉴스 제목 그대로인 폴백(usedFallback)일
+  // 때는 이 문구조차 어색하므로(제목만 던지고 바로 이어지는 설명이 부자연스러움)
+  // 생략하고 제목만 보여준다.
   const otherStockNoteMap = new Map(aiResult.otherStockNotes.map((c) => [c.ticker, c.comment]));
   const otherStockLine = (s: StockResult) => {
     if (apiErrorTickers.has(s.ticker)) {
@@ -568,7 +593,8 @@ export function buildEmailHtml(params: {
     }
     const note = otherStockNoteMap.get(s.ticker)?.trim();
     if (note) {
-      return `${nameSpan(s.name)} — ${escapeHtml(note)} 다만 주가 흐름에는 큰 영향이 없는 것으로 보입니다.`;
+      const suffix = aiResult.usedFallback ? '' : ' (오늘 거래대금 상위 30위·등락률 급등락 기준에는 해당하지 않았습니다)';
+      return `${nameSpan(s.name)} — ${escapeHtml(note)}${suffix}`;
     }
     return `${nameSpan(s.name)}${pickEunNeun(s.name)} AI가 살펴봤지만 특별한 정보가 확인되지 않았습니다.`;
   };
