@@ -567,10 +567,20 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             <div className="flex items-center gap-2 mb-4">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">기관/외국인 동향</p>
             </div>
+            {/* components/diagnosis/DiagnosisReport.tsx와 동일 로직(파일 상단 주석대로 손복제) —
+                flowPercentage(오늘 하루 강도)와 institutionalFlow/foreignFlow(최근 5일 캡션)의
+                기간 불일치를 소제목·구분선으로 명시 */}
+            <p className="text-center text-[10px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
             <div className="flex flex-col items-center py-2">
               <DonutChart percent={d.flowPercentage ?? 50} type={d.flowType ?? 'NEUTRAL'} />
+              <p className="text-center text-[10px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
             </div>
-            <div className="flex flex-col gap-1.5 mt-3">
+            <div className="flex items-center gap-2.5 mt-4 mb-3">
+              <span className="flex-1 h-px bg-slate-700/40" />
+              <span className="text-[10px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
+              <span className="flex-1 h-px bg-slate-700/40" />
+            </div>
+            <div className="flex flex-col gap-1.5">
               {d.institutionalFlow && (
                 <p className="text-center text-[12px] text-slate-400 leading-relaxed">{d.institutionalFlow}</p>
               )}

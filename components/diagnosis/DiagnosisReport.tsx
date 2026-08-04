@@ -669,16 +669,27 @@ export default function DiagnosisReport({
               <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>기관/외국인 동향</p>
             </div>
 
-            {/* 도넛 차트 */}
+            {/* 도넛 차트 — flowPercentage는 "오늘 하루" 순매매 강도(평소 거래대금 대비 정규화값)라
+                최근 5일 캡션과 기간이 다르다. 소제목·구분선으로 명시해 같은 카드 안에서 서로 다른
+                기간의 수치가 섞여 보이지 않게 한다. */}
+            <p className="text-center text-[10px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
             <div className="flex flex-col items-center py-2">
               <DonutChart
                 percent={result.flowPercentage ?? 50}
                 type={result.flowType ?? 'NEUTRAL'}
               />
+              <p className="text-center text-[10px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
+            </div>
+
+            {/* 구분선 — 도넛(오늘)과 아래 캡션(최근 5일)이 다른 기간의 데이터임을 시각적으로 분리 */}
+            <div className="flex items-center gap-2.5 mt-4 mb-3">
+              <span className="flex-1 h-px bg-slate-700/40" />
+              <span className="text-[10px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
+              <span className="flex-1 h-px bg-slate-700/40" />
             </div>
 
             {/* 캡션 (기관/외국인 각 한 줄) */}
-            <div className="flex flex-col gap-1.5 mt-3">
+            <div className="flex flex-col gap-1.5">
               {result.institutionalFlow && (
                 <p className="text-center text-[12px] text-slate-400 leading-relaxed">{result.institutionalFlow}</p>
               )}
