@@ -967,7 +967,10 @@ export default function PortfolioDiagnosisPage() {
                           {h.ticker}{h.sector !== undefined ? ` · ${h.sector}` : ''}
                           {sectorTyping && <TypingCursor />}
                         </p>
-                        <Link href={`/stock/${h.ticker}`} className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
+                        <Link
+                          href={`/stock/${h.ticker}`}
+                          className="mt-1.5 w-full inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/30 rounded-full px-2.5 py-1.5 transition-colors"
+                        >
                           자세히 보기 →
                         </Link>
                       </div>
@@ -1004,9 +1007,16 @@ export default function PortfolioDiagnosisPage() {
                     </div>
                     {h.reason !== undefined ? (
                       h.reason && (
-                        <p className="mt-2 text-[12px] text-slate-500 leading-relaxed pl-0 md:pl-44">
-                          {h.reason}{reasonTyping && <TypingCursor />}
-                        </p>
+                        <div className="mt-2 pl-0 md:pl-44">
+                          <p className="text-[12px] text-slate-500 leading-relaxed">
+                            {h.reason}{reasonTyping && <TypingCursor />}
+                          </p>
+                          {!reasonTyping && (
+                            <p className="mt-1 text-[10px] text-slate-600">
+                              더 자세한 분석은 자세히 보기에서 확인하세요
+                            </p>
+                          )}
+                        </div>
                       )
                     ) : (
                       <div className="mt-2 pl-0 md:pl-44"><FieldSkeleton lines={2} /></div>
