@@ -18,6 +18,7 @@ import {
   buildRiskMetricsBlock,
 } from '@/lib/stock-analysis-data';
 import { fetchSectorPeers, computeSectorRelativeChange } from '@/lib/sector-peers';
+import { fetchUsdKrwDaily1Y, computeFxCorrelation, isFxCorrelationMeaningful } from '@/lib/fx-correlation';
 import { fetchRecentDisclosures, type DartDisclosure, fetchDividendSummary, type DartDividendSummary } from '@/lib/dart-api';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
@@ -62,7 +63,8 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
   "foreignFlow": "외국인 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, 동일 기준)",
   "flowPercentage": 50,
   "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】단기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로 (예: '외국인 자금은 5일째 유출 중인데, 이는 방향 전환 여부를 아직 확인할 수 없다는 점에서 지켜볼 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지",
-  "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지"
+  "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지",
+  "newsIssueClusters": [{"label": "이슈 라벨(8~16자 명사구, 예: 'HBM 신기술 표준 공개')", "articleIndexes": [0, 2]}]
 }
 
 위 JSON 스키마를 반드시 준수하세요. mainAnalysisSections의 4개 하위 필드(background/flowSummary/valuationNote/watchPoint)를 포함해 각 필드는 반드시 포함되어야 합니다(valuationNote는 데이터 없으면 빈 문자열 허용).
@@ -79,6 +81,7 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
 - sectorNarrative: [업종 대비]는 "판단이 아닌 수치 비교"입니다 — 시장(KOSPI) 대비 비교와 같은 어투로, 우열을 평가하는 뉘앙스 없이 사실만 전달하세요
 - sectorNarrative와 mainAnalysisSections.valuationNote는 서로 다른 지표(등락률 vs PER/PBR)를 다루는 별개 필드입니다 — 절대 같은 지표를 양쪽에서 중복 언급하지 마세요
 - sectorNarrative·financialsNarrative·disclosureNarrative는 mainAnalysisSections·riskFactors·shortTermOutlook·midTermOutlook과 내용이 겹치면 안 됩니다 — 업종/실적/공시 이야기는 각각 그 필드에서만
+- newsIssueClusters: [뉴스 이슈 클러스터링용 전체 목록]의 기사가 2건 이상이고 서로 다른 사건(이슈)을 대표할 때만 채우세요(3~4개 이하 클러스터). label은 8~16자 명사구로 간결하게(문장형·완결된 문장 금지). 기사가 1건뿐이거나 사실상 하나의 사건만 다루고 있으면 억지로 나누지 말고 빈 배열 []을 반환하세요. 각 인덱스는 최대 하나의 클러스터에만 넣으세요(중복 금지)
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
 - ${MARKET_DAY_GROUNDING_INSTRUCTION}
 - 52주 고점/저점을 언급할 때는 위에 제공된 수치를 그대로 활용하세요 (임의의 가격을 새로 만들지 마세요)
@@ -279,6 +282,10 @@ export async function POST(request: NextRequest) {
       (ad) => selectSectorMacroNews(ad.sector ?? ''),
       () => selectSectorMacroNews(''),
     );
+    // 환율 상관관계용 USD/KRW 1년 시계열 — 종목·다른 데이터와 무관하게 독립적으로 시작해
+    // 최대한 일찍부터 겹치게 한다(티커 무관 공유 캐시라 대부분 요청은 Supabase 캐시 히트).
+    // 아래 Claude 호출과 함께 await하므로 실패해도 catch로 빈 배열 처리해 절대 요청을 막지 않는다.
+    const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
 
     const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult] = await Promise.allSettled([
       fetchStockPrice(ticker),
@@ -374,11 +381,22 @@ export async function POST(request: NextRequest) {
       sectorNewsBlockStr = buildNewsBlock(sectorMacroNews);
     } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock(업종) 실패:', e); }
 
+    // date는 "모멘텀 타임라인"(뉴스+공시를 시간순으로 합쳐 보여주는 카드)에서 정렬 기준으로
+    // 쓴다 — relevantNews에 이미 있던 값을 그대로 실어보내는 것뿐, 신규 조회 없음.
     const combinedNews = relevantNews.map(n => ({
       title:       n.title,
       description: n.summary ?? '',
       url:         n.url ?? '',
+      date:        n.date ?? '',
     }));
+
+    // 뉴스 이슈 클러스터링(newsIssueClusters)용 인덱스 목록 — buildNewsBlock은 프롬프트
+    // 본문(관련 뉴스 섹션)에 최대 3건만 넣지만, 클러스터링은 combinedNews(최대 5건, UI에
+    // 그대로 노출되는 배열)와 인덱스가 정확히 일치해야 하므로 별도로 전체를 나열한다.
+    // 신규 조회 없음 — 이미 갖고 있는 relevantNews를 다른 포맷으로 다시 나열할 뿐.
+    const newsClusterListBlock = hasRelevantNews
+      ? relevantNews.map((n, i) => `${i}: [${n.date ?? '날짜 미상'}] ${n.title}`).join('\n')
+      : '해당 없음';
 
     const changeRate = (priceData && typeof priceData.changeRate === 'number') ? priceData.changeRate : 0;
     const isBigMove   = Math.abs(changeRate) >= 5;
@@ -473,10 +491,25 @@ export async function POST(request: NextRequest) {
     const riskMetricsBlock     = buildRiskMetricsBlock(riskMetrics);
 
     // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
-    const sectorComparison = computeSectorRelativeChange(changeRate, sectorPeers);
-    const sectorBlock = sectorComparison
-      ? `- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 등락률 ${changeRate >= 0 ? '+' : ''}${changeRate}% vs 동종업계 peer 평균 등락률 ${sectorComparison.peerAvgChangeRate >= 0 ? '+' : ''}${sectorComparison.peerAvgChangeRate}% (${sectorComparison.deltaVsPeer >= 0 ? '+' : ''}${sectorComparison.deltaVsPeer}%p 차이)`
+    // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —
+    // sectorNameForMacro(KIS bstp_kor_isnm, 이미 위에서 계산됨)와 sectorPeers(이미 fetch됨)를
+    // 그대로 재사용하므로 신규 조회 없음. peer 등락률이 장 시작 전 등의 이유로 0%여도
+    // sectorName·peerNames는 그 값과 무관하게 항상 함께 채워진다.
+    const rawSectorComparison = computeSectorRelativeChange(changeRate, sectorPeers);
+    const sectorComparisonBase = rawSectorComparison
+      ? { ...rawSectorComparison, sectorName: sectorNameForMacro || undefined, peerNames: sectorPeers.map((p) => p.name) }
+      : null;
+    const sectorBlock = sectorComparisonBase
+      ? `- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 등락률 ${changeRate >= 0 ? '+' : ''}${changeRate}% vs 동종업계 peer 평균 등락률 ${sectorComparisonBase.peerAvgChangeRate >= 0 ? '+' : ''}${sectorComparisonBase.peerAvgChangeRate}% (${sectorComparisonBase.deltaVsPeer >= 0 ? '+' : ''}${sectorComparisonBase.deltaVsPeer}%p 차이)`
       : '동종업계 비교 데이터 없음';
+
+    // 국내 peer 스파크라인(최근 1개월 상대수익률)용 종가 조회 — sectorPeers는 이미 위에서
+    // resolve됐으므로 여기서 병렬로 미리 시작해두고, 아래 Claude 호출과 Promise.all로 함께
+    // await한다. peer 6개 병렬 조회는 실측 ~70ms인 반면 Claude 호출은 수 초가 걸려 완전히
+    // 가려지므로 체감 지연시간 증가가 없다.
+    const peerChartsPromise = Promise.allSettled(
+      sectorPeers.map((p) => fetchDailyChart(p.ticker, '1M')),
+    );
 
     // ── 그룹 3-1: 실적 추이 (최근 3개년 확정 연간, 잠정치 아님) ──────────────────────
     const financialsBlock = annualFinancials.length
@@ -572,6 +605,9 @@ ${financialsBlock}
 ${newsBlockStr}
 ${newsInstruction}
 
+## 뉴스 이슈 클러스터링용 전체 목록 (newsIssueClusters 작성 시에만 참고, 인덱스는 0부터)
+${newsClusterListBlock}
+
 ## 업종/시장 배경 (${sectorNameForMacro || '업종 정보 없음'}, ${buildNewsFreshnessLine(sectorMacroNews)})
 ※ 위 [관련 뉴스]와는 별개로, 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스입니다. 이 종목명이 직접 언급되지 않을 수 있습니다.
 ${sectorNewsBlockStr}
@@ -603,23 +639,66 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
 
     console.log('[DIAGNOSIS] 4. Claude 분석 시작');
 
-    const message = await claude.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 3500,
-      system: [
-        { type: 'text', text: COMPLIANCE_PRINCIPLE },
-        { type: 'text', text: DIAGNOSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-        { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
-      ],
-      messages: [{ role: 'user', content: prompt }],
-      // 2026-07-23: SDK 기본값(timeout 10분, maxRetries 2)은 maxDuration(120s)보다 훨씬 커서,
-      // Claude가 느려지면 우리 catch가 실행되기 전에 Vercel이 함수를 강제종료해 사용자에게
-      // 에러 메시지 없이 연결만 끊길 위험이 있었다 — 명시적으로 짧게 걸어 우리 에러 핸들링이
-      // 항상 먼저 발동하도록 함. maxRetries는 0으로 낮춤(SDK 기본 재시도는 타임아웃도
-      // 재시도 대상이라 최악의 경우 timeout의 배수만큼 걸릴 수 있어, 예산 계산이 불가능해짐
-      // — 재시도 없이 1회 시도(실측 최악 36.6초 대비 2.5배 여유)로 실패하면 즉시 명확한
-      // 에러를 반환하는 편이 낫다).
-    }, { timeout: 90_000, maxRetries: 0 });
+    // peerChartsPromise(peer 스파크라인 조회)를 Claude 호출과 함께 await — 아래 주석대로
+    // Claude 쪽이 수 초로 훨씬 오래 걸리므로 peer 조회 시간은 결과적으로 완전히 가려진다.
+    const [message, peerChartsSettled, fxDaily] = await Promise.all([
+      claude.messages.create({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 3500,
+        system: [
+          { type: 'text', text: COMPLIANCE_PRINCIPLE },
+          { type: 'text', text: DIAGNOSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
+        ],
+        messages: [{ role: 'user', content: prompt }],
+        // 2026-07-23: SDK 기본값(timeout 10분, maxRetries 2)은 maxDuration(120s)보다 훨씬 커서,
+        // Claude가 느려지면 우리 catch가 실행되기 전에 Vercel이 함수를 강제종료해 사용자에게
+        // 에러 메시지 없이 연결만 끊길 위험이 있었다 — 명시적으로 짧게 걸어 우리 에러 핸들링이
+        // 항상 먼저 발동하도록 함. maxRetries는 0으로 낮춤(SDK 기본 재시도는 타임아웃도
+        // 재시도 대상이라 최악의 경우 timeout의 배수만큼 걸릴 수 있어, 예산 계산이 불가능해짐
+        // — 재시도 없이 1회 시도(실측 최악 36.6초 대비 2.5배 여유)로 실패하면 즉시 명확한
+        // 에러를 반환하는 편이 낫다).
+      }, { timeout: 90_000, maxRetries: 0 }),
+      peerChartsPromise,
+      fxDailyPromise,
+    ]);
+
+    // 국내 peer 스파크라인 계산 — peer 6개(각 1개월 종가)를 첫날 대비 누적%로 정규화한 뒤
+    // 평균 내고, 대상 종목은 이미 있는 chartData(1Y 조회)에서 마지막 ~21거래일만 잘라
+    // 같은 방식으로 정규화한다(신규 호출 없음). 유효 peer가 없거나 구간이 너무 짧으면
+    // null(카드에서 스파크라인만 생략, 나머지 업종 대비 카드는 그대로 표시).
+    const sectorSparkline = ((): { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null => {
+      if (!sectorComparisonBase) return null;
+      const validPeerCharts = peerChartsSettled
+        .map((r) => (r.status === 'fulfilled' ? r.value : []))
+        .filter((c) => c.length >= 2);
+      if (validPeerCharts.length === 0) return null;
+      const targetSlice = chartData.slice(-21);
+      if (targetSlice.length < 2) return null;
+      const n = Math.min(targetSlice.length, ...validPeerCharts.map((c) => c.length));
+      if (n < 2) return null;
+      const targetWindow = targetSlice.slice(-n);
+      const peerWindows  = validPeerCharts.map((c) => c.slice(-n));
+      const stockBase = targetWindow[0].close;
+      const stockReturns = targetWindow.map((d) => parseFloat((((d.close - stockBase) / stockBase) * 100).toFixed(2)));
+      const peerAvgReturns: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const rates = peerWindows.map((w) => ((w[i].close - w[0].close) / w[0].close) * 100);
+        peerAvgReturns.push(parseFloat((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(2)));
+      }
+      return { dates: targetWindow.map((d) => d.date), stockReturns, peerAvgReturns };
+    })();
+
+    const sectorComparison = sectorComparisonBase
+      ? { ...sectorComparisonBase, sparkline: sectorSparkline }
+      : null;
+
+    // 환율 상관관계 — 종목 1년 일별 종가(chartData, 이미 있음) vs 환율 1년 일별 종가(fxDaily,
+    // 위에서 Claude 호출과 함께 받음)의 피어슨 상관계수. |r| < 0.3(약한 상관)이거나 표본이
+    // 부족하면 null로 취급해 카드 자체를 생략한다 — 다른 카드들(sectorComparison 등)과
+    // 동일하게 "근거 부족하면 생략" 관례.
+    const rawFxCorrelation = computeFxCorrelation(chartData, fxDaily);
+    const fxCorrelation = isFxCorrelationMeaningful(rawFxCorrelation) ? rawFxCorrelation : null;
 
     console.log('[DIAGNOSIS] 5. Claude 응답 수신');
     console.log('[TOKEN_USAGE]', {
@@ -673,9 +752,11 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
       flowPercentage,
       news:               combinedNews,
       newsBasis:          (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
+      newsIssueClusters:  [] as { label: string; articleIndexes: number[] }[],
       history:            buildHistory(`AI 응답 형식 오류(${errReason})로 히스토리 해석을 가져오지 못했습니다.`),
       sectorComparison,   // 서버 계산값 — AI 응답과 무관하게 항상 채움
       sectorNarrative:    '',
+      fxCorrelation,      // 서버 계산값 — AI 응답과 무관하게 항상 채움 (|r|<0.3이면 null)
       annualFinancials,   // 서버 계산값 — AI 응답과 무관하게 항상 채움
       financialsNarrative: '',
       disclosures,        // 서버 계산값 — AI 응답과 무관하게 항상 채움
@@ -706,6 +787,25 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
     };
 
     const toStr = (v: unknown): string => typeof v === 'string' ? v : '';
+
+    // newsIssueClusters 정규화 — combinedNews 인덱스 범위를 벗어나거나 형식이 어긋난
+    // 항목은 버린다. 모델이 일부 기사를 어느 클러스터에도 안 넣었을 수 있는데(전체
+    // 커버 강제는 안 시켰음), 남은 기사는 프론트가 "기타" 묶음으로 자동 처리한다.
+    const toNewsIssueClusters = (v: unknown): { label: string; articleIndexes: number[] }[] => {
+      if (!Array.isArray(v)) return [];
+      return v
+        .map((c) => {
+          if (!c || typeof c !== 'object') return null;
+          const label = typeof (c as Record<string, unknown>).label === 'string'
+            ? (c as Record<string, unknown>).label as string : '';
+          const rawIndexes = (c as Record<string, unknown>).articleIndexes;
+          const articleIndexes = Array.isArray(rawIndexes)
+            ? rawIndexes.filter((i): i is number => typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < combinedNews.length)
+            : [];
+          return label && articleIndexes.length > 0 ? { label, articleIndexes } : null;
+        })
+        .filter((c): c is { label: string; articleIndexes: number[] } => c !== null);
+    };
 
     // mainAnalysisSections(background/flowSummary/valuationNote/watchPoint) 정규화.
     // 과거 mainAnalysis(단일 문자열) 소비처(공유페이지 DiagnosisView, ShareDropdown의
@@ -738,6 +838,7 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
       profitAmount:  Math.round(profitAmount),
       news:          combinedNews,
       newsBasis:     (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
+      newsIssueClusters: hasRelevantNews ? toNewsIssueClusters(result.newsIssueClusters) : [],
       flowType,
       flowPercentage,
       resistance:    Math.round(resistance), // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
@@ -747,6 +848,7 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
       cachedAt:      analysisData?.cachedAt,
       history:       buildHistory(historyNarrative), // 서버 계산 델타 + AI 해석 (직전 진단 대비)
       sectorComparison,   // 서버 계산 — peer 평균 등락률과의 차이 (동종업계 없으면 null)
+      fxCorrelation,      // 서버 계산 — 최근 1년 원/달러 환율과의 피어슨 상관계수 (|r|<0.3이거나 표본 부족이면 null)
       annualFinancials,   // 서버 계산 — 최근 3개년 확정 연간 실적 (없으면 빈 배열)
       disclosures,        // 서버 계산 — DART 최근 14일 주요 공시 (없으면 빈 배열, UI는 있을 때만 강조 카드)
       dividendSummary,    // 서버 계산 — DART 최신 사업연도 배당 요약 (무배당이면 null)

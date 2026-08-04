@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BarChart, Bar, XAxis, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 export default function InvestorFlow({ ticker }: { ticker: string }) {
@@ -127,6 +128,80 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
           })}
         </div>
       </div>
+
+      {/* 섹션 1-1: 수급 추이(최근 20거래일) — 오늘 하루 도넛/바 그래프는 위 섹션 1 그대로 유지,
+          그 아래에 외국인/기관 각각의 최근 20거래일 순매매 추세를 미니 막대그래프로 보강.
+          WeeklyChart.tsx(5일 등락률 추이)와 동일한 recharts 스타일(BarChart + Cell별
+          방향 색상)을 재사용해 앱 전체 시각 언어를 통일한다. */}
+      {Array.isArray(data.trend) && data.trend.length > 0 && (
+        <div className="px-4 py-3 border-b border-slate-800">
+          <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-wider mb-2`}>
+            수급 추이 (최근 {data.trend.length}거래일)
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] text-slate-600 mb-1">외국인</p>
+              <ResponsiveContainer width="100%" height={70}>
+                <BarChart data={data.trend} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 9, fill: '#64748b' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <Tooltip
+                    formatter={(v: number, _name: string, item: any) =>
+                      [`${fmtAmt(v, item.payload.foreignAmountRaw)}원`, '외국인 순매매']
+                    }
+                    contentStyle={{
+                      backgroundColor: '#1a1d27',
+                      border: '1px solid #334155',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <Bar dataKey="foreignAmount" radius={[2, 2, 0, 0]}>
+                    {data.trend.map((d: any, i: number) => (
+                      <Cell key={i} fill={d.foreignAmount >= 0 ? '#ef4444' : '#3b82f6'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-600 mb-1">기관</p>
+              <ResponsiveContainer width="100%" height={70}>
+                <BarChart data={data.trend} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 9, fill: '#64748b' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <Tooltip
+                    formatter={(v: number, _name: string, item: any) =>
+                      [`${fmtAmt(v, item.payload.institutionAmountRaw)}원`, '기관 순매매']
+                    }
+                    contentStyle={{
+                      backgroundColor: '#1a1d27',
+                      border: '1px solid #334155',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <Bar dataKey="institutionAmount" radius={[2, 2, 0, 0]}>
+                    {data.trend.map((d: any, i: number) => (
+                      <Cell key={i} fill={d.institutionAmount >= 0 ? '#ef4444' : '#3b82f6'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 섹션 2: 프로그램 매매 */}
       {data.program !== null && data.program !== undefined && (

@@ -1,6 +1,7 @@
 'use client';
 
 import { Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown, AlertCircle, RefreshCw } from 'lucide-react';
+import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
@@ -23,6 +24,9 @@ export interface DiagnosisHistory {
 export interface SectorComparison {
   peerAvgChangeRate: number;
   deltaVsPeer: number;
+  sectorName?: string;   // KIS 업종명(예: "전기·전자") — 없으면 캡션에서 생략
+  peerNames?: string[];  // 비교에 쓰인 동종업계 peer 종목명 전체(평균 계산에 쓰인 개수와 동일)
+  sparkline?: { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null; // 최근 1개월 상대수익률(이 종목 vs peer 평균, 첫날 대비 누적%) — peer 차트 조회 실패 등으로 없으면 null
 }
 
 export interface AnnualFinancialRow {
@@ -55,13 +59,15 @@ export interface DiagnosisResult {
   quantity: number;
   profitRate: number;
   profitAmount: number;
-  news: { title: string; description: string; url?: string }[];
+  news: { title: string; description: string; url?: string; date?: string }[]; // date는 모멘텀 타임라인 정렬용(원문 pubDate, 없으면 빈 문자열)
   newsBasis?: 'news' | 'estimated';
+  newsIssueClusters?: { label: string; articleIndexes: number[] }[]; // news 배열의 인덱스 기준 이슈 묶음 — 뉴스가 적어 클러스터링할 게 없으면 빈 배열(참고 기사는 flat 목록으로 표시)
   institutionalFlow: string; // 도넛 옆 한 줄 캡션
   foreignFlow: string;       // 도넛 옆 한 줄 캡션
   riskFactors: string[];
   sectorComparison: SectorComparison | null; // 동종업계 peer 없으면 null — 카드 자체 생략
   sectorNarrative: string;   // 업종 대비 해석 (1~3문장), 데이터 없으면 빈 문자열
+  fxCorrelation?: { correlation: number; sampleSize: number } | null; // 최근 1년 원/달러 환율과의 피어슨 상관계수 — |r|<0.3이거나 표본 부족이면 null(카드 생략)
   annualFinancials: AnnualFinancialRow[]; // 최근 3개년 확정 연간 실적, 없으면 빈 배열 — 카드 생략
   financialsNarrative: string; // 실적 추이 해석, 데이터 없으면 빈 문자열
   disclosures: DartDisclosure[]; // DART 최근 14일 주요 공시, 없으면 빈 배열 — 카드 생략
@@ -120,8 +126,146 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
   );
 }
 
+// "업종 대비" 카드 안에 들어가는 작은 스파크라인 — 최근 1개월 상대수익률(이 종목 vs peer
+// 평균, 첫날 대비 누적%)을 축·범례 없이 보여준다. MarketSummary.tsx의 MiniAreaChart와
+// 같은 "축·범례 없는 미니 차트" 원칙을 따르되, 여기는 실제 시계열 2개(가짜 장식용 곡선이
+// 아님)라 범례 대신 아래 10px 캡션으로 색을 설명한다.
+function SectorSparkline({ sparkline }: { sparkline: { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } }) {
+  const data = sparkline.dates.map((d, i) => ({
+    date: d,
+    stock: sparkline.stockReturns[i],
+    peerAvg: sparkline.peerAvgReturns[i],
+  }));
+  return (
+    <div className="mb-2">
+      <div style={{ height: 44 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+            <Line type="monotone" dataKey="peerAvg" stroke="#64748b" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="stock" stroke="#818cf8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex items-center gap-3 mt-1">
+        <span className="flex items-center gap-1 text-[10px] text-slate-500">
+          <span className="w-2 h-0.5 rounded-full bg-indigo-400 inline-block" /> 이 종목
+        </span>
+        <span className="flex items-center gap-1 text-[10px] text-slate-500">
+          <span className="w-2 h-0.5 rounded-full bg-slate-500 inline-block" /> 업종 평균
+        </span>
+        <span className="text-[10px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
+      </div>
+    </div>
+  );
+}
+
 function fmt(n: number) { return n.toLocaleString(); }
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
+
+// newsIssueClusters(뉴스 인덱스 기준 이슈 묶음)를 "참고 기사" 렌더링용 그룹으로 변환.
+// 클러스터가 없으면(뉴스가 적어 나눌 게 없는 경우 등) null을 반환해 호출부가 기존
+// flat 목록 렌더링으로 폴백하게 한다. 모델이 일부 기사를 어느 클러스터에도 안 넣었을
+// 수 있어(전체 커버를 강제하지 않음), 남은 인덱스는 "기타" 묶음으로 자동 보완한다.
+function buildNewsGroups(
+  news: { title: string; description: string; url?: string }[],
+  clusters?: { label: string; articleIndexes: number[] }[],
+): { label: string; indexes: number[] }[] | null {
+  if (!clusters || clusters.length === 0) return null;
+  const covered = new Set<number>();
+  const groups = clusters.map((c) => {
+    const indexes = c.articleIndexes.filter((i) => i >= 0 && i < news.length);
+    indexes.forEach((i) => covered.add(i));
+    return { label: c.label, indexes };
+  }).filter((g) => g.indexes.length > 0);
+  if (groups.length === 0) return null;
+  const leftover = news.map((_, i) => i).filter((i) => !covered.has(i));
+  if (leftover.length > 0) groups.push({ label: '기타', indexes: leftover });
+  return groups;
+}
+
+interface TimelineEvent {
+  date: string;       // 정렬용 원본 문자열(뉴스: pubDate 원문, 공시: "YYYY-MM-DD") — 표시는 dateValue로 재포맷
+  type: 'news' | 'disclosure';
+  title: string;
+  url?: string;
+  issueLabel?: string; // 뉴스면 소속 클러스터 라벨(있을 때만) — newsIssueClusters와 연계
+}
+
+// 날짜 문자열이 뉴스(pubDate 원문)·공시(YYYY-MM-DD)로 포맷이 서로 달라도 동일한 타임라인에서
+// 정렬 가능하도록 lib/news-selection.ts의 NaN-safe 패턴을 그대로 재사용(파싱 실패는 맨 뒤로).
+function timelineDateValue(d: string): number {
+  if (!d) return -Infinity;
+  const t = new Date(d).getTime();
+  return isNaN(t) ? -Infinity : t;
+}
+
+function timelineDateLabel(d: string): string {
+  const t = timelineDateValue(d);
+  if (t === -Infinity) return '날짜 미상';
+  const date = new Date(t);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+// 뉴스(newsIssueClusters 라벨 매칭) + 공시를 날짜 내림차순으로 합친 타임라인.
+// 신규 조회 없음 — 이미 result에 있는 news/disclosures를 재배열하는 것뿐. 이벤트가
+// 2개 미만이면 타임라인으로서 의미가 없으므로 null(카드 자체 생략).
+function buildTimelineEvents(result: DiagnosisResult): TimelineEvent[] | null {
+  const clusterByIndex = new Map<number, string>();
+  (result.newsIssueClusters ?? []).forEach((c) => {
+    c.articleIndexes.forEach((i) => clusterByIndex.set(i, c.label));
+  });
+
+  const newsEvents: TimelineEvent[] = result.news
+    .map((n, i) => ({ date: n.date ?? '', type: 'news' as const, title: n.title, url: n.url, issueLabel: clusterByIndex.get(i) }))
+    .filter((e) => e.date);
+
+  const disclosureEvents: TimelineEvent[] = result.disclosures.map((d) => ({
+    date: d.date, type: 'disclosure' as const, title: d.title, url: d.url,
+  }));
+
+  const events = [...newsEvents, ...disclosureEvents]
+    .sort((a, b) => timelineDateValue(b.date) - timelineDateValue(a.date));
+
+  return events.length >= 2 ? events : null;
+}
+
+function MomentumTimelineCard({ result }: { result: DiagnosisResult }) {
+  const events = buildTimelineEvents(result);
+  if (!events) return null;
+
+  return (
+    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+      <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest mb-4`}>모멘텀 타임라인</p>
+      <div className="relative flex flex-col gap-4 pl-4 border-l border-slate-700/60">
+        {events.map((e, i) => (
+          <a
+            key={i}
+            href={e.url || undefined}
+            target={e.url ? '_blank' : undefined}
+            rel={e.url ? 'noopener noreferrer' : undefined}
+            className={`relative block -ml-[21px] pl-[21px] ${e.url ? 'group cursor-pointer' : 'cursor-default'}`}
+          >
+            <span className={`absolute left-0 top-1 w-2 h-2 rounded-full ${e.type === 'news' ? 'bg-indigo-400' : 'bg-amber-400'}`} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-mono text-slate-500 shrink-0">{timelineDateLabel(e.date)}</span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${e.type === 'news' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-amber-500/15 text-amber-300'}`}>
+                {e.type === 'news' ? '뉴스' : '공시'}
+              </span>
+              {e.issueLabel && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-300">
+                  {e.issueLabel}
+                </span>
+              )}
+            </div>
+            <p className={`text-[13px] text-slate-300 leading-snug mt-0.5 ${e.url ? 'group-hover:text-indigo-300 group-hover:underline transition-colors' : ''}`}>
+              {e.title}
+            </p>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
   return (
@@ -293,6 +437,7 @@ export default function DiagnosisReport({
   const isProfit = result.profitRate >= 0;
   const resistanceUpRate = result.resistance > 0 ? ((result.resistance - result.currentPrice) / result.currentPrice * 100) : 0;
   const supportDownRate  = result.support    > 0 ? ((result.support    - result.currentPrice) / result.currentPrice * 100) : 0;
+  const newsGroups = buildNewsGroups(result.news, result.newsIssueClusters);
 
   return (
     <div className="pb-8">
@@ -454,6 +599,9 @@ export default function DiagnosisReport({
           </div>
         )}
 
+        {/* ── 2-2행: 모멘텀 타임라인 (뉴스+공시를 시간순으로, 이벤트 2개 미만이면 카드 자체 생략) ── */}
+        <MomentumTimelineCard result={result} />
+
         {/* ── 3행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님, 참고용 수치 카드) ── */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           {/* 저항선 관찰 */}
@@ -558,6 +706,20 @@ export default function DiagnosisReport({
                   </span>
                 </div>
               </div>
+              {(result.sectorComparison.sectorName || (result.sectorComparison.peerNames?.length ?? 0) > 0) && (
+                <p className="text-[11px] text-slate-500 mb-2">
+                  {result.sectorComparison.sectorName}
+                  {(result.sectorComparison.peerNames?.length ?? 0) > 0 && (
+                    <>
+                      {result.sectorComparison.sectorName ? ' · ' : ''}
+                      {result.sectorComparison.peerNames!.slice(0, 3).join('·')} 등 {result.sectorComparison.peerNames!.length}개 종목 평균
+                    </>
+                  )}
+                </p>
+              )}
+              {result.sectorComparison.sparkline && (
+                <SectorSparkline sparkline={result.sectorComparison.sparkline} />
+              )}
               {result.sectorNarrative && (
                 <p className="text-[12px] text-slate-400 leading-relaxed">{result.sectorNarrative}</p>
               )}
@@ -608,6 +770,20 @@ export default function DiagnosisReport({
           </div>
         )}
 
+        {/* ── 5-0-1행: 환율 상관관계 (최근 1년, |r|<0.3이거나 표본 부족이면 카드 자체 생략) ── */}
+        {result.fxCorrelation && (
+          <div className="bg-[#1a1f2e] border border-cyan-500/20 rounded-2xl p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className={`px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
+                환율 상관관계
+              </span>
+            </div>
+            <p className="text-[13px] text-slate-300 leading-relaxed">
+              최근 1년간 이 종목은 원/달러 환율과 {result.fxCorrelation.correlation >= 0 ? '+' : ''}{result.fxCorrelation.correlation}의 {result.fxCorrelation.correlation >= 0 ? '양(+)' : '음(-)'}의 상관관계를 보여왔습니다.
+            </p>
+          </div>
+        )}
+
         {/* ── 5-1행: 실적 추이 (최근 3개년 확정 연간, 데이터 없으면 카드 생략) ── */}
         {result.annualFinancials.length > 0 && <FinancialsTrendCard result={result} />}
 
@@ -626,25 +802,57 @@ export default function DiagnosisReport({
             )}
           </div>
           {result.news?.length > 0 ? (
-            <div className="flex flex-col divide-y divide-slate-700/40">
-              {result.news.map((n, i) => {
-                const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
-                return (
-                  <a
-                    key={i}
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-2.5 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
-                  >
-                    <span className="text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                    <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
-                      {n.title}
+            newsGroups ? (
+              <div className="flex flex-col gap-4">
+                {newsGroups.map((g, gi) => (
+                  <div key={gi}>
+                    <p className="text-[11px] font-bold text-indigo-300/90 mb-1.5">
+                      {g.label !== '기타' && '🔖 '}{g.label}
                     </p>
-                  </a>
-                );
-              })}
-            </div>
+                    <div className="flex flex-col divide-y divide-slate-700/40">
+                      {g.indexes.map((i) => {
+                        const n = result.news[i];
+                        const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
+                        return (
+                          <a
+                            key={i}
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="py-2 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
+                          >
+                            <span className="text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                            <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
+                              {n.title}
+                            </p>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col divide-y divide-slate-700/40">
+                {result.news.map((n, i) => {
+                  const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
+                  return (
+                    <a
+                      key={i}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2.5 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
+                    >
+                      <span className="text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                      <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
+                        {n.title}
+                      </p>
+                    </a>
+                  );
+                })}
+              </div>
+            )
           ) : (
             <p className="text-[13px] text-slate-500 leading-relaxed">
               관련도 높은 뉴스가 확인되지 않아, 수급·기술적 지표를 근거로 분석했습니다.

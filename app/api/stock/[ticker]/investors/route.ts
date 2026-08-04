@@ -106,6 +106,24 @@ export async function GET(
   const dataDate = recent.stck_bsop_date || todayStr;
   const date = `${dataDate.slice(0, 4)}.${dataDate.slice(4, 6)}.${dataDate.slice(6, 8)}`;
 
+  // ── 수급 추이(최근 20거래일) ────────────────────────────────────
+  // inquire-investor는 원래 최근 약 30거래일치를 output 배열로 한 번에 내려주는데,
+  // 지금까지는 최신 1행(recent)만 쓰고 나머지를 버리고 있었다 — 신규 KIS 호출 없이
+  // 같은 응답에서 20거래일만 더 뽑아 트렌드 차트용으로 재사용한다. KIS 응답은
+  // 최신순이라 최근 20개를 자른 뒤 차트가 왼쪽(과거)→오른쪽(최신) 순으로 그려지도록
+  // 뒤집어서 반환한다.
+  const trend = invOutput
+    .filter(isUsableInvestorRow)
+    .slice(0, 20)
+    .reverse()
+    .map((d) => ({
+      date: `${d.stck_bsop_date.slice(4, 6)}.${d.stck_bsop_date.slice(6, 8)}`,
+      foreignAmount: toAuk(d.frgn_ntby_tr_pbmn),
+      foreignAmountRaw: Number(d.frgn_ntby_tr_pbmn || 0),
+      institutionAmount: toAuk(d.orgn_ntby_tr_pbmn),
+      institutionAmountRaw: Number(d.orgn_ntby_tr_pbmn || 0),
+    }));
+
   // 2026-07-30 발견: toAuk가 억원 단위로 반올림하다 보니 저가·소형주(하루 순매매가
   // 50백만원 미만인 경우, 예 012860)는 실제 값이 있어도 전부 "0"으로 뭉개져 위젯에
   // "0원"으로 표시됐다(실측 — 모베이스전자 -9/+2/+7백만원이 전부 0억원으로 반올림).
@@ -190,5 +208,5 @@ export async function GET(
     }
   } catch { /* 비중 실패 → null 유지 */ }
 
-  return Response.json({ date, foreign, institution, individual, program, shortSell, marketShare });
+  return Response.json({ date, foreign, institution, individual, program, shortSell, marketShare, trend });
 }
