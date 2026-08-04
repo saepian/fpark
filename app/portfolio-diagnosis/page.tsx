@@ -78,6 +78,10 @@ interface PortfolioSummarySections {
   background: string; newsInterpretation: string; historicalComparison: string; judgment: string;
 }
 
+// 2026-08-04: riskFactors가 {text,category} 객체 배열로 구조화됨 — category 없는 옛 문자열
+// 항목(과거 리포트/공유 스냅샷)도 그대로 렌더링할 수 있도록 string도 함께 허용.
+type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' };
+
 interface PortfolioResult {
   totalInvested:    number;
   totalValue:       number;
@@ -87,7 +91,7 @@ interface PortfolioResult {
   summarySections?: PortfolioSummarySections; // 있으면 소제목별 렌더링, 없으면(과거 레코드) summary 문자열로 폴백
   sectors:          Sector[];
   holdings:         HoldingResult[];
-  riskFactors?:        string[];
+  riskFactors?:        RiskFactorEntry[];
   opportunityFactors?: string[];
   shortTermOutlook?:   string;
   midTermOutlook?:     string;
@@ -1043,12 +1047,23 @@ export default function PortfolioDiagnosisPage() {
                     </span>
                   </div>
                   <div className="flex flex-col gap-2">
-                    {(result.riskFactors ?? []).map((line, i) => (
-                      <div key={i} className="flex gap-2">
-                        <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                        <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                      </div>
-                    ))}
+                    {(result.riskFactors ?? []).map((item, i) => {
+                      const text = typeof item === 'string' ? item : item.text;
+                      const category = typeof item === 'string' ? undefined : item.category;
+                      return (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                          <p className="text-[12px] text-slate-300 leading-relaxed">
+                            {category && (
+                              <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
+                                {category === 'macro' ? '매크로' : '기업'}
+                              </span>
+                            )}
+                            {text}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

@@ -126,6 +126,10 @@ interface PortfolioHistory {
   narrative: string;
 }
 
+// app/portfolio-diagnosis/page.tsx의 RiskFactorEntry와 동일 — 손복제 구조라 함께 갱신.
+// category 없는 옛 문자열 항목(과거 리포트/공유 스냅샷)도 그대로 렌더링할 수 있도록 string도 허용.
+type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' };
+
 interface PortfolioData {
   generatedAt: string;
   totalInvested: number;
@@ -135,7 +139,7 @@ interface PortfolioData {
   summary: string;
   sectors: Sector[];
   holdings: HoldingResult[];
-  riskFactors?: string[];
+  riskFactors?: RiskFactorEntry[];
   opportunityFactors?: string[];
   shortTermOutlook?: string;
   midTermOutlook?: string;
@@ -886,12 +890,23 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                   <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {(d.riskFactors ?? []).map((line, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                    </div>
-                  ))}
+                  {(d.riskFactors ?? []).map((item, i) => {
+                    const text = typeof item === 'string' ? item : item.text;
+                    const category = typeof item === 'string' ? undefined : item.category;
+                    return (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                        <p className="text-[12px] text-slate-300 leading-relaxed">
+                          {category && (
+                            <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
+                              {category === 'macro' ? '매크로' : '기업'}
+                            </span>
+                          )}
+                          {text}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

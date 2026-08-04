@@ -264,7 +264,8 @@ export const PORTFOLIO_STOCK_FIELD_SPECS: FieldSpec[] = [
 export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   { key: 'summarySections', type: 'json', emit: true },
   { key: 'sectors', type: 'json', emit: true },
-  { key: 'riskFactors', type: 'string[]', emit: true },
+  // 2026-08-04: {text,category} 객체 배열로 구조화(macro/company 태깅) — sectors와 동일하게 'json'
+  { key: 'riskFactors', type: 'json', emit: true },
   { key: 'opportunityFactors', type: 'string[]', emit: true },
   { key: 'historyNarrative', type: 'string', emit: true },
   { key: 'contributionNarrative', type: 'string', emit: true },
