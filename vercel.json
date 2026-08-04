@@ -39,6 +39,9 @@
     },
     "app/api/cron/dart-corp-code-refresh/route.ts": {
       "maxDuration": 30
+    },
+    "app/api/cron/news-sentiment/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -93,6 +96,10 @@
     {
       "path": "/api/cron/dart-corp-code-refresh",
       "schedule": "0 18 */3 * *"
+    },
+    {
+      "path": "/api/cron/news-sentiment",
+      "schedule": "20 21 * * 0-4"
     }
   ]
 }

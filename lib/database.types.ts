@@ -347,6 +347,45 @@ export type Database = {
         }
         Relationships: []
       }
+      news_sentiment_daily: {
+        Row: {
+          article_count: number
+          created_at: string
+          date: string
+          id: string
+          negative_count: number
+          neutral_count: number
+          positive_count: number
+          sector: string | null
+          sentiment_score: number | null
+          ticker: string
+        }
+        Insert: {
+          article_count?: number
+          created_at?: string
+          date: string
+          id?: string
+          negative_count?: number
+          neutral_count?: number
+          positive_count?: number
+          sector?: string | null
+          sentiment_score?: number | null
+          ticker: string
+        }
+        Update: {
+          article_count?: number
+          created_at?: string
+          date?: string
+          id?: string
+          negative_count?: number
+          neutral_count?: number
+          positive_count?: number
+          sector?: string | null
+          sentiment_score?: number | null
+          ticker?: string
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           created_at: string
