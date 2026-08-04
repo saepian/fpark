@@ -130,6 +130,16 @@ interface PortfolioHistory {
 // category 없는 옛 문자열 항목(과거 리포트/공유 스냅샷)도 그대로 렌더링할 수 있도록 string도 허용.
 type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' };
 
+// app/portfolio-diagnosis/page.tsx의 PortfolioDividendSummary와 동일 — 손복제 구조.
+interface DividendCalendarEntry { month: number; holdings: { ticker: string; name: string }[] }
+interface PortfolioDividendSummary {
+  expectedAnnualDividend: number;
+  portfolioDividendYield: number | null;
+  payingCount: number;
+  totalCount: number;
+  calendar: DividendCalendarEntry[];
+}
+
 interface PortfolioData {
   generatedAt: string;
   totalInvested: number;
@@ -164,6 +174,7 @@ interface PortfolioData {
     mostRecent: HoldingPeriodEntry | null;
     narrative: string;
   };
+  dividend?: PortfolioDividendSummary | null;
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -802,6 +813,51 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             ))}
           </div>
         </div>
+
+        {/* 배당 정보(합산 배당률 + 월별 캘린더, 2026-08-04 신설) — app/portfolio-diagnosis/page.tsx와
+            동일 구조(손복제). 전체 무배당이면 d.dividend가 null이라 섹션 자체를 렌더링하지 않는다. */}
+        {d.dividend && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">배당 정보</p>
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
+              <div className="bg-slate-800/40 rounded-xl p-3 text-center sm:min-w-[140px]">
+                <p className="text-[10px] text-slate-500 mb-1">합산 배당률</p>
+                <p className="text-[17px] font-bold font-mono text-slate-200">
+                  {d.dividend.portfolioDividendYield !== null ? `${d.dividend.portfolioDividendYield.toFixed(2)}%` : '-'}
+                </p>
+              </div>
+              <p className="text-[10px] text-slate-600 leading-relaxed sm:text-right">
+                최근 확정 배당 기준 · 예상 연간 배당금 {d.dividend.expectedAnnualDividend.toLocaleString()}원
+                <br />
+                {d.dividend.totalCount}개 종목 중 {d.dividend.payingCount}개만 배당 이력 반영(미래 지급을 보장하지 않음)
+              </p>
+            </div>
+
+            <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
+              {d.dividend.calendar.map((c) => (
+                <div
+                  key={c.month}
+                  className={`rounded-lg p-2 text-center min-h-[52px] ${
+                    c.holdings.length > 0
+                      ? 'bg-indigo-500/10 border border-indigo-500/25'
+                      : 'bg-slate-800/30 border border-slate-800/40'
+                  }`}
+                >
+                  <p className="text-[10px] text-slate-500 mb-1">{c.month}월</p>
+                  {c.holdings.length > 0 && (
+                    <p className="text-[9px] text-indigo-300 font-medium leading-tight break-keep">
+                      {c.holdings.slice(0, 2).map(h => h.name).join(', ')}
+                      {c.holdings.length > 2 ? ` 외 ${c.holdings.length - 2}` : ''}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-600 mt-2">
+              최근 5년 배당 지급 이력 기준 — 몇 월에 배당이 몰려있는지 관찰한 결과이며 향후 지급을 예측하거나 보장하지 않습니다
+            </p>
+          </div>
+        )}
 
         {/* 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
         {(((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) || d.coMovementText) && (

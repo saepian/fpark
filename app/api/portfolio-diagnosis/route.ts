@@ -15,7 +15,9 @@ import {
   buildTradingValueBlock,
 } from '@/lib/stock-analysis-data';
 import type { StockAnalysisData } from '@/lib/stock-analysis-data';
-import { fetchDailyChart, fetchIndexRangeChange } from '@/lib/kis-api';
+import { fetchDailyChart, fetchIndexRangeChange, fetchDividendHistory, type DividendHistoryRow } from '@/lib/kis-api';
+import { fetchDividendSummary, type DartDividendSummary } from '@/lib/dart-api';
+import { computePortfolioDividendSummary } from '@/lib/dividend-aggregation';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import { selectSectorMacroNews } from '@/lib/sector-news';
 import { COMPLIANCE_PRINCIPLE, clampSignal, type Signal } from '@/lib/ai-compliance';
@@ -176,6 +178,8 @@ interface EnrichedHolding extends HoldingInput {
   todayContribution: number | null; // 오늘 손익 기여도(원) = (오늘종가-전일종가) × 수량
   surgeHistoryBlock: string | null; // 참고용(있을 때만 Stage 1 프롬프트에 포함), 사례 없으면 null
   tradingValueBlock: string | null; // 거래대금배수 — 우선순위 최상, 있으면 Stage 1 프롬프트에 필수 포함
+  dividendSummary: DartDividendSummary | null; // DART 최신 사업연도 배당 요약(무배당이면 null)
+  dividendHistory: DividendHistoryRow[];       // KIS 최근 5년 배당 지급 이력(없으면 빈 배열)
 }
 
 interface StockAiResult {
@@ -778,7 +782,7 @@ export async function POST(request: NextRequest) {
             return map;
           });
 
-        const [analysisResults, chartResults, newsSelectionResults, sectorMacroMap] = await Promise.all([
+        const [analysisResults, chartResults, newsSelectionResults, sectorMacroMap, dividendResults] = await Promise.all([
           Promise.allSettled(analysisDataPromises),
           Promise.allSettled(
             // '3M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
@@ -811,6 +815,12 @@ export async function POST(request: NextRequest) {
             }),
           ),
           sectorMacroMapPromise,
+          // 배당 정보(2026-08-04 신설) — DART 요약(7일 캐시) + KIS 5년 이력(24시간 캐시).
+          // 기존 chart(15초 상한)와 같은 Promise.all에 편승시켜 새 병목을 만들지 않는다
+          // — 최악의 경우(완전 콜드 캐시)에도 이미 지배적인 chart fetch와 동시에 진행된다.
+          Promise.allSettled(
+            holdings.map(h => Promise.all([fetchDividendSummary(h.ticker), fetchDividendHistory(h.ticker)])),
+          ),
         ]);
 
         const enriched: EnrichedHolding[] = holdings.map((h, i) => {
@@ -852,9 +862,14 @@ export async function POST(request: NextRequest) {
           const tradingValueMultiple = chartData.length ? computeTradingValueMultiple(chartData) : null;
           const tradingValueBlock    = tradingValueMultiple?.valid ? buildTradingValueBlock(tradingValueMultiple) : null;
 
+          const dr              = dividendResults[i];
+          const dividendSummary = dr.status === 'fulfilled' ? dr.value[0] : null;
+          const dividendHistory = dr.status === 'fulfilled' ? dr.value[1] : [];
+
           return {
             ...h, name: resolvedName, currentPrice, invested, value, profit, profitRate,
             analysisData: ad, relevantNews, sectorMacroNews,
+            dividendSummary, dividendHistory,
             mdd:        risk?.mdd        ?? null,
             volatility: risk?.volatility ?? null,
             todayChangeRate, todayContribution, surgeHistoryBlock, tradingValueBlock,
@@ -904,6 +919,15 @@ export async function POST(request: NextRequest) {
         const totalValue      = enriched.reduce((s, h) => s + h.value, 0);
         const totalProfit     = totalValue - totalInvested;
         const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
+
+        // 배당 정보(2026-08-04 신설) — 전체 무배당이면 null(섹션 자체 미노출).
+        const dividendSummary = computePortfolioDividendSummary(
+          enriched.map(h => ({
+            ticker: h.ticker, name: h.name, quantity: h.quantity,
+            dividendSummary: h.dividendSummary, dividendHistory: h.dividendHistory,
+          })),
+          totalValue,
+        );
 
         if (benchmark) benchmark.portfolioProfitRate = parseFloat(totalProfitRate.toFixed(2));
 
@@ -1011,6 +1035,7 @@ export async function POST(request: NextRequest) {
             longest:    holdingPeriodFacts.longest,
             mostRecent: holdingPeriodFacts.mostRecent,
           },
+          dividend: dividendSummary,
         });
         send(controller, {
           type: 'holding-meta',
@@ -1031,6 +1056,8 @@ export async function POST(request: NextRequest) {
             todayContribution: h.todayContribution,
             isCached:     h.analysisData?.isCached,
             cachedAt:     h.analysisData?.cachedAt,
+            dividendSummary: h.dividendSummary,
+            dividendHistory: h.dividendHistory,
           })),
         });
 
@@ -1129,6 +1156,8 @@ export async function POST(request: NextRequest) {
             todayContribution: h.todayContribution,
             isCached:     h.analysisData?.isCached,
             cachedAt:     h.analysisData?.cachedAt,
+            dividendSummary: h.dividendSummary,
+            dividendHistory: h.dividendHistory,
           };
         });
 
@@ -1175,6 +1204,7 @@ export async function POST(request: NextRequest) {
             mostRecent: holdingPeriodFacts.mostRecent,
             narrative:  summary.holdingPeriodNarrative || '',
           },
+          dividend: dividendSummary,
         };
 
         // DB 저장
