@@ -1026,63 +1026,69 @@ export default function PortfolioDiagnosisPage() {
                         </p>
                         <Link
                           href={`/stock/${h.ticker}`}
-                          className="mt-1.5 w-fit inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/30 rounded-full px-2.5 py-1.5 whitespace-nowrap transition-colors"
+                          className="mt-1.5 w-fit inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/30 rounded-full px-4 py-1.5 whitespace-nowrap transition-colors"
                         >
                           자세히 보기 →
                         </Link>
                       </div>
-                      {/* 수치 */}
-                      <div className="flex gap-4 shrink-0 text-right md:text-left">
-                        <div>
-                          <p className="text-[10px] text-slate-600 mb-0.5">현재가</p>
-                          <p className="text-[13px] font-mono text-slate-300">{fmt(h.currentPrice)}</p>
-                          {h.isCached && (
-                            <p className="flex items-center gap-1 text-[10px] text-amber-500 mt-0.5">
-                              <RefreshCw className="w-2.5 h-2.5 animate-spin" /> 최근 거래일 종가
-                            </p>
+                      {/* 종목 */}
+                      {/* 내용 */}
+                      <div className="block">
+                        <div className="flex">
+                          <div className="flex gap-4 shrink-0 text-right md:text-left">
+                            <div>
+                              <p className="text-[10px] text-slate-600 mb-0.5">현재가</p>
+                              <p className="text-[13px] font-mono text-slate-300">{fmt(h.currentPrice)}</p>
+                              {h.isCached && (
+                                <p className="flex items-center gap-1 text-[10px] text-amber-500 mt-0.5">
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" /> 최근 거래일 종가
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-600 mb-0.5">수익률</p>
+                              <p className={`text-[13px] font-mono font-semibold ${hUp ? 'text-red-400' : 'text-blue-400'}`}>
+                                {fmtR(h.profitRate)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] text-slate-600 mb-0.5">평가금액</p>
+                              <p className="text-[13px] font-mono text-slate-300">{fmt(h.value)}</p>
+                            </div>
+                          </div>
+                          {/* 관찰 지표 (변동성 — 방향성 판단 아닌 순수 수치) */}
+                          {h.volatility != null && (
+                            <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold text-slate-300 bg-slate-700/60 border border-slate-600/50">
+                                변동성 {h.volatility.toFixed(2)}%
+                              </span>
+                            </div>
                           )}
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-600 mb-0.5">수익률</p>
-                          <p className={`text-[13px] font-mono font-semibold ${hUp ? 'text-red-400' : 'text-blue-400'}`}>
-                            {fmtR(h.profitRate)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-600 mb-0.5">평가금액</p>
-                          <p className="text-[13px] font-mono text-slate-300">{fmt(h.value)}</p>
-                        </div>
-                      </div>
-                      {/* 관찰 지표 (변동성 — 방향성 판단 아닌 순수 수치) */}
-                      {h.volatility != null && (
-                        <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold text-slate-300 bg-slate-700/60 border border-slate-600/50">
-                            변동성 {h.volatility.toFixed(2)}%
-                          </span>
-                        </div>
+                          </div>
+                      
+                      {h.reason !== undefined ? (
+                        h.reason && (
+                          <div className="mt-2 pl-0">
+                            <p className="text-xs  text-sky-100/60 leading-relaxed">
+                              {h.reason}{reasonTyping && <TypingCursor />}
+                            </p>
+                            {!reasonTyping && (
+                              <p className="mt-2 text-[11px] text-slate-500">
+                                더 자세한 분석은 자세히 보기에서 확인하세요
+                              </p>
+                            )}
+                          </div>
+                        )
+                      ) : (
+                        <div className="mt-1 pl-0 md:pl-44"><FieldSkeleton lines={2} /></div>
+                      )}
+                      {h.mdd != null && (
+                        <p className="text-[11px] text-slate-500 pl-0">
+                          최근 3개월 최대 {h.mdd.toFixed(1)}% 하락 이력
+                        </p>
                       )}
                     </div>
-                    {h.reason !== undefined ? (
-                      h.reason && (
-                        <div className="mt-1 pl-0 md:pl-44">
-                          <p className="text-xs text-slate-500 leading-relaxed">
-                            {h.reason}{reasonTyping && <TypingCursor />}
-                          </p>
-                          {!reasonTyping && (
-                            <p className="mt-1 text-[10px] text-slate-600">
-                              더 자세한 분석은 자세히 보기에서 확인하세요
-                            </p>
-                          )}
-                        </div>
-                      )
-                    ) : (
-                      <div className="mt-1 pl-0 md:pl-44"><FieldSkeleton lines={2} /></div>
-                    )}
-                    {h.mdd != null && (
-                      <p className="mt-1 text-[11px] text-slate-600 pl-0 md:pl-44">
-                        최근 3개월 최대 {h.mdd.toFixed(1)}% 하락 이력
-                      </p>
-                    )}
+                    </div>
                   </div>
                 );
               })}
