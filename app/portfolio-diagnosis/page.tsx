@@ -1034,7 +1034,7 @@ export default function PortfolioDiagnosisPage() {
                       {/* 종목 */}
                       {/* 내용 */}
                       <div className="block">
-                        <div className="flex">
+                        <div className="flex w-full">
                           <div className="flex gap-4 shrink-0 text-right md:text-left">
                             <div>
                               <p className="text-[10px] text-slate-600 mb-0.5">현재가</p>
