@@ -1068,7 +1068,7 @@ export default function PortfolioDiagnosisPage() {
                       
                       {h.reason !== undefined ? (
                         h.reason && (
-                          <div className="mt-2 pl-0">
+                          <div className="mt-2 pl-0 w-full">
                             <p className="text-xs  text-sky-100/60 leading-relaxed">
                               {h.reason}{reasonTyping && <TypingCursor />}
                             </p>
