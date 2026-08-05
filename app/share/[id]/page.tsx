@@ -78,6 +78,7 @@ interface DiagnosisData {
   flowPercentage?: number;
   shortTermOutlook?: string;
   midTermOutlook?: string;
+  finalVerdict?: string; // 2026-08-05 신설 — 이전에 저장된 공유 리포트에는 없어 optional
   news: { title: string; description: string; url?: string }[];
   history: DiagnosisHistory;
   // 2026-07-13 신설 — 이전에 저장된 공유 리포트에는 없을 수 있어 optional로 둠
@@ -458,6 +459,14 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                 </div>
               </div>
               <MainAnalysisBody d={d} />
+              {d.finalVerdict && (
+                <div className="mt-5 pt-5 border-t border-slate-700/50">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
+                  <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
+                    <p className="text-[13px] text-slate-200 leading-relaxed">{d.finalVerdict}</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

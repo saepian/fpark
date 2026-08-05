@@ -64,6 +64,7 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
   "flowPercentage": 50,
   "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】단기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로 (예: '외국인 자금은 5일째 유출 중인데, 이는 방향 전환 여부를 아직 확인할 수 없다는 점에서 지켜볼 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지",
   "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지",
+  "finalVerdict": "【최대 90자, 절대 넘기지 말 것 — 반드시 1문장, 순수 서술형】mainAnalysisSections(background/flowSummary/valuationNote/watchPoint)·sectorNarrative·riskFactors·shortTermOutlook·midTermOutlook 전체를 종합해 최종 결론을 압축하세요. 점수·등급·별점·숫자 표기 절대 금지 — 오직 문장으로만 판단을 전달하세요. 매매행위(매수/매도/추격매수/추격매도/진입/청산 등)를 직접 지목하지 말고 관찰·판단 어투로 순화하세요 — 예) '외부 호재로 상승했지만 수급은 아직 약해, 추격 진입보다는 추가 확인이 필요한 구간으로 보인다.', '실적 개선은 확인됐지만 밸류에이션 부담이 남아있어 성급한 판단보다는 관찰이 필요한 국면이다.' 목표가·저항선·지지선·가격 방향 예측 절대 금지. 위 필드들에서 이미 다룬 개별 사실을 재나열하지 말고, 그 사실들을 종합했을 때의 최종 판단만 담으세요.",
   "newsIssueClusters": [{"label": "이슈 라벨(8~16자 명사구, 예: 'HBM 신기술 표준 공개')", "articleIndexes": [0, 2]}]
 }
 
@@ -81,6 +82,7 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
 - sectorNarrative: [업종 대비]는 "판단이 아닌 수치 비교"입니다 — 시장(KOSPI) 대비 비교와 같은 어투로, 우열을 평가하는 뉘앙스 없이 사실만 전달하세요
 - sectorNarrative와 mainAnalysisSections.valuationNote는 서로 다른 지표(등락률 vs PER/PBR)를 다루는 별개 필드입니다 — 절대 같은 지표를 양쪽에서 중복 언급하지 마세요
 - sectorNarrative·financialsNarrative·disclosureNarrative는 mainAnalysisSections·riskFactors·shortTermOutlook·midTermOutlook과 내용이 겹치면 안 됩니다 — 업종/실적/공시 이야기는 각각 그 필드에서만
+- finalVerdict는 점수·등급·별점·숫자를 절대 포함하지 말고 순수 문장으로만 최종 판단을 전달하세요. "추격매수", "매수 타이밍" 같은 매매행위 직접 지목 대신 "추격 진입보다는 추가 확인이 필요한 구간", "성급한 판단보다는 관찰이 필요한 국면"처럼 관찰·판단 어투로 순화하세요.
 - newsIssueClusters: [뉴스 이슈 클러스터링용 전체 목록]의 기사가 2건 이상이고 서로 다른 사건(이슈)을 대표할 때만 채우세요(3~4개 이하 클러스터). label은 8~16자 명사구로 간결하게(문장형·완결된 문장 금지). 기사가 1건뿐이거나 사실상 하나의 사건만 다루고 있으면 억지로 나누지 말고 빈 배열 []을 반환하세요. 각 인덱스는 최대 하나의 클러스터에만 넣으세요(중복 금지)
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
 - ${MARKET_DAY_GROUNDING_INSTRUCTION}
@@ -861,6 +863,7 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
       foreignFlow:        typeof result.foreignFlow       === 'string' ? result.foreignFlow       : '',
       shortTermOutlook:   typeof result.shortTermOutlook  === 'string' ? result.shortTermOutlook  : undefined,
       midTermOutlook:     typeof result.midTermOutlook    === 'string' ? result.midTermOutlook    : undefined,
+      finalVerdict:       typeof result.finalVerdict      === 'string' ? result.finalVerdict      : undefined,
       sectorNarrative:     sectorComparison ? (typeof result.sectorNarrative === 'string' ? result.sectorNarrative : '') : '',
       financialsNarrative: annualFinancials.length > 0 ? (typeof result.financialsNarrative === 'string' ? result.financialsNarrative : '') : '',
       disclosureNarrative: disclosures.length > 0 ? (typeof result.disclosureNarrative === 'string' ? result.disclosureNarrative : '') : '',
@@ -870,7 +873,7 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
     // 얽혀 있어 자동 재생성은 붙이지 않고(비용/복잡도 판단), 불일치만 로그로 남겨 모니터링한다.
     const diagnosisReportText = [
       finalResult.mainAnalysis, ...finalResult.riskFactors, finalResult.history.narrative,
-      finalResult.shortTermOutlook, finalResult.midTermOutlook,
+      finalResult.shortTermOutlook, finalResult.midTermOutlook, finalResult.finalVerdict,
       finalResult.sectorNarrative, finalResult.financialsNarrative, finalResult.disclosureNarrative,
     ].filter(Boolean).join(' ');
     const diagnosisNewsText = combinedNews.map((n) => `${n.title} ${n.description}`).join(' ')

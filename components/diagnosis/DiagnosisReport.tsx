@@ -87,6 +87,7 @@ export interface DiagnosisResult {
   flowPercentage?: number;
   shortTermOutlook?: string;
   midTermOutlook?: string;
+  finalVerdict?: string; // mainAnalysisSections·sectorNarrative·riskFactors·outlook 전체를 종합한 최종 판단 1문장(점수·등급 없음), 과거 레코드는 undefined
   isCached?: boolean; // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
   cachedAt?: string;
   history: DiagnosisHistory;
@@ -496,6 +497,14 @@ export default function DiagnosisReport({
                 </div>
               </div>
               <MainAnalysisBody result={result} />
+              {result.finalVerdict && (
+                <div className="mt-5 pt-5 border-t border-slate-700/50">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
+                  <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
+                    <p className="text-[13px] text-slate-200 leading-relaxed">{result.finalVerdict}</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
