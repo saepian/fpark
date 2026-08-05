@@ -96,4 +96,65 @@ describe('computePortfolioDividendSummary', () => {
     expect(result!.calendar).toHaveLength(12);
     expect(result!.calendar.map(c => c.month)).toEqual([1,2,3,4,5,6,7,8,9,10,11,12]);
   });
+
+  describe('matrix (종목×월 상세)', () => {
+    it('같은 종목·같은 달에 여러 해 이력이 있으면 calendar와 달리 dedupe하지 않고 전부 보존한다(count/records)', () => {
+      const holdings: DividendHoldingInput[] = [
+        {
+          ticker: 'A', name: 'SK하이닉스', quantity: 1, dividendSummary: null,
+          dividendHistory: [
+            historyRow('2023-12-31', '2024-04-24', 300),
+            historyRow('2022-12-31', '2023-04-27', 300),
+            historyRow('2021-12-31', '2022-04-14', 1540),
+          ],
+        },
+      ];
+      const result = computePortfolioDividendSummary(holdings, 100);
+      const row = result!.matrix.find(r => r.ticker === 'A')!;
+      const april = row.months[3]; // index 3 = 4월
+      expect(april?.count).toBe(3);
+      expect(april?.records.map(r => r.year)).toEqual([2024, 2023, 2022]); // 연도 내림차순
+      expect(april?.records[0]).toMatchObject({ payDate: '2024-04-24', kindLabel: '분기배당', perShareAmount: 300 });
+      // 인접 달은 비어 있어야 함
+      expect(row.months[4]).toBeNull(); // 5월
+    });
+
+    it('payDate 없으면 recordDate로 월/연도를 판정하고 payDate는 null로 남긴다(지급 전 표시 구분용)', () => {
+      const holdings: DividendHoldingInput[] = [
+        { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: null, dividendHistory: [historyRow('2026-06-30', null)] },
+      ];
+      const result = computePortfolioDividendSummary(holdings, 100);
+      const row = result!.matrix.find(r => r.ticker === 'A')!;
+      const june = row.months[5];
+      expect(june?.count).toBe(1);
+      expect(june?.records[0]).toMatchObject({ year: 2026, recordDate: '2026-06-30', payDate: null });
+    });
+
+    it('payingHoldings(요약 또는 이력 있는 종목)만 매트릭스 행에 포함하고, 무배당 종목은 제외한다', () => {
+      const holdings: DividendHoldingInput[] = [
+        { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: summary(1000), dividendHistory: [historyRow('2026-03-31', '2026-04-20')] },
+        { ticker: 'B', name: 'B사', quantity: 1, dividendSummary: null, dividendHistory: [] },
+      ];
+      const result = computePortfolioDividendSummary(holdings, 100);
+      expect(result!.matrix.map(r => r.ticker)).toEqual(['A']);
+    });
+
+    it('dividendHistory가 빈 배열인 종목(DART 요약만 있는 경우)도 행은 만들되 모든 달이 null이다', () => {
+      const holdings: DividendHoldingInput[] = [
+        { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: summary(1000), dividendHistory: [] },
+      ];
+      const result = computePortfolioDividendSummary(holdings, 100);
+      const row = result!.matrix.find(r => r.ticker === 'A')!;
+      expect(row.months.every(m => m === null)).toBe(true);
+    });
+
+    it('매트릭스 행 순서는 payingHoldings 순서를 따른다', () => {
+      const holdings: DividendHoldingInput[] = [
+        { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: null, dividendHistory: [historyRow('2026-03-31', '2026-04-20')] },
+        { ticker: 'B', name: 'B사', quantity: 1, dividendSummary: null, dividendHistory: [historyRow('2026-06-30', '2026-07-20')] },
+      ];
+      const result = computePortfolioDividendSummary(holdings, 100);
+      expect(result!.matrix.map(r => r.ticker)).toEqual(['A', 'B']);
+    });
+  });
 });

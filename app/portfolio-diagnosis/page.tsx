@@ -9,6 +9,7 @@ import {
   Printer, TrendingUp, TrendingDown, BookMarked, Lock, RefreshCw,
 } from 'lucide-react';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
+import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChangeTable';
@@ -83,6 +84,7 @@ interface PortfolioSummarySections {
 type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' };
 
 // 2026-08-04: 배당 정보(합산 배당률 + 월별 캘린더) — lib/dividend-aggregation.ts와 동일 shape.
+// 2026-08-05: matrix(종목×월 상세) 추가 — calendar는 과거 공유 리포트 호환용으로 유지.
 interface DividendCalendarEntry { month: number; holdings: { ticker: string; name: string }[] }
 interface PortfolioDividendSummary {
   expectedAnnualDividend: number;
@@ -90,6 +92,7 @@ interface PortfolioDividendSummary {
   payingCount: number;
   totalCount: number;
   calendar: DividendCalendarEntry[];
+  matrix: DividendMatrixRow[];
 }
 
 interface PortfolioResult {
@@ -941,28 +944,9 @@ export default function PortfolioDiagnosisPage() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
-                {result.dividend.calendar.map((c) => (
-                  <div
-                    key={c.month}
-                    className={`rounded-lg p-2 text-center min-h-[52px] ${
-                      c.holdings.length > 0
-                        ? 'bg-indigo-500/10 border border-indigo-500/25'
-                        : 'bg-slate-800/30 border border-slate-800/40'
-                    }`}
-                  >
-                    <p className="text-[10px] text-slate-500 mb-1">{c.month}월</p>
-                    {c.holdings.length > 0 && (
-                      <p className="text-[9px] text-indigo-300 font-medium leading-tight break-keep">
-                        {c.holdings.slice(0, 2).map(h => h.name).join(', ')}
-                        {c.holdings.length > 2 ? ` 외 ${c.holdings.length - 2}` : ''}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <DividendMatrix rows={result.dividend.matrix} />
               <p className="text-[10px] text-slate-600 mt-2">
-                최근 5년 배당 지급 이력 기준 — 몇 월에 배당이 몰려있는지 관찰한 결과이며 향후 지급을 예측하거나 보장하지 않습니다
+                최근 5년 배당 지급 이력 기준 — 칸을 클릭하면 해당 종목·월의 연도별 지급일과 금액을 볼 수 있습니다. 향후 지급을 예측하거나 보장하지 않습니다
               </p>
             </Card>
           )}

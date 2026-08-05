@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { TrendingUp, TrendingDown, Sparkles, AlertCircle } from 'lucide-react';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,6 +132,8 @@ interface PortfolioHistory {
 type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' };
 
 // app/portfolio-diagnosis/page.tsx의 PortfolioDividendSummary와 동일 — 손복제 구조.
+// matrix는 2026-08-05 신설이라 그 이전에 생성된 공유 리포트에는 없을 수 있어 optional —
+// 없으면 아래 렌더링에서 옛 calendar 그리드로 폴백한다.
 interface DividendCalendarEntry { month: number; holdings: { ticker: string; name: string }[] }
 interface PortfolioDividendSummary {
   expectedAnnualDividend: number;
@@ -138,6 +141,7 @@ interface PortfolioDividendSummary {
   payingCount: number;
   totalCount: number;
   calendar: DividendCalendarEntry[];
+  matrix?: DividendMatrixRow[];
 }
 
 interface PortfolioData {
@@ -833,29 +837,41 @@ function PortfolioView({ d }: { d: PortfolioData }) {
               </p>
             </div>
 
-            <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
-              {d.dividend.calendar.map((c) => (
-                <div
-                  key={c.month}
-                  className={`rounded-lg p-2 text-center min-h-[52px] ${
-                    c.holdings.length > 0
-                      ? 'bg-indigo-500/10 border border-indigo-500/25'
-                      : 'bg-slate-800/30 border border-slate-800/40'
-                  }`}
-                >
-                  <p className="text-[10px] text-slate-500 mb-1">{c.month}월</p>
-                  {c.holdings.length > 0 && (
-                    <p className="text-[9px] text-indigo-300 font-medium leading-tight break-keep">
-                      {c.holdings.slice(0, 2).map(h => h.name).join(', ')}
-                      {c.holdings.length > 2 ? ` 외 ${c.holdings.length - 2}` : ''}
-                    </p>
-                  )}
+            {d.dividend.matrix && d.dividend.matrix.length > 0 ? (
+              <>
+                <DividendMatrix rows={d.dividend.matrix} />
+                <p className="text-[10px] text-slate-600 mt-2">
+                  최근 5년 배당 지급 이력 기준 — 칸을 클릭하면 해당 종목·월의 연도별 지급일과 금액을 볼 수 있습니다. 향후 지급을 예측하거나 보장하지 않습니다
+                </p>
+              </>
+            ) : (
+              // matrix 없는 옛 공유 리포트(2026-08-05 이전 생성분) 호환 폴백 — 기존 12칸 캘린더 그리드.
+              <>
+                <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
+                  {d.dividend.calendar.map((c) => (
+                    <div
+                      key={c.month}
+                      className={`rounded-lg p-2 text-center min-h-[52px] ${
+                        c.holdings.length > 0
+                          ? 'bg-indigo-500/10 border border-indigo-500/25'
+                          : 'bg-slate-800/30 border border-slate-800/40'
+                      }`}
+                    >
+                      <p className="text-[10px] text-slate-500 mb-1">{c.month}월</p>
+                      {c.holdings.length > 0 && (
+                        <p className="text-[9px] text-indigo-300 font-medium leading-tight break-keep">
+                          {c.holdings.slice(0, 2).map(h => h.name).join(', ')}
+                          {c.holdings.length > 2 ? ` 외 ${c.holdings.length - 2}` : ''}
+                        </p>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <p className="text-[10px] text-slate-600 mt-2">
-              최근 5년 배당 지급 이력 기준 — 몇 월에 배당이 몰려있는지 관찰한 결과이며 향후 지급을 예측하거나 보장하지 않습니다
-            </p>
+                <p className="text-[10px] text-slate-600 mt-2">
+                  최근 5년 배당 지급 이력 기준 — 몇 월에 배당이 몰려있는지 관찰한 결과이며 향후 지급을 예측하거나 보장하지 않습니다
+                </p>
+              </>
+            )}
           </div>
         )}
 
