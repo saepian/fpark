@@ -1026,7 +1026,7 @@ export default function PortfolioDiagnosisPage() {
                         </p>
                         <Link
                           href={`/stock/${h.ticker}`}
-                          className="mt-1.5 w-full inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/30 rounded-full px-2.5 py-1.5 transition-colors"
+                          className="mt-1.5 w-fit inline-flex items-center justify-center gap-1 text-[11px] font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/30 rounded-full px-2.5 py-1.5 whitespace-nowrap transition-colors"
                         >
                           자세히 보기 →
                         </Link>
@@ -1064,7 +1064,7 @@ export default function PortfolioDiagnosisPage() {
                     </div>
                     {h.reason !== undefined ? (
                       h.reason && (
-                        <div className="mt-2 pl-0 md:pl-44">
+                        <div className="mt-1 pl-0 md:pl-44">
                           <p className="text-xs text-slate-500 leading-relaxed">
                             {h.reason}{reasonTyping && <TypingCursor />}
                           </p>
@@ -1076,7 +1076,7 @@ export default function PortfolioDiagnosisPage() {
                         </div>
                       )
                     ) : (
-                      <div className="mt-2 pl-0 md:pl-44"><FieldSkeleton lines={2} /></div>
+                      <div className="mt-1 pl-0 md:pl-44"><FieldSkeleton lines={2} /></div>
                     )}
                     {h.mdd != null && (
                       <p className="mt-1 text-[11px] text-slate-600 pl-0 md:pl-44">
