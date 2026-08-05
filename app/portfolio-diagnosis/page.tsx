@@ -1058,7 +1058,7 @@ export default function PortfolioDiagnosisPage() {
                           </div>
                           {/* 관찰 지표 (변동성 — 방향성 판단 아닌 순수 수치) */}
                           {h.volatility != null && (
-                            <div className="shrink-0 ml-auto flex flex-col items-end gap-1 w-full">
+                            <div className="shrink-0 ml-auto flex flex-col items-end gap-1">
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[12px] font-bold text-slate-300 bg-slate-700/60 border border-slate-600/50">
                                 변동성 {h.volatility.toFixed(2)}%
                               </span>
