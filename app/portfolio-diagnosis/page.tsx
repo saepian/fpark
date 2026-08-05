@@ -14,6 +14,7 @@ import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChangeTable';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
+import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
@@ -85,12 +86,16 @@ type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' }
 
 // 2026-08-04: 배당 정보(합산 배당률 + 월별 캘린더) — lib/dividend-aggregation.ts와 동일 shape.
 // 2026-08-05: matrix(종목×월 상세) 추가 — calendar는 과거 공유 리포트 호환용으로 유지.
+// 2026-08-05: payingHoldings 필터를 dividendHistory 기준으로 통일하며 excludedHoldings 추가
+// — DART 요약만 있고 실제 지급이력 없는 종목(미래에셋증권 사례)도 이제 행에서 제외되므로
+// 캡션에 제외 종목명을 보여줄 수 있어야 한다.
 interface DividendCalendarEntry { month: number; holdings: { ticker: string; name: string }[] }
 interface PortfolioDividendSummary {
   expectedAnnualDividend: number;
   portfolioDividendYield: number | null;
   payingCount: number;
   totalCount: number;
+  excludedHoldings: { ticker: string; name: string }[];
   calendar: DividendCalendarEntry[];
   matrix: DividendMatrixRow[];
 }
@@ -293,7 +298,7 @@ function PortfolioHistoryCard({ result, typingKey, stage2Failed }: { result: Str
         </div>
       )}
       {h.narrative !== undefined ? (
-        <p className="text-[13px] text-slate-300 leading-relaxed">
+        <p className="text-xs text-slate-300 leading-relaxed">
           {h.narrative}{typingKey === 'historyNarrative' && <TypingCursor />}
         </p>
       ) : (
@@ -690,6 +695,7 @@ export default function PortfolioDiagnosisPage() {
     // sectors는 Stage2 완료 시 한 번에 도착 — 그 전엔 undefined
     const sortedSectors = result.sectors ? [...result.sectors].sort((a, b) => b.weight - a.weight) : null;
     const reportReady = streamFinished && !stage2Failed;
+    const excludedDividendNote = result.dividend ? formatExcludedHoldingsNote(result.dividend.excludedHoldings) : null;
 
     return (
       <div className="pb-8">
@@ -810,7 +816,7 @@ export default function PortfolioDiagnosisPage() {
                         {blocks.map((b) => (
                           <div key={b.label}>
                             <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
-                            <p className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
+                            <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
                           </div>
                         ))}
                       </div>
@@ -831,7 +837,7 @@ export default function PortfolioDiagnosisPage() {
                             return acc;
                           }, [])
                           .map((group, i) => (
-                            <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>
+                            <p key={i} className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>
                               {group.join(' ')}
                             </p>
                           ))
@@ -937,11 +943,16 @@ export default function PortfolioDiagnosisPage() {
                       : '-'}
                   </p>
                 </div>
-                <p className="text-[10px] text-slate-600 leading-relaxed sm:text-right">
-                  최근 확정 배당 기준 · 예상 연간 배당금 {result.dividend.expectedAnnualDividend.toLocaleString()}원
-                  <br />
-                  {result.dividend.totalCount}개 종목 중 {result.dividend.payingCount}개만 배당 이력 반영(미래 지급을 보장하지 않음)
-                </p>
+                <div className="sm:text-right">
+                  <p className="text-[10px] text-slate-600 leading-relaxed">
+                    최근 확정 배당 기준 · 예상 연간 배당금 {result.dividend.expectedAnnualDividend.toLocaleString()}원
+                  </p>
+                  <p className="text-[10.5px] text-slate-400 leading-relaxed mt-1">
+                    {result.dividend.totalCount}개 종목 중 {result.dividend.payingCount}개만 배당 이력 있음
+                    {excludedDividendNote && ` (${excludedDividendNote} 제외)`}
+                    {' '}(미래 지급을 보장하지 않음)
+                  </p>
+                </div>
               </div>
 
               <DividendMatrix rows={result.dividend.matrix} />
@@ -976,7 +987,7 @@ export default function PortfolioDiagnosisPage() {
                     ))}
                   </div>
                   {result.contributionNarrative !== undefined && (
-                    <p className="text-[13px] text-slate-300 leading-relaxed">
+                    <p className="text-xs text-slate-300 leading-relaxed">
                       {result.contributionNarrative}{typingPortfolioKey === 'contributionNarrative' && <TypingCursor />}
                     </p>
                   )}
@@ -987,7 +998,7 @@ export default function PortfolioDiagnosisPage() {
                   <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-3`}>섹터 동조화 관찰</p>
                   <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>
                   {result.coMovementNarrative !== undefined && (
-                    <p className="text-[13px] text-slate-300 leading-relaxed">
+                    <p className="text-xs text-slate-300 leading-relaxed">
                       {result.coMovementNarrative}{typingPortfolioKey === 'coMovementNarrative' && <TypingCursor />}
                     </p>
                   )}
@@ -1054,7 +1065,7 @@ export default function PortfolioDiagnosisPage() {
                     {h.reason !== undefined ? (
                       h.reason && (
                         <div className="mt-2 pl-0 md:pl-44">
-                          <p className="text-[12px] text-slate-500 leading-relaxed">
+                          <p className="text-xs text-slate-500 leading-relaxed">
                             {h.reason}{reasonTyping && <TypingCursor />}
                           </p>
                           {!reasonTyping && (
@@ -1095,7 +1106,7 @@ export default function PortfolioDiagnosisPage() {
                       return (
                         <div key={i} className="flex gap-2">
                           <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                          <p className="text-[12px] text-slate-300 leading-relaxed">
+                          <p className="text-xs text-slate-300 leading-relaxed">
                             {category && (
                               <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
                                 {category === 'macro' ? '매크로' : '기업'}
@@ -1120,7 +1131,7 @@ export default function PortfolioDiagnosisPage() {
                     {(result.opportunityFactors ?? []).map((line, i) => (
                       <div key={i} className="flex gap-2">
                         <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                        <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                        <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
                       </div>
                     ))}
                   </div>
@@ -1139,7 +1150,7 @@ export default function PortfolioDiagnosisPage() {
                       단기 관찰 변수
                     </span>
                   </div>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">
+                  <p className="text-xs text-slate-300 leading-relaxed">
                     {result.shortTermOutlook}{typingPortfolioKey === 'shortTermOutlook' && <TypingCursor />}
                   </p>
                 </div>
@@ -1151,7 +1162,7 @@ export default function PortfolioDiagnosisPage() {
                       중기 관찰 변수
                     </span>
                   </div>
-                  <p className="text-[13px] text-slate-300 leading-relaxed">
+                  <p className="text-xs text-slate-300 leading-relaxed">
                     {result.midTermOutlook}{typingPortfolioKey === 'midTermOutlook' && <TypingCursor />}
                   </p>
                 </div>
@@ -1177,7 +1188,7 @@ export default function PortfolioDiagnosisPage() {
                 </div>
               </div>
               {result.holdingPeriod.narrative !== undefined ? (
-                <p className="text-[13px] text-slate-300 leading-relaxed">
+                <p className="text-xs text-slate-300 leading-relaxed">
                   {result.holdingPeriod.narrative}{typingPortfolioKey === 'holdingPeriodNarrative' && <TypingCursor />}
                 </p>
               ) : (

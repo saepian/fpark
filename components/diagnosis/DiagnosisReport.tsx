@@ -284,7 +284,7 @@ function StatDelta({ label, value, positive }: { label: string; value: string; p
 function MainAnalysisBody({ result }: { result: DiagnosisResult }) {
   const s = result.mainAnalysisSections;
   if (!s) {
-    return <p className="text-[13px] text-slate-300 leading-relaxed">{result.mainAnalysis}</p>;
+    return <p className="text-xs text-slate-300 leading-relaxed">{result.mainAnalysis}</p>;
   }
 
   const blocks = [
@@ -299,7 +299,7 @@ function MainAnalysisBody({ result }: { result: DiagnosisResult }) {
       {blocks.map((b) => (
         <div key={b.label}>
           <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
-          <p className="text-[13px] text-slate-300 leading-relaxed">{b.text}</p>
+          <p className="text-xs text-slate-300 leading-relaxed">{b.text}</p>
         </div>
       ))}
     </div>
@@ -347,7 +347,7 @@ function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
           )}
         </div>
       )}
-      <p className="text-[13px] text-slate-300 leading-relaxed">{h.narrative}</p>
+      <p className="text-xs text-slate-300 leading-relaxed">{h.narrative}</p>
     </div>
   );
 }
@@ -412,7 +412,7 @@ function FinancialsTrendCard({ result }: { result: DiagnosisResult }) {
         ))}
       </div>
       {result.financialsNarrative && (
-        <p className="text-[13px] text-slate-300 leading-relaxed">{result.financialsNarrative}</p>
+        <p className="text-xs text-slate-300 leading-relaxed">{result.financialsNarrative}</p>
       )}
     </div>
   );
@@ -501,7 +501,7 @@ export default function DiagnosisReport({
                 <div className="mt-5 pt-5 border-t border-slate-700/50">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
                   <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
-                    <p className="text-[13px] text-slate-200 leading-relaxed">{result.finalVerdict}</p>
+                    <p className="text-xs text-slate-200 leading-relaxed">{result.finalVerdict}</p>
                   </div>
                 </div>
               )}
@@ -603,7 +603,7 @@ export default function DiagnosisReport({
               ))}
             </div>
             {result.disclosureNarrative && (
-              <p className="text-[13px] text-slate-300 leading-relaxed">{result.disclosureNarrative}</p>
+              <p className="text-xs text-slate-300 leading-relaxed">{result.disclosureNarrative}</p>
             )}
           </div>
         )}
@@ -700,10 +700,10 @@ export default function DiagnosisReport({
             {/* 캡션 (기관/외국인 각 한 줄) */}
             <div className="flex flex-col gap-1.5">
               {result.institutionalFlow && (
-                <p className="text-center text-[12px] text-slate-400 leading-relaxed">{result.institutionalFlow}</p>
+                <p className="text-center text-xs text-slate-400 leading-relaxed">{result.institutionalFlow}</p>
               )}
               {result.foreignFlow && (
-                <p className="text-center text-[12px] text-slate-400 leading-relaxed">{result.foreignFlow}</p>
+                <p className="text-center text-xs text-slate-400 leading-relaxed">{result.foreignFlow}</p>
               )}
             </div>
           </div>
@@ -741,7 +741,7 @@ export default function DiagnosisReport({
                 <SectorSparkline sparkline={result.sectorComparison.sparkline} />
               )}
               {result.sectorNarrative && (
-                <p className="text-[12px] text-slate-400 leading-relaxed">{result.sectorNarrative}</p>
+                <p className="text-xs text-slate-400 leading-relaxed">{result.sectorNarrative}</p>
               )}
             </div>
           )}
@@ -757,7 +757,7 @@ export default function DiagnosisReport({
               {(result.riskFactors ?? []).map((line, i) => (
                 <div key={i} className="flex gap-2">
                   <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
+                  <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
                 </div>
               ))}
             </div>
@@ -774,7 +774,7 @@ export default function DiagnosisReport({
                     단기 관찰 변수
                   </span>
                 </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
+                <p className="text-xs text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
               </div>
             )}
             {result.midTermOutlook && (
@@ -784,7 +784,7 @@ export default function DiagnosisReport({
                     중기 관찰 변수
                   </span>
                 </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
+                <p className="text-xs text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
               </div>
             )}
           </div>
@@ -798,7 +798,7 @@ export default function DiagnosisReport({
                 환율 상관관계
               </span>
             </div>
-            <p className="text-[13px] text-slate-300 leading-relaxed">
+            <p className="text-xs text-slate-300 leading-relaxed">
               최근 1년간 이 종목은 원/달러 환율과 {result.fxCorrelation.correlation >= 0 ? '+' : ''}{result.fxCorrelation.correlation}의 {result.fxCorrelation.correlation >= 0 ? '양(+)' : '음(-)'}의 상관관계를 보여왔습니다.
             </p>
           </div>
@@ -874,7 +874,7 @@ export default function DiagnosisReport({
               </div>
             )
           ) : (
-            <p className="text-[13px] text-slate-500 leading-relaxed">
+            <p className="text-xs text-slate-500 leading-relaxed">
               관련도 높은 뉴스가 확인되지 않아, 수급·기술적 지표를 근거로 분석했습니다.
             </p>
           )}

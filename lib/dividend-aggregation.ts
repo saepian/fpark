@@ -43,11 +43,22 @@ export type DividendMatrixRow = {
 export type PortfolioDividendSummary = {
   expectedAnnualDividend: number;        // 원 — Σ(dividendPerShare × quantity), 최근 확정 배당 기준
   portfolioDividendYield: number | null; // % — expectedAnnualDividend / totalValue × 100, 계산 불가하면 null
-  payingCount: number;                   // 배당 요약 또는 이력이 하나라도 있는 종목 수
+  payingCount: number;                   // 실제 지급이력(dividendHistory)이 있는 종목 수
   totalCount: number;                    // 전체 보유 종목 수
+  excludedHoldings: { ticker: string; name: string }[]; // 지급이력 없어 matrix/calendar에서 빠진 종목(DART 요약만 있는 경우 포함)
   calendar: DividendCalendarEntry[];     // 1~12월 고정 12칸, 이력 없는 달도 빈 배열로 포함(과거 공유 리포트 호환용으로 유지)
   matrix: DividendMatrixRow[];           // 종목×월 상세 매트릭스(payingHoldings 순서, calendar의 상위 호환)
 };
+
+// 캡션에 제외 종목명을 나열할 때 너무 길어지지 않도록 최대 5개까지만 이름을 보여주고
+// 그 이상은 "외 N개"로 축약한다(보유 종목 상한이 10개라 실제로는 최대 9개까지 나올 수 있음).
+const EXCLUDED_NAMES_DISPLAY_LIMIT = 5;
+export function formatExcludedHoldingsNote(excluded: { ticker: string; name: string }[]): string | null {
+  if (excluded.length === 0) return null;
+  const names = excluded.map(h => h.name);
+  if (names.length <= EXCLUDED_NAMES_DISPLAY_LIMIT) return names.join(', ');
+  return `${names.slice(0, EXCLUDED_NAMES_DISPLAY_LIMIT).join(', ')} 외 ${names.length - EXCLUDED_NAMES_DISPLAY_LIMIT}개`;
+}
 
 function parseMonth(dateStr: string | null): number | null {
   if (!dateStr) return null;
@@ -57,12 +68,20 @@ function parseMonth(dateStr: string | null): number | null {
   return month >= 1 && month <= 12 ? month : null;
 }
 
-// 전체 보유 종목이 무배당(요약도 이력도 없음)이면 null — 호출부에서 섹션 자체를 렌더링하지 않는다.
+// 전체 보유 종목에 실제 지급이력(dividendHistory)이 하나도 없으면 null — 호출부에서 섹션
+// 자체를 렌더링하지 않는다.
 export function computePortfolioDividendSummary(
   holdings: DividendHoldingInput[],
   totalValue: number,
 ): PortfolioDividendSummary | null {
-  const payingHoldings = holdings.filter(h => h.dividendSummary !== null || h.dividendHistory.length > 0);
+  // 2026-08-05: DART 요약(dividendSummary)만 있고 실제 지급이력(KIS dividendHistory)이 없는
+  // 종목(예: 배당 공시는 있지만 KIS 5년 조회에는 안 잡히는 경우)을 이전엔 OR 조건으로 행에
+  // 포함시켰다 — "모든 칸이 빈 행"이 생겨 다른 무배당 종목(둘 다 없음)과 다르게 취급되는
+  // 모순이 있었다. 매트릭스는 "실제 지급이력이 있는 종목만" 보여주는 걸로 통일한다.
+  const payingHoldings = holdings.filter(h => h.dividendHistory.length > 0);
+  const excludedHoldings = holdings
+    .filter(h => h.dividendHistory.length === 0)
+    .map(h => ({ ticker: h.ticker, name: h.name }));
   if (payingHoldings.length === 0) return null;
 
   const expectedAnnualDividend = holdings.reduce((sum, h) => {
@@ -124,6 +143,7 @@ export function computePortfolioDividendSummary(
     portfolioDividendYield,
     payingCount: payingHoldings.length,
     totalCount: holdings.length,
+    excludedHoldings,
     calendar,
     matrix,
   };

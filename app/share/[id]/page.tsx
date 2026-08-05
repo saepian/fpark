@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { TrendingUp, TrendingDown, Sparkles, AlertCircle } from 'lucide-react';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 
 export const dynamic = 'force-dynamic';
@@ -134,13 +135,15 @@ type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' }
 
 // app/portfolio-diagnosis/page.tsx의 PortfolioDividendSummary와 동일 — 손복제 구조.
 // matrix는 2026-08-05 신설이라 그 이전에 생성된 공유 리포트에는 없을 수 있어 optional —
-// 없으면 아래 렌더링에서 옛 calendar 그리드로 폴백한다.
+// 없으면 아래 렌더링에서 옛 calendar 그리드로 폴백한다. excludedHoldings도 같은 날 추가된
+// 필드라 optional — 없으면 캡션에서 제외 종목명 없이 기본 문구만 보여준다.
 interface DividendCalendarEntry { month: number; holdings: { ticker: string; name: string }[] }
 interface PortfolioDividendSummary {
   expectedAnnualDividend: number;
   portfolioDividendYield: number | null;
   payingCount: number;
   totalCount: number;
+  excludedHoldings?: { ticker: string; name: string }[];
   calendar: DividendCalendarEntry[];
   matrix?: DividendMatrixRow[];
 }
@@ -717,6 +720,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
 function PortfolioView({ d }: { d: PortfolioData }) {
   const isUp = d.totalProfitRate >= 0;
   const sortedSectors = [...(d.sectors ?? [])].sort((a, b) => b.weight - a.weight);
+  const excludedDividendNote = d.dividend?.excludedHoldings ? formatExcludedHoldingsNote(d.dividend.excludedHoldings) : null;
 
   return (
     <div className="min-h-screen bg-[#0d1117] pb-16">
@@ -839,11 +843,16 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                   {d.dividend.portfolioDividendYield !== null ? `${d.dividend.portfolioDividendYield.toFixed(2)}%` : '-'}
                 </p>
               </div>
-              <p className="text-[10px] text-slate-600 leading-relaxed sm:text-right">
-                최근 확정 배당 기준 · 예상 연간 배당금 {d.dividend.expectedAnnualDividend.toLocaleString()}원
-                <br />
-                {d.dividend.totalCount}개 종목 중 {d.dividend.payingCount}개만 배당 이력 반영(미래 지급을 보장하지 않음)
-              </p>
+              <div className="sm:text-right">
+                <p className="text-[10px] text-slate-600 leading-relaxed">
+                  최근 확정 배당 기준 · 예상 연간 배당금 {d.dividend.expectedAnnualDividend.toLocaleString()}원
+                </p>
+                <p className="text-[10.5px] text-slate-400 leading-relaxed mt-1">
+                  {d.dividend.totalCount}개 종목 중 {d.dividend.payingCount}개만 배당 이력 있음
+                  {excludedDividendNote && ` (${excludedDividendNote} 제외)`}
+                  {' '}(미래 지급을 보장하지 않음)
+                </p>
+              </div>
             </div>
 
             {d.dividend.matrix && d.dividend.matrix.length > 0 ? (

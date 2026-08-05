@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computePortfolioDividendSummary, type DividendHoldingInput } from './dividend-aggregation';
+import { computePortfolioDividendSummary, formatExcludedHoldingsNote, type DividendHoldingInput } from './dividend-aggregation';
 
 function summary(dividendPerShare: number | null, dividendYield: number | null = null) {
   return dividendPerShare === null ? null : { year: '2025', dividendYield, dividendPerShare, payoutRatio: null };
@@ -81,7 +81,7 @@ describe('computePortfolioDividendSummary', () => {
 
   it('totalValue가 0 이하면 수익률은 null(0으로 나누지 않음)', () => {
     const holdings: DividendHoldingInput[] = [
-      { ticker: 'A', name: 'A사', quantity: 10, dividendSummary: summary(1000), dividendHistory: [] },
+      { ticker: 'A', name: 'A사', quantity: 10, dividendSummary: summary(1000), dividendHistory: [historyRow('2026-03-31', '2026-04-20')] },
     ];
     const result = computePortfolioDividendSummary(holdings, 0);
     expect(result!.expectedAnnualDividend).toBe(10000);
@@ -90,7 +90,7 @@ describe('computePortfolioDividendSummary', () => {
 
   it('12칸 캘린더가 항상 고정 배열로 반환된다(빈 달도 포함)', () => {
     const holdings: DividendHoldingInput[] = [
-      { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: summary(100), dividendHistory: [] },
+      { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: summary(100), dividendHistory: [historyRow('2026-03-31', '2026-04-20')] },
     ];
     const result = computePortfolioDividendSummary(holdings, 100);
     expect(result!.calendar).toHaveLength(12);
@@ -130,7 +130,7 @@ describe('computePortfolioDividendSummary', () => {
       expect(june?.records[0]).toMatchObject({ year: 2026, recordDate: '2026-06-30', payDate: null });
     });
 
-    it('payingHoldings(요약 또는 이력 있는 종목)만 매트릭스 행에 포함하고, 무배당 종목은 제외한다', () => {
+    it('실제 지급이력(dividendHistory)이 있는 종목만 매트릭스 행에 포함하고, 없는 종목은 제외한다', () => {
       const holdings: DividendHoldingInput[] = [
         { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: summary(1000), dividendHistory: [historyRow('2026-03-31', '2026-04-20')] },
         { ticker: 'B', name: 'B사', quantity: 1, dividendSummary: null, dividendHistory: [] },
@@ -139,13 +139,19 @@ describe('computePortfolioDividendSummary', () => {
       expect(result!.matrix.map(r => r.ticker)).toEqual(['A']);
     });
 
-    it('dividendHistory가 빈 배열인 종목(DART 요약만 있는 경우)도 행은 만들되 모든 달이 null이다', () => {
+    it('DART 요약(dividendSummary)만 있고 실제 지급이력이 없는 종목(미래에셋증권 사례)은 matrix/calendar 모두에서 제외되고 excludedHoldings에 담긴다', () => {
       const holdings: DividendHoldingInput[] = [
-        { ticker: 'A', name: 'A사', quantity: 1, dividendSummary: summary(1000), dividendHistory: [] },
+        { ticker: 'A', name: '실지급종목', quantity: 1, dividendSummary: null, dividendHistory: [historyRow('2026-03-31', '2026-04-20')] },
+        { ticker: 'B', name: '미래에셋증권', quantity: 1, dividendSummary: summary(300), dividendHistory: [] }, // 요약만 있고 이력 없음
       ];
       const result = computePortfolioDividendSummary(holdings, 100);
-      const row = result!.matrix.find(r => r.ticker === 'A')!;
-      expect(row.months.every(m => m === null)).toBe(true);
+      expect(result!.matrix.map(r => r.ticker)).toEqual(['A']); // B는 행 자체가 없음
+      expect(result!.calendar.every(c => c.holdings.every(h => h.ticker !== 'B'))).toBe(true); // 어느 달 칸에도 B가 없음
+      expect(result!.payingCount).toBe(1);
+      expect(result!.totalCount).toBe(2);
+      expect(result!.excludedHoldings).toEqual([{ ticker: 'B', name: '미래에셋증권' }]);
+      // dividendSummary가 있으므로 예상 배당금 계산에는 여전히 반영된다(매트릭스 포함 여부와는 별개)
+      expect(result!.expectedAnnualDividend).toBe(300);
     });
 
     it('매트릭스 행 순서는 payingHoldings 순서를 따른다', () => {
@@ -156,5 +162,30 @@ describe('computePortfolioDividendSummary', () => {
       const result = computePortfolioDividendSummary(holdings, 100);
       expect(result!.matrix.map(r => r.ticker)).toEqual(['A', 'B']);
     });
+  });
+});
+
+describe('formatExcludedHoldingsNote', () => {
+  it('제외 종목이 없으면 null을 반환한다', () => {
+    expect(formatExcludedHoldingsNote([])).toBeNull();
+  });
+
+  it('5개 이하면 전부 쉼표로 나열한다', () => {
+    const excluded = [
+      { ticker: '174900', name: '앱클론' },
+      { ticker: '047040', name: '대우건설' },
+      { ticker: '006800', name: '미래에셋증권' },
+    ];
+    expect(formatExcludedHoldingsNote(excluded)).toBe('앱클론, 대우건설, 미래에셋증권');
+  });
+
+  it('5개를 초과하면 앞 5개만 나열하고 "외 N개"로 축약한다', () => {
+    const excluded = Array.from({ length: 7 }, (_, i) => ({ ticker: `T${i}`, name: `종목${i}` }));
+    expect(formatExcludedHoldingsNote(excluded)).toBe('종목0, 종목1, 종목2, 종목3, 종목4 외 2개');
+  });
+
+  it('정확히 5개면 축약하지 않는다(경계값)', () => {
+    const excluded = Array.from({ length: 5 }, (_, i) => ({ ticker: `T${i}`, name: `종목${i}` }));
+    expect(formatExcludedHoldingsNote(excluded)).toBe('종목0, 종목1, 종목2, 종목3, 종목4');
   });
 });
