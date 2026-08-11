@@ -28,6 +28,7 @@ import {
   kstDateStr, daysBetween,
 } from '@/lib/ai-grounding';
 import { getDomesticMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
+import { StreamingFieldParser, DIAGNOSIS_FIELD_SPECS } from '@/lib/streaming-json-fields';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic    = 'force-dynamic';
@@ -61,7 +62,6 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
   "riskFactors": ["리스크 요인 1 (25~40자, 수치 포함, mainAnalysisSections와 겹치지 않는 내용)", "리스크 요인 2 (25~40자)", "리스크 요인 3 (25~40자)"],
   "institutionalFlow": "기관 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
   "foreignFlow": "외국인 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, 동일 기준)",
-  "flowPercentage": 50,
   "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】단기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로 (예: '외국인 자금은 5일째 유출 중인데, 이는 방향 전환 여부를 아직 확인할 수 없다는 점에서 지켜볼 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지",
   "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지",
   "finalVerdict": "【최대 90자, 절대 넘기지 말 것 — 반드시 1문장, 순수 서술형】mainAnalysisSections(background/flowSummary/valuationNote/watchPoint)·sectorNarrative·riskFactors·shortTermOutlook·midTermOutlook 전체를 종합해 최종 결론을 압축하세요. 점수·등급·별점·숫자 표기 절대 금지 — 오직 문장으로만 판단을 전달하세요. 매매행위(매수/매도/추격매수/추격매도/진입/청산 등)를 직접 지목하지 말고 관찰·판단 어투로 순화하세요 — 예) '외부 호재로 상승했지만 수급은 아직 약해, 추격 진입보다는 추가 확인이 필요한 구간으로 보인다.', '실적 개선은 확인됐지만 밸류에이션 부담이 남아있어 성급한 판단보다는 관찰이 필요한 국면이다.' 목표가·저항선·지지선·가격 방향 예측 절대 금지. 위 필드들에서 이미 다룬 개별 사실을 재나열하지 말고, 그 사실들을 종합했을 때의 최종 판단만 담으세요.",
@@ -72,7 +72,6 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
 규칙:
 - ${COMPLIANCE_PRINCIPLE}
 - riskFactors는 반드시 문자열 배열 (JSON array), 각 항목 25~40자
-- flowPercentage는 반드시 숫자 타입, 0~100 사이 정수 (외국인·기관 합산 순매수 강도 관찰치) — 이 값은 서버가 실측 수급 데이터로 재계산해 덮어쓰므로 참고용으로만 채우세요
 - "목표가", "손절가", "매수 추천", "매도 추천", "권고", "정당화", "저항선", "지지선", "매물대", "과매수", "과매도", "지지 시험", "가격 방향", "우위를 점하는지", "상승 여력을 기대", "신호로 해석" 단어·표현을 사용하지 마세요
 - mainAnalysisSections의 각 필드·shortTermOutlook·midTermOutlook은 사실 서술에 전체 분량의 절반을 넘기지 말고, 나머지 절반은 "그 사실이 왜 유의미한지"에 쓰세요. 단, 그 유의미함이 향후 가격 방향 예측이어선 안 됩니다(가격이 오른다/내린다는 판단 금지, 지표의 성격·신뢰도·희소성에 대한 해석은 허용)
 - 데이터 포인트를 연결해서 해석하라는 지시가 있다고 근거 없이 억지로 연결하지 마세요 — 연결 지을 근거가 부족하면 "아직 명확하지 않다", "뚜렷한 연결고리는 확인되지 않는다"처럼 솔직하게 쓰는 것도 정답입니다
@@ -222,358 +221,400 @@ export async function GET() {
   return NextResponse.json({ count, remaining: Math.max(0, limit - count) });
 }
 
+// ── SSE helper — portfolio-diagnosis/route.ts와 동일 패턴 ───────────────────
+function sseEncode(ctrl: ReadableStreamDefaultController, encoder: TextEncoder, data: object) {
+  ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+}
+
 export async function POST(request: NextRequest) {
-  // 최상위 try-catch: 어느 단계에서든 예외 발생 시 반드시 JSON 반환
-  try {
-    const supabase = makeSupabase();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // ── 1. Auth/크레딧/입력검증 — 스트림 시작 전이라 정상 HTTP status로 반환 가능
+  //    (portfolio-diagnosis/route.ts와 동일하게 이 경계 밖은 절대 손대지 않는다) ──────
+  const supabase = makeSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const count = await getMonthlyDiagnosisCount(supabase, user.id);
+  const count = await getMonthlyDiagnosisCount(supabase, user.id);
 
-    // 2026-07-08~2026-07-14까지는 관리자 제외 전원이 하루 1회로 하드코딩돼 pricing 광고
-    // (Free 1회/Basic 6회/Pro 11회)와 어긋나 있었음 — 실제 플랜별 한도로 교체.
-    // 2026-07-14 요금제 재구성: 일일→월간 한도 전환(Free 5/Basic 30/Pro 50).
-    const plan  = await checkPlan(supabase, user.id, user.email);
-    const limit = resolveDiagnosisLimit(plan);
-    let usedCredit = false;
-    if (count >= limit) {
-      // 기본 한도 초과 시 1회권 크레딧 원자적 차감(레이스 컨디션 방지) —
-      // 분석 성공 여부와 무관하게 사용 처리
-      const result = await deductCredit(user.id, 'stock');
-      if (result.success === false) {
-        if (result.reason === 'error') {
-          return NextResponse.json({ error: '크레딧 확인 중 오류가 발생했습니다.' }, { status: 500 });
-        }
-        const message = plan === 'free'
-          ? '이번 달 무료 이용 횟수를 모두 사용했습니다. 베이직/프로로 업그레이드하면 더 많이 이용하실 수 있습니다.'
-          : '이번 달 이용 한도를 모두 사용했습니다. 다음 결제일에 초기화됩니다.';
-        return NextResponse.json({ error: message }, { status: 429 });
+  // 2026-07-08~2026-07-14까지는 관리자 제외 전원이 하루 1회로 하드코딩돼 pricing 광고
+  // (Free 1회/Basic 6회/Pro 11회)와 어긋나 있었음 — 실제 플랜별 한도로 교체.
+  // 2026-07-14 요금제 재구성: 일일→월간 한도 전환(Free 5/Basic 30/Pro 50).
+  const plan  = await checkPlan(supabase, user.id, user.email);
+  const limit = resolveDiagnosisLimit(plan);
+  let usedCredit = false;
+  if (count >= limit) {
+    // 기본 한도 초과 시 1회권 크레딧 원자적 차감(레이스 컨디션 방지) —
+    // 분석 성공 여부와 무관하게 사용 처리
+    const result = await deductCredit(user.id, 'stock');
+    if (result.success === false) {
+      if (result.reason === 'error') {
+        return NextResponse.json({ error: '크레딧 확인 중 오류가 발생했습니다.' }, { status: 500 });
       }
-      usedCredit = true;
+      const message = plan === 'free'
+        ? '이번 달 무료 이용 횟수를 모두 사용했습니다. 베이직/프로로 업그레이드하면 더 많이 이용하실 수 있습니다.'
+        : '이번 달 이용 한도를 모두 사용했습니다. 다음 결제일에 초기화됩니다.';
+      return NextResponse.json({ error: message }, { status: 429 });
     }
+    usedCredit = true;
+  }
 
-    const body = await request.json().catch(() => ({}));
-    const { ticker, name, avgPrice, quantity, buyDate } = body as {
-      ticker?: string; name?: string; avgPrice?: number; quantity?: number; buyDate?: string;
-    };
+  const body = await request.json().catch(() => ({}));
+  const { ticker, name, avgPrice, quantity, buyDate } = body as {
+    ticker?: string; name?: string; avgPrice?: number; quantity?: number; buyDate?: string;
+  };
 
-    if (!ticker || !name || !avgPrice || !quantity) {
-      return NextResponse.json({ error: '필수 항목이 누락되었습니다.' }, { status: 400 });
-    }
+  if (!ticker || !name || !avgPrice || !quantity) {
+    return NextResponse.json({ error: '필수 항목이 누락되었습니다.' }, { status: 400 });
+  }
 
-    // ── 1단계: 데이터 병렬 수집 ─────────────────────────────────────────────
-    console.log('[DIAGNOSIS] 1. 데이터 수집 시작', { ticker, name });
+  // ── 2. SSE 스트림 시작 — 2026-08-11 스트리밍 전환. Stage0(서버 계산값 선송신) +
+  //    Stage1(단일 Claude 스트림, lib/streaming-json-fields.ts 파서로 필드별 partial/
+  //    complete 전송) 구조. app/api/portfolio-diagnosis/route.ts, app/api/stock/[ticker]/
+  //    analysis/route.ts와 동일한 SSE 프로토콜(text/event-stream, `data: {...}\n\n`) ──────
+  const encoder = new TextEncoder();
+  const send = (ctrl: ReadableStreamDefaultController, data: object) => sseEncode(ctrl, encoder, data);
 
-    // 2026-07-23: 뉴스 조회를 종목명 단독 검색(+DB뉴스 병합)에서 종목명+종목코드
-    // 병행 검색 후 Haiku 1차 선별로 교체(lib/news-selection.ts, 종목분석에서
-    // 이미 검증됨). collectStockAnalysisData의 DB뉴스(analysisData.news)는 계속
-    // 보조 후보로 병행 — Promise로 넘겨 collectStockAnalysisData 완료를 기다리지
-    // 않고 Naver 조회를 먼저 시작한다(같은 collectStockAnalysisData 호출을
-    // 중복 호출하지 않도록 analysisDataPromise를 한 번만 만들어 재사용).
-    const analysisDataPromise = collectStockAnalysisData(ticker, name);
-    const dbNewsExtraPromise: Promise<NewsCandidate[]> = analysisDataPromise.then(
-      (ad) => (ad.news ?? []).map((n) => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
-      () => [],
-    );
-    // 업종 매크로 뉴스 — 종목분석(app/api/stock/[ticker]/analysis/route.ts)과 동일한
-    // lib/sector-news.ts 재사용. collectStockAnalysisData가 이미 계산하는 sector(KIS
-    // bstp_kor_isnm)를 그대로 키로 쓰므로 신규 KIS 호출 없음. dbNewsExtraPromise와 같은
-    // 방식으로 analysisDataPromise 완료를 체이닝해 나머지 병렬 조회와 동시에 진행한다.
-    const sectorMacroPromise = analysisDataPromise.then(
-      (ad) => selectSectorMacroNews(ad.sector ?? ''),
-      () => selectSectorMacroNews(''),
-    );
-    // 환율 상관관계용 USD/KRW 1년 시계열 — 종목·다른 데이터와 무관하게 독립적으로 시작해
-    // 최대한 일찍부터 겹치게 한다(티커 무관 공유 캐시라 대부분 요청은 Supabase 캐시 히트).
-    // 아래 Claude 호출과 함께 await하므로 실패해도 catch로 빈 배열 처리해 절대 요청을 막지 않는다.
-    const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
-
-    const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult] = await Promise.allSettled([
-      fetchStockPrice(ticker),
-      analysisDataPromise,
-      selectRelevantNews(ticker, name, dbNewsExtraPromise),
-      // '1M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
-      // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
-      fetchDailyChart(ticker, '1Y'),
-      fetchSectorPeers(ticker),
-      fetchAnnualFinancials(ticker),
-      fetchRecentDisclosures(ticker),
-      fetchDividendSummary(ticker),
-      fetchDividendHistory(ticker),
-      sectorMacroPromise,
-    ]);
-
-    console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
-      price:    priceResult.status,
-      analysis: analysisResult.status,
-      news:     newsSelectionResult.status,
-      chart:    chartResult.status,
-      sector:   sectorResult.status,
-      financials: financialsResult.status,
-      disclosures: disclosuresResult.status,
-      dividendSummary: dividendSummaryResult.status,
-      dividendHistory: dividendHistoryResult.status,
-      sectorMacro: sectorMacroResult.status,
-      priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
-      analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
-      newsErr:     newsSelectionResult.status === 'rejected' ? String(newsSelectionResult.reason): null,
-      chartErr:    chartResult.status    === 'rejected' ? String(chartResult.reason)    : null,
-      sectorErr:   sectorResult.status   === 'rejected' ? String(sectorResult.reason)   : null,
-      financialsErr: financialsResult.status === 'rejected' ? String(financialsResult.reason) : null,
-      disclosuresErr: disclosuresResult.status === 'rejected' ? String(disclosuresResult.reason) : null,
-      dividendSummaryErr: dividendSummaryResult.status === 'rejected' ? String(dividendSummaryResult.reason) : null,
-      dividendHistoryErr: dividendHistoryResult.status === 'rejected' ? String(dividendHistoryResult.reason) : null,
-    });
-
-    // ── 2단계: 결과 추출 ──────────────────────────────────────────────────────
-    const priceData    = priceResult.status    === 'fulfilled' ? priceResult.value    : null;
-    const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
-    const chartData    = chartResult.status    === 'fulfilled' ? chartResult.value    : [];
-    const sectorMacroNews = sectorMacroResult.status === 'fulfilled' ? sectorMacroResult.value.items : [];
-    const sectorNameForMacro = analysisData?.sector || priceData?.sector || '';
-    const sectorPeers   = sectorResult.status     === 'fulfilled' ? sectorResult.value     : [];
-
-    // 거래일 상태 — 별도 KIS 재조회 없이 위에서 이미 받은 차트의 마지막 행 날짜를 재사용
-    // 해 휴장일(주말/공휴일)을 판정한다(lib/market-day-context.ts 참고).
-    const marketDayContext = getDomesticMarketDayContext(chartData);
-    if (!marketDayContext.isTradingDay) {
-      console.log(`[DIAGNOSIS] ${ticker} 휴장일 감지(${marketDayContext.reason}) — 마지막 거래일 ${marketDayContext.lastTradingDate} 기준으로 서술 지시`);
-    }
-    const annualFinancials: AnnualFinancialRow[] = financialsResult.status === 'fulfilled' ? financialsResult.value : [];
-    const disclosures: DartDisclosure[] = disclosuresResult.status === 'fulfilled' ? disclosuresResult.value : [];
-    const dividendSummary: DartDividendSummary | null = dividendSummaryResult.status === 'fulfilled' ? dividendSummaryResult.value : null;
-    const dividendHistory: DividendHistoryRow[] = dividendHistoryResult.status === 'fulfilled' ? dividendHistoryResult.value : [];
-
-    const currentPrice = (priceData?.price && priceData.price > 0)
-      ? priceData.price
-      : (analysisData?.currentPrice && analysisData.currentPrice > 0)
-        ? analysisData.currentPrice
-        : Number(avgPrice);
-
-    const stockName = (priceData?.name && priceData.name !== ticker)
-      ? priceData.name
-      : (analysisData?.stockName || String(name));
-
-    console.log('[DIAGNOSIS] 3. 가격·종목명', { currentPrice, stockName });
-
-    // ── 3단계: 프롬프트 블록 조립 ─────────────────────────────────────────────
-    let technicalBlock = '데이터 없음';
-    let investorBlock  = '데이터 없음';
-    let newsBlockStr   = '관련 뉴스 없음';
-    let sectorNewsBlockStr = '업종 관련 매크로 뉴스 없음';
-
-    try {
-      if (analysisData) technicalBlock = buildTechnicalBlock(analysisData);
-    } catch (e) { console.error('[DIAGNOSIS] buildTechnicalBlock 실패:', e); }
-
-    try {
-      if (analysisData) investorBlock = buildInvestorBlock(analysisData);
-    } catch (e) { console.error('[DIAGNOSIS] buildInvestorBlock 실패:', e); }
-
-    // 종목명+종목코드 병행 검색 + Haiku 1차 선별 결과(최대 5건, 이미 관련성 검증됨)
-    const relevantNews = newsSelectionResult.status === 'fulfilled' ? newsSelectionResult.value.items : [];
-    const hasRelevantNews = relevantNews.length > 0;
-
-    try {
-      newsBlockStr = buildNewsBlock(relevantNews);
-    } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock 실패:', e); }
-
-    try {
-      sectorNewsBlockStr = buildNewsBlock(sectorMacroNews);
-    } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock(업종) 실패:', e); }
-
-    // date는 "모멘텀 타임라인"(뉴스+공시를 시간순으로 합쳐 보여주는 카드)에서 정렬 기준으로
-    // 쓴다 — relevantNews에 이미 있던 값을 그대로 실어보내는 것뿐, 신규 조회 없음.
-    const combinedNews = relevantNews.map(n => ({
-      title:       n.title,
-      description: n.summary ?? '',
-      url:         n.url ?? '',
-      date:        n.date ?? '',
-    }));
-
-    // 뉴스 이슈 클러스터링(newsIssueClusters)용 인덱스 목록 — buildNewsBlock은 프롬프트
-    // 본문(관련 뉴스 섹션)에 최대 3건만 넣지만, 클러스터링은 combinedNews(최대 5건, UI에
-    // 그대로 노출되는 배열)와 인덱스가 정확히 일치해야 하므로 별도로 전체를 나열한다.
-    // 신규 조회 없음 — 이미 갖고 있는 relevantNews를 다른 포맷으로 다시 나열할 뿐.
-    const newsClusterListBlock = hasRelevantNews
-      ? relevantNews.map((n, i) => `${i}: [${n.date ?? '날짜 미상'}] ${n.title}`).join('\n')
-      : '해당 없음';
-
-    const changeRate = (priceData && typeof priceData.changeRate === 'number') ? priceData.changeRate : 0;
-    const isBigMove   = Math.abs(changeRate) >= 5;
-
-    // 2026-07-27: 휴장일이면 뉴스를 "오늘 이 뉴스로 움직였다"는 실시간 반응으로 서술하지
-    // 못하게 별도 문구를 덧붙인다(app/api/stock/[ticker]/analysis의 NON_TRADING_DAY_NEWS_
-    // FRAMING과 같은 취지 — 이 라우트는 뉴스 지침이 시스템 블록이 아니라 프롬프트 본문에
-    // 인라인으로 들어가는 구조라 여기서 직접 이어붙인다).
-    const marketDayNewsNote = marketDayContext.isTradingDay
-      ? ''
-      : ' 단, 오늘은 휴장일이므로 이 뉴스를 "오늘 이 뉴스로 주가가 움직였다"는 실시간 반응으로 서술하지 말고 "다음 거래일 개장 시 참고할 만한 소식"으로 다루세요.';
-
-    const hasSectorMacroNews = sectorMacroNews.length > 0;
-    const newsInstruction = (hasRelevantNews
-      ? '위 뉴스는 이 종목과 관련도가 높다고 판단되어 매칭된 실제 기사입니다. mainAnalysis를 작성할 때 반드시 이 뉴스를 근거로 최근 주가 변동 원인을 설명하고, 뉴스에 없는 내용을 지어내지 마세요.'
-      : hasSectorMacroNews
-        ? '이 종목과 직접 관련된 뉴스는 매칭되지 않았지만, 아래 [업종/시장 배경]에 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스가 있습니다. mainAnalysis를 작성할 때 "이 종목만의 뉴스는 없지만 업종 전체가 영향을 받고 있다"는 취지를 밝히고, 그 배경을 근거로 오늘 움직임을 서술하세요 — 이 종목 개별 뉴스가 있는 것처럼 단정하지 마세요.'
-        : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.')
-      + marketDayNewsNote;
-
-    const profitRate   = currentPrice > 0 && avgPrice > 0
-      ? ((currentPrice - avgPrice) / avgPrice * 100)
-      : 0;
-    const profitAmount = (currentPrice - avgPrice) * quantity;
-    const holdDays = buyDate
-      ? Math.floor((Date.now() - new Date(buyDate).getTime()) / (1000 * 60 * 60 * 24))
-      : null;
-
-    // ── 벤치마크 비교: 매수일이 있을 때만 계산 (판단 없이 사실 비교 수치만) ──────
-    const market = priceData?.market ?? 'KOSPI';
-    let benchmark: {
-      indexName: 'KOSPI' | 'KOSDAQ'; indexChangeRate: number;
-      stockProfitRate: number; fromDate: string; toDate: string;
-    } | null = null;
-
-    if (buyDate) {
+  const stream = new ReadableStream({
+    async start(controller) {
       try {
-        const indexCode = market === 'KOSDAQ' ? '1001' : '0001';
-        const idx = await fetchIndexRangeChange(indexCode, new Date(buyDate), new Date());
-        if (idx) {
-          benchmark = {
-            indexName:       market,
-            indexChangeRate: parseFloat(idx.changeRate.toFixed(2)),
-            stockProfitRate: parseFloat(profitRate.toFixed(2)),
-            fromDate:        idx.startDate,
-            toDate:          idx.endDate,
-          };
+        send(controller, { type: 'progress', label: '종목 데이터 수집 중...' });
+
+        // ── 1단계: 데이터 병렬 수집 ─────────────────────────────────────────────
+        console.log('[DIAGNOSIS] 1. 데이터 수집 시작', { ticker, name });
+
+        // 2026-07-23: 뉴스 조회를 종목명 단독 검색(+DB뉴스 병합)에서 종목명+종목코드
+        // 병행 검색 후 Haiku 1차 선별로 교체(lib/news-selection.ts, 종목분석에서
+        // 이미 검증됨). collectStockAnalysisData의 DB뉴스(analysisData.news)는 계속
+        // 보조 후보로 병행 — Promise로 넘겨 collectStockAnalysisData 완료를 기다리지
+        // 않고 Naver 조회를 먼저 시작한다(같은 collectStockAnalysisData 호출을
+        // 중복 호출하지 않도록 analysisDataPromise를 한 번만 만들어 재사용).
+        const analysisDataPromise = collectStockAnalysisData(ticker, name);
+        const dbNewsExtraPromise: Promise<NewsCandidate[]> = analysisDataPromise.then(
+          (ad) => (ad.news ?? []).map((n) => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
+          () => [],
+        );
+        // 업종 매크로 뉴스 — 종목분석(app/api/stock/[ticker]/analysis/route.ts)과 동일한
+        // lib/sector-news.ts 재사용. collectStockAnalysisData가 이미 계산하는 sector(KIS
+        // bstp_kor_isnm)를 그대로 키로 쓰므로 신규 KIS 호출 없음. dbNewsExtraPromise와 같은
+        // 방식으로 analysisDataPromise 완료를 체이닝해 나머지 병렬 조회와 동시에 진행한다.
+        const sectorMacroPromise = analysisDataPromise.then(
+          (ad) => selectSectorMacroNews(ad.sector ?? ''),
+          () => selectSectorMacroNews(''),
+        );
+        // 환율 상관관계용 USD/KRW 1년 시계열 — 종목·다른 데이터와 무관하게 독립적으로 시작해
+        // 최대한 일찍부터 겹치게 한다(티커 무관 공유 캐시라 대부분 요청은 Supabase 캐시 히트).
+        // 2026-08-11: 예전엔 Claude 호출과 함께 await했지만, 스트리밍 전환으로 Stage0
+        // 페이로드에 fxCorrelation을 포함시키려면 Claude 스트림 시작 전에 resolve돼야
+        // 한다 — 아래에서 peerChartsPromise와 함께 끌어올려 await한다.
+        const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
+
+        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult] = await Promise.allSettled([
+          fetchStockPrice(ticker),
+          analysisDataPromise,
+          selectRelevantNews(ticker, name, dbNewsExtraPromise),
+          // '1M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
+          // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
+          fetchDailyChart(ticker, '1Y'),
+          fetchSectorPeers(ticker),
+          fetchAnnualFinancials(ticker),
+          fetchRecentDisclosures(ticker),
+          fetchDividendSummary(ticker),
+          fetchDividendHistory(ticker),
+          sectorMacroPromise,
+        ]);
+
+        console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
+          price:    priceResult.status,
+          analysis: analysisResult.status,
+          news:     newsSelectionResult.status,
+          chart:    chartResult.status,
+          sector:   sectorResult.status,
+          financials: financialsResult.status,
+          disclosures: disclosuresResult.status,
+          dividendSummary: dividendSummaryResult.status,
+          dividendHistory: dividendHistoryResult.status,
+          sectorMacro: sectorMacroResult.status,
+          priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
+          analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
+          newsErr:     newsSelectionResult.status === 'rejected' ? String(newsSelectionResult.reason): null,
+          chartErr:    chartResult.status    === 'rejected' ? String(chartResult.reason)    : null,
+          sectorErr:   sectorResult.status   === 'rejected' ? String(sectorResult.reason)   : null,
+          financialsErr: financialsResult.status === 'rejected' ? String(financialsResult.reason) : null,
+          disclosuresErr: disclosuresResult.status === 'rejected' ? String(disclosuresResult.reason) : null,
+          dividendSummaryErr: dividendSummaryResult.status === 'rejected' ? String(dividendSummaryResult.reason) : null,
+          dividendHistoryErr: dividendHistoryResult.status === 'rejected' ? String(dividendHistoryResult.reason) : null,
+        });
+
+        // ── 2단계: 결과 추출 ──────────────────────────────────────────────────────
+        const priceData    = priceResult.status    === 'fulfilled' ? priceResult.value    : null;
+        const analysisData = analysisResult.status === 'fulfilled' ? analysisResult.value : null;
+        const chartData    = chartResult.status    === 'fulfilled' ? chartResult.value    : [];
+        const sectorMacroNews = sectorMacroResult.status === 'fulfilled' ? sectorMacroResult.value.items : [];
+        const sectorNameForMacro = analysisData?.sector || priceData?.sector || '';
+        const sectorPeers   = sectorResult.status     === 'fulfilled' ? sectorResult.value     : [];
+
+        // 거래일 상태 — 별도 KIS 재조회 없이 위에서 이미 받은 차트의 마지막 행 날짜를 재사용
+        // 해 휴장일(주말/공휴일)을 판정한다(lib/market-day-context.ts 참고).
+        const marketDayContext = getDomesticMarketDayContext(chartData);
+        if (!marketDayContext.isTradingDay) {
+          console.log(`[DIAGNOSIS] ${ticker} 휴장일 감지(${marketDayContext.reason}) — 마지막 거래일 ${marketDayContext.lastTradingDate} 기준으로 서술 지시`);
         }
-      } catch (e) {
-        console.error('[DIAGNOSIS] 벤치마크 비교 실패:', e);
-      }
-    }
+        const annualFinancials: AnnualFinancialRow[] = financialsResult.status === 'fulfilled' ? financialsResult.value : [];
+        const disclosures: DartDisclosure[] = disclosuresResult.status === 'fulfilled' ? disclosuresResult.value : [];
+        const dividendSummary: DartDividendSummary | null = dividendSummaryResult.status === 'fulfilled' ? dividendSummaryResult.value : null;
+        const dividendHistory: DividendHistoryRow[] = dividendHistoryResult.status === 'fulfilled' ? dividendHistoryResult.value : [];
 
-    // ── flowType/flowPercentage: 실제 KIS 수급 데이터로 서버가 직접 계산(AI 응답에
-    // 의존하지 않음) — 히스토리 비교 블록과 프롬프트에도 필요해 Claude 호출 이전으로
-    // 끌어올렸다(기존에는 응답 파싱 후 계산했음). net(외국인+기관 순매수, 억원)을
-    // 절대금액으로 캡핑하면 대형주는 항상 상한(95%)에 붙어 변별력이 없으므로, 최근
-    // 20거래일 평균 거래대금 대비 비율로 정규화한다. 문턱을 넘겨도 값이 클수록 95%에
-    // 더 가까워지도록 tanh로 부드럽게 포화시킨다.
-    let flowType: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
-    let flowPercentage = 50;
+        const currentPrice = (priceData?.price && priceData.price > 0)
+          ? priceData.price
+          : (analysisData?.currentPrice && analysisData.currentPrice > 0)
+            ? analysisData.currentPrice
+            : Number(avgPrice);
 
-    if (analysisData?.investorLatest) {
-      const { foreign, institution } = analysisData.investorLatest;
-      const net = foreign.amount + institution.amount; // 억원
-      if (Math.abs(net) > 10) {
-        flowType = net > 0 ? 'BUY' : 'SELL';
+        const stockName = (priceData?.name && priceData.name !== ticker)
+          ? priceData.name
+          : (analysisData?.stockName || String(name));
 
-        const recentDays = chartData.slice(-20).filter(d => d.volume > 0 && d.close > 0);
-        const avgTradingValue = recentDays.length > 0
-          ? recentDays.reduce((sum, d) => sum + d.volume * d.close, 0) / recentDays.length // 원
+        console.log('[DIAGNOSIS] 3. 가격·종목명', { currentPrice, stockName });
+
+        // ── 3단계: 프롬프트 블록 조립 ─────────────────────────────────────────────
+        let technicalBlock = '데이터 없음';
+        let investorBlock  = '데이터 없음';
+        let newsBlockStr   = '관련 뉴스 없음';
+        let sectorNewsBlockStr = '업종 관련 매크로 뉴스 없음';
+
+        try {
+          if (analysisData) technicalBlock = buildTechnicalBlock(analysisData);
+        } catch (e) { console.error('[DIAGNOSIS] buildTechnicalBlock 실패:', e); }
+
+        try {
+          if (analysisData) investorBlock = buildInvestorBlock(analysisData);
+        } catch (e) { console.error('[DIAGNOSIS] buildInvestorBlock 실패:', e); }
+
+        // 종목명+종목코드 병행 검색 + Haiku 1차 선별 결과(최대 5건, 이미 관련성 검증됨)
+        const relevantNews = newsSelectionResult.status === 'fulfilled' ? newsSelectionResult.value.items : [];
+        const hasRelevantNews = relevantNews.length > 0;
+
+        try {
+          newsBlockStr = buildNewsBlock(relevantNews);
+        } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock 실패:', e); }
+
+        try {
+          sectorNewsBlockStr = buildNewsBlock(sectorMacroNews);
+        } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock(업종) 실패:', e); }
+
+        // date는 "모멘텀 타임라인"(뉴스+공시를 시간순으로 합쳐 보여주는 카드)에서 정렬 기준으로
+        // 쓴다 — relevantNews에 이미 있던 값을 그대로 실어보내는 것뿐, 신규 조회 없음.
+        const combinedNews = relevantNews.map(n => ({
+          title:       n.title,
+          description: n.summary ?? '',
+          url:         n.url ?? '',
+          date:        n.date ?? '',
+        }));
+
+        // 뉴스 이슈 클러스터링(newsIssueClusters)용 인덱스 목록 — buildNewsBlock은 프롬프트
+        // 본문(관련 뉴스 섹션)에 최대 3건만 넣지만, 클러스터링은 combinedNews(최대 5건, UI에
+        // 그대로 노출되는 배열)와 인덱스가 정확히 일치해야 하므로 별도로 전체를 나열한다.
+        // 신규 조회 없음 — 이미 갖고 있는 relevantNews를 다른 포맷으로 다시 나열할 뿐.
+        const newsClusterListBlock = hasRelevantNews
+          ? relevantNews.map((n, i) => `${i}: [${n.date ?? '날짜 미상'}] ${n.title}`).join('\n')
+          : '해당 없음';
+
+        const changeRate = (priceData && typeof priceData.changeRate === 'number') ? priceData.changeRate : 0;
+        const isBigMove   = Math.abs(changeRate) >= 5;
+
+        // 2026-07-27: 휴장일이면 뉴스를 "오늘 이 뉴스로 움직였다"는 실시간 반응으로 서술하지
+        // 못하게 별도 문구를 덧붙인다(app/api/stock/[ticker]/analysis의 NON_TRADING_DAY_NEWS_
+        // FRAMING과 같은 취지 — 이 라우트는 뉴스 지침이 시스템 블록이 아니라 프롬프트 본문에
+        // 인라인으로 들어가는 구조라 여기서 직접 이어붙인다).
+        const marketDayNewsNote = marketDayContext.isTradingDay
+          ? ''
+          : ' 단, 오늘은 휴장일이므로 이 뉴스를 "오늘 이 뉴스로 주가가 움직였다"는 실시간 반응으로 서술하지 말고 "다음 거래일 개장 시 참고할 만한 소식"으로 다루세요.';
+
+        const hasSectorMacroNews = sectorMacroNews.length > 0;
+        const newsInstruction = (hasRelevantNews
+          ? '위 뉴스는 이 종목과 관련도가 높다고 판단되어 매칭된 실제 기사입니다. mainAnalysis를 작성할 때 반드시 이 뉴스를 근거로 최근 주가 변동 원인을 설명하고, 뉴스에 없는 내용을 지어내지 마세요.'
+          : hasSectorMacroNews
+            ? '이 종목과 직접 관련된 뉴스는 매칭되지 않았지만, 아래 [업종/시장 배경]에 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스가 있습니다. mainAnalysis를 작성할 때 "이 종목만의 뉴스는 없지만 업종 전체가 영향을 받고 있다"는 취지를 밝히고, 그 배경을 근거로 오늘 움직임을 서술하세요 — 이 종목 개별 뉴스가 있는 것처럼 단정하지 마세요.'
+            : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.')
+          + marketDayNewsNote;
+
+        const profitRate   = currentPrice > 0 && avgPrice > 0
+          ? ((currentPrice - avgPrice) / avgPrice * 100)
           : 0;
+        const profitAmount = (currentPrice - avgPrice) * quantity;
+        const holdDays = buyDate
+          ? Math.floor((Date.now() - new Date(buyDate).getTime()) / (1000 * 60 * 60 * 24))
+          : null;
 
-        if (avgTradingValue > 0) {
-          const netWon    = net * 1e8;                      // 억원 → 원
-          const ratio     = Math.abs(netWon) / avgTradingValue; // 거래대금 대비 순매수 비율 (크기만)
-          const intensity = Math.tanh(ratio * 10);          // 0~1 범위로 부드럽게 포화
-          flowPercentage  = Math.round(25 + intensity * 70); // 25~95 (percent는 방향과 무관한 강도, 방향은 flowType이 담당)
-        } else {
-          // 거래대금 데이터를 못 가져온 경우 기존 절대금액 캡 방식으로 폴백
-          flowPercentage = Math.round(Math.min(Math.abs(net) / 1000 * 70 + 25, 95));
+        // ── 벤치마크 비교: 매수일이 있을 때만 계산 (판단 없이 사실 비교 수치만) ──────
+        const market = priceData?.market ?? 'KOSPI';
+        let benchmark: {
+          indexName: 'KOSPI' | 'KOSDAQ'; indexChangeRate: number;
+          stockProfitRate: number; fromDate: string; toDate: string;
+        } | null = null;
+
+        if (buyDate) {
+          try {
+            const indexCode = market === 'KOSDAQ' ? '1001' : '0001';
+            const idx = await fetchIndexRangeChange(indexCode, new Date(buyDate), new Date());
+            if (idx) {
+              benchmark = {
+                indexName:       market,
+                indexChangeRate: parseFloat(idx.changeRate.toFixed(2)),
+                stockProfitRate: parseFloat(profitRate.toFixed(2)),
+                fromDate:        idx.startDate,
+                toDate:          idx.endDate,
+              };
+            }
+          } catch (e) {
+            console.error('[DIAGNOSIS] 벤치마크 비교 실패:', e);
+          }
         }
-      }
-    }
 
-    // ── 그룹 1: 내부 계산 지표 (종목 리포트와 동일 함수 재사용, 2026-07-13) ─────────
-    const surgeHistory         = chartData.length ? computeSurgeHistory(chartData) : null;
-    const tradingValueMultiple = chartData.length ? computeTradingValueMultiple(chartData) : null;
-    const riskMetrics          = chartData.length ? computeRiskMetrics(chartData.map((d) => d.close)) : null;
-    const surgeHistoryBlock    = buildSurgeHistoryBlock(surgeHistory);
-    const tradingValueBlock    = buildTradingValueBlock(tradingValueMultiple);
-    const riskMetricsBlock     = buildRiskMetricsBlock(riskMetrics);
+        // ── flowType/flowPercentage: 실제 KIS 수급 데이터로 서버가 직접 계산(AI 응답에
+        // 의존하지 않음) — 히스토리 비교 블록과 프롬프트에도 필요해 Claude 호출 이전으로
+        // 끌어올렸다(기존에는 응답 파싱 후 계산했음). net(외국인+기관 순매수, 억원)을
+        // 절대금액으로 캡핑하면 대형주는 항상 상한(95%)에 붙어 변별력이 없으므로, 최근
+        // 20거래일 평균 거래대금 대비 비율로 정규화한다. 문턱을 넘겨도 값이 클수록 95%에
+        // 더 가까워지도록 tanh로 부드럽게 포화시킨다. 2026-08-11: 이 값은 Claude 응답과
+        // 무관하게 항상 서버가 확정하므로 AI 출력 스키마에서도 flowPercentage를 제거했다
+        // (lib/streaming-json-fields.ts의 DIAGNOSIS_FIELD_SPECS 주석 참고 — 숫자 리터럴은
+        // 파서가 처리 못해 그 이후 필드가 전부 증분 스트리밍에서 멈추는 문제가 있었음).
+        let flowType: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+        let flowPercentage = 50;
 
-    // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
-    // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —
-    // sectorNameForMacro(KIS bstp_kor_isnm, 이미 위에서 계산됨)와 sectorPeers(이미 fetch됨)를
-    // 그대로 재사용하므로 신규 조회 없음. peer 등락률이 장 시작 전 등의 이유로 0%여도
-    // sectorName·peerNames는 그 값과 무관하게 항상 함께 채워진다.
-    const rawSectorComparison = computeSectorRelativeChange(changeRate, sectorPeers);
-    const sectorComparisonBase = rawSectorComparison
-      ? { ...rawSectorComparison, sectorName: sectorNameForMacro || undefined, peerNames: sectorPeers.map((p) => p.name) }
-      : null;
-    const sectorBlock = sectorComparisonBase
-      ? `- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 등락률 ${changeRate >= 0 ? '+' : ''}${changeRate}% vs 동종업계 peer 평균 등락률 ${sectorComparisonBase.peerAvgChangeRate >= 0 ? '+' : ''}${sectorComparisonBase.peerAvgChangeRate}% (${sectorComparisonBase.deltaVsPeer >= 0 ? '+' : ''}${sectorComparisonBase.deltaVsPeer}%p 차이)`
-      : '동종업계 비교 데이터 없음';
+        if (analysisData?.investorLatest) {
+          const { foreign, institution } = analysisData.investorLatest;
+          const net = foreign.amount + institution.amount; // 억원
+          if (Math.abs(net) > 10) {
+            flowType = net > 0 ? 'BUY' : 'SELL';
 
-    // 국내 peer 스파크라인(최근 1개월 상대수익률)용 종가 조회 — sectorPeers는 이미 위에서
-    // resolve됐으므로 여기서 병렬로 미리 시작해두고, 아래 Claude 호출과 Promise.all로 함께
-    // await한다. peer 6개 병렬 조회는 실측 ~70ms인 반면 Claude 호출은 수 초가 걸려 완전히
-    // 가려지므로 체감 지연시간 증가가 없다.
-    const peerChartsPromise = Promise.allSettled(
-      sectorPeers.map((p) => fetchDailyChart(p.ticker, '1M')),
-    );
+            const recentDays = chartData.slice(-20).filter(d => d.volume > 0 && d.close > 0);
+            const avgTradingValue = recentDays.length > 0
+              ? recentDays.reduce((sum, d) => sum + d.volume * d.close, 0) / recentDays.length // 원
+              : 0;
 
-    // ── 그룹 3-1: 실적 추이 (최근 3개년 확정 연간, 잠정치 아님) ──────────────────────
-    const financialsBlock = annualFinancials.length
-      ? annualFinancials.map((r) => {
-          const parts: string[] = [];
-          if (r.revenue !== null)         parts.push(`매출액 ${r.revenue.toLocaleString()}억원`);
-          if (r.operatingProfit !== null) parts.push(`영업이익 ${r.operatingProfit.toLocaleString()}억원`);
-          if (r.netIncome !== null)       parts.push(`순이익 ${r.netIncome.toLocaleString()}억원`);
-          if (r.roe !== null)             parts.push(`ROE ${r.roe}%`);
-          return `- ${r.year}년: ${parts.join(', ') || '데이터 없음'}`;
-        }).join('\n')
-      : '실적 데이터 없음';
+            if (avgTradingValue > 0) {
+              const netWon    = net * 1e8;                      // 억원 → 원
+              const ratio     = Math.abs(netWon) / avgTradingValue; // 거래대금 대비 순매수 비율 (크기만)
+              const intensity = Math.tanh(ratio * 10);          // 0~1 범위로 부드럽게 포화
+              flowPercentage  = Math.round(25 + intensity * 70); // 25~95 (percent는 방향과 무관한 강도, 방향은 flowType이 담당)
+            } else {
+              // 거래대금 데이터를 못 가져온 경우 기존 절대금액 캡 방식으로 폴백
+              flowPercentage = Math.round(Math.min(Math.abs(net) / 1000 * 70 + 25, 95));
+            }
+          }
+        }
 
-    // ── DART 주요 공시 (최근 14일, 임원 지분보고 등 관행적 공시는 이미 필터링됨) ─────
-    const disclosureBlock = disclosures.length
-      ? disclosures.map((d) => `- [${d.date}] ${d.title} (제출: ${d.filer})`).join('\n')
-      : '최근 14일 내 주요 공시 없음';
+        // ── 그룹 1: 내부 계산 지표 (종목 리포트와 동일 함수 재사용, 2026-07-13) ─────────
+        const surgeHistory         = chartData.length ? computeSurgeHistory(chartData) : null;
+        const tradingValueMultiple = chartData.length ? computeTradingValueMultiple(chartData) : null;
+        const riskMetrics          = chartData.length ? computeRiskMetrics(chartData.map((d) => d.close)) : null;
+        const surgeHistoryBlock    = buildSurgeHistoryBlock(surgeHistory);
+        const tradingValueBlock    = buildTradingValueBlock(tradingValueMultiple);
+        const riskMetricsBlock     = buildRiskMetricsBlock(riskMetrics);
 
-    // ── 직전 진단(오늘 이전 가장 최근 1건) 조회 — "직전 진단 대비" 계산용.
-    // 하루 여러 번 진단하는 것을 막지 않으므로(플랜 한도 내에서는 허용), 정확히
-    // "어제"만 보지 않고 report_date < 오늘 중 가장 최근 1건을 가져온다.
-    const todayStr = kstDateStr();
-    let prevRow: PrevDiagnosisRow | null = null;
-    try {
-      const { data } = await supabase
-        .from('stock_diagnosis')
-        .select('report_date, avg_price, quantity, result, created_at')
-        .eq('user_id', user.id)
-        .eq('ticker', ticker)
-        .lt('report_date', todayStr)
-        .order('report_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      prevRow = data as PrevDiagnosisRow | null;
-    } catch (e) {
-      console.warn('[DIAGNOSIS] 직전 진단 조회 실패, 비교 없이 진행:', e instanceof Error ? e.message : e);
-    }
-    const daysSinceLastReport = (prevRow && prevRow.report_date) ? daysBetween(todayStr, prevRow.report_date) : null;
-    // 보유정보(매입평균가/보유수량)가 직전 진단과 달라졌으면 평가손익 "금액" 비교는
-    // 의미가 없다(추가매수 등으로 자연히 달라짐) — 수익률(%) 기준 비교는 항상 유효하므로 유지.
-    const holdingsChanged = prevRow ? (prevRow.avg_price !== Number(avgPrice) || prevRow.quantity !== Number(quantity)) : false;
-    const historyComparisonBlock = buildDiagnosisHistoryBlock(
-      prevRow,
-      { profitRate, profitAmount, currentPrice, flowType, flowPercentage },
-      daysSinceLastReport,
-      holdingsChanged,
-    );
-    const gapTone =
-      daysSinceLastReport === null ? DIAG_FIRST_REPORT_TONE :
-      daysSinceLastReport === 1 ? DIAG_ONE_DAY_GAP_TONE :
-      daysSinceLastReport <= 6 ? DIAG_FEW_DAYS_GAP_TONE :
-      DIAG_LONG_GAP_TONE;
+        // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
+        // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —
+        // sectorNameForMacro(KIS bstp_kor_isnm, 이미 위에서 계산됨)와 sectorPeers(이미 fetch됨)를
+        // 그대로 재사용하므로 신규 조회 없음. peer 등락률이 장 시작 전 등의 이유로 0%여도
+        // sectorName·peerNames는 그 값과 무관하게 항상 함께 채워진다.
+        const rawSectorComparison = computeSectorRelativeChange(changeRate, sectorPeers);
+        const sectorComparisonBase = rawSectorComparison
+          ? { ...rawSectorComparison, sectorName: sectorNameForMacro || undefined, peerNames: sectorPeers.map((p) => p.name) }
+          : null;
+        const sectorBlock = sectorComparisonBase
+          ? `- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 등락률 ${changeRate >= 0 ? '+' : ''}${changeRate}% vs 동종업계 peer 평균 등락률 ${sectorComparisonBase.peerAvgChangeRate >= 0 ? '+' : ''}${sectorComparisonBase.peerAvgChangeRate}% (${sectorComparisonBase.deltaVsPeer >= 0 ? '+' : ''}${sectorComparisonBase.deltaVsPeer}%p 차이)`
+          : '동종업계 비교 데이터 없음';
 
-    // ── 4단계: Claude 분석 ────────────────────────────────────────────────────
-    const resistance = analysisData?.week52High ?? 0;
-    const support     = analysisData?.week52Low  ?? 0;
-    const benchmarkLine = benchmark
-      ? `\n- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 수익률 ${benchmark.stockProfitRate >= 0 ? '+' : ''}${benchmark.stockProfitRate}% vs 같은 기간 ${benchmark.indexName} 등락률 ${benchmark.indexChangeRate >= 0 ? '+' : ''}${benchmark.indexChangeRate}% (${benchmark.fromDate}~${benchmark.toDate})`
-      : '';
+        // 국내 peer 스파크라인(최근 1개월 상대수익률)용 종가 조회 — sectorPeers는 이미 위에서
+        // resolve됐으므로 여기서 병렬로 미리 시작해둔다.
+        // 2026-08-11: 예전엔 아래 Claude 호출과 Promise.all로 함께 await했지만(체감 지연
+        // 없음 — peer 6개 병렬 조회 실측 ~70ms), 스트리밍 전환으로 Stage0 페이로드에
+        // sectorComparison.sparkline을 포함시키려면 Claude 스트림 시작 전에 resolve돼야
+        // 한다 — fxDailyPromise와 함께 아래에서 끌어올려 await한다.
+        const peerChartsPromise = Promise.allSettled(
+          sectorPeers.map((p) => fetchDailyChart(p.ticker, '1M')),
+        );
 
-    const prompt = `아래 실제 데이터를 기반으로 관찰된 사실 위주로 정리하여 반드시 JSON만 출력하세요.
+        // ── 그룹 3-1: 실적 추이 (최근 3개년 확정 연간, 잠정치 아님) ──────────────────────
+        const financialsBlock = annualFinancials.length
+          ? annualFinancials.map((r) => {
+              const parts: string[] = [];
+              if (r.revenue !== null)         parts.push(`매출액 ${r.revenue.toLocaleString()}억원`);
+              if (r.operatingProfit !== null) parts.push(`영업이익 ${r.operatingProfit.toLocaleString()}억원`);
+              if (r.netIncome !== null)       parts.push(`순이익 ${r.netIncome.toLocaleString()}억원`);
+              if (r.roe !== null)             parts.push(`ROE ${r.roe}%`);
+              return `- ${r.year}년: ${parts.join(', ') || '데이터 없음'}`;
+            }).join('\n')
+          : '실적 데이터 없음';
+
+        // ── DART 주요 공시 (최근 14일, 임원 지분보고 등 관행적 공시는 이미 필터링됨) ─────
+        const disclosureBlock = disclosures.length
+          ? disclosures.map((d) => `- [${d.date}] ${d.title} (제출: ${d.filer})`).join('\n')
+          : '최근 14일 내 주요 공시 없음';
+
+        // ── 직전 진단(오늘 이전 가장 최근 1건) 조회 — "직전 진단 대비" 계산용.
+        // 하루 여러 번 진단하는 것을 막지 않으므로(플랜 한도 내에서는 허용), 정확히
+        // "어제"만 보지 않고 report_date < 오늘 중 가장 최근 1건을 가져온다.
+        const todayStr = kstDateStr();
+        let prevRow: PrevDiagnosisRow | null = null;
+        try {
+          const { data } = await supabase
+            .from('stock_diagnosis')
+            .select('report_date, avg_price, quantity, result, created_at')
+            .eq('user_id', user.id)
+            .eq('ticker', ticker)
+            .lt('report_date', todayStr)
+            .order('report_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          prevRow = data as PrevDiagnosisRow | null;
+        } catch (e) {
+          console.warn('[DIAGNOSIS] 직전 진단 조회 실패, 비교 없이 진행:', e instanceof Error ? e.message : e);
+        }
+        const daysSinceLastReport = (prevRow && prevRow.report_date) ? daysBetween(todayStr, prevRow.report_date) : null;
+        // 보유정보(매입평균가/보유수량)가 직전 진단과 달라졌으면 평가손익 "금액" 비교는
+        // 의미가 없다(추가매수 등으로 자연히 달라짐) — 수익률(%) 기준 비교는 항상 유효하므로 유지.
+        const holdingsChanged = prevRow ? (prevRow.avg_price !== Number(avgPrice) || prevRow.quantity !== Number(quantity)) : false;
+        const historyComparisonBlock = buildDiagnosisHistoryBlock(
+          prevRow,
+          { profitRate, profitAmount, currentPrice, flowType, flowPercentage },
+          daysSinceLastReport,
+          holdingsChanged,
+        );
+        const gapTone =
+          daysSinceLastReport === null ? DIAG_FIRST_REPORT_TONE :
+          daysSinceLastReport === 1 ? DIAG_ONE_DAY_GAP_TONE :
+          daysSinceLastReport <= 6 ? DIAG_FEW_DAYS_GAP_TONE :
+          DIAG_LONG_GAP_TONE;
+
+        // 히스토리 비교 수치는 AI 응답과 무관하게 서버가 이미 갖고 있으므로, narrative만
+        // AI 의존 — Stage0에서는 빈 문자열로, Stage1에서 historyNarrative 필드로 채운다.
+        const buildHistory = (narrative: string) => (
+          prevRow && daysSinceLastReport !== null
+            ? {
+                daysSince:          daysSinceLastReport,
+                prevDate:           prevRow.report_date,
+                prevProfitRate:     typeof prevRow.result?.profitRate === 'number' ? prevRow.result.profitRate : null,
+                prevProfitAmount:   typeof prevRow.result?.profitAmount === 'number' ? prevRow.result.profitAmount : null,
+                prevCurrentPrice:   typeof prevRow.result?.currentPrice === 'number' ? prevRow.result.currentPrice : null,
+                prevFlowType:       prevRow.result?.flowType ?? null,
+                prevFlowPercentage: typeof prevRow.result?.flowPercentage === 'number' ? prevRow.result.flowPercentage : null,
+                holdingsChanged,
+                narrative,
+              }
+            : { daysSince: null, narrative }
+        );
+
+        // ── 4단계: Claude 분석 준비 ────────────────────────────────────────────────
+        const resistance = analysisData?.week52High ?? 0;
+        const support     = analysisData?.week52Low  ?? 0;
+        const benchmarkLine = benchmark
+          ? `\n- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 수익률 ${benchmark.stockProfitRate >= 0 ? '+' : ''}${benchmark.stockProfitRate}% vs 같은 기간 ${benchmark.indexName} 등락률 ${benchmark.indexChangeRate >= 0 ? '+' : ''}${benchmark.indexChangeRate}% (${benchmark.fromDate}~${benchmark.toDate})`
+          : '';
+
+        const prompt = `아래 실제 데이터를 기반으로 관찰된 사실 위주로 정리하여 반드시 JSON만 출력하세요.
 
 ## 기준 시각
 현재 시각: ${nowKstString()}
@@ -639,271 +680,367 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
-    console.log('[DIAGNOSIS] 4. Claude 분석 시작');
+        // ── 5단계: Stage0 — peerCharts/fxDaily를 Claude 스트림 시작 전으로 끌어올려
+        // await하고, 서버 계산값을 전부 하나의 이벤트로 선송신한다. 2026-08-11 스트리밍
+        // 전환의 핵심 — 기업분석에 이미 있던 배당/실적/공시/업종대비/수급강도/서지히스토리는
+        // 전부 AI 호출과 무관한 순수 계산값인데, 예전엔 Claude 응답을 기다려야만 함께
+        // 보였다. AI 필드는 전부 빈 값으로 미리 채워 DiagnosisResult 타입을 그대로
+        // 유지한다(components/diagnosis/DiagnosisReport.tsx가 옵셔널 체이닝을 늘릴 필요
+        // 없게) — app/diagnosis/page.tsx가 이 stage0 페이로드로 완전한 형태의 result를
+        // 만들고, 이후 field/field-partial 이벤트가 개별 키만 덮어쓴다.
+        console.log('[DIAGNOSIS] 4. peer 스파크라인/환율 상관관계 수집');
+        const [peerChartsSettled, fxDaily] = await Promise.all([peerChartsPromise, fxDailyPromise]);
 
-    // peerChartsPromise(peer 스파크라인 조회)를 Claude 호출과 함께 await — 아래 주석대로
-    // Claude 쪽이 수 초로 훨씬 오래 걸리므로 peer 조회 시간은 결과적으로 완전히 가려진다.
-    const [message, peerChartsSettled, fxDaily] = await Promise.all([
-      claude.messages.create({
-        model:      'claude-sonnet-4-6',
-        max_tokens: 3500,
-        system: [
-          { type: 'text', text: COMPLIANCE_PRINCIPLE },
-          { type: 'text', text: DIAGNOSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-          { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
-        ],
-        messages: [{ role: 'user', content: prompt }],
-        // 2026-07-23: SDK 기본값(timeout 10분, maxRetries 2)은 maxDuration(120s)보다 훨씬 커서,
-        // Claude가 느려지면 우리 catch가 실행되기 전에 Vercel이 함수를 강제종료해 사용자에게
-        // 에러 메시지 없이 연결만 끊길 위험이 있었다 — 명시적으로 짧게 걸어 우리 에러 핸들링이
-        // 항상 먼저 발동하도록 함. maxRetries는 0으로 낮춤(SDK 기본 재시도는 타임아웃도
-        // 재시도 대상이라 최악의 경우 timeout의 배수만큼 걸릴 수 있어, 예산 계산이 불가능해짐
-        // — 재시도 없이 1회 시도(실측 최악 36.6초 대비 2.5배 여유)로 실패하면 즉시 명확한
-        // 에러를 반환하는 편이 낫다).
-      }, { timeout: 90_000, maxRetries: 0 }),
-      peerChartsPromise,
-      fxDailyPromise,
-    ]);
-
-    // 국내 peer 스파크라인 계산 — peer 6개(각 1개월 종가)를 첫날 대비 누적%로 정규화한 뒤
-    // 평균 내고, 대상 종목은 이미 있는 chartData(1Y 조회)에서 마지막 ~21거래일만 잘라
-    // 같은 방식으로 정규화한다(신규 호출 없음). 유효 peer가 없거나 구간이 너무 짧으면
-    // null(카드에서 스파크라인만 생략, 나머지 업종 대비 카드는 그대로 표시).
-    const sectorSparkline = ((): { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null => {
-      if (!sectorComparisonBase) return null;
-      const validPeerCharts = peerChartsSettled
-        .map((r) => (r.status === 'fulfilled' ? r.value : []))
-        .filter((c) => c.length >= 2);
-      if (validPeerCharts.length === 0) return null;
-      const targetSlice = chartData.slice(-21);
-      if (targetSlice.length < 2) return null;
-      const n = Math.min(targetSlice.length, ...validPeerCharts.map((c) => c.length));
-      if (n < 2) return null;
-      const targetWindow = targetSlice.slice(-n);
-      const peerWindows  = validPeerCharts.map((c) => c.slice(-n));
-      const stockBase = targetWindow[0].close;
-      const stockReturns = targetWindow.map((d) => parseFloat((((d.close - stockBase) / stockBase) * 100).toFixed(2)));
-      const peerAvgReturns: number[] = [];
-      for (let i = 0; i < n; i++) {
-        const rates = peerWindows.map((w) => ((w[i].close - w[0].close) / w[0].close) * 100);
-        peerAvgReturns.push(parseFloat((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(2)));
-      }
-      return { dates: targetWindow.map((d) => d.date), stockReturns, peerAvgReturns };
-    })();
-
-    const sectorComparison = sectorComparisonBase
-      ? { ...sectorComparisonBase, sparkline: sectorSparkline }
-      : null;
-
-    // 환율 상관관계 — 종목 1년 일별 종가(chartData, 이미 있음) vs 환율 1년 일별 종가(fxDaily,
-    // 위에서 Claude 호출과 함께 받음)의 피어슨 상관계수. |r| < 0.3(약한 상관)이거나 표본이
-    // 부족하면 null로 취급해 카드 자체를 생략한다 — 다른 카드들(sectorComparison 등)과
-    // 동일하게 "근거 부족하면 생략" 관례.
-    const rawFxCorrelation = computeFxCorrelation(chartData, fxDaily);
-    const fxCorrelation = isFxCorrelationMeaningful(rawFxCorrelation) ? rawFxCorrelation : null;
-
-    console.log('[DIAGNOSIS] 5. Claude 응답 수신');
-    console.log('[TOKEN_USAGE]', {
-      route: 'diagnosis', ticker, hasRelevantNews, hasSectorMacroNews, disclosureCount: disclosures.length,
-      input_tokens: message.usage.input_tokens,
-      output_tokens: message.usage.output_tokens,
-      cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
-      cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
-    });
-
-    const rawText = message.content[0].type === 'text' ? message.content[0].text : '';
-    // 마크다운 코드펜스 제거 후 JSON 추출
-    const cleaned   = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-
-    // 히스토리 비교 수치는 AI 응답과 무관하게 서버가 이미 갖고 있으므로, JSON 파싱
-    // 실패(fallback) 경로에서도 정상적으로 채운다 — narrative만 AI 의존.
-    const buildHistory = (narrative: string) => (
-      prevRow && daysSinceLastReport !== null
-        ? {
-            daysSince:          daysSinceLastReport,
-            prevDate:           prevRow.report_date,
-            prevProfitRate:     typeof prevRow.result?.profitRate === 'number' ? prevRow.result.profitRate : null,
-            prevProfitAmount:   typeof prevRow.result?.profitAmount === 'number' ? prevRow.result.profitAmount : null,
-            prevCurrentPrice:   typeof prevRow.result?.currentPrice === 'number' ? prevRow.result.currentPrice : null,
-            prevFlowType:       prevRow.result?.flowType ?? null,
-            prevFlowPercentage: typeof prevRow.result?.flowPercentage === 'number' ? prevRow.result.flowPercentage : null,
-            holdingsChanged,
-            narrative,
+        // 국내 peer 스파크라인 계산 — peer 6개(각 1개월 종가)를 첫날 대비 누적%로 정규화한 뒤
+        // 평균 내고, 대상 종목은 이미 있는 chartData(1Y 조회)에서 마지막 ~21거래일만 잘라
+        // 같은 방식으로 정규화한다(신규 호출 없음). 유효 peer가 없거나 구간이 너무 짧으면
+        // null(카드에서 스파크라인만 생략, 나머지 업종 대비 카드는 그대로 표시).
+        const sectorSparkline = ((): { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null => {
+          if (!sectorComparisonBase) return null;
+          const validPeerCharts = peerChartsSettled
+            .map((r) => (r.status === 'fulfilled' ? r.value : []))
+            .filter((c) => c.length >= 2);
+          if (validPeerCharts.length === 0) return null;
+          const targetSlice = chartData.slice(-21);
+          if (targetSlice.length < 2) return null;
+          const n = Math.min(targetSlice.length, ...validPeerCharts.map((c) => c.length));
+          if (n < 2) return null;
+          const targetWindow = targetSlice.slice(-n);
+          const peerWindows  = validPeerCharts.map((c) => c.slice(-n));
+          const stockBase = targetWindow[0].close;
+          const stockReturns = targetWindow.map((d) => parseFloat((((d.close - stockBase) / stockBase) * 100).toFixed(2)));
+          const peerAvgReturns: number[] = [];
+          for (let i = 0; i < n; i++) {
+            const rates = peerWindows.map((w) => ((w[i].close - w[0].close) / w[0].close) * 100);
+            peerAvgReturns.push(parseFloat((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(2)));
           }
-        : { daysSince: null, narrative }
-    );
+          return { dates: targetWindow.map((d) => d.date), stockReturns, peerAvgReturns };
+        })();
 
-    // fallback 결과 생성 헬퍼 (JSON 파싱 불가 시 최소한의 데이터라도 반환)
-    const buildFallback = (errReason: string) => ({
-      mainAnalysis:       rawText.slice(0, 600).trim() || 'AI 분석 결과를 가져오는 중 형식 오류가 발생했습니다.',
-      currentPrice:       Math.round(currentPrice),
-      avgPrice:           Math.round(Number(avgPrice)),
-      quantity:           Number(quantity),
-      profitRate:         parseFloat(profitRate.toFixed(2)),
-      profitAmount:       Math.round(profitAmount),
-      resistance:         Math.round(resistance),
-      support:            Math.round(support),
-      benchmark,
-      isCached:           analysisData?.isCached,
-      cachedAt:           analysisData?.cachedAt,
-      institutionalFlow:  '응답 형식 오류로 분석 불가',
-      foreignFlow:        '응답 형식 오류로 분석 불가',
-      riskFactors:        ['응답 형식 오류로 리스크 요인 제공 불가'],
-      flowType,
-      flowPercentage,
-      news:               combinedNews,
-      newsBasis:          (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
-      newsIssueClusters:  [] as { label: string; articleIndexes: number[] }[],
-      history:            buildHistory(`AI 응답 형식 오류(${errReason})로 히스토리 해석을 가져오지 못했습니다.`),
-      sectorComparison,   // 서버 계산값 — AI 응답과 무관하게 항상 채움
-      sectorNarrative:    '',
-      fxCorrelation,      // 서버 계산값 — AI 응답과 무관하게 항상 채움 (|r|<0.3이면 null)
-      annualFinancials,   // 서버 계산값 — AI 응답과 무관하게 항상 채움
-      financialsNarrative: '',
-      disclosures,        // 서버 계산값 — AI 응답과 무관하게 항상 채움
-      disclosureNarrative: '',
-      dividendSummary,    // 서버 계산값 — AI 응답과 무관하게 항상 채움
-      dividendHistory,    // 서버 계산값 — AI 응답과 무관하게 항상 채움
-    });
+        const sectorComparison = sectorComparisonBase
+          ? { ...sectorComparisonBase, sparkline: sectorSparkline }
+          : null;
 
-    if (!jsonMatch) {
-      console.error('[DIAGNOSIS] JSON 없음, 원문 앞 300자:', rawText.slice(0, 300));
-      return NextResponse.json(buildFallback('JSON 없음'));
-    }
+        // 환율 상관관계 — 종목 1년 일별 종가(chartData, 이미 있음) vs 환율 1년 일별 종가(fxDaily,
+        // 위에서 함께 받음)의 피어슨 상관계수. |r| < 0.3(약한 상관)이거나 표본이 부족하면
+        // null로 취급해 카드 자체를 생략한다 — 다른 카드들(sectorComparison 등)과 동일하게
+        // "근거 부족하면 생략" 관례.
+        const rawFxCorrelation = computeFxCorrelation(chartData, fxDaily);
+        const fxCorrelation = isFxCorrelationMeaningful(rawFxCorrelation) ? rawFxCorrelation : null;
 
-    let result: Record<string, unknown>;
-    try {
-      result = JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      console.error('[DIAGNOSIS] JSON.parse 실패:', e, jsonMatch[0].slice(0, 300));
-      return NextResponse.json(buildFallback('JSON 파싱 실패'));
-    }
+        send(controller, {
+          type: 'stage0',
+          // 서버 계산 수치 — Claude 응답과 무관
+          currentPrice:  Math.round(currentPrice),
+          avgPrice:      Math.round(Number(avgPrice)),
+          quantity:      Number(quantity),
+          profitRate:    parseFloat(profitRate.toFixed(2)),
+          profitAmount:  Math.round(profitAmount),
+          news:          combinedNews,
+          newsBasis:     (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
+          flowType,
+          flowPercentage,
+          resistance:    Math.round(resistance),
+          support:       Math.round(support),
+          benchmark,
+          isCached:      analysisData?.isCached,
+          cachedAt:      analysisData?.cachedAt,
+          history:       buildHistory(''), // narrative는 Stage1의 historyNarrative 필드가 채움
+          sectorComparison,
+          fxCorrelation,
+          annualFinancials,
+          disclosures,
+          dividendSummary,
+          dividendHistory,
+          // AI 필드 — DiagnosisResult 타입을 그대로 만족시키기 위한 빈 값 초기 상태.
+          // finalVerdict/shortTermOutlook/midTermOutlook은 undefined로 둬 컴포넌트의
+          // 기존 `result.finalVerdict &&` 같은 조건문이 자동으로 "아직 없음"으로 처리하게
+          // 한다(사용자가 선택한 설계: finalVerdict는 도착 전까지 스켈레톤 없이 미노출).
+          mainAnalysis: '',
+          mainAnalysisSections: undefined,
+          riskFactors: [] as string[],
+          institutionalFlow: '',
+          foreignFlow: '',
+          sectorNarrative: '',
+          financialsNarrative: '',
+          disclosureNarrative: '',
+          newsIssueClusters: [] as { label: string; articleIndexes: number[] }[],
+          shortTermOutlook: undefined,
+          midTermOutlook: undefined,
+          finalVerdict: undefined,
+        });
 
-    // 배열 필드 방어적 정규화 (Claude가 string으로 반환할 경우 변환)
-    const toArr = (v: unknown): string[] => {
-      if (Array.isArray(v)) return (v as unknown[]).map(String).filter(Boolean);
-      if (typeof v === 'string' && v)
-        return v.split(/\n/).map(s => s.replace(/^[-·•\d]+[.)]\s*/, '').trim()).filter(Boolean);
-      return [];
-    };
+        // ── 6단계: Claude 스트리밍 분석 ────────────────────────────────────────────
+        send(controller, { type: 'progress', label: 'AI 분석 생성 중...' });
+        console.log('[DIAGNOSIS] 5. Claude 분석 시작');
 
-    const toStr = (v: unknown): string => typeof v === 'string' ? v : '';
+        const sentValues: Record<string, unknown> = {};
+        const emitIfChanged = (key: string, value: unknown) => {
+          if (JSON.stringify(sentValues[key]) === JSON.stringify(value)) return;
+          sentValues[key] = value;
+          send(controller, { type: 'field', key, value });
+        };
 
-    // newsIssueClusters 정규화 — combinedNews 인덱스 범위를 벗어나거나 형식이 어긋난
-    // 항목은 버린다. 모델이 일부 기사를 어느 클러스터에도 안 넣었을 수 있는데(전체
-    // 커버 강제는 안 시켰음), 남은 기사는 프론트가 "기타" 묶음으로 자동 처리한다.
-    const toNewsIssueClusters = (v: unknown): { label: string; articleIndexes: number[] }[] => {
-      if (!Array.isArray(v)) return [];
-      return v
-        .map((c) => {
-          if (!c || typeof c !== 'object') return null;
-          const label = typeof (c as Record<string, unknown>).label === 'string'
-            ? (c as Record<string, unknown>).label as string : '';
-          const rawIndexes = (c as Record<string, unknown>).articleIndexes;
-          const articleIndexes = Array.isArray(rawIndexes)
-            ? rawIndexes.filter((i): i is number => typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < combinedNews.length)
-            : [];
-          return label && articleIndexes.length > 0 ? { label, articleIndexes } : null;
-        })
-        .filter((c): c is { label: string; articleIndexes: number[] } => c !== null);
-    };
+        // fallback 필드 방출 헬퍼 — 기존 buildFallback()과 동일한 값들을 emitIfChanged로
+        // 흘려보낸다. Stage0에서 이미 보낸 서버 계산 필드(currentPrice/dividendSummary/
+        // annualFinancials/disclosures/sectorComparison/fxCorrelation 등)는 다시 보낼
+        // 필요 없음 — AI 전용 필드만 오류 상태로 채운다.
+        const rawTextRef = { current: '' };
+        const emitFallbackFields = (errReason: string) => {
+          emitIfChanged('mainAnalysis', rawTextRef.current.slice(0, 600).trim() || 'AI 분석 결과를 가져오는 중 형식 오류가 발생했습니다.');
+          emitIfChanged('institutionalFlow', '응답 형식 오류로 분석 불가');
+          emitIfChanged('foreignFlow', '응답 형식 오류로 분석 불가');
+          emitIfChanged('riskFactors', ['응답 형식 오류로 리스크 요인 제공 불가']);
+          emitIfChanged('newsIssueClusters', []);
+          emitIfChanged('historyNarrative', `AI 응답 형식 오류(${errReason})로 히스토리 해석을 가져오지 못했습니다.`);
+          emitIfChanged('sectorNarrative', '');
+          emitIfChanged('financialsNarrative', '');
+          emitIfChanged('disclosureNarrative', '');
+        };
 
-    // mainAnalysisSections(background/flowSummary/valuationNote/watchPoint) 정규화.
-    // 과거 mainAnalysis(단일 문자열) 소비처(공유페이지 DiagnosisView, ShareDropdown의
-    // description 슬라이스)를 계속 지원하기 위해, AI에게 flat 문자열을 별도로 다시
-    // 쓰게 하지 않고(토큰 절약) 서버가 4개 조각을 이어붙여 mainAnalysis를 채운다.
-    const rawSections = result.mainAnalysisSections;
-    const mainAnalysisSections = (rawSections && typeof rawSections === 'object')
-      ? {
-          background:    toStr((rawSections as Record<string, unknown>).background),
-          flowSummary:   toStr((rawSections as Record<string, unknown>).flowSummary),
-          valuationNote: toStr((rawSections as Record<string, unknown>).valuationNote),
-          watchPoint:    toStr((rawSections as Record<string, unknown>).watchPoint),
+        let result: Record<string, unknown> | null = null;
+        try {
+          const parser = new StreamingFieldParser(DIAGNOSIS_FIELD_SPECS);
+          let fullText = '';
+          const lastPartialEmitAt: Record<string, number> = {};
+          const PARTIAL_THROTTLE_MS = 80; // 종목분석/포트폴리오진단 스트리밍에서 검증된 값
+
+          const claudeStream = claude.messages.stream({
+            model:      'claude-sonnet-4-6',
+            max_tokens: 3500,
+            system: [
+              { type: 'text', text: COMPLIANCE_PRINCIPLE },
+              { type: 'text', text: DIAGNOSIS_OUTPUT_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+              { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
+            ],
+            messages: [{ role: 'user', content: prompt }],
+            // 2026-07-23: SDK 기본값(timeout 10분, maxRetries 2)은 maxDuration(120s)보다 훨씬 커서,
+            // Claude가 느려지면 우리 catch가 실행되기 전에 Vercel이 함수를 강제종료해 사용자에게
+            // 에러 메시지 없이 연결만 끊길 위험이 있었다 — 명시적으로 짧게 걸어 우리 에러 핸들링이
+            // 항상 먼저 발동하도록 함. maxRetries는 0으로 낮춤(SDK 기본 재시도는 타임아웃도
+            // 재시도 대상이라 최악의 경우 timeout의 배수만큼 걸릴 수 있어, 예산 계산이 불가능해짐
+            // — 재시도 없이 1회 시도(실측 최악 36.6초 대비 2.5배 여유)로 실패하면 즉시 명확한
+            // 에러를 반환하는 편이 낫다).
+          }, { timeout: 90_000, maxRetries: 0 });
+
+          claudeStream.on('text', (delta) => {
+            fullText += delta;
+            rawTextRef.current = fullText;
+            const { fields, partial } = parser.feedWithPartial(delta);
+            for (const f of fields) emitIfChanged(f.key, f.value);
+            if (partial) {
+              const now = Date.now();
+              const last = lastPartialEmitAt[partial.key] ?? 0;
+              if (now - last >= PARTIAL_THROTTLE_MS) {
+                lastPartialEmitAt[partial.key] = now;
+                send(controller, { type: 'field-partial', key: partial.key, value: partial.value });
+              }
+            }
+          });
+
+          const message = await claudeStream.finalMessage();
+          console.log('[DIAGNOSIS] 6. Claude 응답 수신');
+          console.log('[TOKEN_USAGE]', {
+            route: 'diagnosis', ticker, hasRelevantNews, hasSectorMacroNews, disclosureCount: disclosures.length,
+            input_tokens: message.usage.input_tokens,
+            output_tokens: message.usage.output_tokens,
+            cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
+            cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
+          });
+
+          const rawText = fullText;
+          // 마크다운 코드펜스 제거 후 JSON 추출
+          const cleaned   = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+          const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+
+          if (!jsonMatch) {
+            console.error('[DIAGNOSIS] JSON 없음, 원문 앞 300자:', rawText.slice(0, 300));
+            emitFallbackFields('JSON 없음');
+            send(controller, { type: 'stage1-error' });
+            send(controller, { type: 'done' });
+            return;
+          }
+
+          try {
+            result = JSON.parse(jsonMatch[0]);
+          } catch (e) {
+            console.error('[DIAGNOSIS] JSON.parse 실패:', e, jsonMatch[0].slice(0, 300));
+            emitFallbackFields('JSON 파싱 실패');
+            send(controller, { type: 'stage1-error' });
+            send(controller, { type: 'done' });
+            return;
+          }
+        } catch (aiErr) {
+          // Claude 호출 자체가 실패(네트워크/타임아웃 등) — Stage0 데이터는 이미 화면에
+          // 있으므로 전체를 에러로 무너뜨리지 않고, AI 섹션만 실패로 표시한다.
+          console.error('[DIAGNOSIS] Claude 호출 실패:', aiErr);
+          emitFallbackFields('AI 호출 실패');
+          send(controller, { type: 'stage1-error' });
+          send(controller, { type: 'done' });
+          return;
         }
-      : null;
-    const mainAnalysis = mainAnalysisSections
-      ? [mainAnalysisSections.background, mainAnalysisSections.flowSummary, mainAnalysisSections.valuationNote, mainAnalysisSections.watchPoint]
-          .filter(Boolean).join(' ')
-      : toStr(result.mainAnalysis); // 구 스키마 응답 대비 폴백
 
-    const historyNarrative = typeof result.historyNarrative === 'string' && result.historyNarrative
-      ? result.historyNarrative
-      : (daysSinceLastReport === null ? '이 종목의 첫 기업분석입니다.' : '');
+        // ── 7단계: 결과 정규화 + 최종 조립 ────────────────────────────────────────
+        // 배열 필드 방어적 정규화 (Claude가 string으로 반환할 경우 변환)
+        const toArr = (v: unknown): string[] => {
+          if (Array.isArray(v)) return (v as unknown[]).map(String).filter(Boolean);
+          if (typeof v === 'string' && v)
+            return v.split(/\n/).map(s => s.replace(/^[-·•\d]+[.)]\s*/, '').trim()).filter(Boolean);
+          return [];
+        };
 
-    const finalResult = {
-      // 서버 계산 수치 (Claude 응답 무시)
-      currentPrice:  Math.round(currentPrice),
-      avgPrice:      Math.round(Number(avgPrice)),
-      quantity:      Number(quantity),
-      profitRate:    parseFloat(profitRate.toFixed(2)),
-      profitAmount:  Math.round(profitAmount),
-      news:          combinedNews,
-      newsBasis:     (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
-      newsIssueClusters: hasRelevantNews ? toNewsIssueClusters(result.newsIssueClusters) : [],
-      flowType,
-      flowPercentage,
-      resistance:    Math.round(resistance), // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
-      support:       Math.round(support),    // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
-      benchmark,     // 서버 계산 — KOSPI/KOSDAQ 등락률 비교 (매수일 있을 때만)
-      isCached:      analysisData?.isCached, // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
-      cachedAt:      analysisData?.cachedAt,
-      history:       buildHistory(historyNarrative), // 서버 계산 델타 + AI 해석 (직전 진단 대비)
-      sectorComparison,   // 서버 계산 — peer 평균 등락률과의 차이 (동종업계 없으면 null)
-      fxCorrelation,      // 서버 계산 — 최근 1년 원/달러 환율과의 피어슨 상관계수 (|r|<0.3이거나 표본 부족이면 null)
-      annualFinancials,   // 서버 계산 — 최근 3개년 확정 연간 실적 (없으면 빈 배열)
-      disclosures,        // 서버 계산 — DART 최근 14일 주요 공시 (없으면 빈 배열, UI는 있을 때만 강조 카드)
-      dividendSummary,    // 서버 계산 — DART 최신 사업연도 배당 요약 (무배당이면 null)
-      dividendHistory,    // 서버 계산 — KIS 최근 5년 배당 지급 이력 (없으면 빈 배열)
-      // Claude 응답 필드 (정규화)
-      mainAnalysis:         mainAnalysis,             // 4개 섹션을 이어붙인 값(과거 소비처 호환) — 신 스키마 응답이면 항상 이 값
-      mainAnalysisSections: mainAnalysisSections ?? undefined, // 있으면 프론트가 소제목 렌더링, 없으면(과거 레코드/폴백) mainAnalysis 문자열로 폴백
-      riskFactors:        toArr(result.riskFactors),
-      institutionalFlow:  typeof result.institutionalFlow === 'string' ? result.institutionalFlow : '',
-      foreignFlow:        typeof result.foreignFlow       === 'string' ? result.foreignFlow       : '',
-      shortTermOutlook:   typeof result.shortTermOutlook  === 'string' ? result.shortTermOutlook  : undefined,
-      midTermOutlook:     typeof result.midTermOutlook    === 'string' ? result.midTermOutlook    : undefined,
-      finalVerdict:       typeof result.finalVerdict      === 'string' ? result.finalVerdict      : undefined,
-      sectorNarrative:     sectorComparison ? (typeof result.sectorNarrative === 'string' ? result.sectorNarrative : '') : '',
-      financialsNarrative: annualFinancials.length > 0 ? (typeof result.financialsNarrative === 'string' ? result.financialsNarrative : '') : '',
-      disclosureNarrative: disclosures.length > 0 ? (typeof result.disclosureNarrative === 'string' ? result.disclosureNarrative : '') : '',
-    };
+        const toStr = (v: unknown): string => typeof v === 'string' ? v : '';
 
-    // 시간적 사실관계 사후 검증 — 이 라우트는 실패 시 buildFallback으로 이미 복구 경로가
-    // 얽혀 있어 자동 재생성은 붙이지 않고(비용/복잡도 판단), 불일치만 로그로 남겨 모니터링한다.
-    const diagnosisReportText = [
-      finalResult.mainAnalysis, ...finalResult.riskFactors, finalResult.history.narrative,
-      finalResult.shortTermOutlook, finalResult.midTermOutlook, finalResult.finalVerdict,
-      finalResult.sectorNarrative, finalResult.financialsNarrative, finalResult.disclosureNarrative,
-    ].filter(Boolean).join(' ');
-    const diagnosisNewsText = combinedNews.map((n) => `${n.title} ${n.description}`).join(' ')
-      + ' ' + sectorMacroNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
-    const temporalCheck = checkTemporalConsistency(diagnosisReportText, diagnosisNewsText);
-    if (temporalCheck.flagged) {
-      console.warn('[DIAGNOSIS] 시간적 사실관계 불일치 감지 (재생성 없음, 모니터링용):', temporalCheck);
-    }
+        // newsIssueClusters 정규화 — combinedNews 인덱스 범위를 벗어나거나 형식이 어긋난
+        // 항목은 버린다. 모델이 일부 기사를 어느 클러스터에도 안 넣었을 수 있는데(전체
+        // 커버 강제는 안 시켰음), 남은 기사는 프론트가 "기타" 묶음으로 자동 처리한다.
+        const toNewsIssueClusters = (v: unknown): { label: string; articleIndexes: number[] }[] => {
+          if (!Array.isArray(v)) return [];
+          return v
+            .map((c) => {
+              if (!c || typeof c !== 'object') return null;
+              const label = typeof (c as Record<string, unknown>).label === 'string'
+                ? (c as Record<string, unknown>).label as string : '';
+              const rawIndexes = (c as Record<string, unknown>).articleIndexes;
+              const articleIndexes = Array.isArray(rawIndexes)
+                ? rawIndexes.filter((i): i is number => typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < combinedNews.length)
+                : [];
+              return label && articleIndexes.length > 0 ? { label, articleIndexes } : null;
+            })
+            .filter((c): c is { label: string; articleIndexes: number[] } => c !== null);
+        };
 
-    // DB 저장 (실패해도 결과 반환)
-    try {
-      await supabase.from('stock_diagnosis').insert({
-        user_id:     user.id,
-        ticker,
-        name:        stockName,
-        avg_price:   avgPrice,
-        quantity,
-        buy_date:    buyDate || null,
-        report_date: todayStr,
-        result:      finalResult,
-      });
-      console.log(`[DIAGNOSIS] 6. DB 저장 완료${usedCredit ? ' (1회권 사용)' : ''}`);
-    } catch (dbErr) {
-      console.error('[DIAGNOSIS] DB 저장 실패 (결과는 반환):', dbErr);
-    }
+        // mainAnalysisSections(background/flowSummary/valuationNote/watchPoint) 정규화.
+        // 과거 mainAnalysis(단일 문자열) 소비처(공유페이지 DiagnosisView, ShareDropdown의
+        // description 슬라이스)를 계속 지원하기 위해, AI에게 flat 문자열을 별도로 다시
+        // 쓰게 하지 않고(토큰 절약) 서버가 4개 조각을 이어붙여 mainAnalysis를 채운다.
+        const rawSections = result!.mainAnalysisSections;
+        const mainAnalysisSections = (rawSections && typeof rawSections === 'object')
+          ? {
+              background:    toStr((rawSections as Record<string, unknown>).background),
+              flowSummary:   toStr((rawSections as Record<string, unknown>).flowSummary),
+              valuationNote: toStr((rawSections as Record<string, unknown>).valuationNote),
+              watchPoint:    toStr((rawSections as Record<string, unknown>).watchPoint),
+            }
+          : null;
+        const mainAnalysis = mainAnalysisSections
+          ? [mainAnalysisSections.background, mainAnalysisSections.flowSummary, mainAnalysisSections.valuationNote, mainAnalysisSections.watchPoint]
+              .filter(Boolean).join(' ')
+          : toStr(result!.mainAnalysis); // 구 스키마 응답 대비 폴백
 
-    return NextResponse.json(finalResult);
+        const historyNarrative = typeof result!.historyNarrative === 'string' && result!.historyNarrative
+          ? result!.historyNarrative
+          : (daysSinceLastReport === null ? '이 종목의 첫 기업분석입니다.' : '');
 
-  } catch (e) {
-    console.error('[DIAGNOSIS] 최상위 예외:', e);
-    return NextResponse.json({ error: 'AI 분석 생성 실패' }, { status: 500 });
-  }
+        const finalResult = {
+          // 서버 계산 수치 (Claude 응답 무시)
+          currentPrice:  Math.round(currentPrice),
+          avgPrice:      Math.round(Number(avgPrice)),
+          quantity:      Number(quantity),
+          profitRate:    parseFloat(profitRate.toFixed(2)),
+          profitAmount:  Math.round(profitAmount),
+          news:          combinedNews,
+          newsBasis:     (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
+          newsIssueClusters: hasRelevantNews ? toNewsIssueClusters(result!.newsIssueClusters) : [],
+          flowType,
+          flowPercentage,
+          resistance:    Math.round(resistance), // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
+          support:       Math.round(support),    // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
+          benchmark,     // 서버 계산 — KOSPI/KOSDAQ 등락률 비교 (매수일 있을 때만)
+          isCached:      analysisData?.isCached, // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
+          cachedAt:      analysisData?.cachedAt,
+          history:       buildHistory(historyNarrative), // 서버 계산 델타 + AI 해석 (직전 진단 대비)
+          sectorComparison,   // 서버 계산 — peer 평균 등락률과의 차이 (동종업계 없으면 null)
+          fxCorrelation,      // 서버 계산 — 최근 1년 원/달러 환율과의 피어슨 상관계수 (|r|<0.3이거나 표본 부족이면 null)
+          annualFinancials,   // 서버 계산 — 최근 3개년 확정 연간 실적 (없으면 빈 배열)
+          disclosures,        // 서버 계산 — DART 최근 14일 주요 공시 (없으면 빈 배열, UI는 있을 때만 강조 카드)
+          dividendSummary,    // 서버 계산 — DART 최신 사업연도 배당 요약 (무배당이면 null)
+          dividendHistory,    // 서버 계산 — KIS 최근 5년 배당 지급 이력 (없으면 빈 배열)
+          // Claude 응답 필드 (정규화)
+          mainAnalysis:         mainAnalysis,             // 4개 섹션을 이어붙인 값(과거 소비처 호환) — 신 스키마 응답이면 항상 이 값
+          mainAnalysisSections: mainAnalysisSections ?? undefined, // 있으면 프론트가 소제목 렌더링, 없으면(과거 레코드/폴백) mainAnalysis 문자열로 폴백
+          riskFactors:        toArr(result!.riskFactors),
+          institutionalFlow:  typeof result!.institutionalFlow === 'string' ? result!.institutionalFlow : '',
+          foreignFlow:        typeof result!.foreignFlow       === 'string' ? result!.foreignFlow       : '',
+          shortTermOutlook:   typeof result!.shortTermOutlook  === 'string' ? result!.shortTermOutlook  : undefined,
+          midTermOutlook:     typeof result!.midTermOutlook    === 'string' ? result!.midTermOutlook    : undefined,
+          finalVerdict:       typeof result!.finalVerdict      === 'string' ? result!.finalVerdict      : undefined,
+          sectorNarrative:     sectorComparison ? (typeof result!.sectorNarrative === 'string' ? result!.sectorNarrative : '') : '',
+          financialsNarrative: annualFinancials.length > 0 ? (typeof result!.financialsNarrative === 'string' ? result!.financialsNarrative : '') : '',
+          disclosureNarrative: disclosures.length > 0 ? (typeof result!.disclosureNarrative === 'string' ? result!.disclosureNarrative : '') : '',
+        };
+
+        // 정합성 보정 — 증분 파서가 놓쳤거나 다르게 뽑았어도, 전체 재파싱+정규화를 거친
+        // finalResult 값으로 한 번 더 통지해 최종 정확성을 보장한다(emitIfChanged가
+        // 이미 같은 값이면 중복 전송을 알아서 억제). historyNarrative는 finalResult에서
+        // history.narrative로 중첩돼 있으므로 별도로 꺼내 top-level 키로 되돌려 보낸다
+        // (프론트 applyDiagnosisField가 다시 history.narrative로 매핑).
+        const reconcileValues: Record<string, unknown> = {
+          mainAnalysisSections: finalResult.mainAnalysisSections,
+          historyNarrative:     finalResult.history.narrative,
+          sectorNarrative:      finalResult.sectorNarrative,
+          financialsNarrative:  finalResult.financialsNarrative,
+          disclosureNarrative:  finalResult.disclosureNarrative,
+          riskFactors:          finalResult.riskFactors,
+          institutionalFlow:    finalResult.institutionalFlow,
+          foreignFlow:          finalResult.foreignFlow,
+          shortTermOutlook:     finalResult.shortTermOutlook,
+          midTermOutlook:       finalResult.midTermOutlook,
+          finalVerdict:         finalResult.finalVerdict,
+          newsIssueClusters:    finalResult.newsIssueClusters,
+        };
+        for (const spec of DIAGNOSIS_FIELD_SPECS) {
+          if (spec.emit) emitIfChanged(spec.key, reconcileValues[spec.key]);
+        }
+
+        // 시간적 사실관계 사후 검증 — 이 라우트는 실패 시 fallback으로 이미 복구 경로가
+        // 얽혀 있어 자동 재생성은 붙이지 않고(비용/복잡도 판단), 불일치만 로그로 남겨 모니터링한다.
+        const diagnosisReportText = [
+          finalResult.mainAnalysis, ...finalResult.riskFactors, finalResult.history.narrative,
+          finalResult.shortTermOutlook, finalResult.midTermOutlook, finalResult.finalVerdict,
+          finalResult.sectorNarrative, finalResult.financialsNarrative, finalResult.disclosureNarrative,
+        ].filter(Boolean).join(' ');
+        const diagnosisNewsText = combinedNews.map((n) => `${n.title} ${n.description}`).join(' ')
+          + ' ' + sectorMacroNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+        const temporalCheck = checkTemporalConsistency(diagnosisReportText, diagnosisNewsText);
+        if (temporalCheck.flagged) {
+          console.warn('[DIAGNOSIS] 시간적 사실관계 불일치 감지 (재생성 없음, 모니터링용):', temporalCheck);
+        }
+
+        // DB 저장 (실패해도 결과 반환) — JSON 파싱에 성공했을 때만 저장(기존과 동일 조건,
+        // fallback 경로는 위에서 이미 return해 여기 도달하지 않음)
+        try {
+          await supabase.from('stock_diagnosis').insert({
+            user_id:     user.id,
+            ticker,
+            name:        stockName,
+            avg_price:   avgPrice,
+            quantity,
+            buy_date:    buyDate || null,
+            report_date: todayStr,
+            result:      finalResult,
+          });
+          console.log(`[DIAGNOSIS] 7. DB 저장 완료${usedCredit ? ' (1회권 사용)' : ''}`);
+        } catch (dbErr) {
+          console.error('[DIAGNOSIS] DB 저장 실패 (결과는 반환):', dbErr);
+        }
+
+        send(controller, { type: 'done' });
+      } catch (e) {
+        console.error('[DIAGNOSIS] 최상위 예외:', e);
+        try { send(controller, { type: 'error', message: 'AI 분석 생성 실패' }); } catch { /* 클라이언트가 이미 끊었으면 무시 */ }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':    'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }

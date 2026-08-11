@@ -163,6 +163,28 @@ function SectorSparkline({ sparkline }: { sparkline: { dates: string[]; stockRet
 function fmt(n: number) { return n.toLocaleString(); }
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
+// 2026-08-11 스트리밍 전환 — components/stock/AiAnalysis.tsx의 FieldSkeleton/TypingCursor와
+// 동일한 시각 언어를 재사용. 아직 도착하지 않은 AI 필드 자리에 스켈레톤을, 지금 문자
+// 단위로 채워지는 중인 필드 끝에는 타이핑 커서를 붙인다. isGenerating이 기본값 false라
+// 이 두 컴포넌트를 쓰지 않는 기존 호출부(app/welcome/page.tsx 등)는 동작이 그대로다.
+function FieldSkeleton({ lines = 2 }: { lines?: number }) {
+  return (
+    <div className="space-y-1.5 animate-pulse">
+      {Array.from({ length: lines }).map((_, i) => (
+        <div
+          key={i}
+          className="h-3 rounded bg-slate-700/40"
+          style={{ width: i === lines - 1 ? '60%' : '100%' }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function TypingCursor() {
+  return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
+}
+
 // newsIssueClusters(뉴스 인덱스 기준 이슈 묶음)를 "참고 기사" 렌더링용 그룹으로 변환.
 // 클러스터가 없으면(뉴스가 적어 나눌 게 없는 경우 등) null을 반환해 호출부가 기존
 // flat 목록 렌더링으로 폴백하게 한다. 모델이 일부 기사를 어느 클러스터에도 안 넣었을
@@ -281,9 +303,23 @@ function StatDelta({ label, value, positive }: { label: string; value: string; p
 // 렌더링하고, 없으면(과거 레코드/JSON 파싱 실패 fallback) 기존처럼 mainAnalysis 문자열을
 // 그대로 한 문단으로 렌더링한다. 두 경로가 항상 공존해야 과거 저장된 stock_diagnosis
 // 레코드도 계속 정상적으로 보인다.
-function MainAnalysisBody({ result }: { result: DiagnosisResult }) {
+function MainAnalysisBody({ result, isGenerating }: { result: DiagnosisResult; isGenerating?: boolean }) {
   const s = result.mainAnalysisSections;
   if (!s) {
+    // mainAnalysisSections는 'json' 타입 필드라 타이핑 효과 없이 완결 시 한 번에 도착한다
+    // (포트폴리오진단의 summarySections와 동일한 전례) — 그 사이엔 스켈레톤으로 대기.
+    if (isGenerating && !result.mainAnalysis) {
+      return (
+        <div className="flex flex-col gap-3.5">
+          {['오늘의 주가 배경', '수급 동향', '밸류에이션', '관찰 포인트'].map((label) => (
+            <div key={label}>
+              <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{label}</p>
+              <FieldSkeleton lines={2} />
+            </div>
+          ))}
+        </div>
+      );
+    }
     return <p className="text-xs text-slate-300 leading-relaxed">{result.mainAnalysis}</p>;
   }
 
@@ -309,7 +345,7 @@ function MainAnalysisBody({ result }: { result: DiagnosisResult }) {
 // "직전 기업분석 대비" 카드 — 종목 리포트(components/stock/AiAnalysis.tsx)의 "🔄 어제 대비"
 // 카드와 동일한 시각 언어를 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시하고
 // (AI가 지어낸 숫자가 아님), narrative만 AI 해석 문장이다.
-function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
+function HistoryCompareCard({ result, isGenerating, typingKey }: { result: DiagnosisResult; isGenerating?: boolean; typingKey?: string | null }) {
   const h = result.history;
   const isFirst = h.daysSince === null;
   const label = isFirst
@@ -347,7 +383,13 @@ function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
           )}
         </div>
       )}
-      <p className="text-xs text-slate-300 leading-relaxed">{h.narrative}</p>
+      {h.narrative ? (
+        <p className="text-xs text-slate-300 leading-relaxed">
+          {h.narrative}{typingKey === 'historyNarrative' && <TypingCursor />}
+        </p>
+      ) : isGenerating ? (
+        <FieldSkeleton lines={1} />
+      ) : null}
     </div>
   );
 }
@@ -356,7 +398,7 @@ function HistoryCompareCard({ result }: { result: DiagnosisResult }) {
 // 0 기준선 중심의 발산형 바)을 연도별로 한눈에 비교할 수 있게 표시. 2026-07-13
 // "숫자를 읽어야만 알 수 있다"는 피드백으로, 텍스트 나열에서 막대 시각화로 전환.
 // 색상은 페이지 전체가 이미 쓰고 있는 관례(상승/이익=red, 하락/손실=blue)를 그대로 따름.
-function FinancialsTrendCard({ result }: { result: DiagnosisResult }) {
+function FinancialsTrendCard({ result, isGenerating, typingKey }: { result: DiagnosisResult; isGenerating?: boolean; typingKey?: string | null }) {
   const rows = result.annualFinancials;
   const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue ?? 0));
   const maxAbsOpProfit = Math.max(1, ...rows.map((r) => Math.abs(r.operatingProfit ?? 0)));
@@ -411,9 +453,13 @@ function FinancialsTrendCard({ result }: { result: DiagnosisResult }) {
           </div>
         ))}
       </div>
-      {result.financialsNarrative && (
-        <p className="text-xs text-slate-300 leading-relaxed">{result.financialsNarrative}</p>
-      )}
+      {result.financialsNarrative ? (
+        <p className="text-xs text-slate-300 leading-relaxed">
+          {result.financialsNarrative}{typingKey === 'financialsNarrative' && <TypingCursor />}
+        </p>
+      ) : isGenerating ? (
+        <FieldSkeleton lines={2} />
+      ) : null}
     </div>
   );
 }
@@ -426,6 +472,11 @@ interface DiagnosisReportProps {
   onReset?: () => void;
   actions?: boolean;        // 공유·인쇄·다시진단 버튼 노출 여부 (기본 true)
   showBackground?: boolean; // PageBackground(파티클 캔버스) 렌더 여부 (기본 true)
+  // 2026-08-11 스트리밍 전환 — 둘 다 기본값(false/null)이면 이전과 완전히 동일하게 동작한다
+  // (app/welcome/page.tsx 등 정적 예시 호출부는 변경 없음). app/diagnosis/page.tsx만 SSE
+  // 진행 상태를 실어 넘긴다.
+  isGenerating?: boolean;    // true면 아직 도착하지 않은 AI 필드 자리에 스켈레톤을 그림
+  typingKey?: string | null; // 지금 문자 단위로 채워지는 중인 AI 필드 키 — 타이핑 커서 표시
 }
 
 // app/diagnosis/page.tsx의 결과 리포트 뷰를 그대로 추출한 컴포넌트.
@@ -434,6 +485,7 @@ interface DiagnosisReportProps {
 // (app/share/[id]/page.tsx의 DiagnosisView는 별도로 손복제돼 있어 이 파일과 함께 갱신할 것)
 export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
+  isGenerating = false, typingKey = null,
 }: DiagnosisReportProps) {
   const isProfit = result.profitRate >= 0;
   const resistanceUpRate = result.resistance > 0 ? ((result.resistance - result.currentPrice) / result.currentPrice * 100) : 0;
@@ -496,12 +548,14 @@ export default function DiagnosisReport({
                   <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>오늘의 기업 분석</p>
                 </div>
               </div>
-              <MainAnalysisBody result={result} />
+              <MainAnalysisBody result={result} isGenerating={isGenerating} />
               {result.finalVerdict && (
                 <div className="mt-5 pt-5 border-t border-slate-700/50">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
                   <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
-                    <p className="text-xs text-slate-200 leading-relaxed">{result.finalVerdict}</p>
+                    <p className="text-xs text-slate-200 leading-relaxed">
+                      {result.finalVerdict}{typingKey === 'finalVerdict' && <TypingCursor />}
+                    </p>
                   </div>
                 </div>
               )}
@@ -579,7 +633,7 @@ export default function DiagnosisReport({
         </div>
 
         {/* ── 2행: 직전 기업분석 대비 (신설) ── */}
-        <HistoryCompareCard result={result} />
+        <HistoryCompareCard result={result} isGenerating={isGenerating} typingKey={typingKey} />
 
         {/* ── 2-1행: 주요 공시 (DART, 있을 때만 — 눈에 띄게 강조) ── */}
         {result.disclosures.length > 0 && (
@@ -602,9 +656,13 @@ export default function DiagnosisReport({
                 </a>
               ))}
             </div>
-            {result.disclosureNarrative && (
-              <p className="text-xs text-slate-300 leading-relaxed">{result.disclosureNarrative}</p>
-            )}
+            {result.disclosureNarrative ? (
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {result.disclosureNarrative}{typingKey === 'disclosureNarrative' && <TypingCursor />}
+              </p>
+            ) : isGenerating ? (
+              <FieldSkeleton lines={1} />
+            ) : null}
           </div>
         )}
 
@@ -699,12 +757,20 @@ export default function DiagnosisReport({
 
             {/* 캡션 (기관/외국인 각 한 줄) */}
             <div className="flex flex-col gap-1.5">
-              {result.institutionalFlow && (
-                <p className="text-center text-xs text-slate-400 leading-relaxed">{result.institutionalFlow}</p>
-              )}
-              {result.foreignFlow && (
-                <p className="text-center text-xs text-slate-400 leading-relaxed">{result.foreignFlow}</p>
-              )}
+              {result.institutionalFlow ? (
+                <p className="text-center text-xs text-slate-400 leading-relaxed">
+                  {result.institutionalFlow}{typingKey === 'institutionalFlow' && <TypingCursor />}
+                </p>
+              ) : isGenerating ? (
+                <FieldSkeleton lines={1} />
+              ) : null}
+              {result.foreignFlow ? (
+                <p className="text-center text-xs text-slate-400 leading-relaxed">
+                  {result.foreignFlow}{typingKey === 'foreignFlow' && <TypingCursor />}
+                </p>
+              ) : isGenerating ? (
+                <FieldSkeleton lines={1} />
+              ) : null}
             </div>
           </div>
 
@@ -740,9 +806,13 @@ export default function DiagnosisReport({
               {result.sectorComparison.sparkline && (
                 <SectorSparkline sparkline={result.sectorComparison.sparkline} />
               )}
-              {result.sectorNarrative && (
-                <p className="text-xs text-slate-400 leading-relaxed">{result.sectorNarrative}</p>
-              )}
+              {result.sectorNarrative ? (
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  {result.sectorNarrative}{typingKey === 'sectorNarrative' && <TypingCursor />}
+                </p>
+              ) : isGenerating ? (
+                <FieldSkeleton lines={2} />
+              ) : null}
             </div>
           )}
 
@@ -754,37 +824,53 @@ export default function DiagnosisReport({
               </span>
             </div>
             <div className="flex flex-col gap-2">
-              {(result.riskFactors ?? []).map((line, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                  <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
-                </div>
-              ))}
+              {result.riskFactors.length > 0 ? (
+                result.riskFactors.map((line, i) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                    <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
+                  </div>
+                ))
+              ) : isGenerating ? (
+                <FieldSkeleton lines={3} />
+              ) : null}
             </div>
           </div>
         </div>
 
         {/* ── 5행: 단기/중기 관찰 변수 ── */}
-        {(result.shortTermOutlook || result.midTermOutlook) && (
+        {(result.shortTermOutlook || result.midTermOutlook || isGenerating) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {result.shortTermOutlook && (
+            {(result.shortTermOutlook || isGenerating) && (
               <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                     단기 관찰 변수
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">{result.shortTermOutlook}</p>
+                {result.shortTermOutlook ? (
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {result.shortTermOutlook}{typingKey === 'shortTermOutlook' && <TypingCursor />}
+                  </p>
+                ) : (
+                  <FieldSkeleton lines={2} />
+                )}
               </div>
             )}
-            {result.midTermOutlook && (
+            {(result.midTermOutlook || isGenerating) && (
               <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                     중기 관찰 변수
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">{result.midTermOutlook}</p>
+                {result.midTermOutlook ? (
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {result.midTermOutlook}{typingKey === 'midTermOutlook' && <TypingCursor />}
+                  </p>
+                ) : (
+                  <FieldSkeleton lines={2} />
+                )}
               </div>
             )}
           </div>
@@ -805,7 +891,9 @@ export default function DiagnosisReport({
         )}
 
         {/* ── 5-1행: 실적 추이 (최근 3개년 확정 연간, 데이터 없으면 카드 생략) ── */}
-        {result.annualFinancials.length > 0 && <FinancialsTrendCard result={result} />}
+        {result.annualFinancials.length > 0 && (
+          <FinancialsTrendCard result={result} isGenerating={isGenerating} typingKey={typingKey} />
+        )}
 
         {/* ── 6행: 참고 기사 (본문에서 이미 해석했으므로 출처 링크만) ── */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">

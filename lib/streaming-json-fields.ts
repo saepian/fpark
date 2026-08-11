@@ -274,3 +274,25 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   { key: 'shortTermOutlook', type: 'string', emit: true },
   { key: 'midTermOutlook', type: 'string', emit: true },
 ];
+
+// 2026-08-11 기업분석 스트리밍 전환 — app/api/diagnosis/route.ts의
+// DIAGNOSIS_OUTPUT_INSTRUCTIONS 키 순서와 반드시 일치해야 한다. 원래 스키마에 있던
+// flowPercentage(순수 숫자 리터럴)는 제외했다 — 이 파서는 'string'/'string[]'/'json'만
+// 지원해서 값 토큰이 "나 {/[로 시작하지 않으면 tryExtract가 그 필드에서 영원히 멈추고
+// 이후 모든 필드가 증분 파싱을 못 받는다. flowPercentage는 어차피 서버가 KIS 실측
+// 수급 데이터로 재계산해 Claude 응답값을 항상 덮어쓰므로(route.ts) 프롬프트 스키마
+// 자체에서 삭제했다 — 이 spec은 그 삭제된 스키마를 그대로 반영한다.
+export const DIAGNOSIS_FIELD_SPECS: FieldSpec[] = [
+  { key: 'mainAnalysisSections', type: 'json',     emit: true },
+  { key: 'historyNarrative',     type: 'string',   emit: true },
+  { key: 'sectorNarrative',      type: 'string',   emit: true },
+  { key: 'financialsNarrative',  type: 'string',   emit: true },
+  { key: 'disclosureNarrative',  type: 'string',   emit: true },
+  { key: 'riskFactors',          type: 'string[]', emit: true },
+  { key: 'institutionalFlow',    type: 'string',   emit: true },
+  { key: 'foreignFlow',          type: 'string',   emit: true },
+  { key: 'shortTermOutlook',     type: 'string',   emit: true },
+  { key: 'midTermOutlook',       type: 'string',   emit: true },
+  { key: 'finalVerdict',         type: 'string',   emit: true },
+  { key: 'newsIssueClusters',    type: 'json',      emit: true },
+];

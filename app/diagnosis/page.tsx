@@ -28,6 +28,25 @@ function ResultCard({ title, children, className = '' }: { title?: string; child
   );
 }
 
+// Stage1 'field'/'field-partial' 이벤트의 key를 DiagnosisResult 형태로 매핑
+// (app/portfolio-diagnosis/page.tsx의 applyPortfolioField와 동일한 패턴).
+// historyNarrative만 history.narrative로 중첩되고, mainAnalysisSections는 도착 시
+// 4개 하위 필드를 이어붙여 레거시 mainAnalysis 문자열도 함께 합성한다(서버가 DB에
+// 저장하는 합성 로직과 동일 — app/api/diagnosis/route.ts 참고). 나머지는 최상위 키 그대로.
+function applyDiagnosisField(prev: DiagnosisResult, key: string, value: unknown): DiagnosisResult {
+  if (key === 'historyNarrative') {
+    return { ...prev, history: { ...prev.history, narrative: value as string } };
+  }
+  if (key === 'mainAnalysisSections') {
+    const sections = value as DiagnosisResult['mainAnalysisSections'];
+    const mainAnalysis = sections
+      ? [sections.background, sections.flowSummary, sections.valuationNote, sections.watchPoint].filter(Boolean).join(' ')
+      : prev.mainAnalysis;
+    return { ...prev, mainAnalysisSections: sections, mainAnalysis };
+  }
+  return { ...prev, [key]: value };
+}
+
 // ── 사이드바 카드 ──────────────────────────────────────────────────────────────
 
 export default function DiagnosisPage() {
@@ -52,11 +71,18 @@ export default function DiagnosisPage() {
 
   // 상태
   const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
+  const [loadingLabel, setLoadingLabel] = useState('종목 데이터 수집 중...');
   const [error, setError] = useState('');
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [generatedAt, setGeneratedAt] = useState('');
+  // 2026-08-11 스트리밍 전환 — Stage0(서버 계산값) 도착 즉시 showResult가 true가 되므로,
+  // AI 필드가 아직 채워지는 중임을 DiagnosisReport에 알려 스켈레톤/타이핑 커서를 그리게 한다.
+  // Stage1이 실패해도(stage1-error) isGenerating을 false로 내려 "생성 중" 표시만 멈추면
+  // 되고, 별도 실패 배너는 없음 — emitFallbackFields가 채운 안내 문구가 기존 필드 자리에
+  // 그대로 뜨는 것으로 충분하다(스트리밍 전환 전에도 buildFallback이 하던 방식과 동일).
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [typingKey, setTypingKey] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -88,19 +114,6 @@ export default function DiagnosisPage() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // 로딩 단계 자동 진행 (타이밍 기반 UX)
-  const LOADING_STEPS = ['기업 데이터 조회 중...', '뉴스 수집 중...', '수급 데이터 조회 중...', '재무 데이터 조회 중...', 'AI 분석 중...'];
-  useEffect(() => {
-    if (!loading) { setLoadingStep(0); return; }
-    const timers = [
-      setTimeout(() => setLoadingStep(1), 2500),
-      setTimeout(() => setLoadingStep(2), 4500),
-      setTimeout(() => setLoadingStep(3), 6500),
-      setTimeout(() => setLoadingStep(4), 9000),
-    ];
-    return () => timers.forEach(clearTimeout);
-  }, [loading]);
-
   // 드롭다운 외부 클릭 닫기
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -117,12 +130,23 @@ export default function DiagnosisPage() {
     setTicker(t); setStockName(n); setSearchQuery(n); setShowDropdown(false);
   };
 
+  // 2026-08-11 스트리밍 전환 — app/portfolio-diagnosis/page.tsx의 SSE reader 루프와
+  // 동일한 패턴. Stage0 이벤트로 서버 계산값이 통째로 도착하면 즉시 결과 화면을 띄우고,
+  // 이후 field/field-partial 이벤트가 AI 텍스트를 필드별로 채운다.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ticker) { setError('기업을 선택해주세요.'); return; }
     if (!avgPrice || !quantity) { setError('매입 평균가와 보유 수량을 입력해주세요.'); return; }
 
-    setError(''); setLoading(true);
+    setError(''); setLoading(true); setLoadingLabel('종목 데이터 수집 중...');
+    setResult(null); setShowResult(false); setIsGenerating(false); setTypingKey(null);
+
+    // 2026-07-13 프로덕션 조사(포트폴리오진단)에서 발견된 것과 동일한 안전장치 — Vercel이
+    // 함수 실행시간 초과로 강제종료하면 SSE가 명시적 done/error 프레임 없이 그냥 끊기고
+    // reader.read()는 done:true를 정상 종료처럼 반환한다. 이 경우 Stage0는 이미 떠 있으므로
+    // 화면을 지우지 않고 AI 섹션만 "생성 중" 표시를 멈춘다.
+    let receivedTerminalEvent = false;
+
     try {
       const res = await fetch('/api/diagnosis', {
         method: 'POST',
@@ -138,12 +162,67 @@ export default function DiagnosisPage() {
         // 경우에도 무한 대기하지 않고 catch로 떨어져 에러 메시지를 보여주게 함.
         signal: AbortSignal.timeout(125_000),
       });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || '분석 실패'); return; }
-      setResult(data);
-      setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
-      setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
-      setShowResult(true);
+
+      // 인증·크레딧·검증 에러는 스트림 시작 전에 JSON으로 반환됨(app/api/diagnosis/route.ts)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || '분석 실패');
+        return;
+      }
+
+      const reader  = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+
+            if (event.type === 'progress') {
+              setLoadingLabel(event.label);
+            } else if (event.type === 'stage0') {
+              const { type: _t, ...stage0Fields } = event;
+              setResult(stage0Fields as DiagnosisResult);
+              setLoading(false);
+              setShowResult(true);
+              setIsGenerating(true);
+            } else if (event.type === 'field-partial') {
+              const { key, value: v } = event;
+              setResult(prev => prev ? applyDiagnosisField(prev, key, v) : prev);
+              setTypingKey(key);
+            } else if (event.type === 'field') {
+              const { key, value: v } = event;
+              setResult(prev => prev ? applyDiagnosisField(prev, key, v) : prev);
+              setTypingKey(k => (k === key ? null : k));
+            } else if (event.type === 'stage1-error') {
+              setIsGenerating(false);
+            } else if (event.type === 'done') {
+              receivedTerminalEvent = true;
+              setIsGenerating(false);
+              setTypingKey(null);
+              setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+              setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
+            } else if (event.type === 'error') {
+              receivedTerminalEvent = true;
+              setError(event.message || '분석 실패');
+              setIsGenerating(false);
+            }
+          } catch { /* malformed SSE line 무시 */ }
+        }
+      }
+
+      if (!receivedTerminalEvent) {
+        setIsGenerating(false);
+      }
     } catch {
       setError('네트워크 오류가 발생했습니다.');
     } finally {
@@ -154,6 +233,8 @@ export default function DiagnosisPage() {
   const handleReset = () => {
     setShowResult(false);
     setResult(null);
+    setIsGenerating(false);
+    setTypingKey(null);
     setTicker('');
     setStockName('');
     setSearchQuery('');
@@ -173,7 +254,8 @@ export default function DiagnosisPage() {
     );
   }
 
-  // ── 로딩 오버레이 ──────────────────────────────────────────────────────────
+  // ── 로딩 오버레이 ── Stage0 도착 전까지만(보통 1~2초) — 도착 즉시 VIEW 2로 전환되고
+  // 이후 AI 필드는 DiagnosisReport 내부 스켈레톤/타이핑 커서로 표시된다.
   if (loading) {
     return (
       <div className="fixed inset-0 bg-[#0d1117]/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-8">
@@ -184,32 +266,15 @@ export default function DiagnosisPage() {
         </div>
         <div className="text-center mb-2">
           <p className="text-white font-semibold text-lg mb-1">AI가 기업을 분석하고 있습니다...</p>
-          <p className="text-slate-400 text-sm">예상 소요 시간: 15~25초</p>
-        </div>
-        <div className="flex flex-col gap-3 min-w-[230px]">
-          {LOADING_STEPS.map((step, i) => (
-            <div key={step} className={`flex items-center gap-3 transition-all duration-500 ${
-              i < loadingStep ? 'text-emerald-400' :
-              i === loadingStep ? 'text-white' :
-              'text-slate-600'
-            }`}>
-              {i < loadingStep ? (
-                <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center shrink-0 text-[10px]">✓</span>
-              ) : i === loadingStep ? (
-                <span className="w-5 h-5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin shrink-0" />
-              ) : (
-                <span className="w-5 h-5 rounded-full border border-slate-700 shrink-0" />
-              )}
-              <span className={`text-[13px] ${i === loadingStep ? 'font-semibold' : ''}`}>{step}</span>
-            </div>
-          ))}
+          <p className="text-slate-400 text-sm">{loadingLabel}</p>
         </div>
       </div>
     );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // VIEW 2: 결과
+  // VIEW 2: 결과 — Stage0 도착 시점에 showResult가 true가 되므로, isGenerating이 true인
+  // 동안은 AI 필드가 아직 채워지는 중(스켈레톤/타이핑 커서는 DiagnosisReport가 그림)
   // ══════════════════════════════════════════════════════════════════════════
   if (showResult && result) {
     return (
@@ -219,6 +284,8 @@ export default function DiagnosisPage() {
         ticker={ticker}
         generatedAt={generatedAt}
         onReset={handleReset}
+        isGenerating={isGenerating}
+        typingKey={typingKey}
       />
     );
   }
