@@ -384,14 +384,25 @@ function sseResponse(run: (send: (data: object) => void) => Promise<void>): Resp
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: object) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      // 2026-08-11 발견: enqueue가 streamOneGeneration의 claudeStream.on('text', ...)
+      // 콜백(onField/onPartial) "안에서" 호출되는 구조라, 클라이언트가 스트리밍 도중
+      // 연결을 끊으면 controller가 즉시 닫혀 enqueue가 예외를 던지고 — 그 예외가
+      // on('text') 밖으로 전파돼 run() 전체가 catch로 튕겨나가며, 847줄의 after(...)
+      // (DB 저장) 등록 코드까지 아예 도달하지 못했다. after()를 이미 쓰고 있어도 여기서
+      // 막히면 소용없으므로, 클라이언트 연결 끊김을 여기서 조용히 무시해 run()이 끝까지
+      // 실행되게 한다.
+      const send = (data: object) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch { /* 클라이언트가 이미 끊었으면 무시 — Claude 스트림 소비·DB 저장은 계속돼야 함 */ }
+      };
       try {
         await run(send);
       } catch (e) {
         console.error('[ANALYSIS] 스트림 처리 중 예외:', e);
         try { send({ type: 'error', message: 'AI 분석 생성 실패' }); } catch { /* 클라이언트가 이미 끊었으면 무시 */ }
       } finally {
-        controller.close();
+        try { controller.close(); } catch { /* 이미 취소된 스트림이면 무시 */ }
       }
     },
   });

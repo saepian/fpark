@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -661,8 +661,17 @@ function buildHoldingPeriodFactsLine(
 
 // ── SSE helper ──────────────────────────────────────────────────────────────
 
+// 2026-08-11 발견: enqueue가 send(controller,...)를 통해 claudeStream.on('text', ...)
+// 콜백(analyzeOneStock/analyzePortfolioSummary의 onField·onPartial) "안에서" 호출되는
+// 구조라, 클라이언트가 스트리밍 도중 연결을 끊으면 controller가 즉시 닫혀 enqueue가
+// 예외를 던지고 — 그 예외가 on('text') 밖으로 전파돼 각 단계가 "진짜 생성 실패"로
+// 오인해 실제 생성된 내용 대신 빈 폴백을 반환했다(단순 중단보다 나쁨 — 저장은 되지만
+// 내용이 비어버림). 클라이언트가 끊긴 건 서버 쪽 생성/저장 로직에 영향을 주면 안 되므로
+// 여기서 조용히 무시한다.
 function sseEncode(ctrl: ReadableStreamDefaultController, encoder: TextEncoder, data: object) {
-  ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  try {
+    ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  } catch { /* 클라이언트가 이미 끊었으면 무시 — Claude 스트림 소비·DB 저장은 계속돼야 함 */ }
 }
 
 // ── GET ─────────────────────────────────────────────────────────────────────
@@ -1207,17 +1216,24 @@ export async function POST(request: NextRequest) {
           dividend: dividendSummary,
         };
 
-        // DB 저장
-        try {
-          const { error: insertError } = await supabase.from('portfolio_diagnosis').insert({
-            user_id:     user.id,
-            report_date: todayStr,
-            result:      finalResult,
-          });
-          if (insertError) console.error('[PORTFOLIO-DIAGNOSIS] DB 저장 실패:', insertError);
-        } catch (dbErr) {
-          console.error('[PORTFOLIO-DIAGNOSIS] DB 저장 실패:', dbErr);
-        }
+        // DB 저장 — 2026-08-11: 클라이언트 연결 상태와 완전히 분리하기 위해 next/server의
+        // after()로 감쌌다 — 종목분석(app/api/stock/[ticker]/analysis/route.ts)이 이미 같은
+        // 이유로 쓰고 있는 검증된 패턴과 일관성을 맞춘 것. done 전송은 저장 완료를 기다리지
+        // 않지만, 클라이언트는 원래도 저장 성공 여부와 무관하게 done만 보고 화면을
+        // 마무리하므로 사용자 경험 변화는 없다.
+        after(async () => {
+          try {
+            const { error: insertError } = await supabase.from('portfolio_diagnosis').insert({
+              user_id:     user.id,
+              report_date: todayStr,
+              result:      finalResult,
+            });
+            if (insertError) console.error('[PORTFOLIO-DIAGNOSIS] DB 저장 실패:', insertError);
+            else console.log(`[PORTFOLIO-DIAGNOSIS] DB 저장 완료${usedCredit ? ' (1회권 사용)' : ''}`);
+          } catch (dbErr) {
+            console.error('[PORTFOLIO-DIAGNOSIS] DB 저장 실패:', dbErr);
+          }
+        });
 
         console.log(`[PORTFOLIO-DIAGNOSIS] 완료${usedCredit ? ' (1회권 사용)' : ''}`);
         // 2026-07-27 스트리밍 전환 — 프론트는 위에서 이미 meta/holding-meta/holding-field/
@@ -1228,7 +1244,7 @@ export async function POST(request: NextRequest) {
         console.error('[PORTFOLIO-DIAGNOSIS] 치명적 오류:', e);
         send(controller, { type: 'error', message: 'AI 분석 생성 실패' });
       } finally {
-        controller.close();
+        try { controller.close(); } catch { /* 이미 취소된 스트림이면 무시 */ }
       }
     },
   });

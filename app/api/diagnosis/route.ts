@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -222,8 +222,16 @@ export async function GET() {
 }
 
 // ── SSE helper — portfolio-diagnosis/route.ts와 동일 패턴 ───────────────────
+// 2026-08-11 발견: enqueue가 send(controller,...)를 통해 claudeStream.on('text', ...)
+// 콜백 "안에서" 호출되는 구조라, 클라이언트가 스트리밍 도중 연결을 끊으면 controller가
+// 즉시 닫혀 enqueue가 예외를 던지고 — 그 예외가 on('text') 밖으로 전파돼 Claude 스트림
+// 소비 자체(finalMessage())가 조기 중단됐다. DB 저장은 항상 그 뒤에 있어서 실행되지
+// 못했다(실측: 프로덕션 검증 중 "Controller is already closed" + 미저장 확인). 클라이언트가
+// 끊긴 건 서버 쪽 생성/저장 로직에 영향을 주면 안 되므로 여기서 조용히 무시한다.
 function sseEncode(ctrl: ReadableStreamDefaultController, encoder: TextEncoder, data: object) {
-  ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  try {
+    ctrl.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  } catch { /* 클라이언트가 이미 끊었으면 무시 — Claude 스트림 소비·DB 저장은 계속돼야 함 */ }
 }
 
 export async function POST(request: NextRequest) {
@@ -1008,29 +1016,36 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
         }
 
         // DB 저장 (실패해도 결과 반환) — JSON 파싱에 성공했을 때만 저장(기존과 동일 조건,
-        // fallback 경로는 위에서 이미 return해 여기 도달하지 않음)
-        try {
-          await supabase.from('stock_diagnosis').insert({
-            user_id:     user.id,
-            ticker,
-            name:        stockName,
-            avg_price:   avgPrice,
-            quantity,
-            buy_date:    buyDate || null,
-            report_date: todayStr,
-            result:      finalResult,
-          });
-          console.log(`[DIAGNOSIS] 7. DB 저장 완료${usedCredit ? ' (1회권 사용)' : ''}`);
-        } catch (dbErr) {
-          console.error('[DIAGNOSIS] DB 저장 실패 (결과는 반환):', dbErr);
-        }
+        // fallback 경로는 위에서 이미 return해 여기 도달하지 않음). 2026-08-11: 클라이언트
+        // 연결 상태와 완전히 분리하기 위해 next/server의 after()로 감쌌다 — 종목분석
+        // (app/api/stock/[ticker]/analysis/route.ts)이 이미 같은 이유로 쓰고 있는 검증된
+        // 패턴("응답 직후 실행 컨텍스트가 얼어붙어 저장이 끊기는 문제 방지")과 일관성을
+        // 맞춘 것. done 전송은 저장 완료를 기다리지 않지만, 클라이언트는 원래도 저장
+        // 성공 여부와 무관하게 done만 보고 화면을 마무리하므로 사용자 경험 변화는 없다.
+        after(async () => {
+          try {
+            await supabase.from('stock_diagnosis').insert({
+              user_id:     user.id,
+              ticker,
+              name:        stockName,
+              avg_price:   avgPrice,
+              quantity,
+              buy_date:    buyDate || null,
+              report_date: todayStr,
+              result:      finalResult,
+            });
+            console.log(`[DIAGNOSIS] 7. DB 저장 완료${usedCredit ? ' (1회권 사용)' : ''}`);
+          } catch (dbErr) {
+            console.error('[DIAGNOSIS] DB 저장 실패 (결과는 반환):', dbErr);
+          }
+        });
 
         send(controller, { type: 'done' });
       } catch (e) {
         console.error('[DIAGNOSIS] 최상위 예외:', e);
         try { send(controller, { type: 'error', message: 'AI 분석 생성 실패' }); } catch { /* 클라이언트가 이미 끊었으면 무시 */ }
       } finally {
-        controller.close();
+        try { controller.close(); } catch { /* 이미 취소된 스트림이면 무시 */ }
       }
     },
   });
