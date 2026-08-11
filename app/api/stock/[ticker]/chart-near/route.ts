@@ -46,6 +46,23 @@ function saveCache(ticker: string, monthsAgo: number, data: ChartDataPoint[]) {
   });
 }
 
+// 2026-08-11 발견: fetchChartBackTo는 각 청크 호출이 실패하면 즉시 break하고 그때까지
+// 모은 것만 반환하는데(lib/kis-api.ts), 예전 코드는 이 결과가 실제로 targetDate까지
+// 도달했는지 확인하지 않고 "length > 0이면 성공"으로 24시간 캐싱했다 — 삼성전자(005930)가
+// 이 경로로 1개 청크(약 5개월치)만 캐싱된 채 하루 종일 서빙되며 "기간별 등락률" 표에서
+// 1년 전·6개월 전 행이 빠지는 버그로 실측 확인됨. 가장 오래된 데이터포인트가 목표일
+// 근방(허용 오차 이내)까지 도달했는지 검증해서, 못 미쳤으면(부분 성공) 캐싱을 건너뛴다.
+// 허용 오차 14일은 fetchChartNear가 이미 쓰고 있는 것과 동일한 값 — 설/추석 등 최대 5일
+// 연휴 + 주말이 겹쳐도 그 근방에 실제 거래일이 있으므로 충분하다.
+const BACKFILL_TOLERANCE_DAYS = 14;
+
+function reachedTarget(data: ChartDataPoint[], targetDate: Date): boolean {
+  if (data.length === 0) return false;
+  const earliest = new Date(data[0].date); // fetchChartBackTo가 이미 오름차순 정렬해서 반환
+  const toleranceMs = BACKFILL_TOLERANCE_DAYS * 24 * 60 * 60 * 1000;
+  return earliest.getTime() <= targetDate.getTime() + toleranceMs;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ ticker: string }> }
@@ -63,12 +80,22 @@ export async function GET(
   const targetDate = kstMidnight(year, month - monthsAgo, day);
 
   const data = await fetchChartBackTo(ticker, targetDate);
-  if (data.length > 0) {
+
+  if (data.length > 0 && reachedTarget(data, targetDate)) {
     saveCache(ticker, monthsAgo, data);
     return NextResponse.json(data);
   }
 
-  // 실패 — 휴장일 등으로 창 안에 데이터가 없을 수 있으므로 캐시된 마지막 결과로 대체
+  if (data.length > 0) {
+    // 부분 성공(목표일 근방까지 도달 못함, 연쇄 백필 중 어느 청크가 실패했을 가능성) —
+    // 캐싱하면 이 불완전한 결과가 24시간 동안 계속 서빙된다. 캐싱은 건너뛰고 이번
+    // 요청엔 부분 데이터라도 그대로 반환(완전히 빈 것보다는 낫다) — 다음 요청이
+    // 새로 재시도하게 둔다.
+    console.warn(`[CHART-NEAR] ${ticker} (${monthsAgo}개월 전) 목표일 미도달 — 가장 오래된 데이터: ${data[0].date}, 캐싱 생략(부분 결과만 반환)`);
+    return NextResponse.json(data);
+  }
+
+  // 완전 실패 — 휴장일 등으로 창 안에 데이터가 없을 수 있으므로 캐시된 마지막 결과로 대체
   if (fresh) {
     console.error(`[CHART-NEAR] ${ticker} (${monthsAgo}개월 전) 조회 실패, 캐시로 대체 반환`);
     return NextResponse.json(fresh.data);
