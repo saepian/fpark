@@ -770,11 +770,16 @@ export default function PortfolioDiagnosisPage() {
             />
           </div>
 
-          {/* 2행: AI 요약 — Stage1이 끝나기 전까지는 이 영역 자체를 렌더링하지 않음
-              (스켈레톤도 안 보여줌). Stage1 완료(stage1-done) 시점에 비로소 나타나
-              타이핑이 시작된다 — "위는 계속 비어있는데 아래(기업별 관찰 지표)는
-              먼저 다 채워진다"는 역전 인상을 없애기 위한 조치(2026-07-27). */}
-          {stage1Complete && (stage2Failed ? (
+          {/* 2행: AI 요약 — 2026-07-27엔 stage1Complete 전까지 이 카드 전체를 숨겼으나(빈
+              스켈레톤이 방치된 것처럼 보이는 걸 막기 위함), 그러면서 배당정보·기업별 관찰
+              지표처럼 더 빨리 채워지는 아래쪽 섹션들과 "위는 텅 비어있는데 아래는 이미
+              끝났다"는 역전 인상이 오히려 남았다(2026-08-11 재조사). 아래 IIFE에 이미
+              "데이터 없으면 스켈레톤" 폴백이 있으므로 처음부터 항상 마운트해 다른 AI
+              필드 섹션들과 동일한 원칙(제목+스켈레톤을 먼저 그려두고 도착하면 그 자리에서
+              채움)을 따르게 한다. Stage2 필드는 백엔드에서 stage1-done 이후에만 전송되므로
+              (route.ts — Promise.all(analyzeOneStock) 완료 후 Stage2 시작) 이 게이트를
+              없애도 Stage1 완료 전에 Stage2 내용이 새어 보일 위험은 없다. */}
+          {(stage2Failed ? (
             <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-6 py-5 mb-4">
               <div className="flex items-start gap-2.5">
                 <span className="text-amber-400 text-sm mt-0.5 shrink-0">ⓘ</span>
@@ -986,10 +991,12 @@ export default function PortfolioDiagnosisPage() {
                       </div>
                     ))}
                   </div>
-                  {result.contributionNarrative !== undefined && (
+                  {result.contributionNarrative !== undefined ? (
                     <p className="text-xs text-slate-300 leading-relaxed">
                       {result.contributionNarrative}{typingPortfolioKey === 'contributionNarrative' && <TypingCursor />}
                     </p>
+                  ) : (
+                    !stage2Failed && <FieldSkeleton lines={1} />
                   )}
                 </div>
               )}
@@ -997,10 +1004,12 @@ export default function PortfolioDiagnosisPage() {
                 <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
                   <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-3`}>섹터 동조화 관찰</p>
                   <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>
-                  {result.coMovementNarrative !== undefined && (
+                  {result.coMovementNarrative !== undefined ? (
                     <p className="text-xs text-slate-300 leading-relaxed">
                       {result.coMovementNarrative}{typingPortfolioKey === 'coMovementNarrative' && <TypingCursor />}
                     </p>
+                  ) : (
+                    !stage2Failed && <FieldSkeleton lines={1} />
                   )}
                 </div>
               )}
@@ -1095,82 +1104,102 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 4-1행: 포트폴리오 Risk Factors + Opportunity Factors (대칭 구조) */}
-          {((result.riskFactors?.length ?? 0) > 0 || (result.opportunityFactors?.length ?? 0) > 0) && (
+          {/* 4-1행: 포트폴리오 Risk Factors + Opportunity Factors (대칭 구조) — 둘 다
+              Stage2 필드라 도착 전엔 undefined. 미도착(pending)이면 스켈레톤으로 자리를
+              잡아두고, 도착했는데 빈 배열이면(진짜로 없음) 그 카드만 조용히 생략한다 —
+              배당정보처럼 "확정된 부재"로 취급(2026-08-11). */}
+          {(result.riskFactors !== undefined || result.opportunityFactors !== undefined || !stage2Failed) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              {(result.riskFactors?.length ?? 0) > 0 && (
+              {(result.riskFactors === undefined ? !stage2Failed : result.riskFactors.length > 0) && (
                 <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <span className={`px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       Risk Factors
                     </span>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    {(result.riskFactors ?? []).map((item, i) => {
-                      const text = typeof item === 'string' ? item : item.text;
-                      const category = typeof item === 'string' ? undefined : item.category;
-                      return (
-                        <div key={i} className="flex gap-2">
-                          <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                          <p className="text-xs text-slate-300 leading-relaxed">
-                            {category && (
-                              <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
-                                {category === 'macro' ? '매크로' : '기업'}
-                              </span>
-                            )}
-                            {text}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {result.riskFactors === undefined ? (
+                    <FieldSkeleton lines={3} />
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {result.riskFactors.map((item, i) => {
+                        const text = typeof item === 'string' ? item : item.text;
+                        const category = typeof item === 'string' ? undefined : item.category;
+                        return (
+                          <div key={i} className="flex gap-2">
+                            <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                            <p className="text-xs text-slate-300 leading-relaxed">
+                              {category && (
+                                <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
+                                  {category === 'macro' ? '매크로' : '기업'}
+                                </span>
+                              )}
+                              {text}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
-              {(result.opportunityFactors?.length ?? 0) > 0 && (
+              {(result.opportunityFactors === undefined ? !stage2Failed : result.opportunityFactors.length > 0) && (
                 <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <span className={`px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       Opportunity Factors
                     </span>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    {(result.opportunityFactors ?? []).map((line, i) => (
-                      <div key={i} className="flex gap-2">
-                        <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
-                        <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {result.opportunityFactors === undefined ? (
+                    <FieldSkeleton lines={3} />
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {result.opportunityFactors.map((line, i) => (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                          <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
 
-          {/* 4-2행: 포트폴리오 단기/중기 전망 */}
-          {(result.shortTermOutlook || result.midTermOutlook) && (
+          {/* 4-2행: 포트폴리오 단기/중기 전망 — Risk/Opportunity와 동일한 3분기 패턴
+              (미도착=스켈레톤, 도착+내용있음=텍스트, 도착+빈 문자열=조용히 생략). */}
+          {(result.shortTermOutlook !== undefined || result.midTermOutlook !== undefined || !stage2Failed) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              {result.shortTermOutlook && (
+              {(result.shortTermOutlook === undefined ? !stage2Failed : !!result.shortTermOutlook) && (
                 <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-3">
                     <span className={`px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       단기 관찰 변수
                     </span>
                   </div>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {result.shortTermOutlook}{typingPortfolioKey === 'shortTermOutlook' && <TypingCursor />}
-                  </p>
+                  {result.shortTermOutlook === undefined ? (
+                    <FieldSkeleton lines={2} />
+                  ) : (
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      {result.shortTermOutlook}{typingPortfolioKey === 'shortTermOutlook' && <TypingCursor />}
+                    </p>
+                  )}
                 </div>
               )}
-              {result.midTermOutlook && (
+              {(result.midTermOutlook === undefined ? !stage2Failed : !!result.midTermOutlook) && (
                 <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                   <div className="flex items-center gap-2 mb-3">
                     <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
                       중기 관찰 변수
                     </span>
                   </div>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {result.midTermOutlook}{typingPortfolioKey === 'midTermOutlook' && <TypingCursor />}
-                  </p>
+                  {result.midTermOutlook === undefined ? (
+                    <FieldSkeleton lines={2} />
+                  ) : (
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      {result.midTermOutlook}{typingPortfolioKey === 'midTermOutlook' && <TypingCursor />}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
