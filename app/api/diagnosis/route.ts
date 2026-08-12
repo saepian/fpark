@@ -49,38 +49,37 @@ const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 // cache_control 적용). 종목별로 바뀌는 데이터(가격/수급/뉴스/히스토리)는 messages 쪽에 둔다.
 const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아래 구조 그대로 출력)
 {
-  "mainAnalysisSections": {
-    "background": "【최대 210자, 절대 넘기지 말 것 — 이 글자수 제한이 아래 내용 요구보다 우선입니다. 서술형으로 이어 쓸 것, 항목 나열 금지】이 필드의 존재 이유는 '해석'입니다 — 공간이 부족하면 사실 서술을 압축하고, 해석 문장은 절대 생략하지 마세요. [1] 사실(공간이 부족하면 1문장 이내로 압축): 현재 상태를 관찰형으로 — 예) '지금 삼성전자는 수익이 충분히 난 상태이며 오늘 급락했다.'(수급 방향·규모의 상세 해석은 flowSummary가 담당하므로 여기서 반복 금지, 관련 뉴스가 있으면 핵심 사실만 짧게 덧붙이되 기사 문장 15단어 이상 그대로 인용 금지) [2] 해석(필수, 절대 생략 금지): [1]의 사실이 왜 유의미한지 판단 1개 이상 — 이 종목만의 개별 이슈인지 업종·시장 전체 동반 현상인지, 뉴스 논조와 실제 주가 흐름이 일치하는지 괴리가 있는지, 선반영된 것인지 하루짜리 이슈인지 등. 뉴스가 없으면 '특별한 뉴스 없이 수급·기술적 요인으로 추정된다'도 유효한 판단입니다. 52주 고점·저점 대비 위치는 공간이 남을 때만 관찰 사실로 짧게 추가 가능(숫자로 결론 유도 금지) — 공간이 부족하면 이 부분을 가장 먼저 생략하세요. 금지: 매수/매도/홀딩 지시·권유, 목표가·손절가, 저항선·지지선·매물대, 미래 가격 예측, ①②③ 나열, bullet식 나열",
-    "flowSummary": "【최대 120자, 절대 넘기지 말 것 — 1문장】외국인·기관 5일 추이 중 방향성이 뚜렷한 쪽 하나를 골라, 그 사실과 다른 데이터 포인트(개인 수급 방향, 오늘 등락률 등) 최소 1개를 연결해서 해석하세요(단순히 유입·유출 금액만 재서술하지 말 것) — 개인과 방향이 실제로 반대일 때는 그 대립이 왜 눈에 띄는지까지(예: 이 정도 규모 매물을 개인이 받아내는 게 흔한 일인지 등), 같으면 다른 연결 지점을 찾으세요. 연결 지을 근거가 부족하면 '아직 명확하지 않다'고 쓰는 것도 정답입니다. 구체적 금액 수치는 최대 1개만 인용, 미래 가격 예측 문구 절대 금지, background와 겹치는 내용 반복 금지",
-    "valuationNote": "【최대 90자, 절대 넘기지 말 것 — 1문장, 밸류에이션】PER/PBR 수준과 [금일 등락률] 등 다른 데이터 포인트 최소 1개를 연결해서 해석하세요(단순히 PER가 높다/낮다만 재서술하지 말 것) — 예) 'PER 36.5배로 업종 평균보다 높게 거래돼온 만큼, 오늘 같은 급락은 그 프리미엄이 일부 되돌려지는 압축 과정으로도 해석될 수 있다.' 데이터 없으면 빈 문자열 \\"\\". 연결 지을 근거가 부족하면 '아직 명확하지 않다'고 쓰는 것도 정답입니다. ⚠️ PER/PBR 같은 가치평가 지표 코멘트만 담당합니다 — 동종업계 등락률·수익률 비교는 절대 언급하지 마세요(그건 별도 sectorNarrative 필드의 몫)",
-    "watchPoint": "【최대 150자, 절대 넘기지 말 것 — 1~2문장, 관찰 포인트】[내부 계산 지표] 중 정확히 1개만 골라 보유 정보(매입가 대비 관점)와 엮어 서술 — **[급등이력]에 hasMatches:true인 사례가 있으면 그것 하나만 사용**(다른 지표와 같이 쓰지 말 것), 사례가 없을 때만 거래대금배수 또는 MDD/변동성 중 1개만 선택. 예) '이 종목은 매입가 대비 10% 수익 구간인데, 오늘 같은 규모의 급락은 최근 5개월 내 한 차례 더 있었고 그때는 이후 5일간 +3% 반등했습니다' 같이 '내 포지션 관점'에서 간결히. 업종 대비·실적 추이는 언급 금지(sectorNarrative/financialsNarrative의 몫)"
-  },
+  "mainAnalysisSections_background": "【최대 210자, 절대 넘기지 말 것 — 이 글자수 제한이 아래 내용 요구보다 우선입니다. 서술형으로 이어 쓸 것, 항목 나열 금지】이 필드의 존재 이유는 '해석'입니다 — 공간이 부족하면 사실 서술을 압축하고, 해석 문장은 절대 생략하지 마세요. [1] 사실(공간이 부족하면 1문장 이내로 압축): 현재 상태를 관찰형으로 — 예) '지금 삼성전자는 수익이 충분히 난 상태이며 오늘 급락했다.'(수급 방향·규모의 상세 해석은 mainAnalysisSections_flowSummary가 담당하므로 여기서 반복 금지, 관련 뉴스가 있으면 핵심 사실만 짧게 덧붙이되 기사 문장 15단어 이상 그대로 인용 금지) [2] 해석(필수, 절대 생략 금지): [1]의 사실이 왜 유의미한지 판단 1개 이상 — 이 종목만의 개별 이슈인지 업종·시장 전체 동반 현상인지, 뉴스 논조와 실제 주가 흐름이 일치하는지 괴리가 있는지, 선반영된 것인지 하루짜리 이슈인지 등. 뉴스가 없으면 '특별한 뉴스 없이 수급·기술적 요인으로 추정된다'도 유효한 판단입니다. 52주 고점·저점 대비 위치는 공간이 남을 때만 관찰 사실로 짧게 추가 가능(숫자로 결론 유도 금지) — 공간이 부족하면 이 부분을 가장 먼저 생략하세요. 금지: 매수/매도/홀딩 지시·권유, 목표가·손절가, 저항선·지지선·매물대, 미래 가격 예측, ①②③ 나열, bullet식 나열",
+  "mainAnalysisSections_flowSummary": "【최대 120자, 절대 넘기지 말 것 — 1문장】외국인·기관 5일 추이 중 방향성이 뚜렷한 쪽 하나를 골라, 그 사실과 다른 데이터 포인트(개인 수급 방향, 오늘 등락률 등) 최소 1개를 연결해서 해석하세요(단순히 유입·유출 금액만 재서술하지 말 것) — 개인과 방향이 실제로 반대일 때는 그 대립이 왜 눈에 띄는지까지(예: 이 정도 규모 매물을 개인이 받아내는 게 흔한 일인지 등), 같으면 다른 연결 지점을 찾으세요. 연결 지을 근거가 부족하면 '아직 명확하지 않다'고 쓰는 것도 정답입니다. 구체적 금액 수치는 최대 1개만 인용, 미래 가격 예측 문구 절대 금지, mainAnalysisSections_background와 겹치는 내용 반복 금지",
+  "mainAnalysisSections_valuationNote": "【최대 90자, 절대 넘기지 말 것 — 1문장, 밸류에이션】PER/PBR 수준과 [금일 등락률] 등 다른 데이터 포인트 최소 1개를 연결해서 해석하세요(단순히 PER가 높다/낮다만 재서술하지 말 것) — 예) 'PER 36.5배로 업종 평균보다 높게 거래돼온 만큼, 오늘 같은 급락은 그 프리미엄이 일부 되돌려지는 압축 과정으로도 해석될 수 있다.' 데이터 없으면 빈 문자열 \\"\\". 연결 지을 근거가 부족하면 '아직 명확하지 않다'고 쓰는 것도 정답입니다. ⚠️ PER/PBR 같은 가치평가 지표 코멘트만 담당합니다 — 동종업계 등락률·수익률 비교는 절대 언급하지 마세요(그건 별도 sectorNarrative 필드의 몫)",
+  "mainAnalysisSections_watchPoint": "【최대 150자, 절대 넘기지 말 것 — 1~2문장, 관찰 포인트】[내부 계산 지표] 중 정확히 1개만 골라 보유 정보(매입가 대비 관점)와 엮어 서술 — **[급등이력]에 hasMatches:true인 사례가 있으면 그것 하나만 사용**(다른 지표와 같이 쓰지 말 것), 사례가 없을 때만 거래대금배수 또는 MDD/변동성 중 1개만 선택. 예) '이 종목은 매입가 대비 10% 수익 구간인데, 오늘 같은 규모의 급락은 최근 5개월 내 한 차례 더 있었고 그때는 이후 5일간 +3% 반등했습니다' 같이 '내 포지션 관점'에서 간결히. 업종 대비·실적 추이는 언급 금지(sectorNarrative/financialsNarrative의 몫)",
   "historyNarrative": "【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로 서술",
-  "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \"\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석. 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' mainAnalysisSections·riskFactors와 겹치는 내용 반복 금지, 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중. valuationNote(PER/PBR)와는 다른 지표(등락률)를 다루므로 내용이 겹치지 않음",
+  "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \"\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석. 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' mainAnalysisSections_*·riskFactors와 겹치는 내용 반복 금지, 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중. mainAnalysisSections_valuationNote(PER/PBR)와는 다른 지표(등락률)를 다루므로 내용이 겹치지 않음",
   "financialsNarrative": "【[실적 추이]에 데이터가 있을 때만 2문장 — 없으면 빈 문자열 \"\"】최근 3개년 매출·영업이익·순이익·ROE 추세와 함의를 짧게. 예) '2023년 적자에서 2024·2025년 연속 흑자 전환했고, 영업이익도 확대되는 흐름입니다. 이 개선 궤도가 이어지는지는 다음 실적 발표에서 확인될 예정입니다.' 숫자를 전부 나열하지 말고 추세(개선/악화/횡보)와 그 의미 위주로, 향후 실적을 예측하지 말고 '다음 실적에서 확인될 예정' 같은 관찰형으로 마무리",
-  "disclosureNarrative": "【[최근 주요 공시]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열 \"\"】공시는 사실관계가 명확하므로 뉴스보다 구체적 수치·날짜를 그대로 인용해도 됨(예: '7월 10일 자기주식 500억원 규모 처분을 공시했다'). 이 공시가 왜 있었는지/무엇을 의미하는지 관찰형으로 해석하되, 나열하지 말고 서술형 문장으로. mainAnalysisSections·riskFactors와 겹치는 내용 반복 금지",
-  "riskFactors": ["리스크 요인 1 (25~40자, 수치 포함, mainAnalysisSections와 겹치지 않는 내용)", "리스크 요인 2 (25~40자)", "리스크 요인 3 (25~40자)"],
+  "disclosureNarrative": "【[최근 주요 공시]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열 \"\"】공시는 사실관계가 명확하므로 뉴스보다 구체적 수치·날짜를 그대로 인용해도 됨(예: '7월 10일 자기주식 500억원 규모 처분을 공시했다'). 이 공시가 왜 있었는지/무엇을 의미하는지 관찰형으로 해석하되, 나열하지 말고 서술형 문장으로. mainAnalysisSections_*·riskFactors와 겹치는 내용 반복 금지",
+  "riskFactors": ["리스크 요인 1 (25~40자, 수치 포함, mainAnalysisSections_*와 겹치지 않는 내용)", "리스크 요인 2 (25~40자)", "리스크 요인 3 (25~40자)"],
   "institutionalFlow": "기관 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
   "foreignFlow": "외국인 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, 동일 기준)",
-  "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】단기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로 (예: '외국인 자금은 5일째 유출 중인데, 이는 방향 전환 여부를 아직 확인할 수 없다는 점에서 지켜볼 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지",
-  "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지",
-  "finalVerdict": "【최대 90자, 절대 넘기지 말 것 — 반드시 1문장, 순수 서술형】mainAnalysisSections(background/flowSummary/valuationNote/watchPoint)·sectorNarrative·riskFactors·shortTermOutlook·midTermOutlook 전체를 종합해 최종 결론을 압축하세요. 점수·등급·별점·숫자 표기 절대 금지 — 오직 문장으로만 판단을 전달하세요. 매매행위(매수/매도/추격매수/추격매도/진입/청산 등)를 직접 지목하지 말고 관찰·판단 어투로 순화하세요 — 예) '외부 호재로 상승했지만 수급은 아직 약해, 추격 진입보다는 추가 확인이 필요한 구간으로 보인다.', '실적 개선은 확인됐지만 밸류에이션 부담이 남아있어 성급한 판단보다는 관찰이 필요한 국면이다.' 목표가·저항선·지지선·가격 방향 예측 절대 금지. 위 필드들에서 이미 다룬 개별 사실을 재나열하지 말고, 그 사실들을 종합했을 때의 최종 판단만 담으세요.",
+  "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】단기 관찰 변수, mainAnalysisSections_*에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로 (예: '외국인 자금은 5일째 유출 중인데, 이는 방향 전환 여부를 아직 확인할 수 없다는 점에서 지켜볼 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지",
+  "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections_*에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지",
+  "finalVerdict": "【최대 90자, 절대 넘기지 말 것 — 반드시 1문장, 순수 서술형】mainAnalysisSections_background/flowSummary/valuationNote/watchPoint·sectorNarrative·riskFactors·shortTermOutlook·midTermOutlook 전체를 종합해 최종 결론을 압축하세요. 점수·등급·별점·숫자 표기 절대 금지 — 오직 문장으로만 판단을 전달하세요. 매매행위(매수/매도/추격매수/추격매도/진입/청산 등)를 직접 지목하지 말고 관찰·판단 어투로 순화하세요 — 예) '외부 호재로 상승했지만 수급은 아직 약해, 추격 진입보다는 추가 확인이 필요한 구간으로 보인다.', '실적 개선은 확인됐지만 밸류에이션 부담이 남아있어 성급한 판단보다는 관찰이 필요한 국면이다.' 목표가·저항선·지지선·가격 방향 예측 절대 금지. 위 필드들에서 이미 다룬 개별 사실을 재나열하지 말고, 그 사실들을 종합했을 때의 최종 판단만 담으세요.",
   "newsIssueClusters": [{"label": "이슈 라벨(8~16자 명사구, 예: 'HBM 신기술 표준 공개')", "articleIndexes": [0, 2]}]
 }
 
-위 JSON 스키마를 반드시 준수하세요. mainAnalysisSections의 4개 하위 필드(background/flowSummary/valuationNote/watchPoint)를 포함해 각 필드는 반드시 포함되어야 합니다(valuationNote는 데이터 없으면 빈 문자열 허용).
+위 JSON 스키마를 반드시 준수하세요. mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 4개 필드는 반드시 포함되어야 합니다(mainAnalysisSections_valuationNote는 데이터 없으면 빈 문자열 허용).
 규칙:
 - ${COMPLIANCE_PRINCIPLE}
+- JSON 키 순서 및 구조 변경 금지
 - riskFactors는 반드시 문자열 배열 (JSON array), 각 항목 25~40자
 - "목표가", "손절가", "매수 추천", "매도 추천", "권고", "정당화", "저항선", "지지선", "매물대", "과매수", "과매도", "지지 시험", "가격 방향", "우위를 점하는지", "상승 여력을 기대", "신호로 해석" 단어·표현을 사용하지 마세요
-- mainAnalysisSections의 각 필드·shortTermOutlook·midTermOutlook은 사실 서술에 전체 분량의 절반을 넘기지 말고, 나머지 절반은 "그 사실이 왜 유의미한지"에 쓰세요. 단, 그 유의미함이 향후 가격 방향 예측이어선 안 됩니다(가격이 오른다/내린다는 판단 금지, 지표의 성격·신뢰도·희소성에 대한 해석은 허용)
+- mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 각 필드·shortTermOutlook·midTermOutlook은 사실 서술에 전체 분량의 절반을 넘기지 말고, 나머지 절반은 "그 사실이 왜 유의미한지"에 쓰세요. 단, 그 유의미함이 향후 가격 방향 예측이어선 안 됩니다(가격이 오른다/내린다는 판단 금지, 지표의 성격·신뢰도·희소성에 대한 해석은 허용)
 - 데이터 포인트를 연결해서 해석하라는 지시가 있다고 근거 없이 억지로 연결하지 마세요 — 연결 지을 근거가 부족하면 "아직 명확하지 않다", "뚜렷한 연결고리는 확인되지 않는다"처럼 솔직하게 쓰는 것도 정답입니다
-- 같은 사실(52주 위치, 특정 수급 수치, 특정 뉴스 등)을 mainAnalysisSections 내부(background/flowSummary/valuationNote/watchPoint 서로간)·riskFactors·shortTermOutlook·midTermOutlook 여러 곳에서 반복 서술하지 마세요 — 각 필드는 서로 다른 내용을 담아야 합니다
-- 52주 고가/저가·PER/PBR 같은 정적 지표를 mainAnalysisSections.background의 핵심 근거 문장으로 쓰지 마세요 (스치듯 한 번 언급하는 것은 허용하되 그 숫자로 결론을 이끌어내지 말 것)
+- 같은 사실(52주 위치, 특정 수급 수치, 특정 뉴스 등)을 mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 서로간·riskFactors·shortTermOutlook·midTermOutlook 여러 곳에서 반복 서술하지 마세요 — 각 필드는 서로 다른 내용을 담아야 합니다
+- 52주 고가/저가·PER/PBR 같은 정적 지표를 mainAnalysisSections_background의 핵심 근거 문장으로 쓰지 마세요 (스치듯 한 번 언급하는 것은 허용하되 그 숫자로 결론을 이끌어내지 말 것)
 - financialsNarrative: [실적 추이]는 확정된 연간 실적이며 잠정치가 아닙니다 — "향후 실적이 개선될 것" 같은 전망이 아니라 "최근 N개년 추세가 이러하다"는 관찰로만 서술하세요
 - sectorNarrative: [업종 대비]는 "판단이 아닌 수치 비교"입니다 — 시장(KOSPI) 대비 비교와 같은 어투로, 우열을 평가하는 뉘앙스 없이 사실만 전달하세요
-- sectorNarrative와 mainAnalysisSections.valuationNote는 서로 다른 지표(등락률 vs PER/PBR)를 다루는 별개 필드입니다 — 절대 같은 지표를 양쪽에서 중복 언급하지 마세요
-- sectorNarrative·financialsNarrative·disclosureNarrative는 mainAnalysisSections·riskFactors·shortTermOutlook·midTermOutlook과 내용이 겹치면 안 됩니다 — 업종/실적/공시 이야기는 각각 그 필드에서만
+- sectorNarrative와 mainAnalysisSections_valuationNote는 서로 다른 지표(등락률 vs PER/PBR)를 다루는 별개 필드입니다 — 절대 같은 지표를 양쪽에서 중복 언급하지 마세요
+- sectorNarrative·financialsNarrative·disclosureNarrative는 mainAnalysisSections_background/flowSummary/valuationNote/watchPoint·riskFactors·shortTermOutlook·midTermOutlook과 내용이 겹치면 안 됩니다 — 업종/실적/공시 이야기는 각각 그 필드에서만
 - finalVerdict는 점수·등급·별점·숫자를 절대 포함하지 말고 순수 문장으로만 최종 판단을 전달하세요. "추격매수", "매수 타이밍" 같은 매매행위 직접 지목 대신 "추격 진입보다는 추가 확인이 필요한 구간", "성급한 판단보다는 관찰이 필요한 국면"처럼 관찰·판단 어투로 순화하세요.
 - newsIssueClusters: [뉴스 이슈 클러스터링용 전체 목록]의 기사가 2건 이상이고 서로 다른 사건(이슈)을 대표할 때만 채우세요(3~4개 이하 클러스터). label은 8~16자 명사구로 간결하게(문장형·완결된 문장 금지). 기사가 1건뿐이거나 사실상 하나의 사건만 다루고 있으면 억지로 나누지 말고 빈 배열 []을 반환하세요. 각 인덱스는 최대 하나의 클러스터에만 넣으세요(중복 금지)
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
@@ -675,16 +674,16 @@ ${disclosureBlock}
 - 리스크 지표: ${riskMetricsBlock}
 
 분석 포인트:
-1. 52주 레인지 내 현재 위치(고점/저점 대비 몇 % 위치인지)와 PER/PBR 수준을 사실로만 한 번 언급 — background에서 52주 위치는 스치듯, valuationNote에서 PER/PBR은 별도로, 둘 다 핵심 근거로 쓰지 말 것
-2. 외국인·기관 5일 수급 추이 관찰 — flowSummary에서 방향·규모 해석
-3. ${isBigMove ? `금일 ${changeRate >= 0 ? '급등' : '급락'}(${changeRate.toFixed(2)}%)의 배경을 위 뉴스 섹션 지침에 따라 background에서 명확히 서술 (뉴스 근거 vs 수급/기술적 추정 구분)` : '실적·뉴스와 결합하여 업황 및 촉매 요인을 background에서 관찰'}
+1. 52주 레인지 내 현재 위치(고점/저점 대비 몇 % 위치인지)와 PER/PBR 수준을 사실로만 한 번 언급 — mainAnalysisSections_background에서 52주 위치는 스치듯, mainAnalysisSections_valuationNote에서 PER/PBR은 별도로, 둘 다 핵심 근거로 쓰지 말 것
+2. 외국인·기관 5일 수급 추이 관찰 — mainAnalysisSections_flowSummary에서 방향·규모 해석
+3. ${isBigMove ? `금일 ${changeRate >= 0 ? '급등' : '급락'}(${changeRate.toFixed(2)}%)의 배경을 위 뉴스 섹션 지침에 따라 mainAnalysisSections_background에서 명확히 서술 (뉴스 근거 vs 수급/기술적 추정 구분)` : '실적·뉴스와 결합하여 업황 및 촉매 요인을 mainAnalysisSections_background에서 관찰'}
 4. 보유 기간·수익률과 함께 관찰된 특징 정리 (매매 전략을 지시하지 말 것)
-5. 수급 동향에서 외국인·기관과 개인의 매매 방향이 서로 반대인지 확인 (반대인 경우에만 그 대립 구도를 flowSummary에 명시)
-6. 뉴스 섹션의 논조(긍정/부정)와 실제 주가 흐름(금일 등락률·수익률)이 서로 반대 방향인지 확인 (괴리가 있는 경우에만 background에서 그 점을 강조)
+5. 수급 동향에서 외국인·기관과 개인의 매매 방향이 서로 반대인지 확인 (반대인 경우에만 그 대립 구도를 mainAnalysisSections_flowSummary에 명시)
+6. 뉴스 섹션의 논조(긍정/부정)와 실제 주가 흐름(금일 등락률·수익률)이 서로 반대 방향인지 확인 (괴리가 있는 경우에만 mainAnalysisSections_background에서 그 점을 강조)
 7. [직전 기업분석과의 차이]를 [직전 진단과의 간격] 지시에 따라 historyNarrative로 해석
-8. [내부 계산 지표] 중 최소 1개(급등이력 사례가 있으면 그것을 우선)를 watchPoint에서 반드시 활용 — 보유 정보(매입가 대비 관점)와 엮어서, 종목 리포트와는 다른 문장으로 서술
-9. [업종 대비]에 peer 데이터가 있으면 sectorNarrative를, [실적 추이]에 데이터가 있으면 financialsNarrative를, [최근 주요 공시]에 사례가 있으면 disclosureNarrative를 채우세요 — 데이터가 없으면 해당 필드는 빈 문자열로 두고 mainAnalysisSections 등 다른 필드에서 억지로 대신 언급하지 마세요. valuationNote(PER/PBR)와 sectorNarrative(등락률)는 서로 다른 지표이므로 데이터가 있어도 서로 겹치지 않게
-${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 비교로만 1회 언급하세요 (예: "같은 기간 ${benchmark.indexName}는 ${benchmark.indexChangeRate}%로, 이 종목이 시장 대비 ${(benchmark.stockProfitRate - benchmark.indexChangeRate) >= 0 ? '+' : ''}${(benchmark.stockProfitRate - benchmark.indexChangeRate).toFixed(2)}%p ${benchmark.stockProfitRate >= benchmark.indexChangeRate ? '더 상승' : '더 하락'}한 셈임" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)` : ''}
+8. [내부 계산 지표] 중 최소 1개(급등이력 사례가 있으면 그것을 우선)를 mainAnalysisSections_watchPoint에서 반드시 활용 — 보유 정보(매입가 대비 관점)와 엮어서, 종목 리포트와는 다른 문장으로 서술
+9. [업종 대비]에 peer 데이터가 있으면 sectorNarrative를, [실적 추이]에 데이터가 있으면 financialsNarrative를, [최근 주요 공시]에 사례가 있으면 disclosureNarrative를 채우세요 — 데이터가 없으면 해당 필드는 빈 문자열로 두고 mainAnalysisSections_* 등 다른 필드에서 억지로 대신 언급하지 마세요. mainAnalysisSections_valuationNote(PER/PBR)와 sectorNarrative(등락률)는 서로 다른 지표이므로 데이터가 있어도 서로 겹치지 않게
+${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 판단 없이 사실 비교로만 1회 언급하세요 (예: "같은 기간 ${benchmark.indexName}는 ${benchmark.indexChangeRate}%로, 이 종목이 시장 대비 ${(benchmark.stockProfitRate - benchmark.indexChangeRate) >= 0 ? '+' : ''}${(benchmark.stockProfitRate - benchmark.indexChangeRate).toFixed(2)}%p ${benchmark.stockProfitRate >= benchmark.indexChangeRate ? '더 상승' : '더 하락'}한 셈임" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)` : ''}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
@@ -918,17 +917,23 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
             .filter((c): c is { label: string; articleIndexes: number[] } => c !== null);
         };
 
-        // mainAnalysisSections(background/flowSummary/valuationNote/watchPoint) 정규화.
-        // 과거 mainAnalysis(단일 문자열) 소비처(공유페이지 DiagnosisView, ShareDropdown의
-        // description 슬라이스)를 계속 지원하기 위해, AI에게 flat 문자열을 별도로 다시
-        // 쓰게 하지 않고(토큰 절약) 서버가 4개 조각을 이어붙여 mainAnalysis를 채운다.
-        const rawSections = result!.mainAnalysisSections;
-        const mainAnalysisSections = (rawSections && typeof rawSections === 'object')
+        // mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 정규화.
+        // 2026-08-12: 타이핑 효과를 위해 하나의 'json' 필드였던 mainAnalysisSections를
+        // 4개의 독립 top-level 'string' 필드로 스키마 분리(lib/streaming-json-fields.ts
+        // DIAGNOSIS_FIELD_SPECS 참고) — 여기서 다시 하나의 객체로 재조립해 과거
+        // mainAnalysis(단일 문자열) 소비처(공유페이지 DiagnosisView, ShareDropdown의
+        // description 슬라이스)와 DB 저장 포맷을 그대로 유지한다(토큰 절약을 위해
+        // AI에게 flat 문자열을 별도로 다시 쓰게 하지 않고 서버가 4개 조각을 이어붙임).
+        const rawBackground    = result!.mainAnalysisSections_background;
+        const rawFlowSummary   = result!.mainAnalysisSections_flowSummary;
+        const rawValuationNote = result!.mainAnalysisSections_valuationNote;
+        const rawWatchPoint    = result!.mainAnalysisSections_watchPoint;
+        const mainAnalysisSections = (rawBackground !== undefined || rawFlowSummary !== undefined || rawValuationNote !== undefined || rawWatchPoint !== undefined)
           ? {
-              background:    toStr((rawSections as Record<string, unknown>).background),
-              flowSummary:   toStr((rawSections as Record<string, unknown>).flowSummary),
-              valuationNote: toStr((rawSections as Record<string, unknown>).valuationNote),
-              watchPoint:    toStr((rawSections as Record<string, unknown>).watchPoint),
+              background:    toStr(rawBackground),
+              flowSummary:   toStr(rawFlowSummary),
+              valuationNote: toStr(rawValuationNote),
+              watchPoint:    toStr(rawWatchPoint),
             }
           : null;
         const mainAnalysis = mainAnalysisSections
@@ -982,9 +987,14 @@ ${benchmark ? `\n벤치마크 수치는 background에서 판단 없이 사실 �
         // finalResult 값으로 한 번 더 통지해 최종 정확성을 보장한다(emitIfChanged가
         // 이미 같은 값이면 중복 전송을 알아서 억제). historyNarrative는 finalResult에서
         // history.narrative로 중첩돼 있으므로 별도로 꺼내 top-level 키로 되돌려 보낸다
-        // (프론트 applyDiagnosisField가 다시 history.narrative로 매핑).
+        // (프론트 applyDiagnosisField가 다시 history.narrative로 매핑). mainAnalysisSections도
+        // 마찬가지로 finalResult에서는 재조립된 객체 형태지만, DIAGNOSIS_FIELD_SPECS는
+        // 4개의 flat 키로 도는 루프이므로 여기서도 4개로 다시 풀어서 넣어야 한다.
         const reconcileValues: Record<string, unknown> = {
-          mainAnalysisSections: finalResult.mainAnalysisSections,
+          mainAnalysisSections_background:    finalResult.mainAnalysisSections?.background,
+          mainAnalysisSections_flowSummary:   finalResult.mainAnalysisSections?.flowSummary,
+          mainAnalysisSections_valuationNote: finalResult.mainAnalysisSections?.valuationNote,
+          mainAnalysisSections_watchPoint:    finalResult.mainAnalysisSections?.watchPoint,
           historyNarrative:     finalResult.history.narrative,
           sectorNarrative:      finalResult.sectorNarrative,
           financialsNarrative:  finalResult.financialsNarrative,

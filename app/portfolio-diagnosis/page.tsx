@@ -180,8 +180,21 @@ function emptyHolding(): HoldingInput {
   return { id: uid(), ticker: '', name: '', avgPrice: '', quantity: '', buyDate: '', _q: '', _results: [], _open: false };
 }
 
+// summarySections_background/newsInterpretation/historicalComparison/judgment 4개
+// top-level 키(lib/streaming-json-fields.ts PORTFOLIO_SUMMARY_FIELD_SPECS 참고,
+// 2026-08-12 스키마 분리)를 summarySections 하위 필드명으로 되돌리는 매핑 — 이 키로
+// 도착한 값(partial 포함)을 prev.summarySections 객체 안에 merge한다
+// (app/diagnosis/page.tsx의 MAIN_ANALYSIS_SECTION_KEYS와 동일 패턴).
+const SUMMARY_SECTION_KEYS: Record<string, keyof PortfolioSummarySections> = {
+  summarySections_background: 'background',
+  summarySections_newsInterpretation: 'newsInterpretation',
+  summarySections_historicalComparison: 'historicalComparison',
+  summarySections_judgment: 'judgment',
+};
+
 // Stage2 'portfolio-field(-partial)' 이벤트의 key를 PortfolioResult 형태로 매핑.
-// historyNarrative/holdingPeriodNarrative만 중첩 객체 안으로 들어가고 나머지는 최상위.
+// historyNarrative/holdingPeriodNarrative는 중첩 객체 안으로 들어가고, summarySections_*
+// 4개는 summarySections 객체 안으로 merge하며, 나머지는 최상위 그대로.
 function applyPortfolioField(prev: StreamedResult | null, key: string, value: unknown): StreamedResult {
   const base = prev ?? {};
   if (key === 'historyNarrative') {
@@ -194,6 +207,17 @@ function applyPortfolioField(prev: StreamedResult | null, key: string, value: un
     return {
       ...base,
       holdingPeriod: { ...(base.holdingPeriod ?? { longest: null, mostRecent: null }), narrative: value as string },
+    };
+  }
+  const sectionKey = SUMMARY_SECTION_KEYS[key];
+  if (sectionKey) {
+    return {
+      ...base,
+      summarySections: {
+        background: '', newsInterpretation: '', historicalComparison: '', judgment: '',
+        ...base.summarySections,
+        [sectionKey]: value as string,
+      },
     };
   }
   return { ...base, [key]: value };
@@ -810,19 +834,33 @@ export default function PortfolioDiagnosisPage() {
                   const sections = result.summarySections;
                   const hasSections = sections && Object.values(sections).some(Boolean);
                   if (hasSections) {
+                    // 2026-08-12: summarySections를 4개의 독립 string 필드로 스키마 분리(서버가
+                    // summarySections_background 등 4개 top-level 필드를 스트리밍하고, 클라이언트가
+                    // 다시 이 객체로 merge — applyPortfolioField 참고)한 덕분에 institutionalFlow와
+                    // 동일한 패턴(글자 있으면 표시+커서, 아직 생성 중이면 스켈레톤, 완료 후에도
+                    // 비어있으면(선택 필드) 숨김)으로 4블록을 각각 독립적으로 타이핑 렌더링한다.
                     const blocks = [
-                      { label: '구조적 배경', text: sections.background },
-                      { label: '뉴스 해석',   text: sections.newsInterpretation },
-                      { label: '과거 유사 이력', text: sections.historicalComparison },
-                      { label: '종합 판단',   text: sections.judgment },
-                    ].filter((b) => b.text);
+                      { key: 'summarySections_background',          label: '구조적 배경',   text: sections.background },
+                      { key: 'summarySections_newsInterpretation',   label: '뉴스 해석',     text: sections.newsInterpretation },
+                      { key: 'summarySections_historicalComparison', label: '과거 유사 이력', text: sections.historicalComparison },
+                      { key: 'summarySections_judgment',             label: '종합 판단',     text: sections.judgment },
+                    ];
                     return (
                       <div className="flex flex-col gap-4">
                         {blocks.map((b) => (
-                          <div key={b.label}>
-                            <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
-                            <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
-                          </div>
+                          b.text ? (
+                            <div key={b.label}>
+                              <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                              <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>
+                                {b.text}{typingPortfolioKey === b.key && <TypingCursor />}
+                              </p>
+                            </div>
+                          ) : !streamFinished ? (
+                            <div key={b.label}>
+                              <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                              <FieldSkeleton lines={2} />
+                            </div>
+                          ) : null
                         ))}
                       </div>
                     );

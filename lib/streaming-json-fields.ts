@@ -257,12 +257,18 @@ export const PORTFOLIO_STOCK_FIELD_SPECS: FieldSpec[] = [
 ];
 
 // 포트폴리오 종합 분석(Stage 2) 스키마 — PORTFOLIO_SUMMARY_INSTRUCTIONS 키 순서와
-// 반드시 일치해야 한다. sectors·summarySections는 'json'(중첩 객체) — partial 없이
-// 완결 시에만 노출(2026-08-03: summary가 summarySections로 바뀌며 문자열 typing
-// 효과는 사라지고 sectors처럼 완결 시 한 번에 노출되는 방식이 됨 — 소제목 구조를
-// 얻는 대신 감수한 트레이드오프).
+// 반드시 일치해야 한다. sectors는 'json'(중첩 객체) — partial 없이 완결 시에만 노출.
+// 2026-08-12: summarySections(json, partial 미지원)를 4개 독립 string 필드로 분리 —
+// 기업분석 mainAnalysisSections 분리(DIAGNOSIS_FIELD_SPECS 참고)와 동일한 이유·동일한
+// 패턴. background/newsInterpretation/historicalComparison/judgment는 원래도 flat
+// string이었으므로 top-level로 끌어올리면 institutionalFlow 등과 동일하게 글자 단위
+// partial(타이핑 효과)을 그대로 받는다. route.ts가 스트림 종료 후 이 4개를
+// summarySections 객체로 재조립해 DB 저장·공유페이지 등 기존 소비처는 그대로 유지한다.
 export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
-  { key: 'summarySections', type: 'json', emit: true },
+  { key: 'summarySections_background',           type: 'string', emit: true },
+  { key: 'summarySections_newsInterpretation',    type: 'string', emit: true },
+  { key: 'summarySections_historicalComparison',  type: 'string', emit: true },
+  { key: 'summarySections_judgment',              type: 'string', emit: true },
   { key: 'sectors', type: 'json', emit: true },
   // 2026-08-04: {text,category} 객체 배열로 구조화(macro/company 태깅) — sectors와 동일하게 'json'
   { key: 'riskFactors', type: 'json', emit: true },
@@ -282,8 +288,17 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
 // 이후 모든 필드가 증분 파싱을 못 받는다. flowPercentage는 어차피 서버가 KIS 실측
 // 수급 데이터로 재계산해 Claude 응답값을 항상 덮어쓰므로(route.ts) 프롬프트 스키마
 // 자체에서 삭제했다 — 이 spec은 그 삭제된 스키마를 그대로 반영한다.
+// 2026-08-12: mainAnalysisSections(json, partial 미지원)를 4개 독립 string 필드로
+// 분리 — sectors 같은 중첩 객체 배열과 달리 이 4개는 원래도 flat string이었으므로
+// (background/flowSummary/valuationNote/watchPoint), top-level로 끌어올리면
+// institutionalFlow 등과 동일하게 글자 단위 partial(타이핑 효과)을 그대로 받는다.
+// route.ts가 스트림 종료 후 이 4개를 mainAnalysisSections 객체로 재조립해 DB
+// 저장·공유페이지 등 기존 소비처는 그대로 유지한다.
 export const DIAGNOSIS_FIELD_SPECS: FieldSpec[] = [
-  { key: 'mainAnalysisSections', type: 'json',     emit: true },
+  { key: 'mainAnalysisSections_background',    type: 'string', emit: true },
+  { key: 'mainAnalysisSections_flowSummary',   type: 'string', emit: true },
+  { key: 'mainAnalysisSections_valuationNote', type: 'string', emit: true },
+  { key: 'mainAnalysisSections_watchPoint',    type: 'string', emit: true },
   { key: 'historyNarrative',     type: 'string',   emit: true },
   { key: 'sectorNarrative',      type: 'string',   emit: true },
   { key: 'financialsNarrative',  type: 'string',   emit: true },

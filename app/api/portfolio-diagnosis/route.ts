@@ -81,22 +81,23 @@ const PORTFOLIO_SUMMARY_SYSTEM = `${COMPLIANCE_PRINCIPLE} ${WORDING_SOFTENING_PR
 // 거의 100% 재진술이라 필드 자체를 제거(통합이 아니라 삭제). historyNarrative(직전 진단
 // 대비)·contributionNarrative(오늘 손익 기여도)·holdingPeriodNarrative(3-1)·구조적
 // shortTermOutlook/midTermOutlook(3-2)·coMovementNarrative(섹터 동조화 해석) 신설.
-const PORTFOLIO_SUMMARY_INSTRUCTIONS = `{"summarySections":{"background":"【1~2문장】전체 수익률의 구조적 배경(섹터 편중·수급 현황)을 서술하세요. 총수익률·평가손익 숫자(예: '-19.44%', '+123만원')를 문장에 직접 쓰지 마세요 — 이미 상단 카드에 표시됩니다.","newsInterpretation":"【1~2문장, 뉴스가 있는 종목이 하나라도 있을 때만 — 없으면 빈 문자열 \\"\\"】뉴스가 있는 종목은 그 뉴스가 '왜' 나왔는지, 시장이 왜 그렇게 반응했는지(또는 반응하지 않았는지)까지 배경 해석하세요 — 제목만 스치듯 언급 금지, 최소 1개 종목은 깊이 있게(예: 컨센서스 조정 근거, 계약 구조 변화 등 구체적 배경).","historicalComparison":"【1문장, [포트폴리오 내 과거 유사 급등락 이력]에 데이터가 있을 때만 — 없으면 빈 문자열 \\"\\"】그 데이터를 활용해 '이번 흐름이 과거와 비슷한지 다른지' 판단하세요.","judgment":"【1문장, 판단형(필수)】현재 상황의 성격을 판단하는 문장(예: '이번 하락은 개별 종목 이슈보다 업종 전체 심리 위축에 가깝다', '이 흐름이 지속 가능한지는 다음 실적에서 확인될 필요가 있다') — 미래 수익률이나 가격을 예측하는 것이 아니라 현재 상황의 성격을 판단해야 합니다. 벤치마크·직전 진단 대비·손익 기여도 수치는 각각 별도 필드가 있으니 여기서 언급하지 마세요."},"sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],"riskFactors":[{"text":"포트폴리오 전체 관점의 리스크 요인1(수치 포함, 손실 종목 비중·섹터 과집중·벤치마크 대비 부진·개별 종목 변동성 등 근거)","category":"macro"|"company"},{"text":"요인2","category":"macro"|"company"},{"text":"요인3","category":"macro"|"company"}],"opportunityFactors":["포트폴리오 전체 관점에서 관찰 가능한 긍정적 데이터 포인트 1~3개(수치·근거 포함, riskFactors와 동일 형식) — 이미 본문(종목별 문단·summarySections)에 나온 개별 사실을 그대로 복사하지 말고, 포트폴리오 관점에서 종합해 새롭게 서술. 예) 'DL이앤씨와 종근당 모두 외국인·기관의 저점 매수 성격 자금 유입이 관찰되는데, 이는 반도체 업황 심리 위축과 달리 개별 밸류에이션 매력에 반응하는 흐름으로 풀이됩니다.' 뚜렷한 긍정 신호가 없으면 억지로 지어내지 말고 [\"현재 뚜렷한 긍정 신호가 부족합니다\"] 하나만 반환하거나 1~2개로 줄여도 됨"],"historyNarrative":"【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로. 보유 종목 구성이 바뀌었으면([직전 진단과의 차이]에 명시됨) 반드시 그 사실을 언급할 것","contributionNarrative":"【[오늘 손익 기여도]에 제공된 상위 기여 종목을 근거로 1~2문장 — 구체적 금액은 화면에 이미 별도로 표시되므로 여기서는 숫자를 반복하지 말고(금액을 다시 옮겨 적지 말 것) 어떤 종목이 왜 기여했는지 의미 위주로만 서술】예) '오늘 포트폴리오 평가손익 변화는 대부분 종근당 하락에서 발생했습니다.' 매수/매도 권유가 아니라 순수 관찰 서술, 데이터가 없으면 빈 문자열","holdingPeriodNarrative":"【[보유 기간 비교]에 데이터가 있을 때만 1문장 — 없으면 빈 문자열】구체적 수익률 수치는 화면에 별도 표시되므로 여기서는 편입 시점에 따라 성과가 왜 갈렸는지(업황 변화, 매수 시점의 가격 수준 등) 해석 위주로. 매수 타이밍을 지시하거나 '그래서 지금 사야 한다'는 식으로 연결 금지","coMovementNarrative":"【[섹터 동조화 관찰 데이터]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열】단순히 '같은 방향으로 움직였다'는 사실 재진술에 그치지 말고, 왜 그런 동조화가 생겼는지(개별 재료보다 업종 심리가 더 강하게 작용했는지 등)와 포트폴리오 분산 효과 관점에서 어떤 함의가 있는지까지 서술. 예) '개별 종목 재료가 서로 다름에도 같은 방향으로 움직였다는 것은 업종 전체 심리가 더 강하게 작용했다는 뜻이며, 분산 투자 효과가 기대만큼 작동하지 않고 있음을 시사합니다.'","shortTermOutlook":"【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】포트폴리오 '구조' 관점의 단기 관찰 변수 — 종목 나열 금지, 섹터 비중이 가장 큰 구조로 인해 어떤 단기 이벤트에 노출돼 있는지 사실 1개 + 그것이 왜 지켜볼 가치가 있는지 1구절. 예) '반도체 섹터가 60%를 차지하는 구조상, 다음 주 메모리 가격·실적 발표 결과가 포트폴리오 전체에 영향을 줄 수 있어 지켜볼 변수다.' '수익률이 갈릴 수 있다'/'상승·하락 여력' 같이 가격을 예측하는 표현 절대 금지","midTermOutlook":"【최대 120자, 절대 넘기지 말 것 — 반드시 1문장】포트폴리오 '구조' 관점의 중기 관찰 변수 — 종목 나열 금지, 괄호로 부연 수치를 나열하지 말 것, 섹터 편중·구성 특성에서 비롯되는 중기 취약점/기회 사실 1개 + 그것이 왜 지켜볼 가치가 있는지 1구절만 짧게, 가격 방향·수익률 예측 절대 금지"}
+const PORTFOLIO_SUMMARY_INSTRUCTIONS = `{"summarySections_background":"【1~2문장】전체 수익률의 구조적 배경(섹터 편중·수급 현황)을 서술하세요. 총수익률·평가손익 숫자(예: '-19.44%', '+123만원')를 문장에 직접 쓰지 마세요 — 이미 상단 카드에 표시됩니다.","summarySections_newsInterpretation":"【1~2문장, 뉴스가 있는 종목이 하나라도 있을 때만 — 없으면 빈 문자열 \\"\\"】뉴스가 있는 종목은 그 뉴스가 '왜' 나왔는지, 시장이 왜 그렇게 반응했는지(또는 반응하지 않았는지)까지 배경 해석하세요 — 제목만 스치듯 언급 금지, 최소 1개 종목은 깊이 있게(예: 컨센서스 조정 근거, 계약 구조 변화 등 구체적 배경).","summarySections_historicalComparison":"【1문장, [포트폴리오 내 과거 유사 급등락 이력]에 데이터가 있을 때만 — 없으면 빈 문자열 \\"\\"】그 데이터를 활용해 '이번 흐름이 과거와 비슷한지 다른지' 판단하세요.","summarySections_judgment":"【1문장, 판단형(필수)】현재 상황의 성격을 판단하는 문장(예: '이번 하락은 개별 종목 이슈보다 업종 전체 심리 위축에 가깝다', '이 흐름이 지속 가능한지는 다음 실적에서 확인될 필요가 있다') — 미래 수익률이나 가격을 예측하는 것이 아니라 현재 상황의 성격을 판단해야 합니다. 벤치마크·직전 진단 대비·손익 기여도 수치는 각각 별도 필드가 있으니 여기서 언급하지 마세요.","sectors":[{"name":"섹터명","tickers":["코드"],"weight":정수,"warning":boolean}],"riskFactors":[{"text":"포트폴리오 전체 관점의 리스크 요인1(수치 포함, 손실 종목 비중·섹터 과집중·벤치마크 대비 부진·개별 종목 변동성 등 근거)","category":"macro"|"company"},{"text":"요인2","category":"macro"|"company"},{"text":"요인3","category":"macro"|"company"}],"opportunityFactors":["포트폴리오 전체 관점에서 관찰 가능한 긍정적 데이터 포인트 1~3개(수치·근거 포함, riskFactors와 동일 형식) — 이미 본문(종목별 문단·summarySections_*)에 나온 개별 사실을 그대로 복사하지 말고, 포트폴리오 관점에서 종합해 새롭게 서술. 예) 'DL이앤씨와 종근당 모두 외국인·기관의 저점 매수 성격 자금 유입이 관찰되는데, 이는 반도체 업황 심리 위축과 달리 개별 밸류에이션 매력에 반응하는 흐름으로 풀이됩니다.' 뚜렷한 긍정 신호가 없으면 억지로 지어내지 말고 [\"현재 뚜렷한 긍정 신호가 부족합니다\"] 하나만 반환하거나 1~2개로 줄여도 됨"],"historyNarrative":"【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로. 보유 종목 구성이 바뀌었으면([직전 진단과의 차이]에 명시됨) 반드시 그 사실을 언급할 것","contributionNarrative":"【[오늘 손익 기여도]에 제공된 상위 기여 종목을 근거로 1~2문장 — 구체적 금액은 화면에 이미 별도로 표시되므로 여기서는 숫자를 반복하지 말고(금액을 다시 옮겨 적지 말 것) 어떤 종목이 왜 기여했는지 의미 위주로만 서술】예) '오늘 포트폴리오 평가손익 변화는 대부분 종근당 하락에서 발생했습니다.' 매수/매도 권유가 아니라 순수 관찰 서술, 데이터가 없으면 빈 문자열","holdingPeriodNarrative":"【[보유 기간 비교]에 데이터가 있을 때만 1문장 — 없으면 빈 문자열】구체적 수익률 수치는 화면에 별도 표시되므로 여기서는 편입 시점에 따라 성과가 왜 갈렸는지(업황 변화, 매수 시점의 가격 수준 등) 해석 위주로. 매수 타이밍을 지시하거나 '그래서 지금 사야 한다'는 식으로 연결 금지","coMovementNarrative":"【[섹터 동조화 관찰 데이터]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열】단순히 '같은 방향으로 움직였다'는 사실 재진술에 그치지 말고, 왜 그런 동조화가 생겼는지(개별 재료보다 업종 심리가 더 강하게 작용했는지 등)와 포트폴리오 분산 효과 관점에서 어떤 함의가 있는지까지 서술. 예) '개별 종목 재료가 서로 다름에도 같은 방향으로 움직였다는 것은 업종 전체 심리가 더 강하게 작용했다는 뜻이며, 분산 투자 효과가 기대만큼 작동하지 않고 있음을 시사합니다.'","shortTermOutlook":"【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】포트폴리오 '구조' 관점의 단기 관찰 변수 — 종목 나열 금지, 섹터 비중이 가장 큰 구조로 인해 어떤 단기 이벤트에 노출돼 있는지 사실 1개 + 그것이 왜 지켜볼 가치가 있는지 1구절. 예) '반도체 섹터가 60%를 차지하는 구조상, 다음 주 메모리 가격·실적 발표 결과가 포트폴리오 전체에 영향을 줄 수 있어 지켜볼 변수다.' '수익률이 갈릴 수 있다'/'상승·하락 여력' 같이 가격을 예측하는 표현 절대 금지","midTermOutlook":"【최대 120자, 절대 넘기지 말 것 — 반드시 1문장】포트폴리오 '구조' 관점의 중기 관찰 변수 — 종목 나열 금지, 괄호로 부연 수치를 나열하지 말 것, 섹터 편중·구성 특성에서 비롯되는 중기 취약점/기회 사실 1개 + 그것이 왜 지켜볼 가치가 있는지 1구절만 짧게, 가격 방향·수익률 예측 절대 금지"}
 
-위 JSON 스키마를 반드시 준수하세요. summarySections의 4개 하위 필드(background/newsInterpretation/historicalComparison/judgment)를 포함해 각 필드는 반드시 포함되어야 합니다(newsInterpretation·historicalComparison은 데이터 없으면 빈 문자열 허용, background·judgment는 필수).
+위 JSON 스키마를 반드시 준수하세요. summarySections_background/newsInterpretation/historicalComparison/judgment 4개 필드는 반드시 포함되어야 합니다(summarySections_newsInterpretation·summarySections_historicalComparison은 데이터 없으면 빈 문자열 허용, summarySections_background·summarySections_judgment는 필수).
 규칙:
+- JSON 키 순서 및 구조 변경 금지
 - sectors weight 합계=100
 - sectors[].warning은 오직 그 섹터의 weight(비중) 숫자만으로 기계적으로 판정하세요 — weight가 40 이상이면 true, 40 미만이면 false입니다. 종목의 MDD·변동성·"포트폴리오 리스크 참고 데이터"에 언급된 고변동성 종목 여부는 이 판정과 완전히 무관하니 절대 근거로 삼지 마세요 — 그 섹터에 아무리 변동성이 큰 종목이 있어도 weight가 40 미만이면 반드시 false여야 합니다. 같은 weight를 가진 섹터는 항상 같은 warning 값을 가져야 합니다.
 - riskFactors는 개별 종목이 아니라 포트폴리오 전체 구조(손실 비중·섹터 편중·벤치마크 대비·변동성)를 보는 관점으로 작성하세요
 - riskFactors[].category는 그 요인의 성격에 따라 "macro"(업종 전체 심리·거시 환경·섹터 공통 이슈처럼 개별 종목을 넘어선 요인) 또는 "company"(특정 종목의 손실 비중·개별 변동성·그 종목만의 이슈처럼 종목 단위 요인) 중 하나로만 판정하세요 — 두 성격이 섞인 요인이면 더 근본적인 원인 쪽으로 판정
 - opportunityFactors는 riskFactors와 동일한 컴플라이언스 원칙이 적용됩니다 — "매수 신호"·"지금이 기회"처럼 투자를 유인하는 표현이 아니라 어디까지나 "관찰 가능한 긍정적 데이터 포인트" 수준으로 서술하세요. 목표가·매수 추천·"상승 여력" 같은 표현 절대 금지
 - shortTermOutlook/midTermOutlook은 반드시 "이 포트폴리오 구조가~" 식으로 시작하는 상위 종합 문장이어야 하며, "삼성전자는 ~, SK하이닉스는 ~" 식으로 종목을 순서대로 나열하는 문장은 금지입니다. 목표가·손절가·매수매도 지시·저항선·지지선·가격 방향 예측 금지 — 관찰된 사실만 서술하고 그 사실이 앞으로 수익률에 어떤 영향을 줄지 예측하지 마세요
-- 뉴스가 있는 종목은 그 이슈를 근거로 언급하고, 뉴스가 없는 종목은 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요. "관련 뉴스 없음"이라는 이유만으로 그 종목을 summarySections.newsInterpretation에서 아예 빼지 마세요 — 뉴스가 없다는 사실 자체도 관찰(예: '특별한 뉴스 없이 수급 요인으로 움직였다')로 서술할 수 있습니다
-- 벤치마크 수치는 별도 카드로 이미 표시되므로 summarySections·historyNarrative 등 어디에서도 다시 언급하지 마세요
-- summarySections의 각 필드·riskFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·coMovementNarrative·shortTermOutlook·midTermOutlook 서로 같은 사실을 반복 서술하지 마세요 — 각 필드는 서로 다른 내용을 담아야 합니다
+- 뉴스가 있는 종목은 그 이슈를 근거로 언급하고, 뉴스가 없는 종목은 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요. "관련 뉴스 없음"이라는 이유만으로 그 종목을 summarySections_newsInterpretation에서 아예 빼지 마세요 — 뉴스가 없다는 사실 자체도 관찰(예: '특별한 뉴스 없이 수급 요인으로 움직였다')로 서술할 수 있습니다
+- 벤치마크 수치는 별도 카드로 이미 표시되므로 summarySections_*·historyNarrative 등 어디에서도 다시 언급하지 마세요
+- summarySections_background/newsInterpretation/historicalComparison/judgment 각 필드·riskFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·coMovementNarrative·shortTermOutlook·midTermOutlook 서로 같은 사실을 반복 서술하지 마세요 — 각 필드는 서로 다른 내용을 담아야 합니다
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
 - ${MARKET_DAY_GROUNDING_INSTRUCTION}
-- summarySections·riskFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
+- summarySections_*·riskFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
 
 // 2026-07-13 "직전 진단과의 간격"에 따라 어조를 분기 — 기업분석과 동일한 이유(진단 빈도가
 // 사용자마다 다름). 포트폴리오는 보유 종목 구성 변화 자체가 관찰 대상이 될 수 있어(기업분석의
@@ -588,7 +589,9 @@ async function analyzePortfolioSummary(
       cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
     });
     const parsed = parseAiJson(fullText, {
-      summarySections: EMPTY_SUMMARY_SECTIONS, sectors: [],
+      summarySections_background: '', summarySections_newsInterpretation: '',
+      summarySections_historicalComparison: '', summarySections_judgment: '',
+      sectors: [],
       riskFactors: [], opportunityFactors: [], historyNarrative: '', contributionNarrative: '',
       holdingPeriodNarrative: '', coMovementNarrative: '', shortTermOutlook: '', midTermOutlook: '',
     });
@@ -597,7 +600,9 @@ async function analyzePortfolioSummary(
     parsed.riskFactors = sanitizeRiskFactors(parsed.riskFactors);
 
     // 정합성 보정 — 증분 파서가 놓쳤거나 다르게 뽑았어도 전체 재파싱 결과로 덮어써서
-    // 최종 정확성을 보장(종목분석과 동일 원칙).
+    // 최종 정확성을 보장(종목분석과 동일 원칙). PORTFOLIO_SUMMARY_FIELD_SPECS가
+    // summarySections_background 등 4개 flat 키를 갖고 있으므로 이 루프가 그대로
+    // parsed의 flat 키를 읽어 재전송한다(별도 분기 불필요).
     for (const spec of PORTFOLIO_SUMMARY_FIELD_SPECS) {
       if (!spec.emit) continue;
       const raw = (parsed as unknown as Record<string, unknown>)[spec.key];
@@ -605,12 +610,18 @@ async function analyzePortfolioSummary(
       onField(spec.key, raw);
     }
 
-    // summarySections 4조각을 이어붙여 기존 summary(문자열) 필드를 계속 채운다 —
-    // 공유페이지(app/share/[id]/page.tsx의 PortfolioView)가 d.summary를 그대로
-    // 렌더링하므로 과거 소비처 호환을 위해 AI에게 flat 문자열을 별도로 다시
-    // 쓰게 하지 않고 서버가 조립한다(기업분석 mainAnalysis와 동일 패턴). 스트리밍
-    // 채널에도 동일하게 실어보내 프론트가 즉시 받을 수 있게 한다.
-    const summarySections = parsed.summarySections ?? EMPTY_SUMMARY_SECTIONS;
+    // 2026-08-12: 타이핑 효과를 위해 summarySections(json)를 4개의 독립 top-level
+    // 'string' 필드로 스키마 분리 — 여기서 다시 하나의 객체로 재조립한다. 4조각을
+    // 이어붙여 기존 summary(문자열) 필드도 계속 채운다 — 공유페이지(app/share/[id]/page.tsx의
+    // PortfolioView)가 d.summary를 그대로 렌더링하므로 과거 소비처 호환을 위해 AI에게
+    // flat 문자열을 별도로 다시 쓰게 하지 않고 서버가 조립한다(기업분석 mainAnalysis와
+    // 동일 패턴). 스트리밍 채널에도 동일하게 실어보내 프론트가 즉시 받을 수 있게 한다.
+    const summarySections: PortfolioSummarySections = {
+      background:           typeof parsed.summarySections_background === 'string' ? parsed.summarySections_background : '',
+      newsInterpretation:    typeof parsed.summarySections_newsInterpretation === 'string' ? parsed.summarySections_newsInterpretation : '',
+      historicalComparison:  typeof parsed.summarySections_historicalComparison === 'string' ? parsed.summarySections_historicalComparison : '',
+      judgment:              typeof parsed.summarySections_judgment === 'string' ? parsed.summarySections_judgment : '',
+    };
     const flatSummary = joinSummarySections(summarySections);
     onField('summary', flatSummary);
 
@@ -623,7 +634,7 @@ async function analyzePortfolioSummary(
       console.warn('[PORTFOLIO-DIAGNOSIS] 포트폴리오 종합 요약 시간적 사실관계 불일치 감지 (재생성 없음):', check);
     }
 
-    return { ...parsed, summary: flatSummary };
+    return { ...parsed, summary: flatSummary, summarySections };
   } catch (e) {
     console.error('[PORTFOLIO-DIAGNOSIS] 종합 분석 실패:', e);
     return {

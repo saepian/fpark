@@ -303,15 +303,28 @@ function StatDelta({ label, value, positive }: { label: string; value: string; p
 // 렌더링하고, 없으면(과거 레코드/JSON 파싱 실패 fallback) 기존처럼 mainAnalysis 문자열을
 // 그대로 한 문단으로 렌더링한다. 두 경로가 항상 공존해야 과거 저장된 stock_diagnosis
 // 레코드도 계속 정상적으로 보인다.
-function MainAnalysisBody({ result, isGenerating }: { result: DiagnosisResult; isGenerating?: boolean }) {
+// 2026-08-12: mainAnalysisSections를 4개의 독립 string 필드로 스키마 분리(서버가
+// mainAnalysisSections_background 등 4개 top-level 필드를 스트리밍하고, 클라이언트가
+// 다시 이 객체로 merge — app/diagnosis/page.tsx의 applyDiagnosisField 참고)한 덕분에
+// institutionalFlow/sectorNarrative와 동일한 패턴(글자 있으면 표시+커서, 생성 중이면
+// 스켈레톤, 아니면 숨김)으로 4블록을 각각 독립적으로 타이핑 렌더링할 수 있게 됐다.
+const MAIN_ANALYSIS_BLOCKS = [
+  { key: 'mainAnalysisSections_background',    field: 'background',    label: '오늘의 주가 배경' },
+  { key: 'mainAnalysisSections_flowSummary',   field: 'flowSummary',   label: '수급 동향' },
+  { key: 'mainAnalysisSections_valuationNote', field: 'valuationNote', label: '밸류에이션' },
+  { key: 'mainAnalysisSections_watchPoint',    field: 'watchPoint',    label: '관찰 포인트' },
+] as const;
+
+function MainAnalysisBody({ result, isGenerating, typingKey }: { result: DiagnosisResult; isGenerating?: boolean; typingKey?: string | null }) {
   const s = result.mainAnalysisSections;
+  // 신규 리포트는 스트리밍 도중에도 mainAnalysisSections가 (빈 문자열 포함) 항상 존재하므로
+  // (applyDiagnosisField가 최초 merge 시 4개 필드를 빈 문자열로 채워둠), 과거 레코드(완전
+  // undefined)만 이 분기로 떨어져 기존 mainAnalysis 문자열 폴백을 그대로 사용한다.
   if (!s) {
-    // mainAnalysisSections는 'json' 타입 필드라 타이핑 효과 없이 완결 시 한 번에 도착한다
-    // (포트폴리오진단의 summarySections와 동일한 전례) — 그 사이엔 스켈레톤으로 대기.
     if (isGenerating && !result.mainAnalysis) {
       return (
         <div className="flex flex-col gap-3.5">
-          {['오늘의 주가 배경', '수급 동향', '밸류에이션', '관찰 포인트'].map((label) => (
+          {MAIN_ANALYSIS_BLOCKS.map(({ label }) => (
             <div key={label}>
               <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{label}</p>
               <FieldSkeleton lines={2} />
@@ -323,20 +336,24 @@ function MainAnalysisBody({ result, isGenerating }: { result: DiagnosisResult; i
     return <p className="text-xs text-slate-300 leading-relaxed">{result.mainAnalysis}</p>;
   }
 
-  const blocks = [
-    { label: '오늘의 주가 배경', text: s.background },
-    { label: '수급 동향',       text: s.flowSummary },
-    { label: '밸류에이션',       text: s.valuationNote },
-    { label: '관찰 포인트',      text: s.watchPoint },
-  ].filter((b) => b.text);
+  const blocks = MAIN_ANALYSIS_BLOCKS.map((b) => ({ ...b, text: s[b.field] }));
 
   return (
     <div className="flex flex-col gap-3.5">
       {blocks.map((b) => (
-        <div key={b.label}>
-          <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
-          <p className="text-xs text-slate-300 leading-relaxed">{b.text}</p>
-        </div>
+        b.text ? (
+          <div key={b.label}>
+            <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {b.text}{typingKey === b.key && <TypingCursor />}
+            </p>
+          </div>
+        ) : isGenerating ? (
+          <div key={b.label}>
+            <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
+            <FieldSkeleton lines={2} />
+          </div>
+        ) : null
       ))}
     </div>
   );
@@ -548,7 +565,7 @@ export default function DiagnosisReport({
                   <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>오늘의 기업 분석</p>
                 </div>
               </div>
-              <MainAnalysisBody result={result} isGenerating={isGenerating} />
+              <MainAnalysisBody result={result} isGenerating={isGenerating} typingKey={typingKey} />
               {result.finalVerdict && (
                 <div className="mt-5 pt-5 border-t border-slate-700/50">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>

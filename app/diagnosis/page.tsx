@@ -28,20 +28,36 @@ function ResultCard({ title, children, className = '' }: { title?: string; child
   );
 }
 
+// mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 4개 top-level
+// 키(lib/streaming-json-fields.ts DIAGNOSIS_FIELD_SPECS 참고, 2026-08-12 스키마 분리)를
+// mainAnalysisSections 하위 필드명으로 되돌리는 매핑 — 이 키로 도착한 값(partial 포함)을
+// prev.mainAnalysisSections 객체 안에 merge한다.
+const MAIN_ANALYSIS_SECTION_KEYS: Record<string, keyof NonNullable<DiagnosisResult['mainAnalysisSections']>> = {
+  mainAnalysisSections_background: 'background',
+  mainAnalysisSections_flowSummary: 'flowSummary',
+  mainAnalysisSections_valuationNote: 'valuationNote',
+  mainAnalysisSections_watchPoint: 'watchPoint',
+};
+
 // Stage1 'field'/'field-partial' 이벤트의 key를 DiagnosisResult 형태로 매핑
 // (app/portfolio-diagnosis/page.tsx의 applyPortfolioField와 동일한 패턴).
-// historyNarrative만 history.narrative로 중첩되고, mainAnalysisSections는 도착 시
-// 4개 하위 필드를 이어붙여 레거시 mainAnalysis 문자열도 함께 합성한다(서버가 DB에
-// 저장하는 합성 로직과 동일 — app/api/diagnosis/route.ts 참고). 나머지는 최상위 키 그대로.
+// historyNarrative는 history.narrative로 중첩되고, mainAnalysisSections_* 4개는
+// mainAnalysisSections 객체 안으로 merge하면서 레거시 mainAnalysis 문자열도 함께
+// 합성한다(서버가 DB에 저장하는 합성 로직과 동일 — app/api/diagnosis/route.ts 참고).
+// 나머지는 최상위 키 그대로.
 function applyDiagnosisField(prev: DiagnosisResult, key: string, value: unknown): DiagnosisResult {
   if (key === 'historyNarrative') {
     return { ...prev, history: { ...prev.history, narrative: value as string } };
   }
-  if (key === 'mainAnalysisSections') {
-    const sections = value as DiagnosisResult['mainAnalysisSections'];
-    const mainAnalysis = sections
-      ? [sections.background, sections.flowSummary, sections.valuationNote, sections.watchPoint].filter(Boolean).join(' ')
-      : prev.mainAnalysis;
+  const sectionKey = MAIN_ANALYSIS_SECTION_KEYS[key];
+  if (sectionKey) {
+    const sections = {
+      background: '', flowSummary: '', valuationNote: '', watchPoint: '',
+      ...prev.mainAnalysisSections,
+      [sectionKey]: value as string,
+    };
+    const mainAnalysis = [sections.background, sections.flowSummary, sections.valuationNote, sections.watchPoint]
+      .filter(Boolean).join(' ');
     return { ...prev, mainAnalysisSections: sections, mainAnalysis };
   }
   return { ...prev, [key]: value };
