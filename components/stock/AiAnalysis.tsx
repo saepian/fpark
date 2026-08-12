@@ -6,6 +6,7 @@ import type { AnalysisResult } from '@/app/api/stock/[ticker]/analysis/route';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
+import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 
 const ANALYSIS_STEPS = [
   '📊 시장 데이터 수집 중...',
@@ -135,7 +136,10 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
   const [needsLogin, setNeedsLogin] = useState(false);
   const [partialFailure, setPartialFailure] = useState(false);
   const [updatedKey, setUpdatedKey] = useState<string | null>(null);
-  const [typingKey, setTypingKey]   = useState<string | null>(null); // 지금 문자 단위로 자라나는 중인 필드(1차 생성만 — 재생성은 즉시 교체라 타이핑 없음)
+  // 2026-08-12 클라이언트 측 smooth streaming(기업분석/포트폴리오진단과 동일 패턴) —
+  // field-partial은 그대로 즉시 반영하되(엔드투엔드 지연 없음), 화면 표시 길이만 35자/초로
+  // 서서히 따라잡는다. 재생성(field-updated)은 원래도 즉시 교체라 이 훅을 거치지 않는다.
+  const smoothText = useSmoothTypingText();
   const [toast, setToast]           = useState(false);
   const [retryToken, setRetryToken] = useState(0);
 
@@ -151,7 +155,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     setNeedsLogin(false);
     setPartialFailure(false);
     setData(null);
-    setTypingKey(null);
+    smoothText.reset();
 
     const flashUpdated = (key: string) => {
       setUpdatedKey(key);
@@ -206,14 +210,14 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
                 const key = event.key as keyof AnalysisResult;
                 if (!cancelled) {
                   setData((prev) => ({ ...(prev ?? {}), [key]: event.value }));
-                  setTypingKey(key);
+                  smoothText.feed(key, event.value as string);
                 }
               } else if (event.type === 'field') {
                 fieldsArrived = true;
                 const key = event.key as keyof AnalysisResult;
                 if (!cancelled) {
                   setData((prev) => ({ ...(prev ?? {}), [key]: event.value }));
-                  setTypingKey((k) => (k === key ? null : k)); // 이 필드 타이핑 커서 종료
+                  if (typeof event.value === 'string') smoothText.snap(key, event.value);
                 }
               } else if (event.type === 'field-updated') {
                 const key = event.key as keyof AnalysisResult;
@@ -229,7 +233,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
                   // 경로의 done 이벤트가 createdAt을 안 보내 이 값이 undefined로
                   // 덮어써지면서 "리포트 생성 중..."이 완료된 캐시 위에 잘못 표시됐다.
                   setData((prev) => (prev ? { ...prev, createdAt: (event.createdAt as string) ?? prev.createdAt } : prev));
-                  setTypingKey(null); // 정상 종료 시 커서 확실히 정리
+                  smoothText.snapAll(); // 정상 종료 시 커서 확실히 정리
                 }
               } else if (event.type === 'error') {
                 throw new Error((event.message as string) ?? 'stream-error');
@@ -241,7 +245,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             // 명시적 done 없이 스트림이 끊김(예: Vercel 함수 타임아웃) — 이미 보여준 필드가
             // 있으면 부분실패로 처리하고 그 내용은 그대로 유지한다.
             if (fieldsArrived) {
-              if (!cancelled) { setPartialFailure(true); setTypingKey(null); }
+              if (!cancelled) { setPartialFailure(true); smoothText.snapAll(); }
               return;
             }
             throw new Error('stream-ended-without-done');
@@ -249,7 +253,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           return; // 성공 종료
         } catch {
           if (fieldsArrived) {
-            if (!cancelled) setPartialFailure(true);
+            if (!cancelled) { setPartialFailure(true); smoothText.snapAll(); }
             return;
           }
           // 첫 필드가 뜨기도 전에 실패했을 때만 조용히 1회 재시도(기존 동작과 동일)
@@ -259,7 +263,14 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
       if (!cancelled) setError('AI 분석을 불러올 수 없습니다.');
     };
 
-    run().finally(() => { if (!cancelled) setLoading(false); });
+    run().finally(() => {
+      if (!cancelled) {
+        setLoading(false);
+        // 위 각 종료 분기에서 이미 snapAll을 호출하지만, 예상 못한 종료 경로가 생기더라도
+        // 화면이 타이핑 애니메이션 중간에 멈춰있지 않도록 여기서 한 번 더 보장한다.
+        smoothText.snapAll();
+      }
+    });
     return () => { cancelled = true; };
   }, [ticker, retryToken]);
 
@@ -347,7 +358,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
         <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('headline')}`}>
           {data.headline !== undefined ? (
             <p className="text-[15px] font-semibold text-white leading-snug">
-              {data.headline}{typingKey === 'headline' && <TypingCursor />}
+              {smoothText.revealed.headline?.text ?? data.headline}{smoothText.revealed.headline?.active && <TypingCursor />}
             </p>
           ) : (
             <FieldSkeleton lines={1} />
@@ -410,7 +421,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('mainAnalysis')}`}>
             {data.mainAnalysis !== undefined ? (
               <p className="text-[13px] text-slate-400 leading-relaxed">
-                {data.mainAnalysis}{typingKey === 'mainAnalysis' && <TypingCursor />}
+                {smoothText.revealed.mainAnalysis?.text ?? data.mainAnalysis}{smoothText.revealed.mainAnalysis?.active && <TypingCursor />}
               </p>
             ) : (
               <FieldSkeleton lines={4} />
@@ -423,7 +434,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-wide mb-1`}>🔄 어제 대비</p>
           {data.yesterdayDelta !== undefined ? (
             <p className="text-[13px] text-slate-300 leading-relaxed">
-              {data.yesterdayDelta}{typingKey === 'yesterdayDelta' && <TypingCursor />}
+              {smoothText.revealed.yesterdayDelta?.text ?? data.yesterdayDelta}{smoothText.revealed.yesterdayDelta?.active && <TypingCursor />}
             </p>
           ) : (
             <FieldSkeleton lines={2} />
@@ -436,7 +447,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('riskFactor')}`}>
             {data.riskFactor !== undefined ? (
               <p className="text-[13px] text-slate-400 leading-relaxed">
-                {data.riskFactor}{typingKey === 'riskFactor' && <TypingCursor />}
+                {smoothText.revealed.riskFactor?.text ?? data.riskFactor}{smoothText.revealed.riskFactor?.active && <TypingCursor />}
               </p>
             ) : (
               <FieldSkeleton lines={2} />
