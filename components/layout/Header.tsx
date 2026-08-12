@@ -20,6 +20,7 @@ const NAV_ITEMS: { label: string; href: string; comingSoon?: boolean; special?: 
   { label: '홈',            href: '/' },
   { label: '기업 분석',       href: '/diagnosis',           special: true },
   { label: '포트폴리오 분석', href: '/portfolio-diagnosis', special: true, pro: true },
+  { label: '대시보드',       href: '/dashboard',           special: true },
   { label: '국내증시',       href: '/market/domestic' },
   { label: '해외증시',       href: '/market/global' },
   { label: '뉴스',           href: '/news' },

@@ -233,6 +233,66 @@ export type Database = {
         }
         Relationships: []
       }
+      dashboard_analysis: {
+        Row: {
+          created_at: string | null
+          id: string
+          report_date: string
+          result: Json | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          report_date: string
+          result?: Json | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          report_date?: string
+          result?: Json | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      dashboard_holdings: {
+        Row: {
+          avg_price: number
+          buy_date: string | null
+          created_at: string | null
+          id: string
+          market: string | null
+          name: string
+          quantity: number
+          ticker: string
+          user_id: string | null
+        }
+        Insert: {
+          avg_price: number
+          buy_date?: string | null
+          created_at?: string | null
+          id?: string
+          market?: string | null
+          name: string
+          quantity: number
+          ticker: string
+          user_id?: string | null
+        }
+        Update: {
+          avg_price?: number
+          buy_date?: string | null
+          created_at?: string | null
+          id?: string
+          market?: string | null
+          name?: string
+          quantity?: number
+          ticker?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       email_send_logs: {
         Row: {
           ai_comment: string | null

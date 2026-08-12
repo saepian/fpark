@@ -38,8 +38,12 @@ export const BANK_TRANSFER_ACCOUNT = {
 // 한도로 두면 무료 회원이 하루에 몰아 써버릴 수 있어, "매일 최소 1회는 체험 가능"이라는
 // 무료 취지에 맞게 free.stockAnalysis만 일간 카운트로 계산한다(lib/plan.ts의
 // isStockAnalysisDaily 참고 — 베이직 50/프로 100은 그대로 월간).
+// 2026-08-12 대시보드 신설 — AI분석 자체는 플랜 게이트 없이 전 회원 이용 가능(하루 1회
+// 당일캐시로 비용 자연 제한), 대신 등록 가능 종목 수로 차등. watchlist(관심종목)는
+// 플랜 무관 고정 15개 하드코딩이었지만, 대시보드는 이 프로젝트의 표준 방식(PLAN_USAGE_LIMITS
+// + lib/plan.ts의 resolveXLimit)을 따른다.
 export const PLAN_USAGE_LIMITS = {
-  free:  { stockAnalysis: 1,   diagnosis: 5,  portfolio: 0  },
-  basic: { stockAnalysis: 50,  diagnosis: 30, portfolio: 5  },
-  pro:   { stockAnalysis: 100, diagnosis: 50, portfolio: 20 },
+  free:  { stockAnalysis: 1,   diagnosis: 5,  portfolio: 0,  dashboardHoldings: 2  },
+  basic: { stockAnalysis: 50,  diagnosis: 30, portfolio: 5,  dashboardHoldings: 15 },
+  pro:   { stockAnalysis: 100, diagnosis: 50, portfolio: 20, dashboardHoldings: 15 },
 } as const;
