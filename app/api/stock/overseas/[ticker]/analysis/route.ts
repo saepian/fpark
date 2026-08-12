@@ -18,9 +18,10 @@ import {
 import { overseasSearchName } from '@/lib/overseas-korean-names';
 import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
-import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, withTemporalRetry, kstDateStr, daysBetween } from '@/lib/ai-grounding';
+import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency, kstDateStr, daysBetween } from '@/lib/ai-grounding';
 import { getOverseasMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
+import { StreamingFieldParser, STOCK_ANALYSIS_FIELD_SPECS, type JsonFieldValue } from '@/lib/streaming-json-fields';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,10 @@ export type { Signal };
 // 데이터 소스가 KIS→yahoo-finance2로 바뀌는 것 말고는 프롬프트 구조·검증 로직을
 // 최대한 그대로 재사용한다 — 국내물에서 이미 검증된 패턴(서버가 리포트유형 결정,
 // 정적지표 참고용 격리, 직전 리포트 대비 갭톤, fpark 고유 지표 강제 활용)이다.
+// 2026-08-12 SSE 스트리밍 전환 — 국내물(app/api/stock/[ticker]/analysis)이 이미
+// 검증한 sseResponse+StreamingFieldParser+STOCK_ANALYSIS_FIELD_SPECS 구조를 그대로
+// 이식. 응답 스키마(JSON 키 이름·순서)가 국내물과 완전히 동일해 STOCK_ANALYSIS_FIELD_SPECS를
+// 그대로 재사용하고, 별도 FIELD_SPECS를 새로 만들지 않는다.
 export interface OverseasAnalysisResult {
   reportType: ReportType;
   headline: string;
@@ -167,47 +172,44 @@ const LONG_GAP_TONE = `## [직전 리포트와의 간격] 7일 이상
 
 이 문장은 비꼬거나 종목을 깎아내리는 톤이 아니라 가볍게 던지는 한 줄 유머여야 합니다. 절대로 "망한 종목", "관심 꺼진 종목" 같은 부정적 낙인 표현이나, "지금이 기회", "저평가" 같은 투자 유인성 표현을 쓰지 마세요 — 컴플라이언스 원칙(매수/매도·목표가 관련 금지 규칙)이 이 문장에도 동일하게 적용됩니다. 이 위트 문장 다음에는 곧바로 [직전 리포트와의 차이]의 실제 데이터(가격 변화, 거래대금 변화 등)로 자연스럽게 이어가세요. 위트 문장은 매번 표현을 다르게 써서 반복되지 않게 하세요(고정 문구 금지).`;
 
-// 국내물의 correctPriceMentions(잘 아는 가격대로 AI가 임의 보정하는 현상 방지)를 통화별로
-// 일반화 — 심볼/단위어(달러·엔·위안·홍콩달러) 둘 다 매치해 AI가 어느 쪽으로 쓰든 교정한다.
-function correctPriceMentions(
-  result: Omit<OverseasAnalysisResult, 'isCached'>,
-  ticker: string,
-): Omit<OverseasAnalysisResult, 'isCached'> {
-  const symbol = CURRENCY_SYMBOLS[result.currency] ?? result.currency;
-  const unitWord = CURRENCY_UNIT_WORDS[result.currency] ?? result.currency;
+// 2026-08-12 스트리밍 전환 — 국내물(fixPriceText/buildPriceChecks/PRICE_CORRECTED_KEYS)과
+// 동일하게, "완성된 결과 전체에 사후 적용"에서 "필드가 하나씩 완결될 때마다 즉시 교정"으로
+// 재설계. 통화별 심볼/단위어 매칭 로직(correctPriceMentions에 있던 것)은 그대로 유지하되
+// checks 생성과 텍스트 교정을 분리해 스트리밍 파서의 onField 콜백 안에서 재사용 가능하게 함.
+interface PriceCheck { re: RegExp; truth: number; label: string }
+
+function buildPriceChecks(current_price: number, resistance: number, support: number, currency: string): PriceCheck[] {
+  const symbol = CURRENCY_SYMBOLS[currency] ?? currency;
+  const unitWord = CURRENCY_UNIT_WORDS[currency] ?? currency;
   const escapedSymbol = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const numPattern = `(?:${escapedSymbol}\\s*)?([\\d,]+\\.?\\d*)\\s*(?:${unitWord})?`;
 
-  const checks: { re: RegExp; truth: number; label: string }[] = [
-    { re: new RegExp(`현재가\\s*${numPattern}`, 'g'), truth: result.current_price, label: '현재가' },
-    { re: new RegExp(`52주\\s*고[가점]\\s*${numPattern}`, 'g'), truth: result.resistance, label: '52주 고가' },
-    { re: new RegExp(`52주\\s*저[가점]\\s*${numPattern}`, 'g'), truth: result.support, label: '52주 저가' },
+  return [
+    { re: new RegExp(`현재가\\s*${numPattern}`, 'g'), truth: current_price, label: '현재가' },
+    { re: new RegExp(`52주\\s*고[가점]\\s*${numPattern}`, 'g'), truth: resistance, label: '52주 고가' },
+    { re: new RegExp(`52주\\s*저[가점]\\s*${numPattern}`, 'g'), truth: support, label: '52주 저가' },
   ];
-
-  const fixText = (text: string): string => {
-    let fixed = text;
-    for (const { re, truth, label } of checks) {
-      if (!(truth > 0)) continue;
-      fixed = fixed.replace(re, (match, numStr: string) => {
-        const extracted = parseFloat(numStr.replace(/,/g, ''));
-        if (!extracted || Math.abs(extracted - truth) / truth <= 0.05) return match;
-        console.warn(
-          `[OVERSEAS ANALYSIS] ${ticker} ${label} 불일치 교정: "${extracted}" → "${truth}"`,
-        );
-        return match.replace(numStr, String(truth));
-      });
-    }
-    return fixed;
-  };
-
-  return {
-    ...result,
-    headline: fixText(result.headline),
-    mainAnalysis: fixText(result.mainAnalysis),
-    yesterdayDelta: fixText(result.yesterdayDelta),
-    riskFactor: fixText(result.riskFactor),
-  };
 }
+
+function fixPriceText(text: string, checks: PriceCheck[], ticker: string): string {
+  let fixed = text;
+  for (const { re, truth, label } of checks) {
+    if (!(truth > 0)) continue;
+    fixed = fixed.replace(re, (match, numStr: string) => {
+      const extracted = parseFloat(numStr.replace(/,/g, ''));
+      if (!extracted || Math.abs(extracted - truth) / truth <= 0.05) return match;
+      console.warn(
+        `[OVERSEAS ANALYSIS] ${ticker} ${label} 불일치 교정: "${extracted}" → "${truth}"`,
+      );
+      return match.replace(numStr, String(truth));
+    });
+  }
+  return fixed;
+}
+
+// headline/mainAnalysis/yesterdayDelta/riskFactor만 가격 언급 교정 대상 — tags/reportType/signal은
+// 자유 텍스트가 아니라 교정할 대상이 없음.
+const PRICE_CORRECTED_KEYS = new Set(['headline', 'mainAnalysis', 'yesterdayDelta', 'riskFactor']);
 
 // 2026-07-13 국내물은 "장마감(15:30 KST 고정) 전 생성 캐시가 마감 후에도 재사용되는" 버그를
 // 고정 시각으로 고쳤지만, 해외물은 거래소별 시차·서머타임이 있어 고정 시각을 못 박을 수 없다.
@@ -353,6 +355,41 @@ async function getDailyStockAnalysisCount(
   return count ?? 0;
 }
 
+// 2026-08-12 스트리밍 전환 — 국내물(app/api/stock/[ticker]/analysis)의 sseResponse
+// 헬퍼를 그대로 이식. run() 안에서 던진 예외는 여기서 잡아 { type:'error' } 프레임으로
+// 변환해 보낸다 — 이미 SSE 응답(200)이 시작된 뒤라 HTTP 상태코드로는 실패를 알릴 수 없다.
+// send()가 controller.enqueue를 try/catch로 감싸는 이유(클라이언트 이탈 시에도 run()이
+// 끝까지 실행돼 DB 저장까지 도달해야 함)도 국내물과 동일 — 처음부터 이 구조로 만들어서
+// "클라이언트 이탈 시 DB 저장 갭" 문제 자체가 생기지 않는다.
+function sseResponse(run: (send: (data: object) => void) => Promise<void>): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: object) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch { /* 클라이언트가 이미 끊었으면 무시 — Claude 스트림 소비·DB 저장은 계속돼야 함 */ }
+      };
+      try {
+        await run(send);
+      } catch (e) {
+        console.error('[OVERSEAS ANALYSIS] 스트림 처리 중 예외:', e);
+        try { send({ type: 'error', message: 'AI 분석 생성 실패' }); } catch { /* 클라이언트가 이미 끊었으면 무시 */ }
+      } finally {
+        try { controller.close(); } catch { /* 이미 취소된 스트림이면 무시 */ }
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ ticker: string }> },
@@ -363,7 +400,7 @@ export async function GET(
   const cacheKey = `overseas_${ticker}`;
   const todayStr = kstDateStr();
 
-  // 0. 인증 — 국내물(359-361행)과 동일 패턴.
+  // 0. 인증 — 국내물과 동일 패턴.
   const authedSupabase = makeAuthSupabase();
   const { data: { user } } = await authedSupabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -418,7 +455,11 @@ export async function GET(
     return NextResponse.json({ error: '종목 정보 조회 실패' }, { status: 502 });
   }
 
-  // 2. 당일 캐시 확인
+  const { price, currency, week52High: hi52, week52Low: lo52 } = quote;
+
+  // 2. 당일 캐시 확인 — 신규 생성과 동일한 SSE 프로토콜로 응답한다(국내물과 동일 이유:
+  // 프론트가 응답 형태를 캐시/신규로 분기하지 않아도 되고, 이미 다 있는 값이라 사실상
+  // 한 번에 전부 쏟아붓는다).
   try {
     const { data: cached } = await supabase
       .from('stock_analysis_history')
@@ -433,14 +474,33 @@ export async function GET(
         console.log(`[OVERSEAS ANALYSIS] ${ticker} 정규장 상태 변화 감지(${genState} → ${quote.marketState}) — 캐시 무시하고 재생성`);
       } else {
         recordUsage();
-        return NextResponse.json({ ...mapRowToResult(row), isCached: true });
+        const cachedResult: OverseasAnalysisResult = { ...mapRowToResult(row), isCached: true };
+        return sseResponse(async (send) => {
+          send({
+            type: 'meta',
+            current_price: cachedResult.current_price,
+            resistance: cachedResult.resistance,
+            support: cachedResult.support,
+            tradingValueMultiple: cachedResult.tradingValueMultiple,
+            hasRelevantNews: cachedResult.hasRelevantNews,
+            currency: cachedResult.currency,
+            disclaimer: cachedResult.disclaimer,
+            createdAt: cachedResult.createdAt,
+            reportType: cachedResult.reportType,
+            isCached: true,
+          });
+          send({ type: 'field', key: 'headline', value: cachedResult.headline });
+          send({ type: 'field', key: 'mainAnalysis', value: cachedResult.mainAnalysis });
+          send({ type: 'field', key: 'yesterdayDelta', value: cachedResult.yesterdayDelta });
+          send({ type: 'field', key: 'riskFactor', value: cachedResult.riskFactor });
+          send({ type: 'field', key: 'tags', value: cachedResult.tags });
+          send({ type: 'done', createdAt: cachedResult.createdAt });
+        });
       }
     }
   } catch (e) {
     console.warn('[OVERSEAS ANALYSIS] 당일 캐시 조회 실패, 새로 생성:', e instanceof Error ? e.message : e);
   }
-
-  const { price, currency, week52High: hi52, week52Low: lo52 } = quote;
 
   // 3. 관련 뉴스 — 해외종목은 한글 뉴스 소스(Naver)에서 종목명 그대로("NVDA") 검색하면
   // 적중률이 낮아 한글명 매핑(lib/overseas-korean-names)을 우선 쓰고, 매핑에 없는 티커는
@@ -574,46 +634,23 @@ ${yesterdayComparisonBlock}
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 형식과 규칙에 따라 정리하세요.`;
 
   const newsText = relevantNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
+  const priceChecks = buildPriceChecks(price, hi52, lo52, currency);
 
-  try {
-    type ParsedAnalysis = Omit<
-      OverseasAnalysisResult,
-      'current_price' | 'resistance' | 'support' | 'tradingValueMultiple' | 'hasRelevantNews' | 'currency' | 'disclaimer' | 'createdAt' | 'isCached'
-    >;
+  interface ParsedAnalysis {
+    reportType: ReportType;
+    headline: string;
+    mainAnalysis: string;
+    yesterdayDelta: string;
+    riskFactor: string;
+    tags: string[];
+    signal: string;
+  }
 
-    const analysis = await withTemporalRetry<ParsedAnalysis>(
-      async () => {
-        const message = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
-          system: [
-            { type: 'text', text: COMPLIANCE_PRINCIPLE },
-            { type: 'text', text: COMMON_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
-            {
-              type: 'text',
-              text: (reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS)
-                + (marketDayContext.isTradingDay ? '' : `\n\n${NON_TRADING_DAY_NEWS_FRAMING}`),
-              cache_control: { type: 'ephemeral' },
-            },
-            { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
-          ],
-          messages: [{ role: 'user', content: prompt }],
-        });
-        const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + text.slice(0, 100));
-        const parsed = JSON.parse(jsonMatch[0]) as ParsedAnalysis;
-        const reportText = [parsed.headline, parsed.mainAnalysis, parsed.yesterdayDelta, parsed.riskFactor].join(' ');
-        return { parsed, reportText };
-      },
-      newsText,
-      '[OVERSEAS ANALYSIS]',
-    );
-
-    let result: Omit<OverseasAnalysisResult, 'isCached'> = {
-      ...analysis,
-      reportType,
-      signal: clampSignal(analysis.signal),
+  // 종목 데이터/뉴스 등 준비는 위에서 끝났으니 여기부터 SSE 응답 시작 — 아래 run() 안에서
+  // 던지는 예외는 sseResponse가 { type:'error' } 프레임으로 변환해 보낸다.
+  return sseResponse(async (send) => {
+    send({
+      type: 'meta',
       current_price: price,
       resistance: hi52,
       support: lo52,
@@ -621,13 +658,150 @@ ${yesterdayComparisonBlock}
       hasRelevantNews: relevantNews.length > 0,
       currency,
       disclaimer: INVESTMENT_DISCLAIMER,
+      reportType,
+      isCached: false,
+    });
+
+    // 1회 Claude 스트리밍 호출 — 국내물(app/api/stock/[ticker]/analysis)의 streamOneGeneration과
+    // 동일 설계. 텍스트 델타를 STOCK_ANALYSIS_FIELD_SPECS로 파싱해 완결된 필드마다 onField로
+    // 통지하고, 1차 생성에서만 onPartial로 문자 단위 타이핑 효과를 추가 전달한다(80ms 스로틀).
+    // 스트림이 끝나면 전체 텍스트를 다시 통째로 JSON.parse해서 정합성 보정을 한 번 더 통지한다.
+    async function streamOneGeneration(
+      onField: (key: string, value: string | string[]) => void,
+      onPartial?: (key: string, value: string) => void,
+    ): Promise<{ parsed: ParsedAnalysis; reportText: string }> {
+      const parser = new StreamingFieldParser(STOCK_ANALYSIS_FIELD_SPECS);
+      let fullText = '';
+      const requestStart = Date.now();
+      let firstTokenLoggedAt = false;
+      const lastPartialEmitAt: Record<string, number> = {};
+      const PARTIAL_THROTTLE_MS = 80;
+
+      const correctIfNeeded = (key: string, value: string | string[] | JsonFieldValue): string | string[] | JsonFieldValue =>
+        typeof value === 'string' && PRICE_CORRECTED_KEYS.has(key)
+          ? fixPriceText(value, priceChecks, ticker)
+          : value;
+
+      const claudeStream = client.messages.stream({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: [
+          { type: 'text', text: COMPLIANCE_PRINCIPLE },
+          { type: 'text', text: COMMON_INSTRUCTIONS, cache_control: { type: 'ephemeral' } },
+          {
+            type: 'text',
+            text: (reportType === 'news-driven' ? NEWS_DRIVEN_INSTRUCTIONS : DATA_DRIVEN_INSTRUCTIONS)
+              + (marketDayContext.isTradingDay ? '' : `\n\n${NON_TRADING_DAY_NEWS_FRAMING}`),
+            cache_control: { type: 'ephemeral' },
+          },
+          { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
+        ],
+        messages: [{ role: 'user', content: prompt }],
+        // 국내물과 동일 예산 산정 — 최악 2회 호출(재검증 재생성 포함)이 maxDuration(60s)
+        // 안에 들어오도록 timeout 28s, SDK 기본 재시도는 앱 레벨 재시도와 중첩 방지 위해 0.
+      }, { timeout: 28_000, maxRetries: 0 });
+
+      claudeStream.on('text', (delta) => {
+        if (!firstTokenLoggedAt) {
+          firstTokenLoggedAt = true;
+          console.log(`[OVERSEAS ANALYSIS] ${ticker} 첫 토큰 도착: ${Date.now() - requestStart}ms`);
+        }
+        fullText += delta;
+
+        if (!onPartial) {
+          for (const field of parser.feed(delta)) {
+            onField(field.key, correctIfNeeded(field.key, field.value) as string | string[]);
+          }
+          return;
+        }
+
+        const { fields, partial } = parser.feedWithPartial(delta);
+        for (const field of fields) {
+          onField(field.key, correctIfNeeded(field.key, field.value) as string | string[]);
+        }
+        if (partial) {
+          const now = Date.now();
+          const last = lastPartialEmitAt[partial.key] ?? 0;
+          if (now - last >= PARTIAL_THROTTLE_MS) {
+            lastPartialEmitAt[partial.key] = now;
+            onPartial(partial.key, correctIfNeeded(partial.key, partial.value) as string);
+          }
+        }
+      });
+
+      const message = await claudeStream.finalMessage();
+      console.log('[TOKEN_USAGE]', {
+        route: 'overseas-stock-analysis', ticker, reportType,
+        input_tokens: message.usage.input_tokens,
+        output_tokens: message.usage.output_tokens,
+        cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
+      });
+
+      const jsonMatch = fullText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('JSON 파싱 실패: ' + fullText.slice(0, 100));
+      const parsed = JSON.parse(jsonMatch[0]) as ParsedAnalysis;
+
+      // 정합성 보정 — emit 대상 필드 전부를 전체 재파싱 결과로 한 번 더 통지(호출부의
+      // emitIfChanged가 이미 보낸 값과 같으면 알아서 무시하므로 중복 전송 걱정 없음).
+      for (const spec of STOCK_ANALYSIS_FIELD_SPECS) {
+        if (!spec.emit) continue;
+        const raw = (parsed as unknown as Record<string, string | string[] | undefined>)[spec.key];
+        if (raw === undefined) continue;
+        onField(spec.key, correctIfNeeded(spec.key, raw) as string | string[]);
+      }
+
+      const reportText = [parsed.headline, parsed.mainAnalysis, parsed.yesterdayDelta, parsed.riskFactor].join(' ');
+      return { parsed, reportText };
+    }
+
+    const sentValues: Record<string, string | string[]> = {};
+    const emitIfChanged = (eventType: 'field' | 'field-updated') => (key: string, value: string | string[]) => {
+      if (JSON.stringify(sentValues[key]) === JSON.stringify(value)) return;
+      sentValues[key] = value;
+      send({ type: eventType, key, value });
+    };
+
+    const first = await streamOneGeneration(
+      emitIfChanged('field'),
+      (key, value) => send({ type: 'field-partial', key, value }),
+    );
+    const check1 = checkTemporalConsistency(first.reportText, newsText);
+    let finalParsed = first.parsed;
+
+    if (check1.flagged) {
+      console.warn('[OVERSEAS ANALYSIS] 시간적 사실관계 불일치 감지, 1회 재생성 시도:', check1);
+      const second = await streamOneGeneration(emitIfChanged('field-updated'));
+      const check2 = checkTemporalConsistency(second.reportText, newsText);
+      if (check2.flagged) {
+        console.error('[OVERSEAS ANALYSIS] 재생성 후에도 불일치 감지 — 결과는 그대로 반환, 모니터링 필요:', check2);
+      } else {
+        console.log('[OVERSEAS ANALYSIS] 재생성으로 불일치 해소됨');
+      }
+      finalParsed = second.parsed;
+    }
+
+    const result: Omit<OverseasAnalysisResult, 'isCached'> = {
+      reportType, // 서버 결정값으로 덮어씀 — AI가 echo를 잘못했을 경우 대비
+      headline: sentValues.headline as string,
+      mainAnalysis: sentValues.mainAnalysis as string,
+      yesterdayDelta: sentValues.yesterdayDelta as string,
+      riskFactor: sentValues.riskFactor as string,
+      tags: sentValues.tags as string[],
+      signal: clampSignal(finalParsed.signal), // AI가 지시된 4개 값을 벗어날 경우 대비
+      current_price: price,
+      resistance: hi52, // AI가 산출하지 않고 실제 52주 고가를 그대로 사용
+      support: lo52,    // AI가 산출하지 않고 실제 52주 저가를 그대로 사용
+      tradingValueMultiple: tradingValueMultiple?.valid ? tradingValueMultiple.multiple : null,
+      hasRelevantNews: relevantNews.length > 0,
+      currency,
+      disclaimer: INVESTMENT_DISCLAIMER,
       createdAt: new Date().toISOString(),
     };
 
-    result = correctPriceMentions(result, ticker);
-
     // 5. 히스토리 저장 — 하루 1건(ticker, report_date unique). 정규장 상태 변화로 재생성될 때도
-    // 같은 (ticker, report_date)라 upsert로 덮어쓴다. 비동기 저장(after())은 국내물과 동일 이유.
+    // 같은 (ticker, report_date)라 upsert로 덮어쓴다. 비동기 저장(after())은 국내물과 동일 이유 —
+    // 응답 직후 실행 컨텍스트가 얼어붙어 저장이 끊기는 문제 방지.
     after(async () => {
       const { error } = await supabase
         .from('stock_analysis_history')
@@ -658,9 +832,6 @@ ${yesterdayComparisonBlock}
     });
     recordUsage();
 
-    return NextResponse.json(result);
-  } catch (e) {
-    console.error('[OVERSEAS ANALYSIS] Claude 오류:', e);
-    return NextResponse.json({ error: 'AI 분석 생성 실패' }, { status: 500 });
-  }
+    send({ type: 'done', createdAt: result.createdAt });
+  });
 }

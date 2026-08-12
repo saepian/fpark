@@ -11,10 +11,10 @@ import {
   type IChartApi,
   type ISeriesApi,
 } from 'lightweight-charts';
-import { Sparkles, AlertCircle, TrendingUp, TrendingDown, ChevronLeft, Star } from 'lucide-react';
+import { ChevronLeft, Star } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
-import type { OverseasAnalysisResult } from '@/app/api/stock/overseas/[ticker]/analysis/route';
+import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -229,210 +229,6 @@ function LightweightChart({ ticker, market }: { ticker: string; market: string }
         <span className="flex items-center gap-1">
           <span className="inline-block w-2 h-2 rounded-sm bg-blue-500" />하락
         </span>
-      </div>
-    </div>
-  );
-}
-
-// ── AI 분석 ───────────────────────────────────────────────────────────────────
-
-const ANALYSIS_STEPS = [
-  '📊 글로벌 시장 데이터 수집 중...',
-  '📈 차트 패턴 분석 중...',
-  '💹 밸류에이션 검토 중...',
-  '⚡ 리스크 요인 분석 중...',
-  '🎯 52주 가격 위치 확인 중...',
-  '📝 분석 리포트 작성 중...',
-];
-
-function AiLoadingCard() {
-  const [idx, setIdx] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => setIdx(i => (i + 1) % ANALYSIS_STEPS.length), 1600);
-    return () => clearInterval(t);
-  }, []);
-
-  return (
-    <div className="bg-[#122131] border border-blue-900/40 rounded-xl p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Sparkles className="text-blue-400 w-4 h-4" />
-        <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
-      </div>
-      <div className="flex flex-col items-center gap-5 py-6">
-        <p className="text-[14px] text-indigo-300 font-medium text-center">{ANALYSIS_STEPS[idx]}</p>
-        <div className="flex items-center gap-2">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"
-              style={{ animationDelay: `${i * 0.2}s` }} />
-          ))}
-        </div>
-        <p className="text-[11px] text-slate-600">AI가 기업을 분석하고 있습니다</p>
-      </div>
-    </div>
-  );
-}
-
-function AiAnalysisCard({ ticker, market }: { ticker: string; market: string }) {
-  const [data, setData] = useState<OverseasAnalysisResult | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setData(null);
-
-    const load = async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const res = await fetch(`/api/stock/overseas/${ticker}/analysis?market=${market}`);
-          if (!res.ok) throw new Error(`${res.status}`);
-          const json = await res.json() as OverseasAnalysisResult;
-          if (!cancelled) setData(json);
-          return;
-        } catch {
-          if (attempt === 0 && !cancelled) await new Promise(r => setTimeout(r, 2000));
-        }
-      }
-      if (!cancelled) setError('AI 분석을 불러올 수 없습니다.');
-    };
-
-    load().finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [ticker, market]);
-
-  if (loading) return <AiLoadingCard />;
-
-  if (error || !data) {
-    return (
-      <div className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
-        <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="text-blue-400 w-4 h-4" />
-          <span className="text-sm font-bold text-gray-100">FPARK AI 기업 분석</span>
-        </div>
-        <p className="text-sm text-gray-500">{error ?? 'AI 분석 데이터 없음'}</p>
-      </div>
-    );
-  }
-
-  const sym      = CURRENCY_SYMBOLS[data.currency] ?? data.currency;
-  const timeLabel = data.isCached
-    ? '오늘 분석 (캐시)'
-    : new Date(data.createdAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' }) + ' 기준';
-
-  const priceDiff = (target: number) => {
-    const pct = ((target - data.current_price) / data.current_price) * 100;
-    return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
-  };
-
-  return (
-    <div className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden">
-      <div className="px-6 pt-5 pb-4 border-b border-blue-900/30">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="text-blue-400 w-4 h-4" />
-            <span className="text-[11px] font-bold text-blue-400 uppercase tracking-widest">FPARK AI</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {data.tradingValueMultiple !== null && (
-              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-slate-700 text-slate-200">
-                거래대금 20일 평균 대비 {data.tradingValueMultiple}배
-              </span>
-            )}
-            {data.hasRelevantNews === false && (
-              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide bg-slate-800 text-slate-500">
-                최근 관련 뉴스 반영: 없음
-              </span>
-            )}
-          </div>
-        </div>
-        <p className="text-[15px] font-semibold text-white leading-snug">{data.headline}</p>
-        <p className="text-[11px] text-slate-500 mt-1.5">{timeLabel}</p>
-      </div>
-
-      <div className="px-6 py-4 space-y-5">
-        {/* 52주 최고가·최저가 — 목표가·손절가 아님, 서버가 실제 52주 데이터로 계산 */}
-        {(data.resistance > 0 || data.support > 0) && (
-          <div className="grid grid-cols-2 gap-3">
-            {data.resistance > 0 && (
-              <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-3">
-                <div className="flex items-center gap-1 mb-1">
-                  <TrendingUp className="w-3 h-3 text-red-400" />
-                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">52주 최고가</span>
-                </div>
-                <p className="text-[15px] font-bold font-mono text-red-300">
-                  {sym}{data.resistance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                {data.current_price > 0 && (
-                  <p className="text-[11px] text-red-400/60 font-mono mt-0.5">
-                    현재가 대비 {priceDiff(data.resistance)}
-                  </p>
-                )}
-              </div>
-            )}
-            {data.support > 0 && (
-              <div className="bg-blue-950/30 border border-blue-500/30 rounded-lg p-3">
-                <div className="flex items-center gap-1 mb-1">
-                  <TrendingDown className="w-3 h-3 text-blue-400" />
-                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">52주 최저가</span>
-                </div>
-                <p className="text-[15px] font-bold font-mono text-blue-400">
-                  {sym}{data.support.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                {data.current_price > 0 && (
-                  <p className="text-[11px] text-blue-300/60 font-mono mt-0.5">
-                    현재가 대비 {priceDiff(data.support)}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 본문 */}
-        {data.mainAnalysis && (
-          <div>
-            <p className="text-[12px] font-bold text-slate-300 mb-2">
-              {data.reportType === 'news-driven' ? '📰 오늘의 분석' : '📊 오늘의 분석'}
-            </p>
-            <p className="text-[13px] text-slate-400 leading-relaxed">{data.mainAnalysis}</p>
-          </div>
-        )}
-
-        {/* 직전 리포트 대비 */}
-        {data.yesterdayDelta && (
-          <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3">
-            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-1">🔄 직전 리포트 대비</p>
-            <p className="text-[13px] text-slate-300 leading-relaxed">{data.yesterdayDelta}</p>
-          </div>
-        )}
-
-        {/* 리스크 요인 */}
-        {data.riskFactor && (
-          <div>
-            <p className="text-[12px] font-bold text-slate-300 mb-2">⚠️ 리스크 요인</p>
-            <p className="text-[13px] text-slate-400 leading-relaxed">{data.riskFactor}</p>
-          </div>
-        )}
-
-        {/* 태그 */}
-        {data.tags?.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {data.tags.map(tag => (
-              <span key={tag} className="px-2 py-0.5 bg-blue-950/60 text-blue-400/80 text-[11px] font-semibold rounded">
-                #{tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* 면책 고지 */}
-        <div className="pt-3 border-t border-blue-900/30 flex items-start gap-2 text-[11px] text-slate-600 leading-snug">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <p>{data.disclaimer}</p>
-        </div>
       </div>
     </div>
   );
@@ -899,7 +695,7 @@ export default function OverseasStockPage({ params }: PageProps) {
           </div>
 
           <DailyPriceTable ticker={ticker} currency={quote.currency} />
-          <AiAnalysisCard ticker={ticker} market={market} />
+          <OverseasAiAnalysis ticker={ticker} market={market} />
         </div>
 
         {/* 우측: 기본 정보 + 재무 요약 */}
