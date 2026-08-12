@@ -17,6 +17,7 @@ import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
+import { useSmoothTypingText, type RevealedField } from '@/lib/useSmoothTypingText';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -286,7 +287,7 @@ function TypingCursor() {
 // "직전 진단 대비" 카드 — components/diagnosis/DiagnosisReport.tsx의 HistoryCompareCard와
 // 동일한 시각 언어 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시.
 // history 자체는 meta 이벤트로 즉시 오지만 narrative는 Stage2 스트리밍으로 늦게 채워진다.
-function PortfolioHistoryCard({ result, typingKey, stage2Failed }: { result: StreamedResult; typingKey: string | null; stage2Failed: boolean }) {
+function PortfolioHistoryCard({ result, revealed, stage2Failed }: { result: StreamedResult; revealed: Record<string, RevealedField>; stage2Failed: boolean }) {
   const h = result.history;
   if (!h) return null;
   const isFirst = h.daysSince === null;
@@ -323,7 +324,7 @@ function PortfolioHistoryCard({ result, typingKey, stage2Failed }: { result: Str
       )}
       {h.narrative !== undefined ? (
         <p className="text-xs text-slate-300 leading-relaxed">
-          {h.narrative}{typingKey === 'historyNarrative' && <TypingCursor />}
+          {revealed.historyNarrative?.text ?? h.narrative}{revealed.historyNarrative?.active && <TypingCursor />}
         </p>
       ) : (
         !stage2Failed && <FieldSkeleton lines={2} />
@@ -361,8 +362,10 @@ export default function PortfolioDiagnosisPage() {
   const [stage1Complete, setStage1Complete] = useState(false); // 종목별 개별 분석(Stage1) 전부 완료 여부
   const [stage2Failed,   setStage2Failed]   = useState(false); // Stage1은 끝났는데 종합분석(Stage2)만 실패/끊김
   const [streamFinished, setStreamFinished] = useState(false); // done 수신 또는 stage2 실패 확정 — 공유/인쇄 활성화 기준
-  const [typingHolding,  setTypingHolding]  = useState<{ ticker: string; key: string } | null>(null); // Stage1 타이핑 커서
-  const [typingPortfolioKey, setTypingPortfolioKey] = useState<string | null>(null); // Stage2 타이핑 커서
+  // 2026-08-12 클라이언트 측 smooth streaming — Stage1(종목별 reason/sector, 종목마다
+  // 병렬 스트리밍이라 `holding:{ticker}:{key}` 키로 종목별 독립 애니메이션)·Stage2
+  // (summarySections_* 등) 공통으로 사용. lib/useSmoothTypingText.ts 참고.
+  const smoothText = useSmoothTypingText();
 
   // debounce timers
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -468,8 +471,7 @@ export default function PortfolioDiagnosisPage() {
     setStage1Complete(false);
     setStage2Failed(false);
     setStreamFinished(false);
-    setTypingHolding(null);
-    setTypingPortfolioKey(null);
+    smoothText.reset();
 
     // catch 블록에서도 참조해야 해서(네트워크 예외로 스트림 도중 끊긴 경우) try 밖에서 선언
     let sawStage1Complete = false;
@@ -534,14 +536,14 @@ export default function PortfolioDiagnosisPage() {
                 if (!prev?.holdings) return prev;
                 return { ...prev, holdings: prev.holdings.map(h => h.ticker === ticker ? { ...h, [key]: v } : h) };
               });
-              setTypingHolding({ ticker, key });
+              smoothText.feed(`holding:${ticker}:${key}`, v);
             } else if (event.type === 'holding-field') {
               const { ticker, key, value: v } = event;
               setResult(prev => {
                 if (!prev?.holdings) return prev;
                 return { ...prev, holdings: prev.holdings.map(h => h.ticker === ticker ? { ...h, [key]: v } : h) };
               });
-              setTypingHolding(prev => (prev?.ticker === ticker && prev.key === key) ? null : prev);
+              if (typeof v === 'string') smoothText.snap(`holding:${ticker}:${key}`, v);
             } else if (event.type === 'stage1-done') {
               sawStage1Complete = true;
               setStage1Complete(true);
@@ -549,25 +551,26 @@ export default function PortfolioDiagnosisPage() {
             } else if (event.type === 'portfolio-field-partial') {
               const { key, value: v } = event;
               setResult(prev => applyPortfolioField(prev, key, v));
-              setTypingPortfolioKey(key);
+              smoothText.feed(key, v);
             } else if (event.type === 'portfolio-field') {
               const { key, value: v } = event;
               setResult(prev => applyPortfolioField(prev, key, v));
-              setTypingPortfolioKey(k => (k === key ? null : k));
+              if (typeof v === 'string') smoothText.snap(key, v);
             } else if (event.type === 'stage2-error') {
               setStage2Failed(true);
               setStreamFinished(true);
+              smoothText.snapAll();
             } else if (event.type === 'done') {
               receivedTerminalEvent = true;
               setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
               setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
-              setTypingPortfolioKey(null);
-              setTypingHolding(null);
               setStreamFinished(true);
+              smoothText.snapAll();
             } else if (event.type === 'error') {
               receivedTerminalEvent = true;
               if (event.message === 'PRO_REQUIRED') setShowUpgradeModal(true);
               else setError(event.message || '분석 실패');
+              smoothText.snapAll();
             }
           } catch { /* malformed SSE line 무시 */ }
         }
@@ -579,23 +582,24 @@ export default function PortfolioDiagnosisPage() {
           // 종합평가 카드 자리에 배너+재시도를 띄운다(Stage1 결과는 그대로 유지).
           setStage2Failed(true);
           setStreamFinished(true);
-          setTypingPortfolioKey(null);
-          setTypingHolding(null);
         } else {
           setError('분석 중 연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.');
         }
+        smoothText.snapAll();
       }
     } catch {
       if (sawStage1Complete) {
         setStage2Failed(true);
         setStreamFinished(true);
-        setTypingPortfolioKey(null);
-        setTypingHolding(null);
       } else {
         setError('네트워크 오류가 발생했습니다.');
       }
+      smoothText.snapAll();
     } finally {
       setLoading(false);
+      // 위 각 종료 분기에서 이미 snapAll을 호출하지만, 예상 못한 종료 경로가 생기더라도
+      // 화면이 타이핑 애니메이션 중간에 멈춰있지 않도록 여기서 한 번 더 보장한다.
+      smoothText.snapAll();
     }
   };
 
@@ -852,7 +856,7 @@ export default function PortfolioDiagnosisPage() {
                             <div key={b.label}>
                               <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
                               <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>
-                                {b.text}{typingPortfolioKey === b.key && <TypingCursor />}
+                                {smoothText.revealed[b.key]?.text ?? b.text}{smoothText.revealed[b.key]?.active && <TypingCursor />}
                               </p>
                             </div>
                           ) : !streamFinished ? (
@@ -885,7 +889,6 @@ export default function PortfolioDiagnosisPage() {
                             </p>
                           ))
                         }
-                        {typingPortfolioKey === 'summary' && <TypingCursor />}
                       </div>
                     );
                   }
@@ -896,7 +899,7 @@ export default function PortfolioDiagnosisPage() {
           ))}
 
           {/* 2-1행: 직전 진단 대비 (신설) */}
-          <PortfolioHistoryCard result={result} typingKey={typingPortfolioKey} stage2Failed={stage2Failed} />
+          <PortfolioHistoryCard result={result} revealed={smoothText.revealed} stage2Failed={stage2Failed} />
 
           {/* 2-2행: 기간별 포트폴리오 평가금액 변동 (신설, 종목분석 PriceChangeTable과
               동일 lib 함수 재사용) — AI 텍스트를 기다리지 않고 holdings/totalValue가
@@ -1031,7 +1034,7 @@ export default function PortfolioDiagnosisPage() {
                   </div>
                   {result.contributionNarrative !== undefined ? (
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      {result.contributionNarrative}{typingPortfolioKey === 'contributionNarrative' && <TypingCursor />}
+                      {smoothText.revealed.contributionNarrative?.text ?? result.contributionNarrative}{smoothText.revealed.contributionNarrative?.active && <TypingCursor />}
                     </p>
                   ) : (
                     !stage2Failed && <FieldSkeleton lines={1} />
@@ -1044,7 +1047,7 @@ export default function PortfolioDiagnosisPage() {
                   <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>
                   {result.coMovementNarrative !== undefined ? (
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      {result.coMovementNarrative}{typingPortfolioKey === 'coMovementNarrative' && <TypingCursor />}
+                      {smoothText.revealed.coMovementNarrative?.text ?? result.coMovementNarrative}{smoothText.revealed.coMovementNarrative?.active && <TypingCursor />}
                     </p>
                   ) : (
                     !stage2Failed && <FieldSkeleton lines={1} />
@@ -1059,8 +1062,13 @@ export default function PortfolioDiagnosisPage() {
             <div className="flex flex-col divide-y divide-slate-700/40">
               {holdingsList.map(h => {
                 const hUp = h.profitRate >= 0;
-                const reasonTyping = typingHolding?.ticker === h.ticker && typingHolding.key === 'reason';
-                const sectorTyping = typingHolding?.ticker === h.ticker && typingHolding.key === 'sector';
+                // 종목별로 병렬 스트리밍되므로 holding:{ticker}:{key} 키로 서로 독립적으로 애니메이션.
+                const revealedSector = smoothText.revealed[`holding:${h.ticker}:sector`];
+                const revealedReason = smoothText.revealed[`holding:${h.ticker}:reason`];
+                const sectorText = revealedSector?.text ?? h.sector;
+                const reasonText = revealedReason?.text ?? h.reason;
+                const sectorTyping = revealedSector?.active ?? false;
+                const reasonTyping = revealedReason?.active ?? false;
                 return (
                   <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
                     <div className="flex items-start gap-3 flex-wrap md:flex-nowrap">
@@ -1068,7 +1076,7 @@ export default function PortfolioDiagnosisPage() {
                       <div className="w-full md:w-40 shrink-0">
                         <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
                         <p className="text-[11px] text-slate-500 font-mono">
-                          {h.ticker}{h.sector !== undefined ? ` · ${h.sector}` : ''}
+                          {h.ticker}{sectorText !== undefined ? ` · ${sectorText}` : ''}
                           {sectorTyping && <TypingCursor />}
                         </p>
                         <Link
@@ -1117,7 +1125,7 @@ export default function PortfolioDiagnosisPage() {
                         h.reason && (
                           <div className="mt-2 pl-0 w-full">
                             <p className="text-xs  text-sky-100/60 leading-relaxed">
-                              {h.reason}{reasonTyping && <TypingCursor />}
+                              {reasonText}{reasonTyping && <TypingCursor />}
                             </p>
                             {!reasonTyping && (
                               <p className="mt-2 text-[11px] text-slate-500">
@@ -1219,7 +1227,7 @@ export default function PortfolioDiagnosisPage() {
                     <FieldSkeleton lines={2} />
                   ) : (
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      {result.shortTermOutlook}{typingPortfolioKey === 'shortTermOutlook' && <TypingCursor />}
+                      {smoothText.revealed.shortTermOutlook?.text ?? result.shortTermOutlook}{smoothText.revealed.shortTermOutlook?.active && <TypingCursor />}
                     </p>
                   )}
                 </div>
@@ -1235,7 +1243,7 @@ export default function PortfolioDiagnosisPage() {
                     <FieldSkeleton lines={2} />
                   ) : (
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      {result.midTermOutlook}{typingPortfolioKey === 'midTermOutlook' && <TypingCursor />}
+                      {smoothText.revealed.midTermOutlook?.text ?? result.midTermOutlook}{smoothText.revealed.midTermOutlook?.active && <TypingCursor />}
                     </p>
                   )}
                 </div>
@@ -1262,7 +1270,7 @@ export default function PortfolioDiagnosisPage() {
               </div>
               {result.holdingPeriod.narrative !== undefined ? (
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  {result.holdingPeriod.narrative}{typingPortfolioKey === 'holdingPeriodNarrative' && <TypingCursor />}
+                  {smoothText.revealed.holdingPeriodNarrative?.text ?? result.holdingPeriod.narrative}{smoothText.revealed.holdingPeriodNarrative?.active && <TypingCursor />}
                 </p>
               ) : (
                 !stage2Failed && <FieldSkeleton lines={2} />
@@ -1282,8 +1290,7 @@ export default function PortfolioDiagnosisPage() {
               setStage1Complete(false);
               setStage2Failed(false);
               setStreamFinished(false);
-              setTypingHolding(null);
-              setTypingPortfolioKey(null);
+              smoothText.reset();
             }}
             className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl
               bg-slate-800 hover:bg-slate-700 border border-slate-700

@@ -9,6 +9,7 @@ import { Search, Sparkles } from 'lucide-react';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import PageBackground from '@/components/layout/PageBackground';
 import DiagnosisReport, { type DiagnosisResult } from '@/components/diagnosis/DiagnosisReport';
+import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 
 const RECENT_STOCKS = [
   { ticker: '005930', name: '삼성전자' },
@@ -98,7 +99,11 @@ export default function DiagnosisPage() {
   // 되고, 별도 실패 배너는 없음 — emitFallbackFields가 채운 안내 문구가 기존 필드 자리에
   // 그대로 뜨는 것으로 충분하다(스트리밍 전환 전에도 buildFallback이 하던 방식과 동일).
   const [isGenerating, setIsGenerating] = useState(false);
-  const [typingKey, setTypingKey] = useState<string | null>(null);
+  // 2026-08-12 클라이언트 측 smooth streaming — 서버가 보내는 field-partial은 그대로
+  // 즉시 반영하되(엔드투엔드 지연 없음), 화면에 "보여주는 길이"는 이 훅이 일정 속도로
+  // 따라잡는다(원인 조사: Claude API 자체가 SSE 델타를 문장 조각 단위로 뭉쳐 보내서
+  // "단어 단위"로 보이던 문제 — lib/useSmoothTypingText.ts 참고).
+  const smoothText = useSmoothTypingText();
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -155,7 +160,8 @@ export default function DiagnosisPage() {
     if (!avgPrice || !quantity) { setError('매입 평균가와 보유 수량을 입력해주세요.'); return; }
 
     setError(''); setLoading(true); setLoadingLabel('종목 데이터 수집 중...');
-    setResult(null); setShowResult(false); setIsGenerating(false); setTypingKey(null);
+    setResult(null); setShowResult(false); setIsGenerating(false);
+    smoothText.reset();
 
     // 2026-07-13 프로덕션 조사(포트폴리오진단)에서 발견된 것과 동일한 안전장치 — Vercel이
     // 함수 실행시간 초과로 강제종료하면 SSE가 명시적 done/error 프레임 없이 그냥 끊기고
@@ -214,35 +220,44 @@ export default function DiagnosisPage() {
             } else if (event.type === 'field-partial') {
               const { key, value: v } = event;
               setResult(prev => prev ? applyDiagnosisField(prev, key, v) : prev);
-              setTypingKey(key);
+              smoothText.feed(key, v);
             } else if (event.type === 'field') {
               const { key, value: v } = event;
               setResult(prev => prev ? applyDiagnosisField(prev, key, v) : prev);
-              setTypingKey(k => (k === key ? null : k));
+              if (typeof v === 'string') smoothText.snap(key, v);
             } else if (event.type === 'stage1-error') {
               setIsGenerating(false);
+              smoothText.snapAll();
             } else if (event.type === 'done') {
               receivedTerminalEvent = true;
               setIsGenerating(false);
-              setTypingKey(null);
+              smoothText.snapAll();
               setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
               setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
             } else if (event.type === 'error') {
               receivedTerminalEvent = true;
               setError(event.message || '분석 실패');
               setIsGenerating(false);
+              smoothText.snapAll();
             }
           } catch { /* malformed SSE line 무시 */ }
         }
       }
 
       if (!receivedTerminalEvent) {
+        // Vercel 강제종료 등으로 done/error 없이 스트림만 끊긴 경우 — 애니메이션이
+        // 중간에 멈춘 채로 남지 않도록 여기서도 스냅한다(사용자 대기 방지).
         setIsGenerating(false);
+        smoothText.snapAll();
       }
     } catch {
       setError('네트워크 오류가 발생했습니다.');
+      smoothText.snapAll();
     } finally {
       setLoading(false);
+      // 위 각 종료 분기에서 이미 snapAll을 호출하지만, 예상 못한 종료 경로가 생기더라도
+      // 화면이 타이핑 애니메이션 중간에 멈춰있지 않도록 여기서 한 번 더 보장한다.
+      smoothText.snapAll();
     }
   };
 
@@ -250,7 +265,7 @@ export default function DiagnosisPage() {
     setShowResult(false);
     setResult(null);
     setIsGenerating(false);
-    setTypingKey(null);
+    smoothText.reset();
     setTicker('');
     setStockName('');
     setSearchQuery('');
@@ -301,7 +316,7 @@ export default function DiagnosisPage() {
         generatedAt={generatedAt}
         onReset={handleReset}
         isGenerating={isGenerating}
-        typingKey={typingKey}
+        revealed={smoothText.revealed}
       />
     );
   }

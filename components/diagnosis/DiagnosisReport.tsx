@@ -8,6 +8,7 @@ import PriceChangeTable from '@/components/stock/PriceChangeTable';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
+import type { RevealedField } from '@/lib/useSmoothTypingText';
 
 export interface DiagnosisHistory {
   daysSince: number | null; // null = 첫 기업분석(비교 대상 없음)
@@ -315,7 +316,7 @@ const MAIN_ANALYSIS_BLOCKS = [
   { key: 'mainAnalysisSections_watchPoint',    field: 'watchPoint',    label: '관찰 포인트' },
 ] as const;
 
-function MainAnalysisBody({ result, isGenerating, typingKey }: { result: DiagnosisResult; isGenerating?: boolean; typingKey?: string | null }) {
+function MainAnalysisBody({ result, isGenerating, revealed }: { result: DiagnosisResult; isGenerating?: boolean; revealed?: Record<string, RevealedField> }) {
   const s = result.mainAnalysisSections;
   // 신규 리포트는 스트리밍 도중에도 mainAnalysisSections가 (빈 문자열 포함) 항상 존재하므로
   // (applyDiagnosisField가 최초 merge 시 4개 필드를 빈 문자열로 채워둠), 과거 레코드(완전
@@ -345,7 +346,7 @@ function MainAnalysisBody({ result, isGenerating, typingKey }: { result: Diagnos
           <div key={b.label}>
             <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
             <p className="text-xs text-slate-300 leading-relaxed">
-              {b.text}{typingKey === b.key && <TypingCursor />}
+              {revealed?.[b.key]?.text ?? b.text}{revealed?.[b.key]?.active && <TypingCursor />}
             </p>
           </div>
         ) : isGenerating ? (
@@ -362,7 +363,7 @@ function MainAnalysisBody({ result, isGenerating, typingKey }: { result: Diagnos
 // "직전 기업분석 대비" 카드 — 종목 리포트(components/stock/AiAnalysis.tsx)의 "🔄 어제 대비"
 // 카드와 동일한 시각 언어를 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시하고
 // (AI가 지어낸 숫자가 아님), narrative만 AI 해석 문장이다.
-function HistoryCompareCard({ result, isGenerating, typingKey }: { result: DiagnosisResult; isGenerating?: boolean; typingKey?: string | null }) {
+function HistoryCompareCard({ result, isGenerating, revealed }: { result: DiagnosisResult; isGenerating?: boolean; revealed?: Record<string, RevealedField> }) {
   const h = result.history;
   const isFirst = h.daysSince === null;
   const label = isFirst
@@ -402,7 +403,7 @@ function HistoryCompareCard({ result, isGenerating, typingKey }: { result: Diagn
       )}
       {h.narrative ? (
         <p className="text-xs text-slate-300 leading-relaxed">
-          {h.narrative}{typingKey === 'historyNarrative' && <TypingCursor />}
+          {revealed?.historyNarrative?.text ?? h.narrative}{revealed?.historyNarrative?.active && <TypingCursor />}
         </p>
       ) : isGenerating ? (
         <FieldSkeleton lines={1} />
@@ -415,7 +416,7 @@ function HistoryCompareCard({ result, isGenerating, typingKey }: { result: Diagn
 // 0 기준선 중심의 발산형 바)을 연도별로 한눈에 비교할 수 있게 표시. 2026-07-13
 // "숫자를 읽어야만 알 수 있다"는 피드백으로, 텍스트 나열에서 막대 시각화로 전환.
 // 색상은 페이지 전체가 이미 쓰고 있는 관례(상승/이익=red, 하락/손실=blue)를 그대로 따름.
-function FinancialsTrendCard({ result, isGenerating, typingKey }: { result: DiagnosisResult; isGenerating?: boolean; typingKey?: string | null }) {
+function FinancialsTrendCard({ result, isGenerating, revealed }: { result: DiagnosisResult; isGenerating?: boolean; revealed?: Record<string, RevealedField> }) {
   const rows = result.annualFinancials;
   const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue ?? 0));
   const maxAbsOpProfit = Math.max(1, ...rows.map((r) => Math.abs(r.operatingProfit ?? 0)));
@@ -472,7 +473,7 @@ function FinancialsTrendCard({ result, isGenerating, typingKey }: { result: Diag
       </div>
       {result.financialsNarrative ? (
         <p className="text-xs text-slate-300 leading-relaxed">
-          {result.financialsNarrative}{typingKey === 'financialsNarrative' && <TypingCursor />}
+          {revealed?.financialsNarrative?.text ?? result.financialsNarrative}{revealed?.financialsNarrative?.active && <TypingCursor />}
         </p>
       ) : isGenerating ? (
         <FieldSkeleton lines={2} />
@@ -493,7 +494,9 @@ interface DiagnosisReportProps {
   // (app/welcome/page.tsx 등 정적 예시 호출부는 변경 없음). app/diagnosis/page.tsx만 SSE
   // 진행 상태를 실어 넘긴다.
   isGenerating?: boolean;    // true면 아직 도착하지 않은 AI 필드 자리에 스켈레톤을 그림
-  typingKey?: string | null; // 지금 문자 단위로 채워지는 중인 AI 필드 키 — 타이핑 커서 표시
+  // 2026-08-12 클라이언트 측 smooth streaming(lib/useSmoothTypingText.ts) — 키(필드명)별로
+  // 화면에 보여줄 텍스트와, 아직 목표 길이를 못 따라잡아 타이핑 커서를 그려야 하는지(active)를 담음.
+  revealed?: Record<string, RevealedField>;
 }
 
 // app/diagnosis/page.tsx의 결과 리포트 뷰를 그대로 추출한 컴포넌트.
@@ -502,7 +505,7 @@ interface DiagnosisReportProps {
 // (app/share/[id]/page.tsx의 DiagnosisView는 별도로 손복제돼 있어 이 파일과 함께 갱신할 것)
 export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
-  isGenerating = false, typingKey = null,
+  isGenerating = false, revealed,
 }: DiagnosisReportProps) {
   const isProfit = result.profitRate >= 0;
   const resistanceUpRate = result.resistance > 0 ? ((result.resistance - result.currentPrice) / result.currentPrice * 100) : 0;
@@ -565,13 +568,13 @@ export default function DiagnosisReport({
                   <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>오늘의 기업 분석</p>
                 </div>
               </div>
-              <MainAnalysisBody result={result} isGenerating={isGenerating} typingKey={typingKey} />
+              <MainAnalysisBody result={result} isGenerating={isGenerating} revealed={revealed} />
               {result.finalVerdict && (
                 <div className="mt-5 pt-5 border-t border-slate-700/50">
                   <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
                   <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
                     <p className="text-xs text-slate-200 leading-relaxed">
-                      {result.finalVerdict}{typingKey === 'finalVerdict' && <TypingCursor />}
+                      {revealed?.finalVerdict?.text ?? result.finalVerdict}{revealed?.finalVerdict?.active && <TypingCursor />}
                     </p>
                   </div>
                 </div>
@@ -650,7 +653,7 @@ export default function DiagnosisReport({
         </div>
 
         {/* ── 2행: 직전 기업분석 대비 (신설) ── */}
-        <HistoryCompareCard result={result} isGenerating={isGenerating} typingKey={typingKey} />
+        <HistoryCompareCard result={result} isGenerating={isGenerating} revealed={revealed} />
 
         {/* ── 2-1행: 주요 공시 (DART, 있을 때만 — 눈에 띄게 강조) ── */}
         {result.disclosures.length > 0 && (
@@ -675,7 +678,7 @@ export default function DiagnosisReport({
             </div>
             {result.disclosureNarrative ? (
               <p className="text-xs text-slate-300 leading-relaxed">
-                {result.disclosureNarrative}{typingKey === 'disclosureNarrative' && <TypingCursor />}
+                {revealed?.disclosureNarrative?.text ?? result.disclosureNarrative}{revealed?.disclosureNarrative?.active && <TypingCursor />}
               </p>
             ) : isGenerating ? (
               <FieldSkeleton lines={1} />
@@ -776,14 +779,14 @@ export default function DiagnosisReport({
             <div className="flex flex-col gap-1.5">
               {result.institutionalFlow ? (
                 <p className="text-center text-xs text-slate-400 leading-relaxed">
-                  {result.institutionalFlow}{typingKey === 'institutionalFlow' && <TypingCursor />}
+                  {revealed?.institutionalFlow?.text ?? result.institutionalFlow}{revealed?.institutionalFlow?.active && <TypingCursor />}
                 </p>
               ) : isGenerating ? (
                 <FieldSkeleton lines={1} />
               ) : null}
               {result.foreignFlow ? (
                 <p className="text-center text-xs text-slate-400 leading-relaxed">
-                  {result.foreignFlow}{typingKey === 'foreignFlow' && <TypingCursor />}
+                  {revealed?.foreignFlow?.text ?? result.foreignFlow}{revealed?.foreignFlow?.active && <TypingCursor />}
                 </p>
               ) : isGenerating ? (
                 <FieldSkeleton lines={1} />
@@ -825,7 +828,7 @@ export default function DiagnosisReport({
               )}
               {result.sectorNarrative ? (
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  {result.sectorNarrative}{typingKey === 'sectorNarrative' && <TypingCursor />}
+                  {revealed?.sectorNarrative?.text ?? result.sectorNarrative}{revealed?.sectorNarrative?.active && <TypingCursor />}
                 </p>
               ) : isGenerating ? (
                 <FieldSkeleton lines={2} />
@@ -867,7 +870,7 @@ export default function DiagnosisReport({
                 </div>
                 {result.shortTermOutlook ? (
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    {result.shortTermOutlook}{typingKey === 'shortTermOutlook' && <TypingCursor />}
+                    {revealed?.shortTermOutlook?.text ?? result.shortTermOutlook}{revealed?.shortTermOutlook?.active && <TypingCursor />}
                   </p>
                 ) : (
                   <FieldSkeleton lines={2} />
@@ -883,7 +886,7 @@ export default function DiagnosisReport({
                 </div>
                 {result.midTermOutlook ? (
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    {result.midTermOutlook}{typingKey === 'midTermOutlook' && <TypingCursor />}
+                    {revealed?.midTermOutlook?.text ?? result.midTermOutlook}{revealed?.midTermOutlook?.active && <TypingCursor />}
                   </p>
                 ) : (
                   <FieldSkeleton lines={2} />
@@ -909,7 +912,7 @@ export default function DiagnosisReport({
 
         {/* ── 5-1행: 실적 추이 (최근 3개년 확정 연간, 데이터 없으면 카드 생략) ── */}
         {result.annualFinancials.length > 0 && (
-          <FinancialsTrendCard result={result} isGenerating={isGenerating} typingKey={typingKey} />
+          <FinancialsTrendCard result={result} isGenerating={isGenerating} revealed={revealed} />
         )}
 
         {/* ── 6행: 참고 기사 (본문에서 이미 해석했으므로 출처 링크만) ── */}
