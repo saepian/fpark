@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { getCachedChartNear } from '@/lib/chart-near-cache';
-import { computePortfolioMonthlySeries } from '@/lib/market-utils';
+import { computePortfolioMonthlySeries, computePortfolioDailySeries } from '@/lib/market-utils';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -61,7 +61,7 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const holdingsInput = data ?? [];
-  if (holdingsInput.length === 0) return NextResponse.json({ monthly: [] });
+  if (holdingsInput.length === 0) return NextResponse.json({ monthly: [], daily: [] });
 
   const totalInvested = holdingsInput.reduce((s, h) => s + h.avg_price * h.quantity, 0);
 
@@ -70,6 +70,8 @@ export async function GET() {
     return { ticker: h.ticker, quantity: h.quantity, points: points.length ? points : null };
   });
 
+  // 일별 보기(최근 30거래일)도 같은 6개월치 points에서 잘라 쓴다 — 별도 조회 없음.
   const monthly = computePortfolioMonthlySeries(withPoints, totalInvested, 6);
-  return NextResponse.json({ monthly });
+  const daily = computePortfolioDailySeries(withPoints, totalInvested, 30);
+  return NextResponse.json({ monthly, daily });
 }

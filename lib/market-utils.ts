@@ -276,3 +276,40 @@ export function computePortfolioMonthlySeries(
     })
     .filter((p) => p.missingTickers.length < holdings.length);
 }
+
+// "수익률 추이" 일별 보기 — 월별과 같은 소스(holdings.points, 이미 6개월치를 받아온
+// getCachedChartNear 결과)에서 최근 N거래일만 잘라 쓴다. 신규 조회 없음. 라벨은
+// "MM/DD" — 월별처럼 "N월" 반복 라벨은 30개 점에서 의미가 없다.
+export function computePortfolioDailySeries(
+  holdings: { ticker: string; quantity: number; points: ChartDataPoint[] | null }[],
+  totalInvested: number,
+  days = 30,
+): PortfolioMonthlyPoint[] {
+  const allDates = Array.from(new Set(
+    holdings.flatMap((h) => h.points?.map((p) => p.date) ?? [])
+  )).sort();
+  const recentDates = allDates.slice(-days);
+
+  return recentDates
+    .map((dateStr) => {
+      let value = 0;
+      const missingTickers: string[] = [];
+      for (const h of holdings) {
+        const past = h.points ? findClosestPastClose(h.points, dateStr) : null;
+        if (past && past.close > 0) {
+          value += past.close * h.quantity;
+        } else {
+          missingTickers.push(h.ticker);
+        }
+      }
+      const [, m, d] = dateStr.split('-');
+      return {
+        label: `${Number(m)}/${Number(d)}`,
+        date: dateStr,
+        value,
+        returnRate: totalInvested > 0 ? ((value - totalInvested) / totalInvested) * 100 : 0,
+        missingTickers,
+      };
+    })
+    .filter((p) => p.missingTickers.length < holdings.length);
+}

@@ -10,6 +10,7 @@ import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { isKoreanMarketOpen } from '@/lib/market-utils';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
+import { useCountUp } from '@/lib/use-count-up';
 import AiAnalysis from '@/components/stock/AiAnalysis';
 import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
 import { AllocationDonutChart, ReturnBarChart, RiskReturnScatterChart, MonthlyReturnLineChart, SectorAllocationDonutChart, type RiskPoint, type MonthlyPoint } from '@/components/dashboard/DashboardCharts';
@@ -24,6 +25,7 @@ interface HoldingRow {
   currentPrice: number; changeRate: number;
   week52High: number; week52Low: number; marketCap: string; per: number; pbr: number;
   sector: string;
+  aiAnalysisUsedToday: boolean;
 }
 
 interface DashboardHoldingResult {
@@ -360,11 +362,13 @@ export default function DashboardPage() {
   // 종목당 연쇄 백필 조회라 위험도보다도 무거울 수 있어 서버가 1일 캐시(market_cache
   // 테이블, chart-near 라우트와 공유)를 건다.
   const [monthlyData, setMonthlyData] = useState<MonthlyPoint[]>([]);
+  const [dailyData,   setDailyData]   = useState<MonthlyPoint[]>([]);
   const loadMonthly = useCallback(async () => {
     try {
       const res  = await fetch('/api/dashboard/monthly-returns');
       const data = await res.json();
       if (res.ok && Array.isArray(data.monthly)) setMonthlyData(data.monthly);
+      if (res.ok && Array.isArray(data.daily)) setDailyData(data.daily);
     } catch { /* 라인차트는 부가 정보라 실패해도 조용히 무시 */ }
   }, []);
 
@@ -525,6 +529,18 @@ export default function DashboardPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // 스탯카드 롤링 애니메이션용 훅은 조건부 return보다 위에서 항상 호출해야 한다(React
+  // hooks 규칙) — holdings가 아직 null인 로딩 상태에서는 0으로 계산해두고, 아래
+  // early return을 통과한 뒤에야 실제 화면에 쓰인다.
+  const totalInvestedRaw   = (holdings ?? []).reduce((s, h) => s + h.avg_price * h.quantity, 0);
+  const totalValueRaw      = (holdings ?? []).reduce((s, h) => s + h.currentPrice * h.quantity, 0);
+  const totalProfitRaw     = totalValueRaw - totalInvestedRaw;
+  const totalProfitRateRaw = totalInvestedRaw > 0 ? (totalProfitRaw / totalInvestedRaw) * 100 : 0;
+  const totalInvestedAnim   = useCountUp(totalInvestedRaw);
+  const totalValueAnim      = useCountUp(totalValueRaw);
+  const totalProfitAnim     = useCountUp(totalProfitRaw);
+  const totalProfitRateAnim = useCountUp(totalProfitRateRaw);
+
   if (!authChecked || holdings === null) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -550,11 +566,7 @@ export default function DashboardPage() {
     );
   }
 
-  const totalInvested = holdings.reduce((s, h) => s + h.avg_price * h.quantity, 0);
-  const totalValue    = holdings.reduce((s, h) => s + h.currentPrice * h.quantity, 0);
-  const totalProfit   = totalValue - totalInvested;
-  const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
-  const isUp = totalProfitRate >= 0;
+  const isUp = totalProfitRateRaw >= 0;
   const atLimit = holdings.length >= limit;
 
   const reportReady = streamFinished && !stage2Failed;
@@ -562,7 +574,7 @@ export default function DashboardPage() {
   return (
     <div className="pb-8">
       <PageBackground />
-      <div className="max-w-4xl mx-auto px-4 pt-8">
+      <div className="max-w-5xl mx-auto px-4 pt-8">
 
         <div className="mb-6">
           <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">대시보드</p>
@@ -573,19 +585,19 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <div className="border rounded-2xl p-4" style={{ background: '#1a1f2e', borderColor: '#334155' }}>
             <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">총 투자금</p>
-            <p className="text-xl font-bold font-mono text-white">{fmt(totalInvested)}원</p>
+            <p className="text-xl font-bold font-mono text-white">{fmt(Math.round(totalInvestedAnim))}원</p>
           </div>
           <div className="border rounded-2xl p-4" style={{ background: '#1a1f2e', borderColor: '#334155' }}>
             <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">평가금액</p>
-            <p className="text-xl font-bold font-mono text-white">{fmt(totalValue)}원</p>
+            <p className="text-xl font-bold font-mono text-white">{fmt(Math.round(totalValueAnim))}원</p>
           </div>
           <div className="border rounded-2xl p-4" style={{ background: isUp ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.15)', borderColor: isUp ? 'rgba(239,68,68,0.4)' : 'rgba(59,130,246,0.4)' }}>
             <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">총 손익</p>
-            <p className={`text-xl font-bold font-mono ${isUp ? 'text-red-400' : 'text-blue-400'}`}>{totalProfit >= 0 ? '+' : ''}{fmt(totalProfit)}원</p>
+            <p className={`text-xl font-bold font-mono ${isUp ? 'text-red-400' : 'text-blue-400'}`}>{totalProfitAnim >= 0 ? '+' : ''}{fmt(Math.round(totalProfitAnim))}원</p>
           </div>
           <div className="border rounded-2xl p-4" style={{ background: isUp ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.15)', borderColor: isUp ? 'rgba(239,68,68,0.4)' : 'rgba(59,130,246,0.4)' }}>
             <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">수익률</p>
-            <p className={`text-xl font-bold font-mono ${isUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(totalProfitRate)}</p>
+            <p className={`text-xl font-bold font-mono ${isUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(totalProfitRateAnim)}</p>
           </div>
         </div>
 
@@ -600,7 +612,7 @@ export default function DashboardPage() {
             <ReturnBarChart holdings={holdings} />
           </div>
           <div className="md:col-span-2">
-            <MonthlyReturnLineChart monthly={monthlyData} />
+            <MonthlyReturnLineChart monthly={monthlyData} daily={dailyData} />
           </div>
           <div className="md:col-span-2">
             <RiskReturnScatterChart holdings={holdings} risk={riskData} />
@@ -633,12 +645,25 @@ export default function DashboardPage() {
                     </div>
                     <p className="text-[11px] text-slate-500 font-mono mt-0.5">{h.ticker} · {h.quantity}주 · 매입가 {fmt(h.avg_price)}</p>
                   </div>
-                  <button
-                    onClick={() => removeHolding(h.ticker)}
-                    className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => {
+                        setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market });
+                        setHoldings(prev => prev ? prev.map(x => x.ticker === h.ticker ? { ...x, aiAnalysisUsedToday: true } : x) : prev);
+                      }}
+                      disabled={marketOpen || h.aiAnalysisUsedToday}
+                      title={marketOpen ? 'AI 분석은 장 마감 후 이용할 수 있습니다' : h.aiAnalysisUsedToday ? '오늘 이미 확인한 분석입니다 (자정 이후 다시 이용 가능)' : 'AI 분석 보기'}
+                      className="p-1.5 rounded-lg text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => removeHolding(h.ticker)}
+                      className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
@@ -655,35 +680,33 @@ export default function DashboardPage() {
                 </div>
 
                 {(h.week52High > 0 || h.marketCap || fiveDayChange != null) && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4 pt-3 border-t border-slate-700/40">
+                  <div className="mb-4 pt-3 border-t border-slate-700/40">
+                    {/* 52주 최고/최저는 값이 길어서(최대 7자리 두 개) 3열에 끼면 줄바꿈되던
+                        문제가 있었다 — 카드 전체 폭을 쓰는 단독 줄로 분리해서 항상 한 줄에 들어가게 함. */}
                     {h.week52High > 0 && (
-                      <div>
+                      <div className="mb-3">
                         <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">52주 최고/최저</p>
-                        <p className="text-[12px] font-mono text-slate-300">{fmt(h.week52High)} / {fmt(h.week52Low)}</p>
+                        <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{fmt(h.week52High)} / {fmt(h.week52Low)}</p>
                       </div>
                     )}
-                    {h.marketCap && (
-                      <div>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">시가총액</p>
-                        <p className="text-[12px] font-mono text-slate-300">{h.marketCap} <span className="text-slate-500">KRW</span></p>
-                      </div>
-                    )}
-                    {fiveDayChange != null && (
-                      <div>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">5일 변동률</p>
-                        <p className={`text-[12px] font-mono font-semibold ${fiveDayChange >= 0 ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(fiveDayChange)}</p>
+                    {(h.marketCap || fiveDayChange != null) && (
+                      <div className="grid grid-cols-2 gap-3">
+                        {h.marketCap && (
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">시가총액</p>
+                            <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{h.marketCap} <span className="text-slate-500">KRW</span></p>
+                          </div>
+                        )}
+                        {fiveDayChange != null && (
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">5일 변동률</p>
+                            <p className={`text-[12px] font-mono font-semibold whitespace-nowrap ${fiveDayChange >= 0 ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(fiveDayChange)}</p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 )}
-
-                <button
-                  onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[12px] font-semibold
-                    bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 text-indigo-300 transition-colors cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" /> AI 분석
-                </button>
               </div>
             );
           })}
