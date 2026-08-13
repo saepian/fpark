@@ -10,6 +10,8 @@ import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { isKoreanMarketOpen } from '@/lib/market-utils';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
+import AiAnalysis from '@/components/stock/AiAnalysis';
+import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -278,6 +280,14 @@ export default function DashboardPage() {
   const [stage2Failed,    setStage2Failed]    = useState(false);
   const [streamFinished,  setStreamFinished]  = useState(false);
   const smoothText = useSmoothTypingText();
+  const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
+  const toggleExpanded = (ticker: string) => {
+    setExpandedTickers(prev => {
+      const next = new Set(prev);
+      if (next.has(ticker)) next.delete(ticker); else next.add(ticker);
+      return next;
+    });
+  };
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -632,9 +642,81 @@ export default function DashboardPage() {
               </p>
             </div>
 
+            <div className="flex items-center gap-2 mb-2">
+              <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>
+                {stage1Complete ? '종목별 분석' : '종목별 분석 (분석 중...)'}
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 mb-4">
+              {(analysisResult.holdings ?? []).map(h => {
+                const base = holdings.find(x => x.ticker === h.ticker);
+                const market = base?.market ?? 'kr';
+                const changeRate = base?.changeRate ?? 0;
+                const up = h.profitRate >= 0;
+                const todayUp = changeRate >= 0;
+                const expanded = expandedTickers.has(h.ticker);
+                return (
+                  <div key={h.ticker} className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl overflow-hidden">
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Link href={`/stock/${h.ticker}`} className="text-[14px] font-semibold text-white hover:text-indigo-300 transition-colors truncate">
+                              {h.name}
+                            </Link>
+                            <span className="text-[10px] font-semibold text-slate-500 border border-slate-700 rounded px-1.5 py-0.5 shrink-0">
+                              {market === 'kr' ? '국내' : '해외'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-mono mt-0.5">{h.ticker}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-[13px] font-mono text-slate-200">{fmt(h.currentPrice)}</p>
+                          <p className={`text-[11px] font-mono ${todayUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(changeRate)}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        <div>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">평가손익</p>
+                          <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>
+                            {h.profit >= 0 ? '+' : ''}{fmt(Math.round(h.profit))}원 ({fmtR(h.profitRate)})
+                          </p>
+                        </div>
+                        {h.todayContribution != null && (
+                          <div>
+                            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">오늘 기여</p>
+                            <p className={`text-[13px] font-mono font-semibold ${h.todayContribution >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                              {h.todayContribution >= 0 ? '+' : ''}{fmt(Math.round(h.todayContribution))}원
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => toggleExpanded(h.ticker)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[12px] font-semibold
+                          bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 text-indigo-300 transition-colors cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> {expanded ? 'AI 분석 접기' : 'AI 분석 보기'}
+                      </button>
+                    </div>
+
+                    {expanded && (
+                      <div className="border-t border-slate-700/50">
+                        {market === 'kr'
+                          ? <AiAnalysis ticker={h.ticker} />
+                          : <OverseasAiAnalysis ticker={h.ticker} market={market} />}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
             {stage2Failed ? (
               <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-6 py-5 mb-4">
-                <p className="text-[13px] text-amber-200/90 leading-relaxed">AI 종합 평가를 불러오지 못했습니다. 종목별 분석은 아래에서 확인하실 수 있습니다.</p>
+                <p className="text-[13px] text-amber-200/90 leading-relaxed">AI 종합 평가를 불러오지 못했습니다. 종목별 분석은 위에서 확인하실 수 있습니다.</p>
                 <button
                   onClick={runAnalysis}
                   className="flex items-center gap-1.5 shrink-0 px-4 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[12px] font-semibold transition-colors cursor-pointer"
@@ -682,44 +764,6 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
-
-            <Card title={stage1Complete ? '종목별 관찰 지표' : '종목별 관찰 지표 (분석 중...)'} className="mb-4">
-              <div className="flex flex-col divide-y divide-slate-700/40">
-                {(analysisResult.holdings ?? []).map(h => {
-                  const hUp = h.profitRate >= 0;
-                  const revealedSector = smoothText.revealed[`holding:${h.ticker}:sector`];
-                  const revealedReason = smoothText.revealed[`holding:${h.ticker}:reason`];
-                  const sectorText = revealedSector?.text ?? h.sector;
-                  const reasonText = revealedReason?.text ?? h.reason;
-                  return (
-                    <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
-                      <div className="flex items-start gap-3 flex-wrap md:flex-nowrap">
-                        <div className="w-full md:w-40 shrink-0">
-                          <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
-                          <p className="text-[11px] text-slate-500 font-mono">
-                            {h.ticker}{sectorText !== undefined ? ` · ${sectorText}` : ''}
-                            {revealedSector?.active && <TypingCursor />}
-                          </p>
-                          <p className={`text-[13px] font-mono font-semibold mt-1 ${hUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(h.profitRate)}</p>
-                        </div>
-                        <div className="w-full">
-                          {reasonText !== undefined ? (
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              {reasonText}{revealedReason?.active && <TypingCursor />}
-                            </p>
-                          ) : (
-                            <FieldSkeleton lines={2} />
-                          )}
-                          {h.newsBasis === 'estimated' && (
-                            <p className="text-[10px] text-slate-600 mt-1.5">관련 뉴스 없음 — 수급·기술적 요인 기반 관찰</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
 
             {analysisResult.coMovementText && (
               <Card title="섹터 동조화 관찰" className="mb-4">
