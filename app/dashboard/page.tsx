@@ -12,7 +12,7 @@ import { isKoreanMarketOpen } from '@/lib/market-utils';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import AiAnalysis from '@/components/stock/AiAnalysis';
 import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
-import { AllocationDonutChart, ReturnBarChart, RiskReturnScatterChart, type RiskPoint } from '@/components/dashboard/DashboardCharts';
+import { AllocationDonutChart, ReturnBarChart, RiskReturnScatterChart, MonthlyReturnLineChart, type RiskPoint, type MonthlyPoint } from '@/components/dashboard/DashboardCharts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -355,12 +355,25 @@ export default function DashboardPage() {
     } catch { /* 산점도는 부가 정보라 실패해도 조용히 무시 */ }
   }, []);
 
+  // 월별 수익률 추이(6개월) — 위험도와 같은 이유로 시세폴링과 분리해 1회만 부른다.
+  // 종목당 연쇄 백필 조회라 위험도보다도 무거울 수 있어 서버가 1일 캐시(market_cache
+  // 테이블, chart-near 라우트와 공유)를 건다.
+  const [monthlyData, setMonthlyData] = useState<MonthlyPoint[]>([]);
+  const loadMonthly = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/dashboard/monthly-returns');
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.monthly)) setMonthlyData(data.monthly);
+    } catch { /* 라인차트는 부가 정보라 실패해도 조용히 무시 */ }
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) { router.replace(loginUrlWithRedirect(window.location.pathname)); return; }
       setAuthChecked(true);
       loadHoldings();
       loadRisk();
+      loadMonthly();
     });
   }, []); // eslint-disable-line
 
@@ -583,6 +596,9 @@ export default function DashboardPage() {
           <AllocationDonutChart holdings={holdings} />
           <ReturnBarChart holdings={holdings} />
           <div className="md:col-span-2">
+            <MonthlyReturnLineChart monthly={monthlyData} />
+          </div>
+          <div className="md:col-span-2">
             <RiskReturnScatterChart holdings={holdings} risk={riskData} />
           </div>
         </div>
@@ -680,7 +696,7 @@ export default function DashboardPage() {
 
         {showAddForm && (
           <Modal title="종목 추가" onClose={() => setShowAddForm(false)} maxWidth="max-w-md">
-            <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); loadRisk(); }} onCancel={() => setShowAddForm(false)} showCancel />
+            <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); loadRisk(); loadMonthly(); }} onCancel={() => setShowAddForm(false)} showCancel />
           </Modal>
         )}
 

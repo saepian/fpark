@@ -2,7 +2,7 @@
 
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, LabelList,
-  ScatterChart, Scatter, CartesianGrid, ReferenceLine,
+  ScatterChart, Scatter, CartesianGrid, ReferenceLine, AreaChart, Area,
 } from 'recharts';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { useChartEntranceAnimation } from '@/lib/chart-animation';
@@ -19,6 +19,13 @@ export interface RiskPoint {
   ticker: string;
   mdd: number | null;
   volatility: number | null;
+}
+
+export interface MonthlyPoint {
+  label: string;
+  date: string;
+  value: number;
+  returnRate: number;
 }
 
 // dataviz 스킬 카테고리 팔레트(dark, adjacent-pair 검증 통과 순서) — 종목이 8개를
@@ -222,6 +229,90 @@ export function RiskReturnScatterChart({ holdings, risk }: { holdings: ChartHold
             </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+const LINE_COLOR = '#818cf8'; // components/diagnosis/DiagnosisReport.tsx의 단일 라인차트와 동일한 인디고 액센트
+
+function MonthlyTooltip({ active, payload }: { active?: boolean; payload?: { payload: MonthlyPoint }[] }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div style={TOOLTIP_STYLE} className="px-3 py-2">
+      <p className="text-[11px] font-semibold text-white mb-1">{d.label}</p>
+      <p className="text-[11px] text-slate-400">평가금액 {fmtWon(d.value)}</p>
+      <p className="text-[11px] text-slate-400">수익률 {fmtPct(d.returnRate)}</p>
+    </div>
+  );
+}
+
+function EndDot({ cx, cy, index, dataLength }: { cx?: number; cy?: number; index?: number; dataLength: number }) {
+  if (cx == null || cy == null) return null;
+  const isLast = index === dataLength - 1;
+  return <circle cx={cx} cy={cy} r={isLast ? 5 : 3} fill={LINE_COLOR} stroke="#1a1f2e" strokeWidth={2} />;
+}
+
+export function MonthlyReturnLineChart({ monthly }: { monthly: MonthlyPoint[] }) {
+  const anim = useChartEntranceAnimation();
+  const last = monthly[monthly.length - 1];
+
+  return (
+    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+      <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>월별 수익률 추이</p>
+      <p className="text-[10px] text-slate-600 mb-3">현재 투자원금 대비 누적 수익률 · 현재 보유 구성을 과거에도 유지했다고 가정</p>
+      {monthly.length < 2 ? (
+        <div className="h-[200px] flex items-center justify-center">
+          <p className="text-[11px] text-slate-600">추이 데이터를 불러오는 중...</p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart data={monthly} margin={{ top: 16, right: 52, bottom: 0, left: 12 }}>
+            <defs>
+              <linearGradient id="monthlyReturnFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={LINE_COLOR} stopOpacity={0.1} />
+                <stop offset="100%" stopColor={LINE_COLOR} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#334155" strokeOpacity={0.4} vertical={false} />
+            <XAxis
+              dataKey="label"
+              interval={0}
+              tick={{ fontSize: 10, fill: '#64748b' }}
+              axisLine={{ stroke: '#334155' }}
+              tickLine={false}
+            />
+            <YAxis hide domain={['dataMin - 10', 'dataMax + 10']} />
+            <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
+            <Tooltip cursor={{ stroke: '#475569', strokeDasharray: '3 3' }} content={<MonthlyTooltip />} />
+            <Area
+              type="monotone"
+              dataKey="returnRate"
+              stroke={LINE_COLOR}
+              strokeWidth={2}
+              fill="url(#monthlyReturnFill)"
+              dot={<EndDot dataLength={monthly.length} />}
+              {...anim}
+            >
+              <LabelList
+                dataKey="returnRate"
+                content={(props) => {
+                  const { x, y, index, value } = props as { x?: number; y?: number; index?: number; value?: number };
+                  if (index !== monthly.length - 1 || x == null || y == null || value == null) return null;
+                  return (
+                    <text x={x + 8} y={y} dy={4} fontSize={11} fontFamily="monospace" fill={LINE_COLOR} textAnchor="start">
+                      {fmtPct(value)}
+                    </text>
+                  );
+                }}
+              />
+            </Area>
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
+      {last && (
+        <p className="text-[10px] text-slate-600 mt-1 text-right">최근: {last.label} 기준</p>
       )}
     </div>
   );

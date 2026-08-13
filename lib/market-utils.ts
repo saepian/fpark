@@ -222,3 +222,57 @@ export function computePortfolioPeriodChange(
     })
     .filter((r) => r.missingTickers.length < holdings.length); // 전 종목 실패한 기간은 행 자체를 생략
 }
+
+export interface PortfolioMonthlyPoint {
+  label: string;          // "3월" 같은 표시용 라벨
+  date: string;           // 해당 시점 목표일(YYYY-MM-DD)
+  value: number;          // 그 시점 포트폴리오 평가금액(현재 보유구성 그대로 유지했다고 가정)
+  returnRate: number;     // (value - totalInvested) / totalInvested — "현재 투자원금" 대비 누적수익률(%).
+                          // computePortfolioPeriodChange의 changeRate(그 시점 자체 대비 등락률)와는
+                          // 다른 정의 — 대시보드 상단 수익률 카드·도넛·막대와 같은 기준으로 통일해
+                          // 마지막(오늘) 점이 상단 카드 값과 일치하게 한다.
+  missingTickers: string[];
+}
+
+// 월별 수익률 추이(기본 6개월) — computePortfolioPeriodChange와 같은 findClosestPastClose
+// 기반 집계지만, 4개 고정 기간이 아니라 매월 "같은 날짜, N개월 전" 타겟을 순서대로 만들어
+// 연속 시계열을 뽑는다. .getMonth() 같은 서버 로컬 타임존 메서드로 라벨을 다시 뽑지 않고
+// (month - m)을 모듈러 연산으로 직접 계산 — kstMidnight()이 만든 Date를 다시 파싱하다가
+// KST 자정 근처에서 하루 밀리는 회귀(getPriceChangeTargets 주석 참고)를 원천 차단한다.
+export function computePortfolioMonthlySeries(
+  holdings: { ticker: string; quantity: number; points: ChartDataPoint[] | null }[],
+  totalInvested: number,
+  months = 6,
+  now: Date = new Date(),
+): PortfolioMonthlyPoint[] {
+  const { year, month, day } = kstYearMonthDay(now); // month는 0-indexed
+
+  const targets = Array.from({ length: months }, (_, i) => {
+    const m = months - 1 - i; // i=0 → (months-1)개월 전 ... i=months-1 → 0개월 전(오늘)
+    const labelMonth = ((month - m) % 12 + 12) % 12 + 1; // 1-indexed 표시월
+    return { label: `${labelMonth}월`, targetDate: kstMidnight(year, month - m, day) };
+  });
+
+  return targets
+    .map(({ label, targetDate }) => {
+      const targetStr = kstDateStr(targetDate);
+      let value = 0;
+      const missingTickers: string[] = [];
+      for (const h of holdings) {
+        const past = h.points ? findClosestPastClose(h.points, targetStr) : null;
+        if (past && past.close > 0) {
+          value += past.close * h.quantity;
+        } else {
+          missingTickers.push(h.ticker);
+        }
+      }
+      return {
+        label,
+        date: targetStr,
+        value,
+        returnRate: totalInvested > 0 ? ((value - totalInvested) / totalInvested) * 100 : 0,
+        missingTickers,
+      };
+    })
+    .filter((p) => p.missingTickers.length < holdings.length);
+}
