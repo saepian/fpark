@@ -31,11 +31,22 @@ export interface MonthlyPoint {
   returnRate: number;
 }
 
-// dataviz 스킬 카테고리 팔레트(dark, adjacent-pair 검증 통과 순서) — 종목이 8개를
-// 넘어가면 나머지는 "기타"(회색)로 접는다(9번째 슬롯을 새로 생성하지 않음).
+// dataviz 스킬 카테고리 팔레트(dark, adjacent-pair 검증 통과 순서). 산업군별 비중처럼
+// 카테고리 수가 자연히 적은(KRX 대분류 ~20개 중 실제 보유 업종 수) 차트는 8개 넘으면
+// "기타"로 접지만, 종목별 투자비중은 전부 개별 슬라이스로 보여달라는 요구가 있어
+// sliceColorCycled()로 8색을 순환시키고(등록 한도 15개까지 최대 2바퀴) 반복될 때마다
+// 살짝 옅게 만들어 구분을 돕는다 — 정확한 구분은 어차피 범례 텍스트가 담당.
 const SLICE_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 const OTHER_COLOR = '#64748b';
 const MAX_DIRECT_SLICES = 7;
+
+function sliceColorCycled(i: number): string {
+  const base = SLICE_COLORS[i % SLICE_COLORS.length];
+  const cycle = Math.floor(i / SLICE_COLORS.length);
+  if (cycle === 0) return base;
+  const alphaHex = Math.round(Math.max(0.55, 1 - cycle * 0.25) * 255).toString(16).padStart(2, '0');
+  return `${base}${alphaHex}`;
+}
 
 const TOOLTIP_STYLE = {
   backgroundColor: '#1a1f2e',
@@ -50,23 +61,16 @@ function fmtPct(n: number) { return `${n.toFixed(1)}%`; }
 export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] }) {
   const anim = useChartEntranceAnimation();
 
-  const withValue = holdings
+  const data = holdings
     .map(h => ({ name: h.name, value: h.currentPrice * h.quantity }))
     .filter(d => d.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  const totalValue = withValue.reduce((s, d) => s + d.value, 0);
-
-  const data = withValue.length > MAX_DIRECT_SLICES
-    ? [
-        ...withValue.slice(0, MAX_DIRECT_SLICES),
-        { name: '기타', value: withValue.slice(MAX_DIRECT_SLICES).reduce((s, d) => s + d.value, 0) },
-      ]
-    : withValue;
+  const totalValue = data.reduce((s, d) => s + d.value, 0);
 
   const colored = data.map((d, i) => ({
     ...d,
-    color: i < MAX_DIRECT_SLICES ? SLICE_COLORS[i] : OTHER_COLOR,
+    color: sliceColorCycled(i),
     pct: totalValue > 0 ? (d.value / totalValue) * 100 : 0,
   }));
 
@@ -100,7 +104,7 @@ export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] })
           <p className="text-[15px] font-bold font-mono text-white">{fmtWon(totalValue)}</p>
         </div>
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center">
+      <div className={`flex flex-wrap ${colored.length > 8 ? 'gap-x-2.5' : 'gap-x-4'} gap-y-1.5 mt-3 justify-center`}>
         {colored.map((d, i) => (
           <div key={i} className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
@@ -194,7 +198,7 @@ export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHoldin
 // position="top"은 막대 사각형의 위쪽 변에 붙이는데, 음수 막대는 사각형 위쪽 변이
 // 기준선(=x축 종목명 근처)에 있어서 라벨이 종목명과 겹치는 문제가 있었다. 양수는
 // 막대 끝(맨 위) 위에, 음수는 막대 끝(맨 아래) 아래에 붙여 항상 기준선 반대쪽에 오게 한다.
-function renderBarValueLabel(props: unknown) {
+function renderBarValueLabel(props: unknown, fontSize = 10) {
   const { x, y, width, height, value } = props as { x?: number; y?: number; width?: number; height?: number; value?: number };
   if (x == null || y == null || width == null || height == null || value == null) return null;
   // recharts가 음수 막대에서 height를 음수로 보고할 때가 있어(y=막대 끝, y+height=기준선)
@@ -204,19 +208,24 @@ function renderBarValueLabel(props: unknown) {
   const cx = x + width / 2;
   const cy = value >= 0 ? edgeTop - 6 : edgeBottom + 12;
   return (
-    <text x={cx} y={cy} textAnchor="middle" fontSize={10} fontFamily="monospace" fill="#94a3b8">
+    <text x={cx} y={cy} textAnchor="middle" fontSize={fontSize} fontFamily="monospace" fill="#94a3b8">
       {fmtPct(value)}
     </text>
   );
 }
 
-const BAR_MIN_WIDTH_PER_HOLDING = 64;
-
 export function ReturnBarChart({ holdings }: { holdings: ChartHolding[] }) {
   const anim = useChartEntranceAnimation();
 
+  // 종목이 많아지면(최대 15개) 가로스크롤 대신 막대 폭·폰트를 줄여서 한 화면에
+  // 다 들어가게 한다 — 이름 축약 길이도 같이 줄여 겹침을 막는다.
+  const dense = holdings.length > 8;
+  const nameLen = dense ? 3 : 4;
+  const tickFontSize = dense ? 9 : 10;
+  const maxBarSize = Math.max(14, Math.min(40, Math.floor(320 / holdings.length)));
+
   const data = holdings.map(h => ({
-    name: h.name.length > 5 ? `${h.name.slice(0, 4)}…` : h.name,
+    name: h.name.length > nameLen + 1 ? `${h.name.slice(0, nameLen)}…` : h.name,
     fullName: h.name,
     profitRate: h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0,
   }));
@@ -234,30 +243,27 @@ export function ReturnBarChart({ holdings }: { holdings: ChartHolding[] }) {
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
       <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>종목별 수익률 비교</p>
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: Math.max(data.length * BAR_MIN_WIDTH_PER_HOLDING, 100) }}>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={data} margin={{ top: 24, right: 8, bottom: 8, left: 8 }}>
-              <XAxis
-                dataKey="name"
-                tick={{ fontSize: 10, fill: '#64748b' }}
-                axisLine={{ stroke: '#334155' }}
-                tickLine={false}
-              />
-              <YAxis hide domain={yDomain} />
-              <Tooltip
-                contentStyle={TOOLTIP_STYLE}
-                formatter={(v: number) => [fmtPct(v), '수익률']}
-                labelFormatter={(_l, payload) => payload?.[0]?.payload?.fullName ?? ''}
-              />
-              <Bar dataKey="profitRate" radius={[3, 3, 0, 0]} maxBarSize={40} {...anim}>
-                {data.map((d, i) => <Cell key={i} fill={d.profitRate >= 0 ? '#ef4444' : '#3b82f6'} />)}
-                <LabelList dataKey="profitRate" content={renderBarValueLabel} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={data} margin={{ top: 24, right: 8, bottom: 8, left: 8 }}>
+          <XAxis
+            dataKey="name"
+            interval={0}
+            tick={{ fontSize: tickFontSize, fill: '#64748b' }}
+            axisLine={{ stroke: '#334155' }}
+            tickLine={false}
+          />
+          <YAxis hide domain={yDomain} />
+          <Tooltip
+            contentStyle={TOOLTIP_STYLE}
+            formatter={(v: number) => [fmtPct(v), '수익률']}
+            labelFormatter={(_l, payload) => payload?.[0]?.payload?.fullName ?? ''}
+          />
+          <Bar dataKey="profitRate" radius={[3, 3, 0, 0]} maxBarSize={maxBarSize} {...anim}>
+            {data.map((d, i) => <Cell key={i} fill={d.profitRate >= 0 ? '#ef4444' : '#3b82f6'} />)}
+            <LabelList dataKey="profitRate" content={(p) => renderBarValueLabel(p, dense ? 9 : 10)} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }

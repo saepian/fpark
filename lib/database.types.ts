@@ -262,6 +262,7 @@ export type Database = {
           avg_price: number
           buy_date: string | null
           created_at: string | null
+          hidden: boolean
           id: string
           market: string | null
           name: string
@@ -273,6 +274,7 @@ export type Database = {
           avg_price: number
           buy_date?: string | null
           created_at?: string | null
+          hidden?: boolean
           id?: string
           market?: string | null
           name: string
@@ -284,6 +286,7 @@ export type Database = {
           avg_price?: number
           buy_date?: string | null
           created_at?: string | null
+          hidden?: boolean
           id?: string
           market?: string | null
           name?: string

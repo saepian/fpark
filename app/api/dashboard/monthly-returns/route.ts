@@ -53,10 +53,12 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // 숨긴 종목은 월별/일별 수익률 추이 계산(투자원금 합계 포함)에서도 제외한다.
   const { data, error } = await supabase
     .from('dashboard_holdings')
     .select('ticker, quantity, avg_price')
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .eq('hidden', false);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

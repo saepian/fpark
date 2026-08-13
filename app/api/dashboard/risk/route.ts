@@ -85,10 +85,12 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // 숨긴 종목은 위험도 산점도 계산에서도 제외 — KIS 호출도 그만큼 아낀다.
   const { data, error } = await supabase
     .from('dashboard_holdings')
     .select('ticker')
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .eq('hidden', false);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

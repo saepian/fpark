@@ -177,3 +177,26 @@ export async function DELETE(request: NextRequest) {
 
   return NextResponse.json({ success: true });
 }
+
+// 숨기기/다시 보이기 — row는 삭제하지 않고 표시 플래그만 바꾼다. 등록 한도는
+// 숨김 여부와 무관하게 row 존재 자체로 계산되므로(POST의 count 체크) 여기서
+// 한도를 다시 검사하지 않는다.
+export async function PATCH(request: NextRequest) {
+  const { ticker, hidden } = await request.json();
+  if (!ticker || typeof hidden !== 'boolean') {
+    return NextResponse.json({ error: 'ticker, hidden(boolean) required' }, { status: 400 });
+  }
+
+  const supabase = makeSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { error } = await supabase
+    .from('dashboard_holdings')
+    .update({ hidden })
+    .eq('user_id', user.id)
+    .eq('ticker', ticker);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ success: true });
+}

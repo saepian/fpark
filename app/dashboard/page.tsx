@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
-import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock } from 'lucide-react';
+import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock, EyeOff, Eye } from 'lucide-react';
 import PageBackground from '@/components/layout/PageBackground';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
@@ -26,6 +26,7 @@ interface HoldingRow {
   week52High: number; week52Low: number; marketCap: string; per: number; pbr: number;
   sector: string;
   aiAnalysisUsedToday: boolean;
+  hidden: boolean;
 }
 
 interface DashboardHoldingResult {
@@ -305,6 +306,7 @@ export default function DashboardPage() {
   const [limit, setLimit]             = useState(2);
   const [holdingsError, setHoldingsError] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showHiddenList, setShowHiddenList] = useState(false);
   const [marketOpen, setMarketOpen]   = useState(true);
 
   const lastUpdatedRef   = useRef<Date | null>(null);
@@ -417,6 +419,22 @@ export default function DashboardPage() {
       });
     } catch { /* noop */ }
     loadHoldings();
+  };
+
+  // 숨기기/다시 보이기 — row는 유지하고 표시 플래그만 바꾼다. 낙관적으로 즉시
+  // 반영하고, 카드그리드/스탯카드/차트가 전부 다시 계산되게 리스크·추이도 새로 부른다
+  // (숨김 전환 직후 투자원금 합계가 바뀌므로 월별·일별 추이·위험도도 갱신 필요).
+  const setHoldingHidden = async (ticker: string, hidden: boolean) => {
+    setHoldings(prev => prev ? prev.map(h => h.ticker === ticker ? { ...h, hidden } : h) : prev);
+    try {
+      await fetch('/api/dashboard/holdings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker, hidden }),
+      });
+    } catch { /* noop */ }
+    loadRisk();
+    loadMonthly();
   };
 
   // ── AI 분석 ───────────────────────────────────────────────────────────────
@@ -532,8 +550,10 @@ export default function DashboardPage() {
   // 스탯카드 롤링 애니메이션용 훅은 조건부 return보다 위에서 항상 호출해야 한다(React
   // hooks 규칙) — holdings가 아직 null인 로딩 상태에서는 0으로 계산해두고, 아래
   // early return을 통과한 뒤에야 실제 화면에 쓰인다.
-  const totalInvestedRaw   = (holdings ?? []).reduce((s, h) => s + h.avg_price * h.quantity, 0);
-  const totalValueRaw      = (holdings ?? []).reduce((s, h) => s + h.currentPrice * h.quantity, 0);
+  const visibleHoldings = (holdings ?? []).filter(h => !h.hidden);
+  const hiddenHoldings  = (holdings ?? []).filter(h => h.hidden);
+  const totalInvestedRaw   = visibleHoldings.reduce((s, h) => s + h.avg_price * h.quantity, 0);
+  const totalValueRaw      = visibleHoldings.reduce((s, h) => s + h.currentPrice * h.quantity, 0);
   const totalProfitRaw     = totalValueRaw - totalInvestedRaw;
   const totalProfitRateRaw = totalInvestedRaw > 0 ? (totalProfitRaw / totalInvestedRaw) * 100 : 0;
   const totalInvestedAnim   = useCountUp(totalInvestedRaw);
@@ -574,7 +594,7 @@ export default function DashboardPage() {
   return (
     <div className="pb-8">
       <PageBackground />
-      <div className="max-w-5xl mx-auto px-4 pt-8">
+      <div className="max-w-[1200px] mx-auto px-4 pt-8">
 
         <div className="mb-6">
           <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">대시보드</p>
@@ -606,25 +626,29 @@ export default function DashboardPage() {
           <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>투자 분석 요약</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <AllocationDonutChart holdings={holdings} />
-          <SectorAllocationDonutChart holdings={holdings} />
+          <AllocationDonutChart holdings={visibleHoldings} />
+          <SectorAllocationDonutChart holdings={visibleHoldings} />
           <div className="md:col-span-2">
-            <ReturnBarChart holdings={holdings} />
+            <ReturnBarChart holdings={visibleHoldings} />
           </div>
           <div className="md:col-span-2">
             <MonthlyReturnLineChart monthly={monthlyData} daily={dailyData} />
           </div>
           <div className="md:col-span-2">
-            <RiskReturnScatterChart holdings={holdings} risk={riskData} />
+            <RiskReturnScatterChart holdings={visibleHoldings} risk={riskData} />
           </div>
         </div>
 
-        {/* 보유 종목 카드 그리드 */}
-        <div className="mb-2">
+        {/* 보유 종목 카드 그리드 — 숨긴 종목은 여기서 빠지지만 등록 한도(N/한도)는
+            숨김 여부와 무관하게 전체 등록 개수 기준이라 holdings.length를 그대로 쓴다. */}
+        <div className="mb-2 flex items-center gap-2">
           <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>보유 종목 ({holdings.length}/{limit})</p>
+          {hiddenHoldings.length > 0 && (
+            <span className="text-[10px] text-slate-600">(숨김 {hiddenHoldings.length}개 포함)</span>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          {holdings.map(h => {
+          {visibleHoldings.map(h => {
             const value = h.currentPrice * h.quantity;
             const invested = h.avg_price * h.quantity;
             const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
@@ -658,6 +682,13 @@ export default function DashboardPage() {
                       <Sparkles className="w-3.5 h-3.5" />
                     </button>
                     <button
+                      onClick={() => setHoldingHidden(h.ticker, true)}
+                      title="숨기기 (삭제되지 않고 목록·통계에서만 제외됩니다)"
+                      className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 hover:bg-slate-500/10 transition-colors cursor-pointer"
+                    >
+                      <EyeOff className="w-3.5 h-3.5" />
+                    </button>
+                    <button
                       onClick={() => removeHolding(h.ticker)}
                       className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                     >
@@ -680,29 +711,25 @@ export default function DashboardPage() {
                 </div>
 
                 {(h.week52High > 0 || h.marketCap || fiveDayChange != null) && (
-                  <div className="mb-4 pt-3 border-t border-slate-700/40">
-                    {/* 52주 최고/최저는 값이 길어서(최대 7자리 두 개) 3열에 끼면 줄바꿈되던
-                        문제가 있었다 — 카드 전체 폭을 쓰는 단독 줄로 분리해서 항상 한 줄에 들어가게 함. */}
+                  <div className="grid grid-cols-4 gap-3 mb-4 pt-3 border-t border-slate-700/40">
+                    {/* 52주 최고/최저는 값이 길어서(최대 7자리 두 개) 4열 중 2열을 차지하게 해서
+                        항상 한 줄에 들어가게 함 — 시가총액/5일변동률은 나머지 1열씩. */}
                     {h.week52High > 0 && (
-                      <div className="mb-3">
+                      <div className="col-span-2">
                         <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">52주 최고/최저</p>
                         <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{fmt(h.week52High)} / {fmt(h.week52Low)}</p>
                       </div>
                     )}
-                    {(h.marketCap || fiveDayChange != null) && (
-                      <div className="grid grid-cols-2 gap-3">
-                        {h.marketCap && (
-                          <div>
-                            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">시가총액</p>
-                            <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{h.marketCap} <span className="text-slate-500">KRW</span></p>
-                          </div>
-                        )}
-                        {fiveDayChange != null && (
-                          <div>
-                            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">5일 변동률</p>
-                            <p className={`text-[12px] font-mono font-semibold whitespace-nowrap ${fiveDayChange >= 0 ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(fiveDayChange)}</p>
-                          </div>
-                        )}
+                    {h.marketCap && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">시가총액</p>
+                        <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{h.marketCap} <span className="text-slate-500">KRW</span></p>
+                      </div>
+                    )}
+                    {fiveDayChange != null && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">5일 변동률</p>
+                        <p className={`text-[12px] font-mono font-semibold whitespace-nowrap ${fiveDayChange >= 0 ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(fiveDayChange)}</p>
                       </div>
                     )}
                   </div>
@@ -726,6 +753,38 @@ export default function DashboardPage() {
           <p className="text-[11px] text-slate-500 mb-4 text-center">
             더 많은 종목을 등록하려면 <Link href="/pricing" className="text-indigo-400 hover:underline">요금제를 업그레이드</Link>하세요.
           </p>
+        )}
+
+        {hiddenHoldings.length > 0 && (
+          <div className="mb-6">
+            <button
+              onClick={() => setShowHiddenList(v => !v)}
+              className="flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+            >
+              <EyeOff className="w-3.5 h-3.5" />
+              숨긴 종목 {hiddenHoldings.length}개 {showHiddenList ? '접기' : '보기'}
+            </button>
+            {showHiddenList && (
+              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {hiddenHoldings.map(h => (
+                  <div
+                    key={h.ticker}
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-800 bg-slate-900/40"
+                  >
+                    <span className="text-[13px] text-slate-400">{h.name} <span className="text-slate-600">{h.ticker}</span></span>
+                    <button
+                      onClick={() => setHoldingHidden(h.ticker, false)}
+                      title="다시 보이기"
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      다시 보이기
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {showAddForm && (
