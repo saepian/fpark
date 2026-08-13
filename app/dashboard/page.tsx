@@ -12,7 +12,7 @@ import { isKoreanMarketOpen } from '@/lib/market-utils';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import AiAnalysis from '@/components/stock/AiAnalysis';
 import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
-import { AllocationDonutChart, ReturnBarChart, RiskReturnScatterChart, MonthlyReturnLineChart, type RiskPoint, type MonthlyPoint } from '@/components/dashboard/DashboardCharts';
+import { AllocationDonutChart, ReturnBarChart, RiskReturnScatterChart, MonthlyReturnLineChart, SectorAllocationDonutChart, type RiskPoint, type MonthlyPoint } from '@/components/dashboard/DashboardCharts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ interface HoldingRow {
   avg_price: number; buy_date: string | null; quantity: number;
   currentPrice: number; changeRate: number;
   week52High: number; week52Low: number; marketCap: string; per: number; pbr: number;
+  sector: string;
 }
 
 interface DashboardHoldingResult {
@@ -594,7 +595,10 @@ export default function DashboardPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
           <AllocationDonutChart holdings={holdings} />
-          <ReturnBarChart holdings={holdings} />
+          <SectorAllocationDonutChart holdings={holdings} />
+          <div className="md:col-span-2">
+            <ReturnBarChart holdings={holdings} />
+          </div>
           <div className="md:col-span-2">
             <MonthlyReturnLineChart monthly={monthlyData} />
           </div>

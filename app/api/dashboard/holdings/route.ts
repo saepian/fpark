@@ -63,20 +63,23 @@ export async function GET() {
     items,
     async (item) => {
       try {
-        // 시세와 52주고저/시총/PER/PBR을 같은 KIS 응답(inquire-price)에서 함께 받는다
-        // (fetchStockQuote) — 카드에 52주고저·시총을 추가로 보여줘도 호출 횟수는 늘지 않음.
+        // 시세와 52주고저/시총/PER/PBR/업종을 같은 KIS 응답(inquire-price)에서 함께 받는다
+        // (fetchStockQuote) — 카드에 52주고저·시총, 산업군별 비중 도넛에 업종을 추가해도
+        // 호출 횟수는 늘지 않음.
         const stock = await fetchStockQuote(item.ticker);
         return {
           ...item,
           currentPrice: stock.price, changeRate: stock.changeRate,
           week52High: stock.week52High, week52Low: stock.week52Low,
           marketCap: stock.marketCap, per: stock.per, pbr: stock.pbr,
+          sector: stock.sector,
         };
       } catch {
         return {
           ...item,
           currentPrice: 0, changeRate: 0,
           week52High: 0, week52Low: 0, marketCap: '', per: 0, pbr: 0,
+          sector: '',
         };
       }
     },

@@ -13,6 +13,7 @@ interface ChartHolding {
   currentPrice: number;
   quantity: number;
   avg_price: number;
+  sector: string;
 }
 
 export interface RiskPoint {
@@ -96,6 +97,83 @@ export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] })
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <p className="text-[10px] text-slate-500 uppercase tracking-wide">평가금액</p>
           <p className="text-[15px] font-bold font-mono text-white">{fmtWon(totalValue)}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center">
+        {colored.map((d, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
+            <span className="text-[11px] text-slate-400">{d.name}</span>
+            <span className="text-[11px] text-slate-500 font-mono">{fmtPct(d.pct)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// 업종 대분류 매핑 테이블 없이 KIS bstp_kor_isnm(업종명)을 그대로 카테고리로 쓴다 —
+// lib/sector-news.ts의 실측 확인대로 이 값 자체가 이미 세분류가 아니라 KRX 대분류
+// (~20개) 수준이라, Tech/Finance 같은 영문 GICS로 재매핑하면 오히려 근거 없는 오분류
+// 위험만 생긴다. 값이 비어있으면(조회 실패 등) "기타"로 폴백.
+export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHolding[] }) {
+  const anim = useChartEntranceAnimation();
+
+  const bySector = new Map<string, number>();
+  for (const h of holdings) {
+    const key = h.sector?.trim() || '기타';
+    const value = h.currentPrice * h.quantity;
+    if (value <= 0) continue;
+    bySector.set(key, (bySector.get(key) ?? 0) + value);
+  }
+
+  const withValue = [...bySector.entries()]
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
+
+  const totalValue = withValue.reduce((s, d) => s + d.value, 0);
+
+  const data = withValue.length > MAX_DIRECT_SLICES
+    ? [
+        ...withValue.slice(0, MAX_DIRECT_SLICES),
+        { name: '기타', value: withValue.slice(MAX_DIRECT_SLICES).reduce((s, d) => s + d.value, 0) },
+      ]
+    : withValue;
+
+  const colored = data.map((d, i) => ({
+    ...d,
+    color: d.name === '기타' ? OTHER_COLOR : SLICE_COLORS[i % MAX_DIRECT_SLICES],
+    pct: totalValue > 0 ? (d.value / totalValue) * 100 : 0,
+  }));
+
+  return (
+    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+      <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>산업군별 비중</p>
+      <div className="relative">
+        <ResponsiveContainer width="100%" height={200}>
+          <PieChart>
+            <Pie
+              data={colored}
+              dataKey="value"
+              nameKey="name"
+              innerRadius={62}
+              outerRadius={90}
+              paddingAngle={2}
+              cornerRadius={3}
+              stroke="none"
+              {...anim}
+            >
+              {colored.map((d, i) => <Cell key={i} fill={d.color} />)}
+            </Pie>
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              formatter={(value: number, _n, entry) => [`${fmtWon(value)} (${fmtPct(entry.payload.pct)})`, entry.payload.name]}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide">업종 수</p>
+          <p className="text-[15px] font-bold font-mono text-white">{data.length}개</p>
         </div>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center">
