@@ -19,6 +19,7 @@ export interface RiskPoint {
   ticker: string;
   mdd: number | null;
   volatility: number | null;
+  fiveDayChange: number | null;
 }
 
 export interface MonthlyPoint {

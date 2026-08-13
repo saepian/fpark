@@ -614,6 +614,7 @@ export default function DashboardPage() {
             const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
             const up = profitRate >= 0;
             const todayUp = h.changeRate >= 0;
+            const fiveDayChange = riskData.find(r => r.ticker === h.ticker)?.fiveDayChange ?? null;
             return (
               <div key={h.ticker} className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
                 <div className="flex items-start justify-between gap-3 mb-3">
@@ -649,8 +650,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {(h.week52High > 0 || h.marketCap) && (
-                  <div className="grid grid-cols-2 gap-3 mb-4 pt-3 border-t border-slate-700/40">
+                {(h.week52High > 0 || h.marketCap || fiveDayChange != null) && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4 pt-3 border-t border-slate-700/40">
                     {h.week52High > 0 && (
                       <div>
                         <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">52주 최고/최저</p>
@@ -661,6 +662,12 @@ export default function DashboardPage() {
                       <div>
                         <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">시가총액</p>
                         <p className="text-[12px] font-mono text-slate-300">{h.marketCap} <span className="text-slate-500">KRW</span></p>
+                      </div>
+                    )}
+                    {fiveDayChange != null && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">5일 변동률</p>
+                        <p className={`text-[12px] font-mono font-semibold ${fiveDayChange >= 0 ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(fiveDayChange)}</p>
                       </div>
                     )}
                   </div>

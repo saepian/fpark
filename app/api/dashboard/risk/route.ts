@@ -50,16 +50,29 @@ async function fetchInChunks<T, R>(
 // 동일한 패턴)를 걸어 같은 티커를 여러 유저가 반복 조회해도 KIS 호출이 시간당 1회로
 // 수렴하게 한다 — 종가 기반 지표라 장중에 값이 바뀌지 않으므로 1시간 TTL이면 충분하다.
 const RISK_CACHE_TTL_MS = 60 * 60 * 1000;
-const riskCache = new Map<string, { data: { mdd: number; volatility: number } | null; expiresAt: number }>();
 
-async function getRiskMetrics(ticker: string) {
+interface RiskData { mdd: number; volatility: number; fiveDayChange: number | null }
+const riskCache = new Map<string, { data: RiskData | null; expiresAt: number }>();
+
+// 최근 5거래일 종가 대비 등락률 — 별도 조회 없이 위험도 계산용으로 이미 받아온 1년치
+// 종가(chart)에서 마지막 6개(5거래일 전 ~ 오늘)만 뽑아 계산한다. closes는 오름차순.
+function computeFiveDayChange(closes: number[]): number | null {
+  const valid = closes.filter(c => c > 0);
+  if (valid.length < 6) return null;
+  const [from, to] = [valid[valid.length - 6], valid[valid.length - 1]];
+  return from > 0 ? ((to - from) / from) * 100 : null;
+}
+
+async function getRiskMetrics(ticker: string): Promise<RiskData | null> {
   const cached = riskCache.get(ticker);
   if (cached && cached.expiresAt > Date.now()) return cached.data;
 
-  let data: { mdd: number; volatility: number } | null = null;
+  let data: RiskData | null = null;
   try {
     const chart = await fetchDailyChart(ticker, '1Y');
-    data = computeRiskMetrics(chart.map(p => p.close));
+    const closes = chart.map(p => p.close);
+    const risk = computeRiskMetrics(closes);
+    if (risk) data = { ...risk, fiveDayChange: computeFiveDayChange(closes) };
   } catch {
     data = null;
   }
@@ -82,7 +95,12 @@ export async function GET() {
   const tickers = [...new Set((data ?? []).map(r => r.ticker))];
   const risk = await fetchInChunks(tickers, async (ticker) => {
     const metrics = await getRiskMetrics(ticker);
-    return { ticker, mdd: metrics?.mdd ?? null, volatility: metrics?.volatility ?? null };
+    return {
+      ticker,
+      mdd: metrics?.mdd ?? null,
+      volatility: metrics?.volatility ?? null,
+      fiveDayChange: metrics?.fiveDayChange ?? null,
+    };
   });
 
   return NextResponse.json({ risk });
