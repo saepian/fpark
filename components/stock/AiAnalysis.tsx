@@ -17,7 +17,7 @@ const ANALYSIS_STEPS = [
   '📝 분석 리포트 작성 중...',
 ];
 
-function AiLoadingScreen() {
+function AiLoadingScreen({ ticker }: { ticker: string }) {
   const [msgIdx,    setMsgIdx]    = useState(0);
   const [charCount, setCharCount] = useState(0);
   const [fading,    setFading]    = useState(false);
@@ -54,7 +54,7 @@ function AiLoadingScreen() {
   }, []);
 
   return (
-    <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden">
+    <div id={`ai-stock-analysis-${ticker}`} className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden">
       <div className="px-6 pt-5 pb-4 border-b border-blue-900/30">
         <div className="flex items-center gap-2">
           <Sparkles className="text-blue-400 w-4 h-4 shrink-0" />
@@ -275,12 +275,12 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
   }, [ticker, retryToken]);
 
   // ── 로딩 (meta 도착 전)
-  if (loading) return <AiLoadingScreen />;
+  if (loading) return <AiLoadingScreen ticker={ticker} />;
 
   // ── 로그인 필요
   if (needsLogin) {
     return (
-      <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
+      <div id={`ai-stock-analysis-${ticker}`} className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="text-blue-400 w-5 h-5" />
           <h3 className="text-lg font-bold text-gray-100">FPARK AI 종목 분석</h3>
@@ -299,7 +299,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
   // ── 전체 에러 (필드가 하나도 안 뜬 상태에서 실패)
   if (error || !data) {
     return (
-      <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
+      <div id={`ai-stock-analysis-${ticker}`} className="bg-[#122131] border border-blue-900/40 p-6 rounded-xl">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="text-blue-400 w-5 h-5" />
           <h3 className="text-lg font-bold text-gray-100">FPARK AI 기업 분석</h3>
@@ -317,7 +317,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
     updatedKey === key ? 'bg-indigo-500/10 transition-colors duration-700' : 'transition-colors duration-700';
 
   return (
-    <div id="ai-stock-analysis" className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden relative">
+    <div id={`ai-stock-analysis-${ticker}`} className="bg-[#122131] border border-blue-900/40 rounded-xl overflow-hidden relative">
 
       {/* 토스트 */}
       <div

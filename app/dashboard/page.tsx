@@ -12,6 +12,7 @@ import { isKoreanMarketOpen } from '@/lib/market-utils';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import AiAnalysis from '@/components/stock/AiAnalysis';
 import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
+import { AllocationDonutChart, ReturnBarChart } from '@/components/dashboard/DashboardCharts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,41 @@ function Card({ title, children, className = '' }: { title?: string; children: R
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
       {title && <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>{title}</p>}
       {children}
+    </div>
+  );
+}
+
+// ── 모달 ──────────────────────────────────────────────────────────────────────
+
+function Modal({ title, onClose, children, maxWidth = 'max-w-lg' }: {
+  title: string; onClose: () => void; children: React.ReactNode; maxWidth?: string;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl w-full ${maxWidth} shadow-2xl max-h-[85vh] overflow-y-auto`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+          <p className="text-[13px] font-semibold text-white">{title}</p>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300 transition-colors cursor-pointer text-[13px]"
+          >
+            닫기
+          </button>
+        </div>
+        <div className="px-5 pb-5">{children}</div>
+      </div>
     </div>
   );
 }
@@ -280,14 +316,9 @@ export default function DashboardPage() {
   const [stage2Failed,    setStage2Failed]    = useState(false);
   const [streamFinished,  setStreamFinished]  = useState(false);
   const smoothText = useSmoothTypingText();
-  const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
-  const toggleExpanded = (ticker: string) => {
-    setExpandedTickers(prev => {
-      const next = new Set(prev);
-      if (next.has(ticker)) next.delete(ticker); else next.add(ticker);
-      return next;
-    });
-  };
+  // 종목별 AI 분석 모달 — 카드 내부 펼침 대신 모달로 띄운다(카드 그리드가 한 카드만
+  // 확장되며 레이아웃이 깨지는 걸 방지).
+  const [analysisModal, setAnalysisModal] = useState<{ ticker: string; name: string; market: string } | null>(null);
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -531,64 +562,102 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 보유 종목 리스트 */}
-        <Card title={`보유 종목 (${holdings.length}/${limit})`} className="mb-4">
-          <div className="flex flex-col divide-y divide-slate-700/40">
-            {holdings.map(h => {
-              const value = h.currentPrice * h.quantity;
-              const invested = h.avg_price * h.quantity;
-              const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
-              const up = profitRate >= 0;
-              return (
-                <div key={h.ticker} className="py-3.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+        {/* 투자 분석 요약 */}
+        <div className="mb-2">
+          <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>투자 분석 요약</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          <AllocationDonutChart holdings={holdings} />
+          <ReturnBarChart holdings={holdings} />
+        </div>
+
+        {/* 보유 종목 카드 그리드 */}
+        <div className="mb-2">
+          <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>보유 종목 ({holdings.length}/{limit})</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          {holdings.map(h => {
+            const value = h.currentPrice * h.quantity;
+            const invested = h.avg_price * h.quantity;
+            const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
+            const up = profitRate >= 0;
+            const todayUp = h.changeRate >= 0;
+            return (
+              <div key={h.ticker} className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+                <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
-                    <Link href={`/stock/${h.ticker}`} className="text-[14px] font-semibold text-white hover:text-indigo-300 transition-colors truncate block">
-                      {h.name}
-                    </Link>
-                    <p className="text-[11px] text-slate-500 font-mono">{h.ticker} · {h.quantity}주 · 매입가 {fmt(h.avg_price)}</p>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/stock/${h.ticker}`} className="text-[14px] font-semibold text-white hover:text-indigo-300 transition-colors truncate">
+                        {h.name}
+                      </Link>
+                      <span className="text-[10px] font-semibold text-slate-500 border border-slate-700 rounded px-1.5 py-0.5 shrink-0">
+                        {h.market === 'kr' ? '국내' : '해외'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-mono mt-0.5">{h.ticker} · {h.quantity}주 · 매입가 {fmt(h.avg_price)}</p>
                   </div>
-                  <div className="flex items-center gap-4 shrink-0">
-                    <div className="text-right">
-                      <p className="text-[13px] font-mono text-slate-200">{fmt(h.currentPrice)}</p>
-                      <p className={`text-[11px] font-mono ${up ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(h.changeRate)}</p>
-                    </div>
-                    <div className="text-right w-24">
-                      <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(profitRate)}</p>
-                      <p className="text-[10px] text-slate-500 font-mono">{value - invested >= 0 ? '+' : ''}{fmt(Math.round(value - invested))}원</p>
-                    </div>
-                    <button
-                      onClick={() => removeHolding(h.ticker)}
-                      className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                  <button
+                    onClick={() => removeHolding(h.ticker)}
+                    className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">현재가</p>
+                    <p className="text-[13px] font-mono text-slate-200">{fmt(h.currentPrice)}</p>
+                    <p className={`text-[11px] font-mono ${todayUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(h.changeRate)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">평가손익</p>
+                    <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(profitRate)}</p>
+                    <p className="text-[11px] text-slate-500 font-mono">{value - invested >= 0 ? '+' : ''}{fmt(Math.round(value - invested))}원</p>
                   </div>
                 </div>
-              );
-            })}
-          </div>
 
-          {showAddForm ? (
-            <div className="mt-4 pt-4 border-t border-slate-700/40">
-              <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); }} onCancel={() => setShowAddForm(false)} showCancel />
-            </div>
-          ) : (
-            <button
-              onClick={() => atLimit ? null : setShowAddForm(true)}
-              disabled={atLimit}
-              className="mt-4 w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold
-                bg-slate-800/60 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed
-                text-slate-300 border border-slate-700 transition-colors cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" /> {atLimit ? `현재 플랜 등록 한도(${limit}개)에 도달했습니다` : '종목 추가'}
-            </button>
-          )}
-          {atLimit && (
-            <p className="text-[11px] text-slate-500 mt-2 text-center">
-              더 많은 종목을 등록하려면 <Link href="/pricing" className="text-indigo-400 hover:underline">요금제를 업그레이드</Link>하세요.
-            </p>
-          )}
-        </Card>
+                <button
+                  onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[12px] font-semibold
+                    bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 text-indigo-300 transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> AI 분석
+                </button>
+              </div>
+            );
+          })}
+
+          <button
+            onClick={() => atLimit ? null : setShowAddForm(true)}
+            disabled={atLimit}
+            className="flex flex-col items-center justify-center gap-1.5 min-h-[168px] rounded-2xl border border-dashed border-slate-700
+              hover:border-indigo-500/40 hover:bg-indigo-500/[0.03] disabled:opacity-40 disabled:cursor-not-allowed
+              text-slate-400 hover:text-indigo-300 transition-colors cursor-pointer"
+          >
+            <Plus className="w-5 h-5" />
+            <span className="text-[13px] font-semibold">{atLimit ? `등록 한도(${limit}개) 도달` : '종목 추가'}</span>
+          </button>
+        </div>
+        {atLimit && (
+          <p className="text-[11px] text-slate-500 mb-4 text-center">
+            더 많은 종목을 등록하려면 <Link href="/pricing" className="text-indigo-400 hover:underline">요금제를 업그레이드</Link>하세요.
+          </p>
+        )}
+
+        {showAddForm && (
+          <Modal title="종목 추가" onClose={() => setShowAddForm(false)} maxWidth="max-w-md">
+            <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); }} onCancel={() => setShowAddForm(false)} showCancel />
+          </Modal>
+        )}
+
+        {analysisModal && (
+          <Modal title={`${analysisModal.name} · AI 분석`} onClose={() => setAnalysisModal(null)} maxWidth="max-w-xl">
+            {analysisModal.market === 'kr'
+              ? <AiAnalysis ticker={analysisModal.ticker} />
+              : <OverseasAiAnalysis ticker={analysisModal.ticker} market={analysisModal.market} />}
+          </Modal>
+        )}
 
         {/* AI 분석 버튼 — 장중에는 숨김(장마감 후·거래일에만 노출) */}
         {!marketOpen && !analysisResult && (
@@ -640,78 +709,6 @@ export default function DashboardPage() {
               <p className="text-[12px] text-amber-200/90 leading-relaxed">
                 본 분석은 투자 판단에 참고할 수 있는 정보를 제공할 뿐, 투자자문이나 매매 권유가 아닙니다.
               </p>
-            </div>
-
-            <div className="flex items-center gap-2 mb-2">
-              <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>
-                {stage1Complete ? '종목별 분석' : '종목별 분석 (분석 중...)'}
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 mb-4">
-              {(analysisResult.holdings ?? []).map(h => {
-                const base = holdings.find(x => x.ticker === h.ticker);
-                const market = base?.market ?? 'kr';
-                const changeRate = base?.changeRate ?? 0;
-                const up = h.profitRate >= 0;
-                const todayUp = changeRate >= 0;
-                const expanded = expandedTickers.has(h.ticker);
-                return (
-                  <div key={h.ticker} className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl overflow-hidden">
-                    <div className="p-5">
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Link href={`/stock/${h.ticker}`} className="text-[14px] font-semibold text-white hover:text-indigo-300 transition-colors truncate">
-                              {h.name}
-                            </Link>
-                            <span className="text-[10px] font-semibold text-slate-500 border border-slate-700 rounded px-1.5 py-0.5 shrink-0">
-                              {market === 'kr' ? '국내' : '해외'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 font-mono mt-0.5">{h.ticker}</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-[13px] font-mono text-slate-200">{fmt(h.currentPrice)}</p>
-                          <p className={`text-[11px] font-mono ${todayUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(changeRate)}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 mb-4">
-                        <div>
-                          <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">평가손익</p>
-                          <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>
-                            {h.profit >= 0 ? '+' : ''}{fmt(Math.round(h.profit))}원 ({fmtR(h.profitRate)})
-                          </p>
-                        </div>
-                        {h.todayContribution != null && (
-                          <div>
-                            <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">오늘 기여</p>
-                            <p className={`text-[13px] font-mono font-semibold ${h.todayContribution >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                              {h.todayContribution >= 0 ? '+' : ''}{fmt(Math.round(h.todayContribution))}원
-                            </p>
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => toggleExpanded(h.ticker)}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[12px] font-semibold
-                          bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 text-indigo-300 transition-colors cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" /> {expanded ? 'AI 분석 접기' : 'AI 분석 보기'}
-                      </button>
-                    </div>
-
-                    {expanded && (
-                      <div className="border-t border-slate-700/50">
-                        {market === 'kr'
-                          ? <AiAnalysis ticker={h.ticker} />
-                          : <OverseasAiAnalysis ticker={h.ticker} market={market} />}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
             </div>
 
             {stage2Failed ? (
