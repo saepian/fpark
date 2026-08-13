@@ -570,6 +570,33 @@ export async function fetchStockInfo(ticker: string): Promise<StockInfo> {
   };
 }
 
+// fetchStockPrice + fetchStockInfo가 둘 다 동일한 inquire-price 응답(queryPrice)에서
+// 서로 다른 필드만 골라 쓰던 걸 한 호출로 합친 것 — 시세와 52주고저/시총/PER/PBR을
+// 동시에 필요로 하는 호출부(대시보드 홀딩스 등)가 KIS 호출을 두 번 하지 않게 한다.
+export async function fetchStockQuote(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockPrice & Pick<StockInfo, 'week52High' | 'week52Low' | 'marketCap' | 'per' | 'pbr'>> {
+  const o = await queryPrice(ticker, false, opts);
+  const name = await resolveStockName(ticker, o);
+  const marketLabel = String(o.rprs_mrkt_kor_name ?? '');
+  const market: 'KOSPI' | 'KOSDAQ' = /KOSDAQ|KSQ/i.test(marketLabel) ? 'KOSDAQ' : 'KOSPI';
+
+  return {
+    ticker,
+    name,
+    price: parseInt(o.stck_prpr, 10),
+    change: signedChange(o.prdy_vrss, o.prdy_vrss_sign),
+    changeRate: signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
+    volume: parseInt(o.acml_vol, 10),
+    tradingValue: formatTradingValue(parseInt(o.acml_tr_pbmn, 10)),
+    sector: (o.bstp_kor_isnm ?? '').trim(),
+    market,
+    week52High: parseInt(o.w52_hgpr, 10),
+    week52Low: parseInt(o.w52_lwpr, 10),
+    marketCap: formatMarketCap(parseInt(o.hts_avls, 10)),
+    per: parseFloat(o.per) || 0,
+    pbr: parseFloat(o.pbr) || 0,
+  };
+}
+
 // inquire-daily-itemchartprice 실제 호출 — FID_INPUT_DATE_1/2로 넓은 범위를 요청해도
 // KIS가 응답을 최근 100건(거래일)으로 잘라서 돌려준다(2026-07-30 실측 확인: 1년 범위로
 // 요청해도 최근 ~5개월치만 옴). fetchDailyChart(기간 탭)와 fetchChartNear(특정 과거일

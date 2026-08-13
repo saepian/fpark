@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { fetchStockPrice } from '@/lib/kis-api';
+import { fetchStockQuote } from '@/lib/kis-api';
 import { checkPlan, resolveDashboardHoldingsLimit } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
@@ -63,10 +63,21 @@ export async function GET() {
     items,
     async (item) => {
       try {
-        const stock = await fetchStockPrice(item.ticker);
-        return { ...item, currentPrice: stock.price, changeRate: stock.changeRate };
+        // 시세와 52주고저/시총/PER/PBR을 같은 KIS 응답(inquire-price)에서 함께 받는다
+        // (fetchStockQuote) — 카드에 52주고저·시총을 추가로 보여줘도 호출 횟수는 늘지 않음.
+        const stock = await fetchStockQuote(item.ticker);
+        return {
+          ...item,
+          currentPrice: stock.price, changeRate: stock.changeRate,
+          week52High: stock.week52High, week52Low: stock.week52Low,
+          marketCap: stock.marketCap, per: stock.per, pbr: stock.pbr,
+        };
       } catch {
-        return { ...item, currentPrice: 0, changeRate: 0 };
+        return {
+          ...item,
+          currentPrice: 0, changeRate: 0,
+          week52High: 0, week52Low: 0, marketCap: '', per: 0, pbr: 0,
+        };
       }
     },
     3,

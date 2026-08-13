@@ -12,7 +12,7 @@ import { isKoreanMarketOpen } from '@/lib/market-utils';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import AiAnalysis from '@/components/stock/AiAnalysis';
 import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
-import { AllocationDonutChart, ReturnBarChart } from '@/components/dashboard/DashboardCharts';
+import { AllocationDonutChart, ReturnBarChart, RiskReturnScatterChart, type RiskPoint } from '@/components/dashboard/DashboardCharts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,6 +22,7 @@ interface HoldingRow {
   id: string; ticker: string; name: string; market: string;
   avg_price: number; buy_date: string | null; quantity: number;
   currentPrice: number; changeRate: number;
+  week52High: number; week52Low: number; marketCap: string; per: number; pbr: number;
 }
 
 interface DashboardHoldingResult {
@@ -343,11 +344,23 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // 위험도(변동성) — 1년치 일봉이 필요한 무거운 조회라 5분 시세폴링에는 얹지 않고
+  // 페이지 진입 시 1회만 부른다(서버가 티커 단위로 1시간 캐시).
+  const [riskData, setRiskData] = useState<RiskPoint[]>([]);
+  const loadRisk = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/dashboard/risk');
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.risk)) setRiskData(data.risk);
+    } catch { /* 산점도는 부가 정보라 실패해도 조용히 무시 */ }
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) { router.replace(loginUrlWithRedirect(window.location.pathname)); return; }
       setAuthChecked(true);
       loadHoldings();
+      loadRisk();
     });
   }, []); // eslint-disable-line
 
@@ -569,6 +582,9 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
           <AllocationDonutChart holdings={holdings} />
           <ReturnBarChart holdings={holdings} />
+          <div className="md:col-span-2">
+            <RiskReturnScatterChart holdings={holdings} risk={riskData} />
+          </div>
         </div>
 
         {/* 보유 종목 카드 그리드 */}
@@ -617,6 +633,23 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
+                {(h.week52High > 0 || h.marketCap) && (
+                  <div className="grid grid-cols-2 gap-3 mb-4 pt-3 border-t border-slate-700/40">
+                    {h.week52High > 0 && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">52주 최고/최저</p>
+                        <p className="text-[12px] font-mono text-slate-300">{fmt(h.week52High)} / {fmt(h.week52Low)}</p>
+                      </div>
+                    )}
+                    {h.marketCap && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">시가총액</p>
+                        <p className="text-[12px] font-mono text-slate-300">{h.marketCap} <span className="text-slate-500">KRW</span></p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <button
                   onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
                   className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[12px] font-semibold
@@ -647,7 +680,7 @@ export default function DashboardPage() {
 
         {showAddForm && (
           <Modal title="종목 추가" onClose={() => setShowAddForm(false)} maxWidth="max-w-md">
-            <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); }} onCancel={() => setShowAddForm(false)} showCancel />
+            <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); loadRisk(); }} onCancel={() => setShowAddForm(false)} showCancel />
           </Modal>
         )}
 

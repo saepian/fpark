@@ -1,14 +1,24 @@
 'use client';
 
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, LabelList } from 'recharts';
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, LabelList,
+  ScatterChart, Scatter, CartesianGrid, ReferenceLine,
+} from 'recharts';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { useChartEntranceAnimation } from '@/lib/chart-animation';
 
 interface ChartHolding {
+  ticker: string;
   name: string;
   currentPrice: number;
   quantity: number;
   avg_price: number;
+}
+
+export interface RiskPoint {
+  ticker: string;
+  mdd: number | null;
+  volatility: number | null;
 }
 
 // dataviz 스킬 카테고리 팔레트(dark, adjacent-pair 검증 통과 순서) — 종목이 8개를
@@ -130,6 +140,89 @@ export function ReturnBarChart({ holdings }: { holdings: ChartHolding[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ScatterTooltip({ active, payload }: { active?: boolean; payload?: { payload: { name: string; volatility: number; profitRate: number } }[] }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div style={TOOLTIP_STYLE} className="px-3 py-2">
+      <p className="text-[11px] font-semibold text-white mb-1">{d.name}</p>
+      <p className="text-[11px] text-slate-400">변동성 {fmtPct(d.volatility)}</p>
+      <p className="text-[11px] text-slate-400">수익률 {fmtPct(d.profitRate)}</p>
+    </div>
+  );
+}
+
+// 마커를 recharts 기본 반경보다 살짝 키우고(≥8px 규격) surface색 링을 둘러 겹치는
+// 지점끼리도 구분되게 한다.
+function ScatterDot({ cx, cy, fill }: { cx?: number; cy?: number; fill?: string }) {
+  if (cx == null || cy == null) return null;
+  return <circle cx={cx} cy={cy} r={7} fill={fill} stroke="#1a1f2e" strokeWidth={2} />;
+}
+
+export function RiskReturnScatterChart({ holdings, risk }: { holdings: ChartHolding[]; risk: RiskPoint[] }) {
+  const anim = useChartEntranceAnimation();
+
+  const riskByTicker = new Map(risk.map(r => [r.ticker, r.volatility]));
+  const data = holdings
+    .map((h, i) => {
+      const volatility = riskByTicker.get(h.ticker);
+      if (volatility == null) return null;
+      const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
+      return { name: h.name, volatility, profitRate, color: i < MAX_DIRECT_SLICES ? SLICE_COLORS[i] : OTHER_COLOR };
+    })
+    .filter((d): d is { name: string; volatility: number; profitRate: number; color: string } => d !== null);
+
+  const showLabels = data.length > 0 && data.length <= 8;
+
+  return (
+    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+      <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>위험도 대비 수익률</p>
+      <p className="text-[10px] text-slate-600 mb-3">가로: 변동성(낮음 → 높음) · 세로: 수익률 · 최근 약 5개월 기준</p>
+      {data.length === 0 ? (
+        <div className="h-[200px] flex items-center justify-center">
+          <p className="text-[11px] text-slate-600">위험도 데이터를 불러오는 중...</p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <ScatterChart margin={{ top: 26, right: 16, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="#334155" strokeOpacity={0.4} vertical={false} />
+            <XAxis
+              type="number" dataKey="volatility"
+              domain={['dataMin - 0.3', 'dataMax + 0.3']}
+              tick={{ fontSize: 10, fill: '#64748b' }}
+              axisLine={{ stroke: '#334155' }}
+              tickLine={false}
+              tickFormatter={(v: number) => `${v.toFixed(1)}%`}
+            />
+            <YAxis
+              type="number" dataKey="profitRate"
+              domain={['dataMin - 5', 'dataMax + 15']}
+              tick={{ fontSize: 10, fill: '#64748b' }}
+              axisLine={{ stroke: '#334155' }}
+              tickLine={false}
+              tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+              width={44}
+            />
+            <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
+            <Tooltip cursor={{ stroke: '#475569', strokeDasharray: '3 3' }} content={<ScatterTooltip />} />
+            <Scatter data={data} shape={<ScatterDot />} {...anim}>
+              {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+              {showLabels && (
+                <LabelList
+                  dataKey="name"
+                  position="top"
+                  offset={10}
+                  style={{ fontSize: 10, fill: '#94a3b8' }}
+                />
+              )}
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }
