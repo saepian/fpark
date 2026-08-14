@@ -69,6 +69,10 @@ interface StreamedDashboardResult {
 function fmt(n: number)  { return n.toLocaleString(); }
 function fmtR(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
+// 종목카드 내부 통계 라벨(현재가/평가손익/52주 최고·최저/시가총액/5일변동률) — 색상
+// 차이만으로는 다크테마에서 라벨과 값이 잘 구분되지 않아 옅은 배경의 배지 형태로 분리.
+const STAT_LABEL_CLASS = 'inline-block text-[10px] font-semibold text-slate-400 uppercase tracking-wide bg-slate-800/60 rounded px-1.5 py-0.5 mb-1';
+
 // Stage2 'portfolio-field(-partial)' 이벤트 key를 StreamedDashboardResult 형태로 매핑.
 // app/api/dashboard/analysis/route.ts가 portfolio-diagnosis와 동일한 이벤트 shape을 쓰므로
 // app/portfolio-diagnosis/page.tsx의 applyPortfolioField와 동일한 원칙을 그대로 재사용.
@@ -710,14 +714,14 @@ export default function DashboardPage() {
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">현재가</p>
+                    <span className={STAT_LABEL_CLASS}>현재가</span>
                     <p className="text-[13px] font-mono text-slate-200">{fmt(h.currentPrice)}</p>
                     <p className={`text-[11px] font-mono ${todayUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(h.changeRate)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">평가손익</p>
-                    <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(profitRate)}</p>
-                    <p className="text-[11px] text-slate-500 font-mono">{value - invested >= 0 ? '+' : ''}{fmt(Math.round(value - invested))}원</p>
+                    <span className={STAT_LABEL_CLASS}>평가손익</span>
+                    <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>{value - invested >= 0 ? '+' : ''}{fmt(Math.round(value - invested))}원</p>
+                    <p className={`text-[11px] font-mono ${up ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(profitRate)}</p>
                   </div>
                 </div>
 
@@ -727,19 +731,19 @@ export default function DashboardPage() {
                         항상 한 줄에 들어가게 함 — 시가총액/5일변동률은 나머지 1열씩. */}
                     {h.week52High > 0 && (
                       <div className="col-span-2">
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">52주 최고/최저</p>
+                        <span className={STAT_LABEL_CLASS}>52주 최고/최저</span>
                         <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{fmt(h.week52High)} / {fmt(h.week52Low)}</p>
                       </div>
                     )}
                     {h.marketCap && (
                       <div>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">시가총액</p>
+                        <span className={STAT_LABEL_CLASS}>시가총액</span>
                         <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{h.marketCap} <span className="text-slate-500">KRW</span></p>
                       </div>
                     )}
                     {fiveDayChange != null && (
                       <div>
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-0.5">5일 변동률</p>
+                        <span className={STAT_LABEL_CLASS}>5일 변동률</span>
                         <p className={`text-[12px] font-mono font-semibold whitespace-nowrap ${fiveDayChange >= 0 ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(fiveDayChange)}</p>
                       </div>
                     )}
