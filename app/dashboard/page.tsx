@@ -66,7 +66,6 @@ interface StreamedDashboardResult {
   sectors?: unknown[];
   riskFactors?: ({ text: string; category?: 'macro' | 'company' } | string)[];
   opportunityFactors?: string[];
-  shortTermOutlook?: string; midTermOutlook?: string;
   coMovementText?: string | null; coMovementNarrative?: string;
 }
 
@@ -1078,15 +1077,6 @@ export default function DashboardPage() {
                     {smoothText.revealed.coMovementNarrative?.active && <TypingCursor />}
                   </p>
                 ) : !stage2Failed && <FieldSkeleton lines={1} />}
-              </Card>
-            )}
-
-            {analysisResult.shortTermOutlook && (
-              <Card title="관찰 변수" className="mb-4">
-                <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">단기</p>
-                  <p className="text-xs text-slate-300 leading-relaxed">{analysisResult.shortTermOutlook}</p>
-                </div>
               </Card>
             )}
 
