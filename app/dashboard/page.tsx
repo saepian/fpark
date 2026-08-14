@@ -910,7 +910,7 @@ export default function DashboardPage() {
         {analysisModal && (
           <Modal title={`${analysisModal.name} · AI 분석`} onClose={() => setAnalysisModal(null)} maxWidth="max-w-xl">
             {analysisModal.market === 'kr'
-              ? <AiAnalysis ticker={analysisModal.ticker} />
+              ? <AiAnalysis ticker={analysisModal.ticker} compact />
               : <OverseasAiAnalysis ticker={analysisModal.ticker} market={analysisModal.market} />}
           </Modal>
         )}

@@ -129,7 +129,7 @@ function priceDiff(current: number, target: number) {
 
 type StreamedData = Partial<AnalysisResult>;
 
-export default function AiAnalysis({ ticker }: { ticker: string }) {
+export default function AiAnalysis({ ticker, compact = false }: { ticker: string; compact?: boolean }) {
   const [data, setData]             = useState<StreamedData | null>(null);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
@@ -375,8 +375,10 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
 
       <div className="px-6 py-4 space-y-5">
 
-        {/* 52주 최고가·최저가 (그대로 표시, 목표가·손절가 아님) — meta로 즉시 도착 */}
-        {((data.resistance ?? 0) > 0 || (data.support ?? 0) > 0) && (
+        {/* 52주 최고가·최저가 (그대로 표시, 목표가·손절가 아님) — meta로 즉시 도착.
+            2026-08-14: 대시보드 모달(compact)에서는 사용자 요청으로 숨김 — /stock/[ticker]
+            페이지는 그대로 유지. */}
+        {!compact && ((data.resistance ?? 0) > 0 || (data.support ?? 0) > 0) && (
           <div className="grid grid-cols-2 gap-3">
             {(data.resistance ?? 0) > 0 && (
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
@@ -441,7 +443,8 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
           )}
         </div>
 
-        {/* 리스크 요인 */}
+        {/* 리스크 요인 — 2026-08-14: 대시보드 모달(compact)에서는 사용자 요청으로 숨김 */}
+        {!compact && (
         <div>
           <p className={`${SECTION_TITLE_CLASS} text-slate-300 mb-2`}>⚠️ 리스크 요인</p>
           <div className={`rounded-md -mx-1.5 px-1.5 ${highlightClass('riskFactor')}`}>
@@ -454,6 +457,7 @@ export default function AiAnalysis({ ticker }: { ticker: string }) {
             )}
           </div>
         </div>
+        )}
 
         {/* 태그 */}
         <div className={`flex flex-wrap gap-1.5 pt-1 min-h-[22px] rounded-md -mx-1.5 px-1.5 ${highlightClass('tags')}`}>
