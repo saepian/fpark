@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, LabelList,
-  ScatterChart, Scatter, CartesianGrid, ReferenceLine, AreaChart, Area,
+  CartesianGrid, ReferenceLine, AreaChart, Area,
 } from 'recharts';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { useChartEntranceAnimation } from '@/lib/chart-animation';
@@ -60,6 +60,12 @@ function fmtPct(n: number) { return `${n.toFixed(1)}%`; }
 
 export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] }) {
   const anim = useChartEntranceAnimation();
+  // 2026-08-14 recharts 기본 Tooltip은 마우스 위치를 따라다니는 플로팅 박스라, 도넛
+  // 아래쪽 슬라이스에 마우스를 올리면 차트 바로 밑의 범례 텍스트와 겹치는 문제가 있었다
+  // (겹쳐도 z-index상 툴팁이 항상 위에 그려지지만 시각적으로 범례와 뒤섞여 읽기 힘듦).
+  // 마우스 위치를 따라가는 대신 도넛 중앙(항상 비어있는 고정 위치)에 값을 표시하도록
+  // 바꿔서 겹침 자체가 구조적으로 불가능하게 한다 — Tooltip 컴포넌트는 제거.
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const data = holdings
     .map(h => ({ name: h.name, value: h.currentPrice * h.quantity }))
@@ -73,6 +79,8 @@ export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] })
     color: sliceColorCycled(i),
     pct: totalValue > 0 ? (d.value / totalValue) * 100 : 0,
   }));
+
+  const active = activeIndex != null ? colored[activeIndex] : null;
 
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
@@ -89,19 +97,27 @@ export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] })
               paddingAngle={2}
               cornerRadius={3}
               stroke="none"
+              onMouseEnter={(_, i) => setActiveIndex(i)}
+              onMouseLeave={() => setActiveIndex(null)}
               {...anim}
             >
               {colored.map((d, i) => <Cell key={i} fill={d.color} />)}
             </Pie>
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-              formatter={(value: number, _n, entry) => [`${fmtWon(value)} (${fmtPct(entry.payload.pct)})`, entry.payload.name]}
-            />
           </PieChart>
         </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wide">평가금액</p>
-          <p className="text-[15px] font-bold font-mono text-white">{fmtWon(totalValue)}</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
+          {active ? (
+            <>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
+              <p className="text-[13px] font-bold font-mono text-white">{fmtWon(active.value)}</p>
+              <p className="text-[11px] text-slate-400 font-mono">{fmtPct(active.pct)}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">평가금액</p>
+              <p className="text-[15px] font-bold font-mono text-white">{fmtWon(totalValue)}</p>
+            </>
+          )}
         </div>
       </div>
       <div className={`flex flex-wrap ${colored.length > 8 ? 'gap-x-2.5' : 'gap-x-4'} gap-y-1.5 mt-3 justify-center`}>
@@ -123,6 +139,8 @@ export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] })
 // 위험만 생긴다. 값이 비어있으면(조회 실패 등) "기타"로 폴백.
 export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHolding[] }) {
   const anim = useChartEntranceAnimation();
+  // AllocationDonutChart와 동일한 이유로 마우스 추적 툴팁 대신 중앙 고정 표시를 쓴다.
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const bySector = new Map<string, number>();
   for (const h of holdings) {
@@ -151,6 +169,8 @@ export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHoldin
     pct: totalValue > 0 ? (d.value / totalValue) * 100 : 0,
   }));
 
+  const active = activeIndex != null ? colored[activeIndex] : null;
+
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
       <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>산업군별 비중</p>
@@ -166,19 +186,27 @@ export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHoldin
               paddingAngle={2}
               cornerRadius={3}
               stroke="none"
+              onMouseEnter={(_, i) => setActiveIndex(i)}
+              onMouseLeave={() => setActiveIndex(null)}
               {...anim}
             >
               {colored.map((d, i) => <Cell key={i} fill={d.color} />)}
             </Pie>
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-              formatter={(value: number, _n, entry) => [`${fmtWon(value)} (${fmtPct(entry.payload.pct)})`, entry.payload.name]}
-            />
           </PieChart>
         </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wide">업종 수</p>
-          <p className="text-[15px] font-bold font-mono text-white">{data.length}개</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
+          {active ? (
+            <>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
+              <p className="text-[13px] font-bold font-mono text-white">{fmtWon(active.value)}</p>
+              <p className="text-[11px] text-slate-400 font-mono">{fmtPct(active.pct)}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[10px] text-slate-500 uppercase tracking-wide">업종 수</p>
+              <p className="text-[15px] font-bold font-mono text-white">{data.length}개</p>
+            </>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center">
@@ -254,7 +282,13 @@ export function ReturnBarChart({ holdings }: { holdings: ChartHolding[] }) {
           />
           <YAxis hide domain={yDomain} />
           <Tooltip
+            // 2026-08-14 cursor/labelStyle/itemStyle을 지정하지 않으면 recharts 기본값이
+            // 각각 "막대 전체 높이를 덮는 밝은 회색 커서 배경"과 "검정 텍스트"라 다크
+            // 테마에서 흰 배경이 값 라벨을 가리고, 종목명(label) 텍스트도 안 보였다.
+            cursor={{ fill: 'rgba(148, 163, 184, 0.08)' }}
             contentStyle={TOOLTIP_STYLE}
+            labelStyle={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 4 }}
+            itemStyle={{ color: '#94a3b8' }}
             formatter={(v: number) => [fmtPct(v), '수익률']}
             labelFormatter={(_l, payload) => payload?.[0]?.payload?.fullName ?? ''}
           />
@@ -264,89 +298,6 @@ export function ReturnBarChart({ holdings }: { holdings: ChartHolding[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-    </div>
-  );
-}
-
-function ScatterTooltip({ active, payload }: { active?: boolean; payload?: { payload: { name: string; volatility: number; profitRate: number } }[] }) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div style={TOOLTIP_STYLE} className="px-3 py-2">
-      <p className="text-[11px] font-semibold text-white mb-1">{d.name}</p>
-      <p className="text-[11px] text-slate-400">변동성 {fmtPct(d.volatility)}</p>
-      <p className="text-[11px] text-slate-400">수익률 {fmtPct(d.profitRate)}</p>
-    </div>
-  );
-}
-
-// 마커를 recharts 기본 반경보다 살짝 키우고(≥8px 규격) surface색 링을 둘러 겹치는
-// 지점끼리도 구분되게 한다.
-function ScatterDot({ cx, cy, fill }: { cx?: number; cy?: number; fill?: string }) {
-  if (cx == null || cy == null) return null;
-  return <circle cx={cx} cy={cy} r={7} fill={fill} stroke="#1a1f2e" strokeWidth={2} />;
-}
-
-export function RiskReturnScatterChart({ holdings, risk }: { holdings: ChartHolding[]; risk: RiskPoint[] }) {
-  const anim = useChartEntranceAnimation();
-
-  const riskByTicker = new Map(risk.map(r => [r.ticker, r.volatility]));
-  const data = holdings
-    .map((h, i) => {
-      const volatility = riskByTicker.get(h.ticker);
-      if (volatility == null) return null;
-      const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
-      return { name: h.name, volatility, profitRate, color: i < MAX_DIRECT_SLICES ? SLICE_COLORS[i] : OTHER_COLOR };
-    })
-    .filter((d): d is { name: string; volatility: number; profitRate: number; color: string } => d !== null);
-
-  const showLabels = data.length > 0 && data.length <= 8;
-
-  return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-      <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>위험도 대비 수익률</p>
-      <p className="text-[10px] text-slate-600 mb-3">가로: 변동성(낮음 → 높음) · 세로: 수익률 · 최근 약 5개월 기준</p>
-      {data.length === 0 ? (
-        <div className="h-[200px] flex items-center justify-center">
-          <p className="text-[11px] text-slate-600">위험도 데이터를 불러오는 중...</p>
-        </div>
-      ) : (
-        <ResponsiveContainer width="100%" height={200}>
-          <ScatterChart margin={{ top: 26, right: 16, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="#334155" strokeOpacity={0.4} vertical={false} />
-            <XAxis
-              type="number" dataKey="volatility"
-              domain={['dataMin - 0.3', 'dataMax + 0.3']}
-              tick={{ fontSize: 10, fill: '#64748b' }}
-              axisLine={{ stroke: '#334155' }}
-              tickLine={false}
-              tickFormatter={(v: number) => `${v.toFixed(1)}%`}
-            />
-            <YAxis
-              type="number" dataKey="profitRate"
-              domain={['dataMin - 5', 'dataMax + 15']}
-              tick={{ fontSize: 10, fill: '#64748b' }}
-              axisLine={{ stroke: '#334155' }}
-              tickLine={false}
-              tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-              width={44}
-            />
-            <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
-            <Tooltip cursor={{ stroke: '#475569', strokeDasharray: '3 3' }} content={<ScatterTooltip />} />
-            <Scatter data={data} shape={<ScatterDot />} {...anim}>
-              {data.map((d, i) => <Cell key={i} fill={d.color} />)}
-              {showLabels && (
-                <LabelList
-                  dataKey="name"
-                  position="top"
-                  offset={10}
-                  style={{ fontSize: 10, fill: '#94a3b8' }}
-                />
-              )}
-            </Scatter>
-          </ScatterChart>
-        </ResponsiveContainer>
-      )}
     </div>
   );
 }

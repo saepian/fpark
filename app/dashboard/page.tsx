@@ -13,7 +13,7 @@ import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import { useCountUp } from '@/lib/use-count-up';
 import AiAnalysis from '@/components/stock/AiAnalysis';
 import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
-import { AllocationDonutChart, ReturnBarChart, RiskReturnScatterChart, MonthlyReturnLineChart, SectorAllocationDonutChart, type RiskPoint, type MonthlyPoint } from '@/components/dashboard/DashboardCharts';
+import { AllocationDonutChart, ReturnBarChart, MonthlyReturnLineChart, SectorAllocationDonutChart, type RiskPoint, type MonthlyPoint } from '@/components/dashboard/DashboardCharts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,6 @@ interface HoldingRow {
   currentPrice: number; changeRate: number;
   week52High: number; week52Low: number; marketCap: string; per: number; pbr: number;
   sector: string;
-  aiAnalysisUsedToday: boolean;
   hidden: boolean;
 }
 
@@ -306,7 +305,6 @@ export default function DashboardPage() {
   const [limit, setLimit]             = useState(2);
   const [holdingsError, setHoldingsError] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showHiddenList, setShowHiddenList] = useState(false);
   const [marketOpen, setMarketOpen]   = useState(true);
 
   const lastUpdatedRef   = useRef<Date | null>(null);
@@ -552,6 +550,9 @@ export default function DashboardPage() {
   // early return을 통과한 뒤에야 실제 화면에 쓰인다.
   const visibleHoldings = (holdings ?? []).filter(h => !h.hidden);
   const hiddenHoldings  = (holdings ?? []).filter(h => h.hidden);
+  // 카드 그리드는 숨긴 종목도 흐리게 그대로 보여주되(제자리에서 사라지지 않음),
+  // 활성 종목을 먼저 스캔할 수 있도록 숨긴 종목만 뒤로 정렬한다.
+  const orderedHoldings = [...visibleHoldings, ...hiddenHoldings];
   const totalInvestedRaw   = visibleHoldings.reduce((s, h) => s + h.avg_price * h.quantity, 0);
   const totalValueRaw      = visibleHoldings.reduce((s, h) => s + h.currentPrice * h.quantity, 0);
   const totalProfitRaw     = totalValueRaw - totalInvestedRaw;
@@ -634,9 +635,6 @@ export default function DashboardPage() {
           <div className="md:col-span-2">
             <MonthlyReturnLineChart monthly={monthlyData} daily={dailyData} />
           </div>
-          <div className="md:col-span-2">
-            <RiskReturnScatterChart holdings={visibleHoldings} risk={riskData} />
-          </div>
         </div>
 
         {/* 보유 종목 카드 그리드 — 숨긴 종목은 여기서 빠지지만 등록 한도(N/한도)는
@@ -648,7 +646,7 @@ export default function DashboardPage() {
           )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          {visibleHoldings.map(h => {
+          {orderedHoldings.map(h => {
             const value = h.currentPrice * h.quantity;
             const invested = h.avg_price * h.quantity;
             const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
@@ -656,7 +654,10 @@ export default function DashboardPage() {
             const todayUp = h.changeRate >= 0;
             const fiveDayChange = riskData.find(r => r.ticker === h.ticker)?.fiveDayChange ?? null;
             return (
-              <div key={h.ticker} className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
+              <div
+                key={h.ticker}
+                className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${h.hidden ? 'opacity-50 grayscale' : ''}`}
+              >
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -670,24 +671,34 @@ export default function DashboardPage() {
                     <p className="text-[11px] text-slate-500 font-mono mt-0.5">{h.ticker} · {h.quantity}주 · 매입가 {fmt(h.avg_price)}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => {
-                        setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market });
-                        setHoldings(prev => prev ? prev.map(x => x.ticker === h.ticker ? { ...x, aiAnalysisUsedToday: true } : x) : prev);
-                      }}
-                      disabled={marketOpen || h.aiAnalysisUsedToday}
-                      title={marketOpen ? 'AI 분석은 장 마감 후 이용할 수 있습니다' : h.aiAnalysisUsedToday ? '오늘 이미 확인한 분석입니다 (자정 이후 다시 이용 가능)' : 'AI 분석 보기'}
-                      className="p-1.5 rounded-lg text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setHoldingHidden(h.ticker, true)}
-                      title="숨기기 (삭제되지 않고 목록·통계에서만 제외됩니다)"
-                      className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 hover:bg-slate-500/10 transition-colors cursor-pointer"
-                    >
-                      <EyeOff className="w-3.5 h-3.5" />
-                    </button>
+                    {h.hidden ? (
+                      <button
+                        onClick={() => setHoldingHidden(h.ticker, false)}
+                        title="다시 보이기"
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        다시 보이기
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
+                          disabled={marketOpen}
+                          title={marketOpen ? 'AI 분석은 장 마감 후 이용할 수 있습니다' : 'AI 분석 보기'}
+                          className="p-1.5 rounded-lg text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setHoldingHidden(h.ticker, true)}
+                          title="숨기기 (삭제되지 않고 목록·통계에서만 제외됩니다)"
+                          className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 hover:bg-slate-500/10 transition-colors cursor-pointer"
+                        >
+                          <EyeOff className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
                     <button
                       onClick={() => removeHolding(h.ticker)}
                       className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
@@ -753,38 +764,6 @@ export default function DashboardPage() {
           <p className="text-[11px] text-slate-500 mb-4 text-center">
             더 많은 종목을 등록하려면 <Link href="/pricing" className="text-indigo-400 hover:underline">요금제를 업그레이드</Link>하세요.
           </p>
-        )}
-
-        {hiddenHoldings.length > 0 && (
-          <div className="mb-6">
-            <button
-              onClick={() => setShowHiddenList(v => !v)}
-              className="flex items-center gap-1.5 text-[12px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
-            >
-              <EyeOff className="w-3.5 h-3.5" />
-              숨긴 종목 {hiddenHoldings.length}개 {showHiddenList ? '접기' : '보기'}
-            </button>
-            {showHiddenList && (
-              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {hiddenHoldings.map(h => (
-                  <div
-                    key={h.ticker}
-                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-800 bg-slate-900/40"
-                  >
-                    <span className="text-[13px] text-slate-400">{h.name} <span className="text-slate-600">{h.ticker}</span></span>
-                    <button
-                      onClick={() => setHoldingHidden(h.ticker, false)}
-                      title="다시 보이기"
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      다시 보이기
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         {showAddForm && (
@@ -873,12 +852,11 @@ export default function DashboardPage() {
                   </div>
                   {(() => {
                     const sections = analysisResult.summarySections;
-                    if (!sections) return <FieldSkeleton lines={4} />;
+                    if (!sections) return <FieldSkeleton lines={3} />;
                     const blocks = [
-                      { key: 'summarySections_background',          label: '구조적 배경',   text: sections.background },
-                      { key: 'summarySections_newsInterpretation',   label: '뉴스 해석',     text: sections.newsInterpretation },
-                      { key: 'summarySections_historicalComparison', label: '과거 유사 이력', text: sections.historicalComparison },
-                      { key: 'summarySections_judgment',             label: '종합 판단',     text: sections.judgment },
+                      { key: 'summarySections_background',        label: '구조적 배경', text: sections.background },
+                      { key: 'summarySections_newsInterpretation', label: '뉴스 해석',   text: sections.newsInterpretation },
+                      { key: 'summarySections_judgment',           label: '종합 판단',   text: sections.judgment },
                     ];
                     return (
                       <div className="flex flex-col gap-4">
@@ -916,21 +894,11 @@ export default function DashboardPage() {
               </Card>
             )}
 
-            {(analysisResult.shortTermOutlook || analysisResult.midTermOutlook) && (
+            {analysisResult.shortTermOutlook && (
               <Card title="관찰 변수" className="mb-4">
-                <div className="flex flex-col gap-3">
-                  {analysisResult.shortTermOutlook && (
-                    <div>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">단기</p>
-                      <p className="text-xs text-slate-300 leading-relaxed">{analysisResult.shortTermOutlook}</p>
-                    </div>
-                  )}
-                  {analysisResult.midTermOutlook && (
-                    <div>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">중기</p>
-                      <p className="text-xs text-slate-300 leading-relaxed">{analysisResult.midTermOutlook}</p>
-                    </div>
-                  )}
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">단기</p>
+                  <p className="text-xs text-slate-300 leading-relaxed">{analysisResult.shortTermOutlook}</p>
                 </div>
               </Card>
             )}

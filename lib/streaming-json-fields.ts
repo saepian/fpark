@@ -281,6 +281,26 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   { key: 'midTermOutlook', type: 'string', emit: true },
 ];
 
+// 2026-08-14 대시보드 "AI 종합평가" 스코프 축소용 — 이 파서는 spec을 buffer 안에서
+// 순서대로만 찾으므로(tryExtract가 this.cursor 이후로 다음 키를 못 찾으면 specIndex가
+// 영원히 멈춰 이후 모든 필드의 타이핑 효과가 끊긴다), historicalComparison·midTermOutlook을
+// 아예 요청하지 않는 PORTFOLIO_SUMMARY_INSTRUCTIONS_DASHBOARD와 반드시 같은 키 순서를
+// 유지해야 한다 — 위 PORTFOLIO_SUMMARY_FIELD_SPECS를 그대로 쓰면 대시보드 응답엔 존재하지
+// 않는 두 키를 계속 찾다가 sectors 이후 필드가 전부 스트리밍 안 되는 문제가 생긴다.
+export const PORTFOLIO_SUMMARY_FIELD_SPECS_DASHBOARD: FieldSpec[] = [
+  { key: 'summarySections_background',           type: 'string', emit: true },
+  { key: 'summarySections_newsInterpretation',    type: 'string', emit: true },
+  { key: 'summarySections_judgment',              type: 'string', emit: true },
+  { key: 'sectors', type: 'json', emit: true },
+  { key: 'riskFactors', type: 'json', emit: true },
+  { key: 'opportunityFactors', type: 'string[]', emit: true },
+  { key: 'historyNarrative', type: 'string', emit: true },
+  { key: 'contributionNarrative', type: 'string', emit: true },
+  { key: 'holdingPeriodNarrative', type: 'string', emit: true },
+  { key: 'coMovementNarrative', type: 'string', emit: true },
+  { key: 'shortTermOutlook', type: 'string', emit: true },
+];
+
 // 2026-08-11 기업분석 스트리밍 전환 — app/api/diagnosis/route.ts의
 // DIAGNOSIS_OUTPUT_INSTRUCTIONS 키 순서와 반드시 일치해야 한다. 원래 스키마에 있던
 // flowPercentage(순수 숫자 리터럴)는 제외했다 — 이 파서는 'string'/'string[]'/'json'만

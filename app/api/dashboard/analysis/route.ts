@@ -382,7 +382,7 @@ export async function POST() {
           stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, null,
           { lossCount, lossWeightPct, riskiestLines: [] },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          '데이터 없음', coMovementFactsLine, gapTone, portfolioMarketDayBlock,
+          '데이터 없음', coMovementFactsLine, gapTone, portfolioMarketDayBlock, 'dashboard',
           emitPartial, emitField,
         );
         if (summary._failed) {

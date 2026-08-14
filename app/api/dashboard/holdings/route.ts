@@ -3,7 +3,6 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { fetchStockQuote } from '@/lib/kis-api';
 import { checkPlan, resolveDashboardHoldingsLimit } from '@/lib/plan';
-import { kstDateStr } from '@/lib/ai-grounding';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -60,19 +59,6 @@ export async function GET() {
 
   const items = data ?? [];
 
-  // 대시보드 카드의 "AI 분석" 아이콘 버튼은 종목당 하루 1클릭으로 제한된다(요금제별
-  // 조회한도와는 별개로 얹히는 제약) — 이미 /api/stock/[ticker]/analysis가 조회 시마다
-  // (user_id, ticker, usage_date) unique로 기록해두는 stock_analysis_usage를 그대로
-  // 읽어서 "오늘 이미 클릭했는지"만 판정한다. 자정 리셋은 "오늘 날짜"로만 비교하므로
-  // 별도 리셋 로직이 필요 없다(날짜가 바뀌면 자연히 새 쿼리에 안 걸림).
-  const todayStr = kstDateStr();
-  const { data: usageRows } = await supabase
-    .from('stock_analysis_usage')
-    .select('ticker')
-    .eq('user_id', user.id)
-    .eq('usage_date', todayStr);
-  const usedTickers = new Set((usageRows ?? []).map(r => r.ticker));
-
   const withPrice = await fetchInChunks(
     items,
     async (item) => {
@@ -87,7 +73,6 @@ export async function GET() {
           week52High: stock.week52High, week52Low: stock.week52Low,
           marketCap: stock.marketCap, per: stock.per, pbr: stock.pbr,
           sector: stock.sector,
-          aiAnalysisUsedToday: usedTickers.has(item.ticker),
         };
       } catch {
         return {
@@ -95,7 +80,6 @@ export async function GET() {
           currentPrice: 0, changeRate: 0,
           week52High: 0, week52Low: 0, marketCap: '', per: 0, pbr: 0,
           sector: '',
-          aiAnalysisUsedToday: usedTickers.has(item.ticker),
         };
       }
     },

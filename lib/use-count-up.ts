@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-const COUNT_UP_DURATION_MS = 500;
+const COUNT_UP_DURATION_MS = 900;
 
 function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);

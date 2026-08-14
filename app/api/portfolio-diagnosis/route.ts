@@ -563,7 +563,7 @@ export async function POST(request: NextRequest) {
           stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, benchmark,
           { lossCount, lossWeightPct, riskiestLines },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          surgeFactsLine, coMovementFactsLine, gapTone, portfolioMarketDayBlock,
+          surgeFactsLine, coMovementFactsLine, gapTone, portfolioMarketDayBlock, 'diagnosis',
           emitPortfolioPartial, emitPortfolioField,
         );
         // Stage 1은 다 됐는데 Stage 2만 실패/폴백된 경우 — 이미 보여준 종목별 카드는
