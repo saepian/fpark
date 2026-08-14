@@ -126,6 +126,27 @@ function FieldSkeleton({ lines = 2 }: { lines?: number }) {
   );
 }
 
+// 종목카드 아이콘 버튼(배당·AI분석·숨기기·삭제) 호버 툴팁 — 브라우저 기본 title
+// 툴팁은 지연이 크고 다크테마와 안 어울려서, group-hover만으로 동작하는 순수 CSS
+// 툴팁으로 대체한다(별도 라이브러리·JS 상태 불필요). 모바일은 hover 자체가 없어
+// 탭해도 안 뜨는데, 아이콘 색상만으로도 종류가 구분되니(호박색=배당·인디고=AI 등)
+// 별도 터치 대응 없이 그대로 둔다 — hover 전용 점진적 향상으로 취급.
+function IconTip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="relative group/tip">
+      {children}
+      <span
+        className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 z-20 whitespace-nowrap
+          rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] text-slate-200 shadow-lg
+          opacity-0 scale-95 transition-all duration-150 group-hover/tip:opacity-100 group-hover/tip:scale-100"
+      >
+        {label}
+        <span className="absolute left-1/2 top-full -translate-x-1/2 -mt-px h-1.5 w-1.5 rotate-45 border-b border-r border-slate-700 bg-slate-900" />
+      </span>
+    </div>
+  );
+}
+
 function Card({ title, children, className = '' }: { title?: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
@@ -675,8 +696,19 @@ export default function DashboardPage() {
         </div>
 
         {/* 오늘의 등락 — 위 "총 손익"(매입가 대비 누적)과 다른 지표임을 라벨·캡션으로
-            분명히 구분한다. 얇은 가로 스트립 하나로만 두고 별도 큰 카드는 만들지 않는다. */}
-        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl px-5 py-4 mb-4">
+            분명히 구분한다. 얇은 가로 스트립 하나로만 두고 별도 큰 카드는 만들지 않는다.
+            다른 카드들과 톤이 같아 눈에 안 띄는 문제를 오늘 등락 부호에 반응하는 은은한
+            색 글로우로 해결(상승=빨강/하락=파랑, 앱의 기존 손익 컨벤션과 그대로 연결) —
+            하락 쪽은 사용자 피드백으로 강도를 더 올렸다(배경 0.07→0.14, 테두리 0.22→0.4).
+            "AI 종합평가" 카드의 대각선 그라데이션 어휘를 재사용하되 톱바 등은 빼서 톤 다운. */}
+        <div
+          className="rounded-2xl px-5 py-4 mb-4"
+          style={
+            todayChangeAmount >= 0
+              ? { background: 'linear-gradient(135deg, rgba(248,113,113,0.07) 0%, #171b28 55%)', border: '1px solid rgba(248,113,113,0.22)' }
+              : { background: 'linear-gradient(135deg, rgba(96,165,250,0.14) 0%, #171b28 60%)', border: '1px solid rgba(96,165,250,0.4)' }
+          }
+        >
           <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2.5">오늘의 등락 · 전일 종가 대비</p>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-baseline gap-2">
@@ -768,37 +800,46 @@ export default function DashboardPage() {
                     ) : (
                       <>
                         {dividendData[h.ticker]?.latestDividend && (
-                          <button
-                            onClick={() => setDividendModal({ ticker: h.ticker, name: h.name })}
-                            title="배당 정보 보기"
-                            className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors cursor-pointer"
-                          >
-                            <Coins className="w-3.5 h-3.5" />
-                          </button>
+                          <IconTip label="배당현황">
+                            <button
+                              onClick={() => setDividendModal({ ticker: h.ticker, name: h.name })}
+                              aria-label="배당현황"
+                              className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                            >
+                              <Coins className="w-3.5 h-3.5" />
+                            </button>
+                          </IconTip>
                         )}
-                        <button
-                          onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
-                          disabled={marketOpen}
-                          title={marketOpen ? 'AI 분석은 장 마감 후 이용할 수 있습니다' : 'AI 분석 보기'}
-                          className="p-1.5 rounded-lg text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setHoldingHidden(h.ticker, true)}
-                          title="숨기기 (삭제되지 않고 목록·통계에서만 제외됩니다)"
-                          className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 hover:bg-slate-500/10 transition-colors cursor-pointer"
-                        >
-                          <EyeOff className="w-3.5 h-3.5" />
-                        </button>
+                        <IconTip label={marketOpen ? 'AI 분석은 장 마감 후 이용할 수 있습니다' : 'AI 분석'}>
+                          <button
+                            onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
+                            disabled={marketOpen}
+                            aria-label="AI 분석"
+                            className="p-1.5 rounded-lg text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </button>
+                        </IconTip>
+                        <IconTip label="숨기기">
+                          <button
+                            onClick={() => setHoldingHidden(h.ticker, true)}
+                            aria-label="숨기기 (삭제되지 않고 목록·통계에서만 제외됩니다)"
+                            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-300 hover:bg-slate-500/10 transition-colors cursor-pointer"
+                          >
+                            <EyeOff className="w-3.5 h-3.5" />
+                          </button>
+                        </IconTip>
                       </>
                     )}
-                    <button
-                      onClick={() => removeHolding(h.ticker)}
-                      className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <IconTip label="삭제">
+                      <button
+                        onClick={() => removeHolding(h.ticker)}
+                        aria-label="삭제"
+                        className="p-1.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </IconTip>
                   </div>
                 </div>
 
