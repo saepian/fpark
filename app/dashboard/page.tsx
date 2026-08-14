@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
-import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock, EyeOff, Eye } from 'lucide-react';
+import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock, EyeOff, Eye, Coins } from 'lucide-react';
 import PageBackground from '@/components/layout/PageBackground';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
@@ -26,6 +26,12 @@ interface HoldingRow {
   week52High: number; week52Low: number; marketCap: string; per: number; pbr: number;
   sector: string;
   hidden: boolean;
+}
+
+interface DividendInfo {
+  ticker: string;
+  dividendSummary: { year: string; dividendYield: number | null; dividendPerShare: number | null; payoutRatio: number | null } | null;
+  latestDividend: { recordDate: string; payDate: string | null; kind: '분기' | '결산'; kindLabel: string; perShareAmount: number } | null;
 }
 
 interface DashboardHoldingResult {
@@ -68,6 +74,7 @@ interface StreamedDashboardResult {
 
 function fmt(n: number)  { return n.toLocaleString(); }
 function fmtR(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
+function fmtDate(d: string) { return d.replaceAll('-', '.'); }
 
 // 종목카드 내부 통계 라벨(현재가/평가손익/52주 최고·최저/시가총액/5일변동률) — 색상
 // 차이만으로는 다크테마에서 라벨과 값이 잘 구분되지 않아 옅은 배경의 배지 형태로 분리.
@@ -327,6 +334,7 @@ export default function DashboardPage() {
   // 종목별 AI 분석 모달 — 카드 내부 펼침 대신 모달로 띄운다(카드 그리드가 한 카드만
   // 확장되며 레이아웃이 깨지는 걸 방지).
   const [analysisModal, setAnalysisModal] = useState<{ ticker: string; name: string; market: string } | null>(null);
+  const [dividendModal, setDividendModal] = useState<{ ticker: string; name: string } | null>(null);
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -376,6 +384,22 @@ export default function DashboardPage() {
     } catch { /* 라인차트는 부가 정보라 실패해도 조용히 무시 */ }
   }, []);
 
+  // 배당현황 — DART/KIS 조회라 무거워 위험도·수익률추이와 같은 이유로 5분 시세폴링과
+  // 분리해 페이지 진입 시 1회만 부른다. 서버가 티커 단위로 이미 DART 7일/KIS 24시간
+  // 캐시를 걸어두므로 여기엔 별도 캐시가 필요 없다.
+  const [dividendData, setDividendData] = useState<Record<string, DividendInfo>>({});
+  const loadDividend = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/dashboard/dividend');
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.dividends)) {
+        const map: Record<string, DividendInfo> = {};
+        for (const d of data.dividends as DividendInfo[]) map[d.ticker] = d;
+        setDividendData(map);
+      }
+    } catch { /* 배당현황은 부가 정보라 실패해도 조용히 무시 */ }
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) { router.replace(loginUrlWithRedirect(window.location.pathname)); return; }
@@ -383,6 +407,7 @@ export default function DashboardPage() {
       loadHoldings();
       loadRisk();
       loadMonthly();
+      loadDividend();
     });
   }, []); // eslint-disable-line
 
@@ -561,6 +586,29 @@ export default function DashboardPage() {
   const totalValueRaw      = visibleHoldings.reduce((s, h) => s + h.currentPrice * h.quantity, 0);
   const totalProfitRaw     = totalValueRaw - totalInvestedRaw;
   const totalProfitRateRaw = totalInvestedRaw > 0 ? (totalProfitRaw / totalInvestedRaw) * 100 : 0;
+
+  // "오늘의 등락" — 상단 "총 손익"(매입가 대비 누적)과 다른 지표임을 분명히 하기 위해
+  // 오늘 하루치만 별도 계산한다. changeRate(오늘 등락률)만으로 전일 종가를 역산해
+  // (currentPrice = prevClose × (1+changeRate/100)) 새 API 호출 없이 구한다.
+  const todayCounts = visibleHoldings.reduce(
+    (acc, h) => {
+      if (h.changeRate > 0) acc.up++;
+      else if (h.changeRate < 0) acc.down++;
+      else acc.flat++;
+      return acc;
+    },
+    { up: 0, flat: 0, down: 0 },
+  );
+  let todayChangeAmount = 0;
+  let todayPrevValue = 0;
+  for (const h of visibleHoldings) {
+    const denom = 1 + h.changeRate / 100;
+    if (denom === 0) continue; // 이론상 하한가(-100%)는 없지만 0나눗셈 방어
+    todayChangeAmount += (h.currentPrice * h.quantity * (h.changeRate / 100)) / denom;
+    todayPrevValue    += (h.currentPrice * h.quantity) / denom;
+  }
+  const todayChangeRate = todayPrevValue > 0 ? (todayChangeAmount / todayPrevValue) * 100 : 0;
+
   const totalInvestedAnim   = useCountUp(totalInvestedRaw);
   const totalValueAnim      = useCountUp(totalValueRaw);
   const totalProfitAnim     = useCountUp(totalProfitRaw);
@@ -626,6 +674,39 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* 오늘의 등락 — 위 "총 손익"(매입가 대비 누적)과 다른 지표임을 라벨·캡션으로
+            분명히 구분한다. 얇은 가로 스트립 하나로만 두고 별도 큰 카드는 만들지 않는다. */}
+        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl px-5 py-4 mb-4">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2.5">오늘의 등락 · 전일 종가 대비</p>
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-baseline gap-2">
+              <span className={`text-xl font-bold font-mono ${todayChangeAmount >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                {todayChangeAmount >= 0 ? '+' : ''}{fmt(Math.round(todayChangeAmount))}원
+              </span>
+              <span className={`text-[13px] font-bold font-mono ${todayChangeAmount >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                {fmtR(todayChangeRate)}
+              </span>
+            </div>
+            <div className="flex items-center gap-5">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                <span className="text-[14px] font-bold font-mono text-red-400">{todayCounts.up}</span>
+                <span className="text-[11px] text-slate-400">상승</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span className="text-[14px] font-bold font-mono text-slate-400">{todayCounts.flat}</span>
+                <span className="text-[11px] text-slate-400">보합</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                <span className="text-[14px] font-bold font-mono text-blue-400">{todayCounts.down}</span>
+                <span className="text-[11px] text-slate-400">하락</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* 투자 분석 요약 */}
         <div className="mb-2">
           <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>투자 분석 요약</p>
@@ -686,6 +767,15 @@ export default function DashboardPage() {
                       </button>
                     ) : (
                       <>
+                        {dividendData[h.ticker]?.latestDividend && (
+                          <button
+                            onClick={() => setDividendModal({ ticker: h.ticker, name: h.name })}
+                            title="배당 정보 보기"
+                            className="p-1.5 rounded-lg text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                          >
+                            <Coins className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
                           disabled={marketOpen}
@@ -772,7 +862,7 @@ export default function DashboardPage() {
 
         {showAddForm && (
           <Modal title="종목 추가" onClose={() => setShowAddForm(false)} maxWidth="max-w-md">
-            <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); loadRisk(); loadMonthly(); }} onCancel={() => setShowAddForm(false)} showCancel />
+            <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); loadRisk(); loadMonthly(); loadDividend(); }} onCancel={() => setShowAddForm(false)} showCancel />
           </Modal>
         )}
 
@@ -783,6 +873,58 @@ export default function DashboardPage() {
               : <OverseasAiAnalysis ticker={analysisModal.ticker} market={analysisModal.market} />}
           </Modal>
         )}
+
+        {dividendModal && (() => {
+          const info = dividendData[dividendModal.ticker];
+          const s = info?.dividendSummary;
+          const latest = info?.latestDividend;
+          return (
+            <Modal title={`${dividendModal.name} · 배당 정보`} onClose={() => setDividendModal(null)} maxWidth="max-w-md">
+              {s && (
+                <div className="grid grid-cols-3 gap-2.5 mb-4">
+                  <div className="bg-slate-800/40 rounded-xl p-3 text-center">
+                    <p className="text-[9.5px] text-slate-500 mb-1">배당수익률({s.year})</p>
+                    <p className="text-[14px] font-bold font-mono text-slate-200">{s.dividendYield != null ? `${s.dividendYield.toFixed(1)}%` : '-'}</p>
+                  </div>
+                  <div className="bg-slate-800/40 rounded-xl p-3 text-center">
+                    <p className="text-[9.5px] text-slate-500 mb-1">주당배당금</p>
+                    <p className="text-[14px] font-bold font-mono text-slate-200">{s.dividendPerShare != null ? `${fmt(s.dividendPerShare)}원` : '-'}</p>
+                  </div>
+                  <div className="bg-slate-800/40 rounded-xl p-3 text-center">
+                    <p className="text-[9.5px] text-slate-500 mb-1">배당성향</p>
+                    <p className="text-[14px] font-bold font-mono text-slate-200">{s.payoutRatio != null ? `${s.payoutRatio.toFixed(1)}%` : '-'}</p>
+                  </div>
+                </div>
+              )}
+              {latest && (
+                <div className="bg-amber-500/[0.06] border border-amber-500/20 rounded-xl p-4">
+                  <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wide mb-2.5">최근 배당</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2.5 gap-y-3">
+                    <div>
+                      <span className="text-[9.5px] text-slate-500 block mb-0.5">기준일</span>
+                      <p className="text-[12px] font-mono text-slate-200 font-semibold">{fmtDate(latest.recordDate)}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9.5px] text-slate-500 block mb-0.5">지급일</span>
+                      <p className="text-[12px] font-mono text-slate-200 font-semibold">{latest.payDate ? fmtDate(latest.payDate) : '미정'}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9.5px] text-slate-500 block mb-0.5">종류</span>
+                      <p className="text-[12px] font-mono text-slate-200 font-semibold">{latest.kindLabel}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9.5px] text-slate-500 block mb-0.5">주당금액</span>
+                      <p className="text-[12px] font-mono text-slate-200 font-semibold">{fmt(latest.perShareAmount)}원</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <p className="text-[10px] text-slate-600 mt-3.5 leading-relaxed">
+                가장 최근 지급된 배당 기준입니다. 향후 지급을 예측하거나 보장하지 않습니다.
+              </p>
+            </Modal>
+          );
+        })()}
 
         {/* AI 분석 버튼 — 장중에는 숨김(장마감 후·거래일에만 노출) */}
         {!marketOpen && !analysisResult && (
