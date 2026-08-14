@@ -202,6 +202,11 @@ export async function fetchRecentDisclosures(ticker: string, days = 14): Promise
 // alotMatter.json(배당에 관한 사항)은 항목명이 같아도 stock_knd로 보통주/우선주
 // 행이 분리돼 있다(2026-07-30 실측, 삼성전자 예: 현금배당수익률(%) 보통주=1.50,
 // 우선주=1.90 — 서로 다른 행). stock_knd가 없는 항목(현금배당성향 등)은 단일 행.
+// 2026-08-14 실측(빙그레): 우선주가 아예 없는 종목은 DART가 그 단일 행의 stock_knd를
+// "보통주"로 채우지 않고 "-"로 남겨두는 경우가 있다(같은 회계연도에 실제 값은 정상
+// 존재 — 데이터 누락이 아니라 라벨링 차이) — '보통주' 정확 일치만 찾던 find()가
+// 이 행을 못 찾아 배당수익률·주당배당금만 null로 빠지고, stock_knd 필터가 없는
+// 배당성향만 정상 표시되는 버그가 있었다. "-"도 매칭되도록 완화해 대응한다.
 const DIVIDEND_SUMMARY_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 사업보고서는 연 1회 제출 — corp_code 맵과 동일 주기
 
 export type DartDividendSummary = {
@@ -281,7 +286,7 @@ export async function fetchDividendSummary(ticker: string): Promise<DartDividend
         if (!rows || rows.length === 0) continue;
 
         const find = (se: string, stockKnd?: string) =>
-          rows.find((r) => r.se === se && (stockKnd ? r.stock_knd === stockKnd : true));
+          rows.find((r) => r.se === se && (stockKnd ? (r.stock_knd === stockKnd || r.stock_knd === '-') : true));
 
         const dividendYield    = parseDartNumber(find('현금배당수익률(%)', '보통주')?.thstrm);
         const dividendPerShare = parseDartNumber(find('주당 현금배당금(원)', '보통주')?.thstrm);
