@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminClient as supabase } from '@/lib/supabase-admin';
-import { fetchStockPrice, getAccessToken } from '@/lib/kis-api';
+import { fetchStockPrice, fetchDailyChart, getAccessToken } from '@/lib/kis-api';
+import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -120,6 +121,23 @@ export async function GET(request: NextRequest) {
 
   if (!isMarketOpen()) {
     return NextResponse.json({ ok: true, skipped: 'market_closed' });
+  }
+
+  // isMarketOpen()은 요일+시각만 확인해 평일 공휴일(예: 대체공휴일)을 걸러내지 못한다 —
+  // daily-alert-email/market-cache-warm과 동일한 패턴으로 앵커 종목(삼성전자) 차트
+  // 1주치를 조회해 getDomesticMarketDayContext()로 실제 거래일 여부를 확인한다. 이
+  // 크론은 09:00~15:30 KST에만 도는데, 그 판정 로직 자체가 정확히 이 구간(09:00
+  // 이후)에서 신뢰 가능하도록 설계되어 있다(lib/market-day-context.ts 상단 주석 참고).
+  // 판정 실패 시엔 안전하게 거래일로 간주해 정상 진행한다(알림 누락보다 과다 발송이
+  // 덜 해로움).
+  const anchorChart = await fetchDailyChart('005930', '1W').catch(() => []);
+  const marketDayContext = getDomesticMarketDayContext(anchorChart);
+  if (!marketDayContext.isTradingDay) {
+    console.log(
+      `[STOCK-ALERTS] 오늘은 휴장일(${marketDayContext.reason})이라 실행 생략 ` +
+      `— 마지막 거래일 ${marketDayContext.lastTradingDate}`,
+    );
+    return NextResponse.json({ ok: true, skipped: true, reason: marketDayContext.reason });
   }
 
   const todayStr  = getKstTodayStr();

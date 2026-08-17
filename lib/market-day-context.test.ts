@@ -130,6 +130,46 @@ describe('국내 크론(daily-alert-email/market-cache-warm) 휴장일 스킵 �
   });
 });
 
+// stock-alerts 크론(09:00~15:30 KST, 10분 간격)은 2026-08-17(광복절 대체공휴일, 월요일)에
+// isMarketOpen()이 요일+시각만 확인해 공휴일을 걸러내지 못한 채로 실행되어, KIS가 반환한
+// 마지막 거래일(8/14 금) 스냅샷을 "오늘 변동"으로 오인해 알림을 발송한 실제 장애 사례.
+// daily-alert-email/market-cache-warm과 달리 이 크론은 장중(09:00 직후~15:20)에도 도는데,
+// getDomesticMarketDayContext()는 09:00 이후 구간에서 신뢰 가능하도록 설계되어 있으므로
+// (위 2026-01-01/2026-07-27 실측 주석 참고) 동일하게 재사용 가능하다.
+describe('국내 크론(stock-alerts) 휴장일 스킵 시나리오', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('광복절 대체공휴일(2026-08-17, 월요일) 09:00 KST — 첫 tick부터 휴장으로 판정해 스킵된다', () => {
+    vi.setSystemTime(new Date('2026-08-17T09:00:00+09:00'));
+    const chart = [{ date: '2026-08-12' }, { date: '2026-08-13' }, { date: '2026-08-14' }];
+    const ctx = getDomesticMarketDayContext(chart);
+    expect(ctx.isTradingDay).toBe(false);
+    expect(ctx.reason).toBe('holiday');
+    expect(ctx.lastTradingDate).toBe('2026-08-14');
+    expect(!ctx.isTradingDay).toBe(true);
+  });
+
+  it('광복절 대체공휴일(2026-08-17) 10:50 KST — 실제 장애가 발생했던 시각에도 동일하게 휴장 판정된다', () => {
+    vi.setSystemTime(new Date('2026-08-17T10:50:00+09:00'));
+    const chart = [{ date: '2026-08-12' }, { date: '2026-08-13' }, { date: '2026-08-14' }];
+    const ctx = getDomesticMarketDayContext(chart);
+    expect(ctx.isTradingDay).toBe(false);
+    expect(ctx.reason).toBe('holiday');
+    expect(ctx.lastTradingDate).toBe('2026-08-14');
+  });
+
+  it('정상 거래일(2026-08-18, 화요일) 10:50 KST에는 스킵하지 않고 그대로 진행한다', () => {
+    // 8/17(월) 휴장 다음날 — 정상 개장일. 장중이라 오늘(8/18) 캔들이 이미 반영돼 있음.
+    vi.setSystemTime(new Date('2026-08-18T10:50:00+09:00'));
+    const chart = [{ date: '2026-08-13' }, { date: '2026-08-14' }, { date: '2026-08-18' }];
+    const ctx = getDomesticMarketDayContext(chart);
+    expect(ctx.isTradingDay).toBe(true);
+    expect(ctx.reason).toBeNull();
+    expect(!ctx.isTradingDay).toBe(false);
+  });
+});
+
 describe('getOverseasMarketDayContext', () => {
   it('marketState가 REGULAR/PRE/POST면 거래일로 판정한다', () => {
     const chart = [{ date: '2026-07-23' }, { date: '2026-07-24' }];
