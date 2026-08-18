@@ -56,8 +56,18 @@ export async function GET(request: Request) {
     // ── 거래대금순 ────────────────────────────────────────────────
     if (tab === '거래대금순') {
       try {
-        const data = await fetchFluctuation('0');
-        const rows: any[] = data.output ?? [];
+        // 코스피만 조회하면 코스닥 거래대금 상위 종목(예: LG이노텍)이 누락된다 —
+        // fetchTopTradingValueTickers(daily-alert-email용)와 동일하게 두 시장을
+        // 각각 조회해 합친 뒤 거래대금 기준으로 다시 정렬한다.
+        const settled = await Promise.allSettled([
+          fetchFluctuation('3', 'KOSPI'),
+          fetchFluctuation('3', 'KOSDAQ'),
+        ]);
+        const rows: any[] = [];
+        for (const r of settled) {
+          if (r.status === 'fulfilled') rows.push(...(r.value.output ?? []));
+          else console.warn(`[ranking] ${tab} 시장 조회 실패:`, r.reason);
+        }
         const validRows = rows.filter(isValidStockItem);
         if (validRows.length < rows.length) {
           console.warn(`[ranking] ${tab}: 유효성 필터로 ${rows.length - validRows.length}행 제외 (${rows.length}행 → ${validRows.length}행)`);

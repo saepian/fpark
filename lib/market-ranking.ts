@@ -62,9 +62,10 @@ export function mapRow(item: any, i: number): StockRow {
   };
 }
 
-// market 파라미터는 기존 호출부(app/api/market/ranking/route.ts의 거래대금순/거래량순
-// 탭 — 코스피만 다룸)를 그대로 보존하기 위해 기본값 'KOSPI'로 둔다. daily-alert-email의
-// 코스피+코스닥 거래대금 상위 판정(fetchTopTradingValueTickers)만 'KOSDAQ'을 명시로 전달.
+// market 파라미터는 기존 호출부(app/api/market/ranking/route.ts의 거래량순 탭 —
+// 코스피만 다룸)를 그대로 보존하기 위해 기본값 'KOSPI'로 둔다. 코스피+코스닥을 모두
+// 봐야 하는 곳(거래대금순 탭, daily-alert-email의 fetchTopTradingValueTickers)은
+// 'KOSDAQ'을 명시로 전달해 두 시장을 각각 호출한다.
 const ISCD_BY_MARKET = { KOSPI: '0001', KOSDAQ: '1001' } as const;
 
 export async function fetchFluctuation(blngClsCode: string, market: 'KOSPI' | 'KOSDAQ' = 'KOSPI') {
@@ -84,7 +85,7 @@ export async function fetchFluctuation(blngClsCode: string, market: 'KOSPI' | 'K
       FID_INPUT_DATE_1: '',
     });
     const res = await fetch(
-      `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
+      `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/volume-rank?${params}`,
       { headers: kisHeaders(token, 'FHPST01710000'), cache: 'no-store' },
     );
     if (!res.ok) throw new Error(`FHPST01710000 HTTP ${res.status}`);
@@ -102,8 +103,8 @@ export async function fetchFluctuation(blngClsCode: string, market: 'KOSPI' | 'K
 // allSettled로 처리.
 export async function fetchTopTradingValueTickers(count = 30): Promise<Set<string>> {
   const settled = await Promise.allSettled([
-    fetchFluctuation('0', 'KOSPI'),
-    fetchFluctuation('0', 'KOSDAQ'),
+    fetchFluctuation('3', 'KOSPI'),
+    fetchFluctuation('3', 'KOSDAQ'),
   ]);
   const tickers = new Set<string>();
   for (const r of settled) {

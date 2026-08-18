@@ -24,7 +24,7 @@ async function fetchFromKIS(): Promise<PopularStock[]> {
     FID_COND_SCR_DIV_CODE: '20171',
     FID_INPUT_ISCD: '0001',
     FID_DIV_CLS_CODE: '0',
-    FID_BLNG_CLS_CODE: '0',
+    FID_BLNG_CLS_CODE: '3',
     FID_TRGT_CLS_CODE: '111111111',
     FID_TRGT_EXLS_CLS_CODE: '000000',
     FID_INPUT_PRICE_1: '0',
@@ -34,7 +34,7 @@ async function fetchFromKIS(): Promise<PopularStock[]> {
   });
 
   const res = await fetch(
-    `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
+    `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/volume-rank?${params}`,
     {
       headers: {
         'content-type': 'application/json',
