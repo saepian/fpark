@@ -22,10 +22,13 @@ interface SearchItem { ticker: string; name: string }
 interface HoldingRow {
   id: string; ticker: string; name: string; market: string;
   avg_price: number; buy_date: string | null; quantity: number;
-  currentPrice: number; changeRate: number;
-  week52High: number; week52Low: number; marketCap: string; per: number; pbr: number;
-  sector: string;
+  // KIS 시세 조회 실패 시 null — quoteFailed로 명시적으로 구분한다(0/''과 혼동 방지).
+  currentPrice: number | null; changeRate: number | null;
+  week52High: number | null; week52Low: number | null; marketCap: string | null;
+  per: number | null; pbr: number | null;
+  sector: string | null;
   hidden: boolean;
+  quoteFailed?: boolean;
 }
 
 interface DividendInfo {
@@ -602,15 +605,22 @@ export default function DashboardPage() {
   // 카드 그리드는 숨긴 종목도 흐리게 그대로 보여주되(제자리에서 사라지지 않음),
   // 활성 종목을 먼저 스캔할 수 있도록 숨긴 종목만 뒤로 정렬한다.
   const orderedHoldings = [...visibleHoldings, ...hiddenHoldings];
-  const totalInvestedRaw   = visibleHoldings.reduce((s, h) => s + h.avg_price * h.quantity, 0);
-  const totalValueRaw      = visibleHoldings.reduce((s, h) => s + h.currentPrice * h.quantity, 0);
+  // 시세 조회 실패 종목(currentPrice === null)은 실제 가치를 모르는 상태다 — 0으로
+  // 치면 "전량 손실"로 잘못 집계되므로, 포트폴리오 합계는 조회 성공한 종목만으로
+  // 계산한다(실패 종목은 카드에 "시세 조회 실패"로 개별 표시됨).
+  const quotedHoldings = visibleHoldings.filter(
+    (h): h is HoldingRow & { currentPrice: number; changeRate: number; sector: string } =>
+      h.currentPrice != null && h.changeRate != null && h.sector != null,
+  );
+  const totalInvestedRaw   = quotedHoldings.reduce((s, h) => s + h.avg_price * h.quantity, 0);
+  const totalValueRaw      = quotedHoldings.reduce((s, h) => s + h.currentPrice * h.quantity, 0);
   const totalProfitRaw     = totalValueRaw - totalInvestedRaw;
   const totalProfitRateRaw = totalInvestedRaw > 0 ? (totalProfitRaw / totalInvestedRaw) * 100 : 0;
 
   // "오늘의 등락" — 상단 "총 손익"(매입가 대비 누적)과 다른 지표임을 분명히 하기 위해
   // 오늘 하루치만 별도 계산한다. changeRate(오늘 등락률)만으로 전일 종가를 역산해
   // (currentPrice = prevClose × (1+changeRate/100)) 새 API 호출 없이 구한다.
-  const todayCounts = visibleHoldings.reduce(
+  const todayCounts = quotedHoldings.reduce(
     (acc, h) => {
       if (h.changeRate > 0) acc.up++;
       else if (h.changeRate < 0) acc.down++;
@@ -621,7 +631,7 @@ export default function DashboardPage() {
   );
   let todayChangeAmount = 0;
   let todayPrevValue = 0;
-  for (const h of visibleHoldings) {
+  for (const h of quotedHoldings) {
     const denom = 1 + h.changeRate / 100;
     if (denom === 0) continue; // 이론상 하한가(-100%)는 없지만 0나눗셈 방어
     todayChangeAmount += (h.currentPrice * h.quantity * (h.changeRate / 100)) / denom;
@@ -743,10 +753,10 @@ export default function DashboardPage() {
           <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>투자 분석 요약</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-          <AllocationDonutChart holdings={visibleHoldings} />
-          <SectorAllocationDonutChart holdings={visibleHoldings} />
+          <AllocationDonutChart holdings={quotedHoldings} />
+          <SectorAllocationDonutChart holdings={quotedHoldings} />
           <div className="md:col-span-2">
-            <ReturnBarChart holdings={visibleHoldings} />
+            <ReturnBarChart holdings={quotedHoldings} />
           </div>
           <div className="md:col-span-2">
             <MonthlyReturnLineChart monthly={monthlyData} daily={dailyData} />
@@ -763,11 +773,12 @@ export default function DashboardPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
           {orderedHoldings.map(h => {
-            const value = h.currentPrice * h.quantity;
+            const hasQuote = h.currentPrice != null;
+            const value = hasQuote ? h.currentPrice! * h.quantity : null;
             const invested = h.avg_price * h.quantity;
-            const profitRate = h.avg_price > 0 ? ((h.currentPrice - h.avg_price) / h.avg_price) * 100 : 0;
-            const up = profitRate >= 0;
-            const todayUp = h.changeRate >= 0;
+            const profitRate = hasQuote && h.avg_price > 0 ? ((h.currentPrice! - h.avg_price) / h.avg_price) * 100 : null;
+            const up = profitRate != null && profitRate >= 0;
+            const todayUp = h.changeRate != null && h.changeRate >= 0;
             const fiveDayChange = riskData.find(r => r.ticker === h.ticker)?.fiveDayChange ?? null;
             return (
               <div
@@ -845,24 +856,36 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div>
                     <span className={STAT_LABEL_CLASS}>현재가</span>
-                    <p className="text-[13px] font-mono text-slate-200">{fmt(h.currentPrice)}</p>
-                    <p className={`text-[11px] font-mono ${todayUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(h.changeRate)}</p>
+                    {hasQuote ? (
+                      <>
+                        <p className="text-[13px] font-mono text-slate-200">{fmt(h.currentPrice!)}</p>
+                        <p className={`text-[11px] font-mono ${todayUp ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(h.changeRate!)}</p>
+                      </>
+                    ) : (
+                      <p className="text-[11px] font-mono text-amber-400" title="KIS 시세 조회에 실패했습니다. 잠시 후 새로고침해 주세요.">시세 조회 실패</p>
+                    )}
                   </div>
                   <div>
                     <span className={STAT_LABEL_CLASS}>평가손익</span>
-                    <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>{value - invested >= 0 ? '+' : ''}{fmt(Math.round(value - invested))}원</p>
-                    <p className={`text-[11px] font-mono ${up ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(profitRate)}</p>
+                    {value != null && profitRate != null ? (
+                      <>
+                        <p className={`text-[13px] font-mono font-semibold ${up ? 'text-red-400' : 'text-blue-400'}`}>{value - invested >= 0 ? '+' : ''}{fmt(Math.round(value - invested))}원</p>
+                        <p className={`text-[11px] font-mono ${up ? 'text-red-400' : 'text-blue-400'}`}>{fmtR(profitRate)}</p>
+                      </>
+                    ) : (
+                      <p className="text-[11px] font-mono text-amber-400">시세 조회 실패</p>
+                    )}
                   </div>
                 </div>
 
-                {(h.week52High > 0 || h.marketCap || fiveDayChange != null) && (
+                {((h.week52High != null && h.week52High > 0) || h.marketCap || fiveDayChange != null) && (
                   <div className="grid grid-cols-4 gap-3 mb-4 pt-3 border-t border-slate-700/40">
                     {/* 52주 최고/최저는 값이 길어서(최대 7자리 두 개) 4열 중 2열을 차지하게 해서
                         항상 한 줄에 들어가게 함 — 시가총액/5일변동률은 나머지 1열씩. */}
-                    {h.week52High > 0 && (
+                    {h.week52High != null && h.week52High > 0 && (
                       <div className="col-span-2">
                         <span className={STAT_LABEL_CLASS}>52주 최고/최저</span>
-                        <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{fmt(h.week52High)} / {fmt(h.week52Low)}</p>
+                        <p className="text-[12px] font-mono text-slate-300 whitespace-nowrap">{fmt(h.week52High)} / {fmt(h.week52Low!)}</p>
                       </div>
                     )}
                     {h.marketCap && (

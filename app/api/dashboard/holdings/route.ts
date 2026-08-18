@@ -73,13 +73,20 @@ export async function GET() {
           week52High: stock.week52High, week52Low: stock.week52Low,
           marketCap: stock.marketCap, per: stock.per, pbr: stock.pbr,
           sector: stock.sector,
+          quoteFailed: false,
         };
-      } catch {
+      } catch (e) {
+        // 조회 실패를 0/''으로 채우면 프론트가 "진짜 시세가 0"과 구분할 수 없어
+        // 평가손익이 -100%로 계산되는 등 실패가 조용히 오답으로 둔갑한다(2026-08
+        // 대우건설/다날 카드 조사에서 확인). null로 반환해 실패를 실패 그대로 전달하고,
+        // 실제 KIS 에러(msg_cd 등)는 여기서 로그로 남겨 재발 시 원인을 바로 알 수 있게 한다.
+        console.error(`[dashboard/holdings] ${item.ticker} 시세 조회 실패:`, e instanceof Error ? e.message : e);
         return {
           ...item,
-          currentPrice: 0, changeRate: 0,
-          week52High: 0, week52Low: 0, marketCap: '', per: 0, pbr: 0,
-          sector: '',
+          currentPrice: null, changeRate: null,
+          week52High: null, week52Low: null, marketCap: null, per: null, pbr: null,
+          sector: null,
+          quoteFailed: true,
         };
       }
     },
