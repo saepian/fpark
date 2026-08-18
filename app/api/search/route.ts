@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchStockPrice } from '../../../lib/kis-api';
+import { getStockMasterList, type StockMasterEntry } from '../../../lib/krx-stock-master';
 import type { SearchResult } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
 
-interface StockEntry {
-  ticker: string;
-  name: string;
-  market: 'KOSPI' | 'KOSDAQ';
-}
+type StockEntry = StockMasterEntry;
 
 interface StockCache {
   items: StockEntry[];
@@ -17,58 +14,15 @@ interface StockCache {
 
 let stockCache: StockCache | null = null;
 
-async function fetchKrxMarket(market: 'KOSPI' | 'KOSDAQ'): Promise<StockEntry[]> {
-  const marketType = market === 'KOSPI' ? 'stockMkt' : 'kosdaqMkt';
-  const res = await fetch(
-    `https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=${marketType}`,
-    {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': 'https://kind.krx.co.kr/corpgeneral/corpList.do',
-      },
-      cache: 'no-store',
-    }
-  );
-
-  if (!res.ok) throw new Error(`KRX ${market} 조회 실패 [${res.status}]`);
-
-  const buffer = await res.arrayBuffer();
-  const html = new TextDecoder('euc-kr').decode(buffer);
-
-  const items: StockEntry[] = [];
-  const rowRe = /<tr>([\s\S]*?)<\/tr>/g;
-  let rowMatch: RegExpExecArray | null;
-  let isHeader = true;
-
-  while ((rowMatch = rowRe.exec(html)) !== null) {
-    if (isHeader) { isHeader = false; continue; }
-    const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g;
-    const cells: string[] = [];
-    let cellMatch: RegExpExecArray | null;
-    while ((cellMatch = cellRe.exec(rowMatch[1])) !== null) {
-      cells.push(cellMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
-    }
-    if (cells.length >= 3) {
-      const name = cells[0];
-      const code = cells[2].replace(/\s/g, '');
-      if (name && code.length === 6 && /^\d+$/.test(code)) {
-        items.push({ ticker: code, name, market });
-      }
-    }
-  }
-
-  return items;
-}
-
+// 국내 종목 목록은 KRX 실시간 스크래핑(app/api/cron/stock-master-refresh가 하루 1회
+// 갱신)이 아니라 stock_master 테이블에서 읽는다 — KRX가 Vercel 서버리스 IP를 403으로
+// 막아 매 요청 스크래핑이 항상 실패하던 문제(2026-08-18)의 근본 수정. 인스턴스 메모리
+// 캐시는 그대로 유지 — 테이블이 하루 1회만 바뀌므로 매 요청 DB 왕복을 줄여준다.
 async function getStockList(): Promise<StockEntry[]> {
   if (stockCache && Date.now() < stockCache.expiresAt) {
     return stockCache.items;
   }
-  const [kospi, kosdaq] = await Promise.all([
-    fetchKrxMarket('KOSPI'),
-    fetchKrxMarket('KOSDAQ'),
-  ]);
-  const items = [...kospi.reverse(), ...kosdaq.reverse()];
+  const items = await getStockMasterList();
   stockCache = { items, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
   return items;
 }
@@ -179,13 +133,15 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim() ?? '';
   if (!q) return NextResponse.json([]);
 
-  // 국내 KRX 검색 + 해외 Yahoo 검색 병렬 실행
+  // 국내 stock_master 테이블 조회 + 해외 Yahoo 검색 병렬 실행
   let stockList: StockEntry[];
   try {
     stockList = await getStockList();
   } catch (err) {
-    console.error('[SEARCH] KRX 조회 실패:', err);
-    // KRX 실패해도 해외 검색은 시도
+    // stock_master는 크론이 하루 1회 채우는 테이블이라 정상 운영 중엔 실패하지 않는다 —
+    // 여기 도달하면 DB 연결 장애 등 이상 상황이므로 반드시 로그에 남긴다(2026-08-18).
+    console.error('[SEARCH] stock_master 조회 실패:', err);
+    // 국내 조회 실패해도 해외 검색은 시도
     const overseas = await withPrices(await searchOverseas(q));
     return NextResponse.json(overseas.slice(0, 8));
   }
@@ -205,7 +161,10 @@ export async function GET(req: NextRequest) {
       const score = n === lower || s.ticker === q ? 0 : n.startsWith(lower) ? 1 : 2;
       return { ...s, score };
     })
-    .sort((a, b) => a.score - b.score || a.name.length - b.name.length);
+    // 동점(스코어·이름길이 동일)일 때 예전엔 KRX HTML 원본 순서에 우연히 기댔는데,
+    // stock_master 테이블 SELECT 순서는 보장되지 않아(2026-08-18) 티커 오름차순을
+    // 마지막 기준으로 추가해 결과 순서를 결정적으로 고정한다.
+    .sort((a, b) => a.score - b.score || a.name.length - b.name.length || a.ticker.localeCompare(b.ticker));
 
   const matched = scored.slice(0, 5);
 

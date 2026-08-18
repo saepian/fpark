@@ -824,6 +824,27 @@ export type Database = {
         }
         Relationships: []
       }
+      stock_master: {
+        Row: {
+          market: string
+          name: string
+          ticker: string
+          updated_at: string
+        }
+        Insert: {
+          market: string
+          name: string
+          ticker: string
+          updated_at?: string
+        }
+        Update: {
+          market?: string
+          name?: string
+          ticker?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       users: {
         Row: {
           billing_key: string | null
