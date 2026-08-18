@@ -8,6 +8,7 @@ import { Search, Sparkles } from 'lucide-react';
 
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import PageBackground from '@/components/layout/PageBackground';
+import AiLoadingOverlay from '@/components/common/AiLoadingOverlay';
 import DiagnosisReport, { type DiagnosisResult } from '@/components/diagnosis/DiagnosisReport';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 
@@ -288,19 +289,7 @@ export default function DiagnosisPage() {
   // ── 로딩 오버레이 ── Stage0 도착 전까지만(보통 1~2초) — 도착 즉시 VIEW 2로 전환되고
   // 이후 AI 필드는 DiagnosisReport 내부 스켈레톤/타이핑 커서로 표시된다.
   if (loading) {
-    return (
-      <div className="fixed inset-0 bg-[#0d1117]/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-8">
-        <div className="relative w-16 h-16">
-          <div className="absolute inset-0 rounded-full border-4 border-indigo-500/20" />
-          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin" />
-          <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-emerald-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
-        </div>
-        <div className="text-center mb-2">
-          <p className="text-white font-semibold text-lg mb-1">AI가 기업을 분석하고 있습니다...</p>
-          <p className="text-slate-400 text-sm">{loadingLabel}</p>
-        </div>
-      </div>
-    );
+    return <AiLoadingOverlay title="AI가 기업을 분석하고 있습니다..." subtitle={loadingLabel} />;
   }
 
   // ══════════════════════════════════════════════════════════════════════════

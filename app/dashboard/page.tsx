@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock, EyeOff, Eye, Coins } from 'lucide-react';
 import PageBackground from '@/components/layout/PageBackground';
+import AiLoadingOverlay from '@/components/common/AiLoadingOverlay';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { isKoreanMarketOpen } from '@/lib/market-utils';
@@ -645,12 +646,7 @@ export default function DashboardPage() {
   const totalProfitRateAnim = useCountUp(totalProfitRateRaw);
 
   if (!authChecked || holdings === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <PageBackground />
-        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <AiLoadingOverlay title="대시보드를 불러오고 있습니다..." subtitle="보유 종목과 시세 정보를 확인하는 중입니다" />;
   }
 
   // 최초 진입(등록 종목 0개) — 입력폼 강제 노출, 취소 불가

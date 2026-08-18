@@ -12,6 +12,7 @@ import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
+import AiLoadingOverlay from '@/components/common/AiLoadingOverlay';
 import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChangeTable';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
@@ -620,18 +621,10 @@ export default function PortfolioDiagnosisPage() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-[#0d1117]/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-8">
-        <div className="relative w-16 h-16">
-          <div className="absolute inset-0 rounded-full border-4 border-indigo-500/20" />
-          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin" />
-          <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-emerald-400 animate-spin"
-            style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
-        </div>
-        <div className="text-center mb-2">
-          <p className="text-white font-semibold text-lg mb-1">AI가 포트폴리오를 분석하고 있습니다...</p>
-          <p className="text-slate-400 text-sm">{loadingLabel || '예상 소요 시간: 30~60초'}</p>
-        </div>
-      </div>
+      <AiLoadingOverlay
+        title="AI가 포트폴리오를 분석하고 있습니다..."
+        subtitle={loadingLabel || '예상 소요 시간: 30~60초'}
+      />
     );
   }
 
