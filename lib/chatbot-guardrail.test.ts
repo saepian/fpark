@@ -34,7 +34,7 @@ describe('checkInvestmentAdviceLanguage — 걸려야 하는 경우(1차 방어 
 
 describe('checkInvestmentAdviceLanguage — 걸리지 않아야 하는 경우(정상 안내 응답)', () => {
   it('포트폴리오 분석 기능 설명', () => {
-    const text = '포트폴리오 분석 기능은 보유 종목을 등록하시면 AI가 진단해드리는 기능이에요. /ai-portfolio에서 이용하실 수 있어요.';
+    const text = '포트폴리오 분석 기능은 보유 종목을 등록하시면 AI가 진단해드리는 기능이에요. /portfolio-diagnosis에서 이용하실 수 있어요.';
     expect(checkInvestmentAdviceLanguage(text).flagged).toBe(false);
   });
 
