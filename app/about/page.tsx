@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Sparkles, Newspaper, TrendingUp, BarChart2, Search } from 'lucide-react';
+import { Sparkles, Newspaper, TrendingUp, BarChart2, Search, LayoutDashboard } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 
 
@@ -18,6 +18,12 @@ const FEATURES = [
     iconBg: 'bg-violet-500/10 border-violet-500/25',
     title: '포트폴리오 분석',
     desc: '보유 기업 전체를 한 번에 분석하고 섹터 편중도·리스크 요인·참고 지표를 제공합니다.',
+  },
+  {
+    icon: <LayoutDashboard className="w-5 h-5 text-cyan-400" />,
+    iconBg: 'bg-cyan-500/10 border-cyan-500/25',
+    title: '대시보드',
+    desc: '보유 종목을 등록해 시세·손익을 상시 추적하고, 장마감 후 AI가 포트폴리오 전체를 종합분석합니다.',
   },
   {
     icon: <Newspaper className="w-5 h-5 text-sky-400" />,

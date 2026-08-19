@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   Search, PieChart, Trophy, BellRing, Mail, Sunrise,
-  Database, Cpu, Send, ArrowRight, Check,
+  Database, Cpu, Send, ArrowRight, Check, LayoutDashboard,
 } from 'lucide-react';
 import { PLAN_AMOUNTS, PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
@@ -64,6 +64,16 @@ const FEATURES = [
         <div className="h-full bg-[#3ECF8E]" style={{ width: '42%' }} />
         <div className="h-full bg-[#3ECF8E]/55" style={{ width: '31%' }} />
         <div className="h-full bg-[#3ECF8E]/25" style={{ width: '18%' }} />
+      </div>
+    ),
+  },
+  {
+    icon: LayoutDashboard, title: '대시보드',
+    desc: '보유 종목을 등록해두면 시세·손익을 상시 추적하고, 장마감 후 AI가 포트폴리오 전체를 종합분석해드립니다.',
+    mini: (
+      <div className="mt-4 flex items-center gap-2">
+        <span className="text-[13px] font-bold text-[#3ECF8E] tabular-nums">+2.4%</span>
+        <span className="text-[10px] text-[#8B92A8]">오늘의 등락 · 보유종목 상시 추적</span>
       </div>
     ),
   },
@@ -250,7 +260,7 @@ export default function AiPortfolioLandingPage() {
       <section className="max-w-5xl mx-auto px-4 py-16 md:py-24">
         <Reveal className="text-center mb-12">
           <h2 className="text-2xl md:text-[32px] font-bold break-keep">FPARK가 정리해드리는 것들</h2>
-          <p className="text-[#8B92A8] text-[14px] md:text-[15px] mt-3">여섯 가지 기능으로 데이터를 확인하세요</p>
+          <p className="text-[#8B92A8] text-[14px] md:text-[15px] mt-3">일곱 가지 기능으로 데이터를 확인하세요</p>
         </Reveal>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">

@@ -19,6 +19,8 @@ export interface PlanFeatureSet {
 const portfolioText = (monthlyLimit: number) =>
   monthlyLimit === 0 ? '포트폴리오 분석' : `포트폴리오 분석 월 ${monthlyLimit}회`;
 
+const dashboardText = (holdingsLimit: number) => `대시보드 (보유종목 최대 ${holdingsLimit}개 등록)`;
+
 // 2026-07-15 정정: 종목분석은 무료 등급만 예외적으로 "일간" 한도(하루 1회) —
 // 나머지(베이직/프로)는 월간이라 isStockAnalysisDaily로 분기한다.
 const stockAnalysisText = (plan: PlanType) =>
@@ -34,6 +36,7 @@ export const PLAN_FEATURES: Record<PlanType, PlanFeatureSet> = {
       { text: stockAnalysisText('free'), included: true },
       { text: `기업 분석 월 ${PLAN_USAGE_LIMITS.free.diagnosis}회`, included: true },
       { text: portfolioText(PLAN_USAGE_LIMITS.free.portfolio), included: PLAN_USAGE_LIMITS.free.portfolio > 0 },
+      { text: dashboardText(PLAN_USAGE_LIMITS.free.dashboardHoldings), included: true },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
       { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
@@ -48,6 +51,7 @@ export const PLAN_FEATURES: Record<PlanType, PlanFeatureSet> = {
       { text: stockAnalysisText('basic'), included: true },
       { text: `기업 분석 월 ${PLAN_USAGE_LIMITS.basic.diagnosis}회`, included: true },
       { text: portfolioText(PLAN_USAGE_LIMITS.basic.portfolio), included: PLAN_USAGE_LIMITS.basic.portfolio > 0 },
+      { text: dashboardText(PLAN_USAGE_LIMITS.basic.dashboardHoldings), included: true },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
       { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: false },
@@ -62,6 +66,7 @@ export const PLAN_FEATURES: Record<PlanType, PlanFeatureSet> = {
       { text: stockAnalysisText('pro'), included: true },
       { text: `기업 분석 월 ${PLAN_USAGE_LIMITS.pro.diagnosis}회`, included: true },
       { text: portfolioText(PLAN_USAGE_LIMITS.pro.portfolio), included: PLAN_USAGE_LIMITS.pro.portfolio > 0 },
+      { text: dashboardText(PLAN_USAGE_LIMITS.pro.dashboardHoldings), included: true },
       { text: '뉴스/시장 데이터 무제한', included: true },
       { text: '워치리스트', included: true },
       { text: '관심기업 주가 알림 (±5%, ±10%, ±20%, ±30%)', included: true },

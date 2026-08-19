@@ -127,6 +127,23 @@ function PortfolioThumb() {
   );
 }
 
+// 실제 화면(app/dashboard/page.tsx)의 "오늘의 등락"·AI 종합분석 완료 배너를 축약한 정적 예시.
+function DashboardThumb() {
+  return (
+    <div className="p-3.5 flex flex-col gap-2.5 h-full">
+      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">대시보드 · 오늘의 등락</p>
+      <div className="flex items-baseline gap-2">
+        <span className="text-[18px] font-bold text-emerald-400 tabular-nums">+2.4%</span>
+        <span className="text-[10px] text-slate-500">총 손익 +812,000원</span>
+      </div>
+      <div className="mt-auto flex items-start gap-1.5 rounded-md border border-indigo-500/25 bg-indigo-500/[0.06] px-2 py-1.5">
+        <span className="text-indigo-400 text-[10px]">●</span>
+        <p className="text-[10px] text-indigo-200/90 leading-snug">장마감 후 AI 종합분석 도착</p>
+      </div>
+    </div>
+  );
+}
+
 // 표시 형태는 components/layout/NotificationBell.tsx, 문구 포맷은
 // app/api/cron/stock-alerts/route.ts의 실제 알림 메시지 형식을 그대로 따른 정적 예시.
 function AlertThumb() {
@@ -268,6 +285,14 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         preview: <DiagnosisThumb />,
         isLive: false,
       },
+      {
+        key: 'dashboard',
+        title: '대시보드',
+        desc: '보유 종목의 수량·매입가를 등록해두면 시세와 손익을 계속 추적할 수 있고, 장마감 후에는 AI가 포트폴리오 전체를 종합분석해서 위험도나 수익률 추이 같은 정보를 보여드려요. 한 번 등록해두고 계속 지켜보는 용도예요.',
+        caption: `FREE는 최대 ${PLAN_USAGE_LIMITS.free.dashboardHoldings}개 종목까지 등록할 수 있어요`,
+        preview: <DashboardThumb />,
+        isLive: false,
+      },
     ],
     closingNote: '이 외에도 뉴스·시장 데이터는 무제한으로 보실 수 있고, 관심종목은 워치리스트에 자유롭게 등록해두실 수 있어요.',
     transition: '매달 여러 종목을 살펴보고, 보유 종목 전체를 한 번에 점검해보고 싶으시다면 BASIC 플랜부터는 월 이용 횟수가 늘어나고 포트폴리오 분석도 가능해져요.',
@@ -292,6 +317,14 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         preview: <PortfolioThumb />,
         isLive: false,
       },
+      {
+        key: 'dashboard',
+        title: '대시보드',
+        desc: '보유 종목의 수량·매입가를 등록해두면 시세와 손익을 계속 추적할 수 있고, 장마감 후에는 AI가 포트폴리오 전체를 종합분석해서 위험도, 월별 수익률 추이, 산업군별 비중 같은 정보를 보여드려요. 포트폴리오 분석(1회성 진단)과 달리 계속 등록해두고 지켜보는 용도예요.',
+        caption: `BASIC은 최대 ${PLAN_USAGE_LIMITS.basic.dashboardHoldings}개 종목까지 등록할 수 있어요`,
+        preview: <DashboardThumb />,
+        isLive: false,
+      },
     ],
     transition: '매달 더 많은 종목을 분석하고 포트폴리오도 더 자주 점검하고 싶다면, 그리고 중요한 변화를 직접 확인하지 않아도 자동으로 받아보고 싶다면 PRO 플랜이 잘 맞아요. PRO부터는 이용 횟수가 크게 늘어나고, 알림과 이메일 리포트까지 함께 이용할 수 있어요.',
   },
@@ -313,6 +346,14 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         desc: `월 ${PLAN_USAGE_LIMITS.pro.portfolio}회까지 이용할 수 있어서, 포트폴리오 구성이 바뀔 때마다 부담 없이 다시 점검해볼 수 있어요.`,
         caption: `월 ${PLAN_USAGE_LIMITS.pro.portfolio}회`,
         preview: <PortfolioThumb />,
+        isLive: false,
+      },
+      {
+        key: 'dashboard',
+        title: '대시보드',
+        desc: '보유 종목의 수량·매입가를 등록해두면 시세와 손익을 계속 추적할 수 있고, 장마감 후에는 AI가 포트폴리오 전체를 종합분석해서 위험도, 월별 수익률 추이, 산업군별 비중 같은 정보를 보여드려요. 포트폴리오 분석(1회성 진단)과 달리 계속 등록해두고 지켜보는 용도예요.',
+        caption: `PRO는 최대 ${PLAN_USAGE_LIMITS.pro.dashboardHoldings}개 종목까지 등록할 수 있어요`,
+        preview: <DashboardThumb />,
         isLive: false,
       },
       {
