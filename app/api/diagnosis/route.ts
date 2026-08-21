@@ -23,6 +23,7 @@ import { fetchRecentDisclosures, type DartDisclosure, fetchDividendSummary, type
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import { selectSectorMacroNews } from '@/lib/sector-news';
+import { fetchNewsSentimentTrend } from '@/lib/news-sentiment';
 import {
   nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency,
   kstDateStr, daysBetween,
@@ -314,7 +315,7 @@ export async function POST(request: NextRequest) {
         // 한다 — 아래에서 peerChartsPromise와 함께 끌어올려 await한다.
         const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
 
-        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult] = await Promise.allSettled([
+        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult] = await Promise.allSettled([
           fetchStockPrice(ticker),
           analysisDataPromise,
           selectRelevantNews(ticker, name, dbNewsExtraPromise),
@@ -327,6 +328,10 @@ export async function POST(request: NextRequest) {
           fetchDividendSummary(ticker),
           fetchDividendHistory(ticker),
           sectorMacroPromise,
+          // 뉴스 논조 추이(2단계 UI 노출, 2026-08-21) — news_sentiment_daily는 CURATED_TICKERS_MKT
+          // (대형주 100종목) 한정 크론이라 그 밖의 종목은 null이 정상. fetchNewsSentimentTrend
+          // 내부에서 이미 5거래일 미만이면 null을 반환하므로 여기선 그대로 통과시키면 됨.
+          fetchNewsSentimentTrend(ticker),
         ]);
 
         console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
@@ -340,6 +345,7 @@ export async function POST(request: NextRequest) {
           dividendSummary: dividendSummaryResult.status,
           dividendHistory: dividendHistoryResult.status,
           sectorMacro: sectorMacroResult.status,
+          newsSentiment: newsSentimentResult.status,
           priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
           analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
           newsErr:     newsSelectionResult.status === 'rejected' ? String(newsSelectionResult.reason): null,
@@ -349,6 +355,7 @@ export async function POST(request: NextRequest) {
           disclosuresErr: disclosuresResult.status === 'rejected' ? String(disclosuresResult.reason) : null,
           dividendSummaryErr: dividendSummaryResult.status === 'rejected' ? String(dividendSummaryResult.reason) : null,
           dividendHistoryErr: dividendHistoryResult.status === 'rejected' ? String(dividendHistoryResult.reason) : null,
+          newsSentimentErr: newsSentimentResult.status === 'rejected' ? String(newsSentimentResult.reason) : null,
         });
 
         // ── 2단계: 결과 추출 ──────────────────────────────────────────────────────
@@ -369,6 +376,7 @@ export async function POST(request: NextRequest) {
         const disclosures: DartDisclosure[] = disclosuresResult.status === 'fulfilled' ? disclosuresResult.value : [];
         const dividendSummary: DartDividendSummary | null = dividendSummaryResult.status === 'fulfilled' ? dividendSummaryResult.value : null;
         const dividendHistory: DividendHistoryRow[] = dividendHistoryResult.status === 'fulfilled' ? dividendHistoryResult.value : [];
+        const newsSentiment = newsSentimentResult.status === 'fulfilled' ? newsSentimentResult.value : null;
 
         const currentPrice = (priceData?.price && priceData.price > 0)
           ? priceData.price
@@ -759,6 +767,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           disclosures,
           dividendSummary,
           dividendHistory,
+          newsSentiment,
           // AI 필드 — DiagnosisResult 타입을 그대로 만족시키기 위한 빈 값 초기 상태.
           // finalVerdict/shortTermOutlook/midTermOutlook은 undefined로 둬 컴포넌트의
           // 기존 `result.finalVerdict &&` 같은 조건문이 자동으로 "아직 없음"으로 처리하게

@@ -43,6 +43,16 @@ interface Sector {
   warning: boolean;
 }
 
+// 섹터별 최근 뉴스 논조(2단계 UI 노출, 2026-08-21) — news_sentiment_daily는 CURATED_TICKERS_MKT
+// (대형주 100종목) 한정이라 보유종목 전체가 아니라 일부만 반영될 수 있다. coveredCount/totalCount로
+// "N종목 중 M종목만 반영" 각주를 달고, 데이터 있는 종목이 0개인 섹터는 서버가 애초에 제외한다.
+interface SectorSentimentEntry {
+  sector:       string;
+  label:        '긍정 비중 우세' | '중립·혼조' | '부정 비중 우세';
+  coveredCount: number;
+  totalCount:   number;
+}
+
 interface HoldingResult {
   ticker:       string;
   name:         string;
@@ -110,6 +120,7 @@ interface PortfolioResult {
   summary:          string;
   summarySections?: PortfolioSummarySections; // 있으면 소제목별 렌더링, 없으면(과거 레코드) summary 문자열로 폴백
   sectors:          Sector[];
+  sectorSentiment?: SectorSentimentEntry[];
   holdings:         HoldingResult[];
   riskFactors?:        RiskFactorEntry[];
   opportunityFactors?: string[];
@@ -965,6 +976,32 @@ export default function PortfolioDiagnosisPage() {
                   );
                 })}
               </div>
+            </Card>
+          )}
+
+          {/* 3-0-1행: 섹터별 최근 뉴스 논조(2026-08-21 신설) — news_sentiment_daily가
+              CURATED_TICKERS_MKT(대형주 100종목) 한정이라 보유종목 전체가 아니라 일부만
+              반영될 수 있어 "섹터 편중도 분석"과 카드를 분리했다(그 카드 바 색상이 이미
+              "과집중" 경고로 쓰이고 있어 같은 카드에 얹으면 혼동 위험). 데이터 있는 섹터가
+              하나도 없으면 카드 자체를 생략한다. */}
+          {result.sectorSentiment && result.sectorSentiment.length > 0 && (
+            <Card title="섹터별 최근 뉴스 논조" className="mb-4">
+              <div className="flex flex-col gap-3">
+                {result.sectorSentiment.map((s) => (
+                  <div key={s.sector} className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-[13px] text-slate-300 font-medium">{s.sector}</span>
+                      <span className="text-[10.5px] text-slate-600 mt-0.5">
+                        보유 {s.totalCount}종목 중 {s.coveredCount}종목 데이터 반영
+                      </span>
+                    </div>
+                    <span className="text-[12px] font-semibold text-indigo-300 shrink-0 ml-3">{s.label}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-600 mt-4">
+                보유 종목이 속한 섹터의 최근 뉴스 논조 참고 수치이며, 비중 조정을 권유하는 지표가 아닙니다.
+              </p>
             </Card>
           )}
 

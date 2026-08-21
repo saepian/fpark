@@ -16,6 +16,7 @@ import { fetchDividendSummary, type DartDividendSummary } from '@/lib/dart-api';
 import { computePortfolioDividendSummary } from '@/lib/dividend-aggregation';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import { selectSectorMacroNews } from '@/lib/sector-news';
+import { fetchSectorSentiment, type SectorSentimentEntry } from '@/lib/news-sentiment';
 import { kstDateStr, daysBetween } from '@/lib/ai-grounding';
 import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 import type { Database } from '@/lib/database.types';
@@ -514,6 +515,24 @@ export async function POST(request: NextRequest) {
           (key, value) => send(controller, { type: 'holding-field', ticker: h.ticker, key, value }),
         )));
 
+        // 섹터별 최근 뉴스 논조(2단계 UI 노출, 2026-08-21) — "섹터 편중도 분석" 카드와 동일한
+        // 그룹핑 키(stockResults의 AI sector 라벨)를 그대로 재사용해 두 카드의 섹터명이 어긋나지
+        // 않게 한다. Stage 2(~46초, 아래 analyzePortfolioSummary)와 겹치도록 여기서 미리 시작만
+        // 해두고 finalResult 조립 직전에 await — 순수 DB 조회라 Stage 2 지연에 편승해도 체감
+        // 추가 지연이 없다. .catch()로 감싸 이 promise 자체가 절대 reject하지 않게 한다 —
+        // 아래 await 지점이 route.ts 최상위 try/catch 안에 있어서, 감싸지 않으면 이 순수
+        // 부가 기능(섹터 논조) 하나의 일시적 오류가 이미 스트리밍된 Stage1/Stage2 결과 전체를
+        // 'error' 이벤트로 날려버리고 DB 저장(아래 after())까지 건너뛰게 만들 수 있었다.
+        const sectorSentimentPromise = fetchSectorSentiment(
+          enriched.map(h => ({
+            ticker: h.ticker,
+            sector: stockResults.find(s => s.ticker === h.ticker)?.sector ?? '',
+          })),
+        ).catch((e) => {
+          console.warn('[PORTFOLIO-DIAGNOSIS] 섹터별 뉴스 논조 조회 실패, 카드 생략:', e instanceof Error ? e.message : e);
+          return [] as SectorSentimentEntry[];
+        });
+
         // 섹터 co-movement 사실 — 그룹핑·방향 판정은 AI 호출 없이 서버가 결정형으로 계산
         // (컴플라이언스 리스크 없는 순수 사실). 이 사실을 Stage 2 프롬프트에 넣어
         // "왜/무슨 함의인지"는 AI가 해석하게 한다(2026-07-13 3차 고도화 — 사실 재조합에
@@ -573,6 +592,11 @@ export async function POST(request: NextRequest) {
           send(controller, { type: 'stage2-error' });
         }
 
+        const sectorSentiment: SectorSentimentEntry[] = await sectorSentimentPromise;
+        // portfolio-field 이벤트로 즉시 방출 — finalResult는 DB 저장 전용이라(위 'done' 이벤트
+        // 주석 참고) 스트리밍 중인 클라이언트에는 이렇게 개별 필드로 보내야 반영된다.
+        emitPortfolioField('sectorSentiment', sectorSentiment);
+
         // 결과 병합
         const mergedHoldings = enriched.map(h => {
           const aiH = stockResults.find(s => s.ticker === h.ticker);
@@ -609,6 +633,7 @@ export async function POST(request: NextRequest) {
           summary:            summary.summary            ?? '',
           summarySections:    summary.summarySections    ?? EMPTY_SUMMARY_SECTIONS,
           sectors:            summary.sectors            ?? [],
+          sectorSentiment,
           holdings:           mergedHoldings,
           riskFactors:        summary.riskFactors        ?? [],
           opportunityFactors: summary.opportunityFactors  ?? [],

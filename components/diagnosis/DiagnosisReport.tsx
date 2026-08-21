@@ -30,6 +30,14 @@ export interface SectorComparison {
   sparkline?: { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null; // 최근 1개월 상대수익률(이 종목 vs peer 평균, 첫날 대비 누적%) — peer 차트 조회 실패 등으로 없으면 null
 }
 
+// 뉴스 논조 추이(2단계 UI 노출, 2026-08-21) — news_sentiment_daily는 CURATED_TICKERS_MKT
+// (대형주 100종목) 한정 크론이라 그 밖의 종목은 서버가 null을 보내며, 그 경우 카드 자체를 생략한다.
+export interface NewsSentimentTrend {
+  points: { date: string; score: number }[]; // null(뉴스 0건)인 날짜는 이미 제거된 상태
+  availableDays: number;
+  label: '긍정 비중 우세' | '중립·혼조' | '부정 비중 우세';
+}
+
 export interface AnnualFinancialRow {
   year: string;
   revenue: number | null;
@@ -75,6 +83,7 @@ export interface DiagnosisResult {
   disclosureNarrative: string; // 공시 해석, 데이터 없으면 빈 문자열
   dividendSummary: DartDividendSummary | null; // DART 최신 사업연도 배당 요약, 무배당이면 null
   dividendHistory: DividendHistoryRow[]; // KIS 최근 5년 배당 지급 이력, 없으면 빈 배열
+  newsSentiment?: NewsSentimentTrend | null; // 최근 뉴스 논조 추이(대형주 100종목 한정), 데이터 부족하면 null — 카드 생략
   resistance: number; // 52주 고점 기준 저항선 관찰 (목표가 아님)
   support: number;    // 52주 저가 기준 지지선 관찰 (손절가 아님)
   benchmark?: {
@@ -157,6 +166,24 @@ function SectorSparkline({ sparkline }: { sparkline: { dates: string[]; stockRet
         </span>
         <span className="text-[10px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
       </div>
+    </div>
+  );
+}
+
+// "최근 뉴스 논조 추이" 카드 안에 들어가는 미니 스파크라인 — SectorSparkline과 동일한
+// "축·범례 없는 미니 차트" 원칙을 따르되, 상승/하락 시그널처럼 읽히지 않도록 빨강/파랑 대신
+// 중립 인디고 한 가지 색만 쓴다(fmtRate의 red/blue 컬러링과 의도적으로 다른 선택).
+function NewsSentimentSparkline({ points }: { points: { date: string; score: number }[] }) {
+  return (
+    <div className="mb-2">
+      <div style={{ height: 44 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={points} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+            <Line type="monotone" dataKey="score" stroke="#818cf8" strokeWidth={1.5} dot={false} isAnimationActive={false} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="text-[10px] text-slate-600 mt-1 text-right">최근 {points.length}거래일 · 데이터 있는 날짜만 연결</p>
     </div>
   );
 }
@@ -857,6 +884,24 @@ export default function DiagnosisReport({
             </div>
           </div>
         </div>
+
+        {/* ── 4-1행: 최근 뉴스 논조 추이 (2026-08-21 신설) — news_sentiment_daily는
+            CURATED_TICKERS_MKT(대형주 100종목) 한정 크론이라 그 밖의 종목·데이터 부족(5거래일
+            미만)이면 서버가 newsSentiment를 null로 보내며, 그 경우 카드 자체를 생략한다
+            (업종 대비 카드와 동일한 "근거 부족하면 생략" 관례). raw score(-1~1)는 노출하지
+            않고 3단계 텍스트 라벨로만 보여준다 — 매수/매도 신호처럼 읽히는 걸 피하기 위함. ── */}
+        {result.newsSentiment && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>최근 뉴스 논조 추이</p>
+              <span className="text-[11px] font-semibold text-indigo-300">{result.newsSentiment.label}</span>
+            </div>
+            <NewsSentimentSparkline points={result.newsSentiment.points} />
+            <p className="text-[11px] text-slate-500 leading-relaxed mt-2">
+              최근 {result.newsSentiment.availableDays}거래일간 관련 기사의 호재·악재성 사실 비율 변화이며, 주가 방향을 예측하는 투자 신호가 아닙니다.
+            </p>
+          </div>
+        )}
 
         {/* ── 5행: 단기/중기 관찰 변수 ── */}
         {(result.shortTermOutlook || result.midTermOutlook || isGenerating) && (
