@@ -140,6 +140,8 @@ export interface SectorSentimentEntry {
   label: SentimentTrendLabel;
   coveredCount: number; // 데이터가 있는(MIN_SENTIMENT_DAYS 이상 쌓인) 보유종목 수
   totalCount: number;   // 이 섹터에 속한 전체 보유종목 수
+  positiveCount: number; // 최근 14거래일 커버리지 내 종목들의 호재성 기사 합계 — 라벨의 근거 수치
+  negativeCount: number; // 동일 기간 악재성 기사 합계
 }
 
 // 포트폴리오진단 페이지 — 보유종목을 섹터별로 묶어 섹터당 평균 논조를 낸다. 100종목
@@ -154,7 +156,7 @@ export async function fetchSectorSentiment(
 
   const { data, error } = await adminClient
     .from('news_sentiment_daily')
-    .select('ticker, sentiment_score')
+    .select('ticker, sentiment_score, positive_count, negative_count')
     .in('ticker', tickers)
     .gte('date', sentimentLookbackSinceStr());
 
@@ -165,7 +167,15 @@ export async function fetchSectorSentiment(
   if (!data) return [];
 
   const scoresByTicker = new Map<string, number[]>();
+  // 3단계 라벨의 근거 수치("호재성 O건 · 악재성 O건")로 화면에 그대로 노출 — 라벨만으로는
+  // 구분이 안 된다는 실사용 피드백(2026-08-21)에 대응.
+  const countsByTicker = new Map<string, { positive: number; negative: number }>();
   for (const row of data) {
+    const counts = countsByTicker.get(row.ticker) ?? { positive: 0, negative: 0 };
+    counts.positive += row.positive_count;
+    counts.negative += row.negative_count;
+    countsByTicker.set(row.ticker, counts);
+
     if (row.sentiment_score === null) continue;
     const arr = scoresByTicker.get(row.ticker) ?? [];
     arr.push(row.sentiment_score);
@@ -190,7 +200,9 @@ export async function fetchSectorSentiment(
   for (const [sector, { total, covered }] of bySector) {
     if (covered.length === 0) continue; // 데이터 있는 종목이 0개면 섹션에서 생략
     const avg = covered.reduce((s, t) => s + (avgByTicker.get(t) ?? 0), 0) / covered.length;
-    result.push({ sector, label: labelFromAvgScore(avg), coveredCount: covered.length, totalCount: total.size });
+    const positiveCount = covered.reduce((s, t) => s + (countsByTicker.get(t)?.positive ?? 0), 0);
+    const negativeCount = covered.reduce((s, t) => s + (countsByTicker.get(t)?.negative ?? 0), 0);
+    result.push({ sector, label: labelFromAvgScore(avg), coveredCount: covered.length, totalCount: total.size, positiveCount, negativeCount });
   }
   return result.sort((a, b) => b.totalCount - a.totalCount);
 }

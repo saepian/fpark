@@ -523,10 +523,17 @@ export async function POST(request: NextRequest) {
         // 아래 await 지점이 route.ts 최상위 try/catch 안에 있어서, 감싸지 않으면 이 순수
         // 부가 기능(섹터 논조) 하나의 일시적 오류가 이미 스트리밍된 Stage1/Stage2 결과 전체를
         // 'error' 이벤트로 날려버리고 DB 저장(아래 after())까지 건너뛰게 만들 수 있었다.
+        // 2026-08-21 수정: 그룹핑 키를 AI가 종목마다 자유 텍스트로 붙이는 stockResults[].sector
+        // 대신 KIS 원천 분류(analysisData.sector, 예: "전기·전자")로 교체 — buildCoMovementText()가
+        // 이미 겪고 고친 것과 동일한 문제였다(위 coMovementText 계산부 주석 참고: 삼성전자/
+        // SK하이닉스가 KIS 분류로는 둘 다 "전기·전자"인데 AI 자유텍스트로는 "반도체·전자"/"반도체"로
+        // 갈려 별개 섹터처럼 보였음, 2026-08-21 실사용 스크린샷으로 재현 확인). KIS 분류가 없는
+        // 경우(조회 실패 등)에만 AI sector로 폴백 — h.analysisData가 collectStockAnalysisData
+        // 실패 시 null일 수 있어 완전히 배제하면 그 종목이 통째로 커버리지 밖으로 빠진다.
         const sectorSentimentPromise = fetchSectorSentiment(
           enriched.map(h => ({
             ticker: h.ticker,
-            sector: stockResults.find(s => s.ticker === h.ticker)?.sector ?? '',
+            sector: h.analysisData?.sector || stockResults.find(s => s.ticker === h.ticker)?.sector || '',
           })),
         ).catch((e) => {
           console.warn('[PORTFOLIO-DIAGNOSIS] 섹터별 뉴스 논조 조회 실패, 카드 생략:', e instanceof Error ? e.message : e);

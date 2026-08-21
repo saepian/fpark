@@ -1,7 +1,7 @@
 'use client';
 
 import { Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown, AlertCircle, RefreshCw } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
@@ -170,20 +170,96 @@ function SectorSparkline({ sparkline }: { sparkline: { dates: string[]; stockRet
   );
 }
 
+// score(-1~1)를 화면에 그대로 노출하지 않는 원칙(투자 신호처럼 읽히는 걸 피함)을 hover
+// 툴팁에도 동일하게 적용 — lib/news-sentiment.ts의 labelFromAvgScore와 같은 임계값이지만,
+// 이건 "하루치" 값에 적용하는 것이라 서버 함수를 그대로 재사용하지 않고 별도로 둔다
+// (그 함수는 adminClient를 모듈 로드 시 참조해 클라이언트 번들에 들이면 안 됨).
+function sentimentDayLabel(score: number): string {
+  if (score > 0.15) return '긍정';
+  if (score < -0.15) return '부정';
+  return '중립';
+}
+
+function fmtMonthDay(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// "라벨(현재 상태)만 있고 최근 며칠간 어떻게 변해왔는지가 없다"는 실사용 피드백(2026-08-21)
+// 대응 — 최근 구간과 그 이전 구간의 평균을 비교해 4가지 방향성 문장 중 하나를 고른다.
+// 문구 4개는 전부 "관련 기사의 논조"를 주어로 고정해 인과·예측으로 안 읽히게 사전 승인받음
+// (컴플라이언스 원칙: "긍정 뉴스 급증 → 상승 신호" 같은 연결 절대 금지).
+const SENTIMENT_DIFF_THRESHOLD = 0.2; // 이 미만이면 "유지" — labelFromAvgScore(서버, 0.15)보다
+                                        // 살짝 높게 잡음: 절대값이 아니라 구간 평균의 "차이"라
+                                        // 노이즈(하루 변동폭이 -0.8~1까지 튀는 실측 사례가 있었음)에
+                                        // 덜 민감하게 하기 위함.
+const SENTIMENT_POSITIVE_THRESHOLD = 0.15; // 서버 labelFromAvgScore와 동일한 기준선 재사용
+
+function computeSentimentDirection(points: { date: string; score: number }[]): string | null {
+  if (points.length < 5) return null; // 카드 자체가 5거래일 미만이면 생략되므로 사실상 도달 안 함(방어적)
+
+  // 최근 구간을 전체의 약 1/3(2~5일 사이로 clamp)로 잡고 나머지를 "이전 구간"으로 비교.
+  // 14거래일 기준이면 최근 5일 vs 이전 9일 — 사용자가 제안한 "최근 3~5일" 범위에 맞춘 것.
+  const recentCount = Math.min(5, Math.max(2, Math.round(points.length / 3)));
+  const earlier = points.slice(0, points.length - recentCount);
+  const recent = points.slice(points.length - recentCount);
+  if (earlier.length === 0) return null;
+
+  const avg = (arr: { score: number }[]) => arr.reduce((s, p) => s + p.score, 0) / arr.length;
+  const earlierAvg = avg(earlier);
+  const recentAvg = avg(recent);
+  const diff = recentAvg - earlierAvg;
+
+  if (Math.abs(diff) < SENTIMENT_DIFF_THRESHOLD) {
+    return '최근 14거래일간 관련 기사의 논조는 뚜렷한 변화 없이 비슷한 수준을 유지했습니다.';
+  }
+  if (diff > 0) {
+    return '최근 며칠 사이 관련 기사의 논조가 이전보다 긍정적인 쪽으로 옮겨갔습니다.';
+  }
+  // diff < -THRESHOLD: 하락 — 그래도 여전히 긍정 구간이면 "둔화", 아니면 "부정 전환"
+  if (recentAvg > SENTIMENT_POSITIVE_THRESHOLD) {
+    return '최근 며칠 사이 관련 기사의 논조가 이전보다 다소 누그러졌습니다.';
+  }
+  return '최근 며칠 사이 관련 기사의 논조가 이전보다 부정적인 쪽으로 옮겨갔습니다.';
+}
+
 // "최근 뉴스 논조 추이" 카드 안에 들어가는 미니 스파크라인 — SectorSparkline과 동일한
 // "축·범례 없는 미니 차트" 원칙을 따르되, 상승/하락 시그널처럼 읽히지 않도록 빨강/파랑 대신
-// 중립 인디고 한 가지 색만 쓴다(fmtRate의 red/blue 컬러링과 의도적으로 다른 선택).
+// 중립 인디고 한 가지 색만 쓴다(fmtRate의 red/blue 컬러링과 의도적으로 다른 선택). 2026-08-21:
+// "기준점이 없어 정보 전달력이 없다"는 실사용 피드백으로 hover 툴팁(날짜+정성적 논조)과
+// 시작/종료일 라벨을 추가 — WeeklyChart.tsx의 Tooltip contentStyle 패턴 재사용.
 function NewsSentimentSparkline({ points }: { points: { date: string; score: number }[] }) {
+  const first = points[0];
+  const last = points[points.length - 1];
   return (
     <div className="mb-2">
       <div style={{ height: 44 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={points} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+            {/* hide — 축을 시각적으로 그리지 않되, Tooltip의 label 소스로 dataKey="date"를
+                제공하기 위함. XAxis 자체가 없으면 recharts가 배열 인덱스를 label로 넘겨서
+                hover 시 날짜 대신 "1/1"(인덱스를 Date로 오인 파싱한 값)이 뜨는 버그가 있었음
+                (2026-08-21 실사용 스크린샷으로 발견). */}
+            <XAxis dataKey="date" hide />
+            <Tooltip
+              formatter={(value: number) => [sentimentDayLabel(value), '논조']}
+              labelFormatter={(d: string) => fmtMonthDay(d)}
+              contentStyle={{ backgroundColor: '#1a1f2e', border: '1px solid #334155', borderRadius: '6px', fontSize: '11px' }}
+              labelStyle={{ color: '#94a3b8' }}
+              itemStyle={{ color: '#c7d2fe' }}
+              cursor={{ stroke: '#475569', strokeDasharray: '3 3' }}
+            />
             <Line type="monotone" dataKey="score" stroke="#818cf8" strokeWidth={1.5} dot={false} isAnimationActive={false} connectNulls />
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-[10px] text-slate-600 mt-1 text-right">최근 {points.length}거래일 · 데이터 있는 날짜만 연결</p>
+      {first && last && (
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[10px] text-slate-600">{fmtMonthDay(first.date)}</span>
+          <span className="text-[10px] text-slate-600">{fmtMonthDay(last.date)}</span>
+        </div>
+      )}
+      <p className="text-[10px] text-slate-600 mt-0.5 text-right">최근 {points.length}거래일 · 데이터 있는 날짜만 연결</p>
     </div>
   );
 }
@@ -897,6 +973,12 @@ export default function DiagnosisReport({
               <span className="text-[11px] font-semibold text-indigo-300">{result.newsSentiment.label}</span>
             </div>
             <NewsSentimentSparkline points={result.newsSentiment.points} />
+            {(() => {
+              const direction = computeSentimentDirection(result.newsSentiment!.points);
+              return direction ? (
+                <p className="text-[12px] text-slate-300 leading-relaxed mt-2">{direction}</p>
+              ) : null;
+            })()}
             <p className="text-[11px] text-slate-500 leading-relaxed mt-2">
               최근 {result.newsSentiment.availableDays}거래일간 관련 기사의 호재·악재성 사실 비율 변화이며, 주가 방향을 예측하는 투자 신호가 아닙니다.
             </p>

@@ -47,10 +47,12 @@ interface Sector {
 // (대형주 100종목) 한정이라 보유종목 전체가 아니라 일부만 반영될 수 있다. coveredCount/totalCount로
 // "N종목 중 M종목만 반영" 각주를 달고, 데이터 있는 종목이 0개인 섹터는 서버가 애초에 제외한다.
 interface SectorSentimentEntry {
-  sector:       string;
-  label:        '긍정 비중 우세' | '중립·혼조' | '부정 비중 우세';
-  coveredCount: number;
-  totalCount:   number;
+  sector:        string;
+  label:         '긍정 비중 우세' | '중립·혼조' | '부정 비중 우세';
+  coveredCount:  number;
+  totalCount:    number;
+  positiveCount: number; // 라벨 근거 수치 — "최근 14일 호재성 기사 O건 · 악재성 O건"
+  negativeCount: number;
 }
 
 interface HoldingResult {
@@ -995,7 +997,14 @@ export default function PortfolioDiagnosisPage() {
                         보유 {s.totalCount}종목 중 {s.coveredCount}종목 데이터 반영
                       </span>
                     </div>
-                    <span className="text-[12px] font-semibold text-indigo-300 shrink-0 ml-3">{s.label}</span>
+                    <div className="flex flex-col items-end shrink-0 ml-3">
+                      <span className="text-[12px] font-semibold text-indigo-300">{s.label}</span>
+                      {/* 라벨만으로는 구분이 안 된다는 실사용 피드백(2026-08-21) 대응 —
+                          최근 14일 기사 건수를 근거로 함께 노출 */}
+                      <span className="text-[10.5px] text-slate-600 mt-0.5">
+                        호재성 {s.positiveCount}건 · 악재성 {s.negativeCount}건
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
