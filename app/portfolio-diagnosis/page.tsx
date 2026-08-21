@@ -55,6 +55,12 @@ interface SectorSentimentEntry {
   negativeCount: number;
 }
 
+// 2026-08-21: "섹터별 최근 뉴스 논조" 카드가 정보 전달력 재검토 대상이 되어 프론트
+// 렌더링만 잠시 끈다 — 백엔드(app/api/portfolio-diagnosis/route.ts의 fetchSectorSentiment,
+// news_sentiment 크론)는 그대로 유지해 데이터는 계속 쌓인다. 재설계 완료되면 이 플래그만
+// true로 되돌릴 것.
+const SHOW_SECTOR_SENTIMENT_CARD = false;
+
 interface HoldingResult {
   ticker:       string;
   name:         string;
@@ -986,7 +992,7 @@ export default function PortfolioDiagnosisPage() {
               반영될 수 있어 "섹터 편중도 분석"과 카드를 분리했다(그 카드 바 색상이 이미
               "과집중" 경고로 쓰이고 있어 같은 카드에 얹으면 혼동 위험). 데이터 있는 섹터가
               하나도 없으면 카드 자체를 생략한다. */}
-          {result.sectorSentiment && result.sectorSentiment.length > 0 && (
+          {SHOW_SECTOR_SENTIMENT_CARD && result.sectorSentiment && result.sectorSentiment.length > 0 && (
             <Card title="섹터별 최근 뉴스 논조" className="mb-4">
               <div className="flex flex-col gap-3">
                 {result.sectorSentiment.map((s) => (

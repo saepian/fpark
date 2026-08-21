@@ -103,6 +103,11 @@ export interface DiagnosisResult {
   history: DiagnosisHistory;
 }
 
+// 2026-08-21: "최근 뉴스 논조 추이" 카드가 정보 전달력 재검토 대상이 되어 프론트 렌더링만
+// 잠시 끈다 — 백엔드(app/api/diagnosis/route.ts의 fetchNewsSentimentTrend, news_sentiment
+// 크론)는 그대로 유지해 데이터는 계속 쌓인다. 재설계 완료되면 이 플래그만 true로 되돌릴 것.
+const SHOW_NEWS_SENTIMENT_CARD = false;
+
 function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
   const r = 54;
   const circ = 2 * Math.PI * r;
@@ -966,7 +971,7 @@ export default function DiagnosisReport({
             미만)이면 서버가 newsSentiment를 null로 보내며, 그 경우 카드 자체를 생략한다
             (업종 대비 카드와 동일한 "근거 부족하면 생략" 관례). raw score(-1~1)는 노출하지
             않고 3단계 텍스트 라벨로만 보여준다 — 매수/매도 신호처럼 읽히는 걸 피하기 위함. ── */}
-        {result.newsSentiment && (
+        {SHOW_NEWS_SENTIMENT_CARD && result.newsSentiment && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
             <div className="flex items-center justify-between mb-3">
               <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>최근 뉴스 논조 추이</p>
