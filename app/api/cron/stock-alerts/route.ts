@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminClient as supabase } from '@/lib/supabase-admin';
-import { fetchStockPrice, fetchDailyChart, getAccessToken } from '@/lib/kis-api';
+import { fetchStockPrice, fetchDailyChart, getAccessToken, acquireKisRateSlot } from '@/lib/kis-api';
 import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 
 export const dynamic = 'force-dynamic';
@@ -65,6 +65,7 @@ async function fetchInvestorFlow(
       url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
       url.searchParams.set('FID_INPUT_ISCD', ticker);
 
+      await acquireKisRateSlot();
       const res = await fetch(url.toString(), {
         headers: kisHeaders(token),
         cache: 'no-store',

@@ -125,6 +125,7 @@ async function fetchNameFromKisSearch(ticker: string): Promise<string | null> {
   if (nameCache.has(ticker)) return nameCache.get(ticker)!;
   try {
     const token = await getAccessToken();
+    await acquireKisRateSlot();
     const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/search-stock-info`);
     url.searchParams.set('PRDT_TYPE_CD', '300');
     url.searchParams.set('PDNO', ticker);
@@ -467,6 +468,10 @@ function formatTradingValue(pbmnWon: number): string {
 // KIS가 캐시된 토큰을 조기 무효화했을 때 반환하는 코드 (다른 프로세스의 재발급 등으로 발생)
 const EXPIRED_TOKEN_CODES = new Set(['EGW00123', 'EGW00121']);
 
+// KIS 초당 거래건수 초과 — 토큰 만료와 원인이 완전히 다르므로(계정 전체의 순간 처리량
+// 초과 vs 이 토큰 개별 무효화) EXPIRED_TOKEN_CODES와 별도로 분리해 관리한다.
+const RATE_LIMIT_CODE = 'EGW00201';
+
 // 개별 API 호출에서 "이 토큰이 조기 만료됐다"고 감지된 경우 — 다른 프로세스가 이미
 // 새 토큰을 발급했다는 뜻이라, 캐시를 비우고 다시 시도하면 대개 성공한다
 // (withKisTokenRetry가 처리).
@@ -504,10 +509,56 @@ export async function withKisTokenRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// 전역 KIS 레이트리미터 — KIS_APP_KEY를 쓰는 모든 호출자(대시보드/관심종목 라우트,
+// market-cache-warm/daily-alert-email/stock-alerts 크론)가 서버리스 인스턴스 경계를
+// 넘어 공유해야 하는 상태라 인메모리로는 불가능하다. 2026-08-24 실측: 단독 호출자는
+// 로컬 청크 스로틀링(3개/250ms)만으로 0건 실패, 여러 청크를 간격 없이 겹쳐 쏘면(=여러
+// 인스턴스가 동시에 KIS를 두드리는 상황 재현) 즉시 EGW00201 발생 — 매번 다른 종목이
+// 무작위로 걸려 특정 티커 문제가 아님을 확인. kis_tokens의 발급 락(sentinel row INSERT
+// 충돌)과 같은 결로, Postgres 단일 행 `FOR UPDATE` 잠금을 이용한 토큰버킷으로 여러
+// 인스턴스의 호출을 초당 한도 아래로 직렬화한다.
+//
+// 초당 15개(버스트 15)는 KIS가 공식 문서화한 계정별 한도가 아니라, 2026-08-24 실측
+// 버스트 테스트(간격 없이 30건을 쏘면 4건 실패 시작)에서 잡은 보수적 추정치 — 더 정확한
+// 값을 알게 되면 이 상수만 조정하면 된다.
+const KIS_RATE_LIMIT_PER_SEC = 15;
+const KIS_RATE_LIMIT_BURST = 15;
+const RATE_SLOT_MAX_WAIT_MS = 5000;
+
+export async function acquireKisRateSlot(): Promise<void> {
+  const deadline = Date.now() + RATE_SLOT_MAX_WAIT_MS;
+  for (;;) {
+    const { data, error } = await supabaseAdmin.rpc('kis_acquire_rate_slot', {
+      p_rate: KIS_RATE_LIMIT_PER_SEC,
+      p_burst: KIS_RATE_LIMIT_BURST,
+    });
+    if (error) {
+      // 리미터 자체가 죽었다고 KIS 조회 전체를 막을 수는 없다 — 게이트 없이 진행한다
+      // (로컬 청크 스로틀링 + queryPrice의 EGW00201 재시도가 안전망으로 남는다).
+      console.warn('[KIS] 레이트리미터 RPC 실패, 게이트 없이 진행:', error.message);
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row?.allowed) return;
+    if (Date.now() >= deadline) {
+      console.warn('[KIS] 레이트리미터 대기 시간 초과, 게이트 없이 진행');
+      return;
+    }
+    const waitMs = Math.min(Math.max(Number(row?.wait_ms) || 70, 30), 1000);
+    await new Promise((r) => setTimeout(r, waitMs + Math.random() * 20));
+  }
+}
+
 // 국내주식 시세 조회 — FID_COND_MRKT_DIV_CODE는 KOSPI/KOSDAQ 무관하게 항상 'J' 고정
 // ('Q'는 KIS가 무조건 거부하는 값이라 재시도 낭비 방지 차원에서 제거)
-async function queryPrice(ticker: string, _retried = false, opts?: { waitForLock?: boolean }): Promise<any> {
+async function queryPrice(
+  ticker: string,
+  _retried = false,
+  opts?: { waitForLock?: boolean },
+  _rateRetried = false,
+): Promise<any> {
   const token = await getAccessToken(opts);
+  await acquireKisRateSlot();
 
   const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
   url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
@@ -526,7 +577,17 @@ async function queryPrice(ticker: string, _retried = false, opts?: { waitForLock
     if (!_retried && msgCd && EXPIRED_TOKEN_CODES.has(msgCd)) {
       console.warn(`[KIS] ${ticker} 캐시 토큰 조기 만료 감지(${msgCd}), 토큰 재발급 후 재시도`);
       await invalidateAccessToken(token); // 방금 실패에 쓰인 토큰만 지정해서 지움(다른 프로세스의 최신 토큰 보호)
-      return queryPrice(ticker, true, opts);
+      return queryPrice(ticker, true, opts, _rateRetried);
+    }
+    // 전역 게이트를 통과했는데도 초당 한도에 걸린 잔여 케이스(여러 인스턴스의 타이밍이
+    // 우연히 겹친 경우 등) — 토큰만료와는 원인이 달라 재시도 카운터를 분리해 관리한다.
+    // 재시도도 다시 게이트를 거치므로(재귀 호출 상단의 acquireKisRateSlot) 무한정 KIS를
+    // 두드리지 않는다.
+    if (!_rateRetried && msgCd === RATE_LIMIT_CODE) {
+      const delay = 200 + Math.random() * 300;
+      console.warn(`[KIS] ${ticker} 초당 거래건수 초과(${msgCd}), ${Math.round(delay)}ms 후 재시도`);
+      await new Promise((r) => setTimeout(r, delay));
+      return queryPrice(ticker, _retried, opts, true);
     }
     // "종목이 없다"는 특정 원인 하나로 단정하지 않는다 — 토큰/레이트리밋 등 다른
     // 이유일 수 있어 msg_cd/msg1을 그대로 노출해야 나중에 원인 추적이 된다
@@ -626,6 +687,7 @@ async function fetchChartRangeRaw(
       url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
       url.searchParams.set('FID_ORG_ADJ_PRC', '0');
 
+      await acquireKisRateSlot();
       const res = await fetch(url.toString(), {
         headers: headers(token, 'FHKST03010100'),
         cache:   'no-store',
@@ -1061,6 +1123,7 @@ export async function fetchInvestorFlowRanking(
     url.searchParams.set('FID_RANK_SORT_CLS_CODE', direction === 'inflow' ? '0' : '1');
     url.searchParams.set('FID_ETC_CLS_CODE', investorType === 'foreign' ? '1' : '2');
 
+    await acquireKisRateSlot();
     const res = await fetch(url.toString(), {
       headers: headers(token, 'FHPTJ04400000'),
       cache: 'no-store',

@@ -371,6 +371,24 @@ export type Database = {
         }
         Relationships: []
       }
+      kis_rate_limiter: {
+        Row: {
+          id: number
+          tokens: number
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          tokens?: number
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          tokens?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       kis_tokens: {
         Row: {
           access_token: string
@@ -962,6 +980,10 @@ export type Database = {
       deduct_credit: {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: number
+      }
+      kis_acquire_rate_slot: {
+        Args: { p_burst: number; p_rate: number }
+        Returns: { allowed: boolean; wait_ms: number }[]
       }
       update_watchlist_order: {
         Args: { p_orders: number[]; p_tickers: string[]; p_user_id: string }

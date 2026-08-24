@@ -1,4 +1,4 @@
-import { getAccessToken, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
+import { getAccessToken, assertKisTokenValid, withKisTokenRetry, acquireKisRateSlot } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/lib/database.types';
 
@@ -84,6 +84,7 @@ export async function fetchFluctuation(blngClsCode: string, market: 'KOSPI' | 'K
       FID_VOL_CNT: '0',
       FID_INPUT_DATE_1: '',
     });
+    await acquireKisRateSlot();
     const res = await fetch(
       `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/volume-rank?${params}`,
       { headers: kisHeaders(token, 'FHPST01710000'), cache: 'no-store' },
@@ -245,6 +246,7 @@ export async function fetchDailyRanking(tab: '급등' | '급락'): Promise<Stock
       FID_RSFL_RATE2: '',
       FID_RST_CLB_CODE: '',
     });
+    await acquireKisRateSlot();
     const res = await fetch(
       `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/fluctuation?${params}`,
       { headers: kisHeaders(token, 'FHPST01700000'), cache: 'no-store' },
