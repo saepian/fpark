@@ -223,38 +223,53 @@ export async function POST(request: NextRequest) {
             return map;
           });
 
+        // 2026-08-24: selectRelevantNews에 오늘 등락률을 주입해야 선별 프롬프트 규칙 1
+        // ("오늘 가격변동의 실제 원인 최우선 선택")이 발동한다(lib/news-selection.ts 참고).
+        // 별도 KIS 호출을 추가하지 않고, 이미 fetch하는 차트의 마지막 2개 종가로 계산하는
+        // 기존 todayChangeRate 로직(아래 enriched map)을 재사용 — chartPromises를 이름 붙여
+        // 빼내서 종목별 selectRelevantNews가 "자기 종목의" 차트 resolve를 기다린 뒤 시작하게
+        // 체이닝한다(다른 종목의 차트/선별과는 무관하게 종목별로 독립적으로 진행 — holdings
+        // 수와 무관하게 fan-out 병렬성은 유지됨). 차트 타임아웃(15초)에 선별 타임아웃(12초)이
+        // 더해져 종목당 최악 지연이 늘어날 수 있는 트레이드오프가 있음 — 실측 검증 필요.
+        const chartPromises = holdings.map(h =>
+          withTimeout(fetchDailyChart(h.ticker, '1Y'), 15000, null).then(v => {
+            if (v === null) console.warn(`[PORTFOLIO-DIAGNOSIS] ${h.ticker}(${h.name}) 차트 조회 실패/타임아웃 — 손익 기여도·급등이력·거래대금배수 계산에서 제외됨`);
+            return v;
+          })
+        );
+
+        const newsSelectionPromises = holdings.map((h, i) => {
+          const extraCandidates: Promise<NewsCandidate[]> = analysisDataPromises[i].then(
+            (ad) => (ad?.news ?? []).map(n => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
+            () => [],
+          );
+          const changeRatePromise: Promise<number | undefined> = chartPromises[i].then(
+            (chart) => {
+              if (!chart || chart.length < 2) return undefined;
+              const todayClose = chart[chart.length - 1].close;
+              const prevClose = chart[chart.length - 2].close;
+              return (todayClose > 0 && prevClose > 0) ? ((todayClose - prevClose) / prevClose) * 100 : undefined;
+            },
+            () => undefined,
+          );
+          return changeRatePromise.then((changeRate) => withTimeout(
+            selectRelevantNews(h.ticker, h.name, extraCandidates, changeRate),
+            12000,
+            { items: [], isCached: false, apiError: true }, // 타임아웃도 "확인 자체를 못함" 상태
+          ));
+        });
+
         const [analysisResults, chartResults, newsSelectionResults, sectorMacroMap, dividendResults] = await Promise.all([
           Promise.allSettled(analysisDataPromises),
-          Promise.allSettled(
-            // '3M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
-            // 호출 수는 그대로(종목당 1회) — MDD/변동성 계산도 배열이 길어져도 동일하게 동작.
-            // 타임아웃 8초→15초(2026-07-13 발견): fetchDailyChart 내부 자체 타임아웃이
-            // 시장 코드(J/Q)당 10초라 최악의 경우 20초까지 걸리는데, 바깥 래퍼가 8초로
-            // 더 짧으면 KIS 응답이 오기도 전에 먼저 포기해서 오늘 손익 기여도·급등이력·
-            // 거래대금배수가 조용히 null 처리되는 버그가 있었다(4종목 동시 요청 부하에서
-            // 매번 다른 종목이 랜덤하게 누락됨 — 실측: 모베이스전자).
-            holdings.map(h =>
-              withTimeout(fetchDailyChart(h.ticker, '1Y'), 15000, null).then(v => {
-                if (v === null) console.warn(`[PORTFOLIO-DIAGNOSIS] ${h.ticker}(${h.name}) 차트 조회 실패/타임아웃 — 손익 기여도·급등이력·거래대금배수 계산에서 제외됨`);
-                return v;
-              })
-            ),
-          ),
-          // 종목당 최대 12초로 상한(기존 chart 타임아웃 15초보다 짧게 유지 — Stage 0
-          // 전체 worst-case가 이 변경으로 늘어나지 않도록, chart가 계속 지배적 병목이게 함).
-          Promise.allSettled(
-            holdings.map((h, i) => {
-              const extraCandidates: Promise<NewsCandidate[]> = analysisDataPromises[i].then(
-                (ad) => (ad?.news ?? []).map(n => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
-                () => [],
-              );
-              return withTimeout(
-                selectRelevantNews(h.ticker, h.name, extraCandidates),
-                12000,
-                { items: [], isCached: false, apiError: true }, // 타임아웃도 "확인 자체를 못함" 상태
-              );
-            }),
-          ),
+          // '3M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
+          // 호출 수는 그대로(종목당 1회) — MDD/변동성 계산도 배열이 길어져도 동일하게 동작.
+          // 타임아웃 8초→15초(2026-07-13 발견): fetchDailyChart 내부 자체 타임아웃이
+          // 시장 코드(J/Q)당 10초라 최악의 경우 20초까지 걸리는데, 바깥 래퍼가 8초로
+          // 더 짧으면 KIS 응답이 오기도 전에 먼저 포기해서 오늘 손익 기여도·급등이력·
+          // 거래대금배수가 조용히 null 처리되는 버그가 있었다(4종목 동시 요청 부하에서
+          // 매번 다른 종목이 랜덤하게 누락됨 — 실측: 모베이스전자).
+          Promise.allSettled(chartPromises),
+          Promise.allSettled(newsSelectionPromises),
           sectorMacroMapPromise,
           // 배당 정보(2026-08-04 신설) — DART 요약(7일 캐시) + KIS 5년 이력(24시간 캐시).
           // 기존 chart(15초 상한)와 같은 Promise.all에 편승시켜 새 병목을 만들지 않는다

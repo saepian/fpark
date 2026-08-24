@@ -300,6 +300,20 @@ export async function POST(request: NextRequest) {
           (ad) => (ad.news ?? []).map((n) => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
           () => [],
         );
+        // 2026-08-24: selectRelevantNews에 오늘 등락률을 주입해야 선별 프롬프트의 규칙 1
+        // ("오늘 가격변동의 실제 원인 최우선 선택")이 실제로 발동한다(lib/news-selection.ts
+        // 참고) — 그러려면 가격을 먼저 알아야 하므로 fetchStockPrice를 독립 promise로 빼
+        // 즉시 시작하고, selectRelevantNews만 그 결과를 기다리도록 체이닝한다. 다른 병렬
+        // 조회(차트/업종/실적/공시/배당 등)는 이 대기와 무관하게 그대로 동시에 진행된다 —
+        // 가격 조회 실패 시에도 changeRate 없이 선별을 계속 진행(폴백).
+        const priceDataPromise = fetchStockPrice(ticker);
+        const newsSelectionPromise = priceDataPromise.then(
+          (priceData) => selectRelevantNews(
+            ticker, name, dbNewsExtraPromise,
+            typeof priceData?.changeRate === 'number' ? priceData.changeRate : undefined,
+          ),
+          () => selectRelevantNews(ticker, name, dbNewsExtraPromise),
+        );
         // 업종 매크로 뉴스 — 종목분석(app/api/stock/[ticker]/analysis/route.ts)과 동일한
         // lib/sector-news.ts 재사용. collectStockAnalysisData가 이미 계산하는 sector(KIS
         // bstp_kor_isnm)를 그대로 키로 쓰므로 신규 KIS 호출 없음. dbNewsExtraPromise와 같은
@@ -316,9 +330,9 @@ export async function POST(request: NextRequest) {
         const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
 
         const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult] = await Promise.allSettled([
-          fetchStockPrice(ticker),
+          priceDataPromise,
           analysisDataPromise,
-          selectRelevantNews(ticker, name, dbNewsExtraPromise),
+          newsSelectionPromise,
           // '1M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
           // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
           fetchDailyChart(ticker, '1Y'),
@@ -409,7 +423,9 @@ export async function POST(request: NextRequest) {
         const hasRelevantNews = relevantNews.length > 0;
 
         try {
-          newsBlockStr = buildNewsBlock(relevantNews);
+          // changeRate를 넘겨야 buildNewsBlock의 5→3 캡이 "최신순"이 아니라 "오늘 가격변동
+          // 관련성 우선순위"로 절삭한다(lib/stock-analysis-data.ts 참고).
+          newsBlockStr = buildNewsBlock(relevantNews, priceData?.changeRate);
         } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock 실패:', e); }
 
         try {

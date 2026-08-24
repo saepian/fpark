@@ -2,6 +2,7 @@ import { load } from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import { after } from 'next/server';
 import { getAccessToken } from './kis-api';
+import { heuristicPriceRelevanceScore } from './news-selection';
 import type { ChartDataPoint } from './types';
 import type { Database } from './database.types';
 
@@ -474,9 +475,38 @@ export function buildInvestorBlock(ad: StockAnalysisData): string {
   return lines.join('\n');
 }
 
-export function buildNewsBlock(news: { title: string; summary?: string; date?: string }[]): string {
+// 3835753 커밋(2026-07-13)에서 7건→3건으로 줄었으나 커밋 메시지엔 명시적 근거 없음(급등이력/
+// 거래대금배수 기능 추가가 주제였고, 같은 커밋에서 pickRelevantNews 기본 limit=3과 맞추며
+// 부수적으로 축소된 것으로 보임 — 프롬프트 길이/토큰비용을 겨냥한 의도적 결정이라는 기록은
+// 없음). 이 캡 자체는 유지하되(선택 아님 — 프롬프트 길이는 여전히 통제할 필요가 있음),
+// "어떤 3건이 캡에 걸릴지"를 최신순 고정에서 관련성 우선순위로 바꾼다.
+const NEWS_BLOCK_MAX = 3;
+
+// 2026-08-24: selectRelevantNews(최대 5건 선별)가 성공해도, 여기서 최신순으로 상위 3건만
+// 자르면 선별에서는 살아남은 원인기사가 다시 탈락할 수 있다(실측: SK하이닉스 8/24 사례 —
+// "40조 전량소각" 비교기사가 선별은 됐지만 날짜상 가장 오래된 항목이라 최신순 절삭에서
+// 탈락, 정작 생성 프롬프트엔 못 들어감). heuristicPriceRelevanceScore(대안4, lib/
+// news-selection.ts)로 어떤 3건을 남길지 정하고, 그 3건의 표시 순서는 원래 배열 순서
+// (호출부가 이미 최신순으로 넘김)를 그대로 유지한다 — "무엇을 남길지"와 "남은 걸 어떤
+// 순서로 보여줄지"는 별개 문제이므로.
+function pickTopByRelevance<T extends { title: string; summary?: string; date?: string }>(
+  news: T[],
+  todayChangeRate: number | undefined,
+  cap: number,
+): T[] {
+  const scored = news.map((n, idx) => ({ idx, score: heuristicPriceRelevanceScore(n, todayChangeRate) }));
+  scored.sort((a, b) => b.score - a.score || a.idx - b.idx); // 동점은 원래(최신순) 순서 유지
+  const keepIdx = new Set(scored.slice(0, cap).map((s) => s.idx));
+  return news.filter((_, idx) => keepIdx.has(idx)); // 원래 순서 그대로, 상위 cap개만
+}
+
+export function buildNewsBlock(
+  news: { title: string; summary?: string; date?: string }[],
+  todayChangeRate?: number,
+): string {
   if (!news.length) return '관련 뉴스 없음';
-  return news.slice(0, 3).map((n, i) => {
+  const capped = news.length <= NEWS_BLOCK_MAX ? news : pickTopByRelevance(news, todayChangeRate, NEWS_BLOCK_MAX);
+  return capped.map((n, i) => {
     const datePart = n.date ? `[${n.date}] ` : '';
     const descPart = n.summary ? ` — ${n.summary}` : '';
     return `${i + 1}. ${datePart}${n.title}${descPart}`;

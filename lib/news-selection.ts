@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { fetchNaverNews } from './naver-news';
+import { kstDateStr } from './ai-grounding';
 import type { Database } from './database.types';
 
 // 2026-07-23: 종목명 단독 검색(display=5)이 "네이버"/"카카오"처럼 일상어·그룹명과
@@ -17,6 +18,22 @@ import type { Database } from './database.types';
 // 같은 개별 기업 뉴스에 5개 슬롯을 다 뺏겨 탈락하는 걸 실측 확인(삼성전자 급등일
 // 재현). SELECTION_SYSTEM_PROMPT에 "이 종목과 함께 보도되는 업종·시장 이슈는
 // 우선순위를 둘 것" 지시를 추가해 대응 — 검색/후보 수집 로직은 그대로.
+//
+// 2026-08-24 재조사(삼성전자 8/24 -8.70% 급락 리포트가 "110조 주주환원 실망"이라는
+// 표면적 사실만 나열하고 실제 원인 — 30조 현금배당+15조 임직원용 자사주로 구성된 점,
+// SK하이닉스 40조 전량소각과의 대비 등 — 을 못 짚어낸 문제)에서, 위 2026-07-31 대응이
+// 충분치 않았음을 실측으로 확인: 규칙 1이 "업종·시장 전체 이슈"에만 최우선순위를 걸어서
+// 원인이 매크로가 아니라 종목 자체의 결정(이번 사례처럼 자사주 정책 구성)일 때는 최우선
+// 규칙이 발동하지 않고, 규칙 2("사건 다양성")가 지배해 원인 설명 기사가 무관한 PR성
+// 기사(신제품·수상 등)에 밀려 탈락했다 — 후보 풀에 원인 설명 기사가 10건 이상 있었는데
+// 최종 5건 중 0건 선택됨(같은 날 SK하이닉스는 규칙 2 지배에도 원인 기사가 우연히
+// 살아남아 대비군 역할). 규칙 1을 "매크로든 종목 자체 이슈든 오늘 가격변동의 실제
+// 원인"으로 일반화하고 최우선으로 재명시했고(규칙 2·3은 후순위로 재배치), 선별 입력에
+// title뿐 아니라 description(스니펫)도 포함시켰다. 또한 이 판단을 LLM에만 맡기지 않고
+// heuristicPriceRelevanceScore()로 오늘 등락률 숫자·가격반응 키워드·발행일 신선도를
+// 규칙 기반으로 미리 스코어링해 후보 정렬 순서와 ★ 마킹으로 힌트를 준다 — LLM 판단의
+// 대체가 아니라 보완재(★ 없어도 선택 가능하다고 프롬프트에 명시, 새로운 표현의 헤드라인을
+// 놓치지 않기 위함).
 
 const NEWS_SELECTION_TTL_MS = 20 * 60 * 1000; // 뉴스는 DART와 달리 실시간성이 중요해 짧게
 const NEWS_SELECTION_MAX = 5; // Haiku가 지시보다 더 반환해도 여기서 하드캡
@@ -40,19 +57,70 @@ export interface NewsCandidate {
   source?: string; // 표시용 출처(예: '네이버뉴스', DB 기사 원 출처명) — 호출자가 필요할 때만 사용
 }
 
-const SELECTION_SYSTEM_PROMPT = `당신은 뉴스 제목 목록에서 특정 종목과 직접 관련된 "서로 다른 사건"만 골라내는 필터입니다.
-아래 번호가 매겨진 뉴스 제목 목록에서, 주어진 종목(회사)과 직접 관련된 기사 중 서로 다른 사건/주제를 대표하는 것만 최대 5개까지 골라 JSON 배열로 반환하세요.
+const SELECTION_SYSTEM_PROMPT = `당신은 뉴스 목록에서 특정 종목과 직접 관련된 기사 중, 오늘 이 종목의 가격 변동을 설명하는 데 가장 도움이 되는 기사를 골라내는 필터입니다.
+아래 번호가 매겨진 뉴스 목록(제목 — 스니펫)에서, 주어진 종목(회사)과 직접 관련된 기사 중 최대 5개까지 골라 JSON 배열로 반환하세요.
 
-선택 순서(우선순위):
-1. 이 종목이 오늘 큰 폭으로 움직였고, 그 원인을 업종·시장 전체 이슈(미국 증시 동향, 관련 산업 지수, 서킷브레이커, 환율 등)로 설명하면서 이 종목명(또는 종목을 특정할 수 있는 표현)을 함께 언급하는 기사가 후보에 하나라도 있다면 — 최소 1건은 반드시 선택하세요. 신제품·목표주가 상향·임원 매수 같은 개별 기업 뉴스가 더 많다는 이유로 이 기사를 빼면 안 됩니다. 이런 기사를 후보에서 봤는데도 고르지 않는 것은 오답입니다.
-2. 나머지 슬롯은 그 회사의 실적, 사업, 제품, 계약, 경영, 주가, 공시 등 직접 관련 기사 중 서로 다른 사건을 대표하는 것으로 채우세요.
+선택 순서(우선순위 — 아래 순서를 반드시 지킬 것):
+1. [최우선] 오늘 이 종목이 큰 폭으로 움직였다면(사용자 메시지의 "오늘 등락률" 참고), 그 원인을 설명하는 기사를 최소 1건은 반드시 선택하세요. 원인이 미국 증시·업종 지수·환율 같은 매크로든, 이 회사 자체의 결정(자사주 정책, 실적 발표, 계약 파기, 소송 등)이든 상관없이 "오늘 가격 변동을 가장 잘 설명하는 기사"가 항상 최우선입니다. 신제품·수상·목표주가 상향 같은 다른 사건으로 다양성을 채우려고 이 기사를 빼면 안 됩니다 — 원인을 설명하는 기사를 후보에서 봤는데도 고르지 않는 것은 오답입니다. 목록에 ★ 표시가 있으면 사전 스코어링에서 오늘 가격변동과 관련성이 높다고 판단된 후보이니 우선 검토하세요(단, ★가 없어도 내용상 원인 설명력이 있으면 선택하세요 — ★는 참고용 힌트일 뿐 절대 기준이 아닙니다).
+2. 같은 사건(예: 같은 정책 발표)을 다루는 기사가 여러 건이면 그 중 1건만 남기되, "발표 시점" 기사보다 "오늘 가격 반응까지 반영한" 기사(마감시황·특징주 등 사후 반응 기사)를 우선하고, 그래도 동률이면 더 최신 기사를 선택하세요 — 오래되고 논조가 밋밋한 기사를 대표로 남기지 마세요.
+3. 남은 슬롯은 그 회사의 실적, 사업, 제품, 계약, 경영, 주가, 공시 등 직접 관련 기사로 채우되 서로 다른 사건을 대표하도록 다양성을 고려하세요 — 단, 이 다양성 기준은 1·2번보다 낮은 우선순위이며, 원인 설명력이 있는 기사를 다양성 때문에 빼는 것은 항상 오답입니다.
 
 그 외 규칙:
-- 같은 사건이 여러 매체에 재배포되어 제목만 다르게 여러 건 있으면, 그 중 1건만 선택
 - 종목명이 단순히 다른 맥락(예: 서비스명, 지명, 인명, 동음이의어)으로 언급된 기사는 제외
 - 이 종목이 언급되지 않고 시장 전체만 다루는 기사(이 종목과 무관한 순수 시황 기사)까지 무리하게 끼워넣지는 마세요
 - 관련 기사가 없으면 빈 배열 []
 - 반드시 JSON 배열만 출력, 다른 텍스트 없이. 예) [3,7,12]`;
+
+// ── 대안4: 결정론적 사전필터(대안1의 보완재, 단독 사용 금지) ────────────────────
+// LLM 판단만으로는 200건 안팎 후보 목록에서 원인 기사가 어딘가에 묻혀 다양성 규칙에
+// 밀릴 위험이 남는다 — 오늘 등락률 숫자·가격반응 키워드·발행일 신선도를 규칙 기반으로
+// 미리 스코어링해 후보 정렬 순서와 ★ 마킹으로 힌트를 준다. ★가 없어도 선택 가능하다고
+// SELECTION_SYSTEM_PROMPT에 명시했으므로, 아래 키워드 목록에 없는 새로운 표현의
+// 헤드라인(예: "삼전 내리고, 하닉 오른 이유")도 LLM이 여전히 선택할 수 있다.
+const PRICE_REACTION_KEYWORDS = [
+  '마감시황', '개장시황', '장중시황', '특징주', '시황',
+  '급등', '급락', '급증', '급감', '폭등', '폭락', '반등', '반락',
+  '실망', '우려', '부담', '호재', '악재',
+];
+
+// changeRate=-8.70 → ["8.7","8.7%","8.70","8.70%","9","9%"] 같은 표기 변형 집합.
+// 언론사마다 소수점 자리수·반올림이 제각각이라(예: "8.7%", "8.70%", "9% 급락") 여러
+// 형태를 모두 매칭 대상으로 둔다.
+function priceMoveTextVariants(changeRate: number): string[] {
+  const abs = Math.abs(changeRate);
+  if (abs === 0) return [];
+  const forms = new Set<string>([abs.toFixed(1), abs.toFixed(2), String(Math.round(abs))]);
+  const variants = new Set<string>();
+  forms.forEach((f) => { variants.add(f); variants.add(`${f}%`); });
+  return [...variants];
+}
+
+function isPublishedToday(dateStr: string | undefined): boolean {
+  if (!dateStr) return false;
+  const t = new Date(dateStr).getTime();
+  if (isNaN(t)) return false;
+  return kstDateStr(new Date(t)) === kstDateStr();
+}
+
+// 점수 기준: 오늘 등락률 숫자 직접 매칭(가장 강한 신호, +3) > 가격반응 키워드(+2) >
+// 오늘 발행(+1). 상한 없이 합산 — 신호가 겹칠수록 더 확실한 후보이므로.
+// 2026-08-24: lib/stock-analysis-data.ts의 buildNewsBlock()이 선별된 5건 중 상위 3건만
+// 실제 생성 프롬프트에 넣으면서(과거부터 있던 별개의 캡), 선별에는 성공했지만 다시
+// 절삭 단계에서 원인기사가 밀려나는 사례를 실측 확인(SK하이닉스 8/24 사례 — "40조
+// 전량소각" 비교기사가 선별은 됐으나 날짜상 가장 오래된 항목이라 절삭에서 탈락). 절삭
+// 기준을 "최신 3건 고정"에서 "이 점수 기준 상위 3건"으로 바꾸기 위해 export한다.
+export function heuristicPriceRelevanceScore(candidate: NewsCandidate, todayChangeRate?: number): number {
+  const text = `${candidate.title} ${candidate.summary ?? ''}`;
+  let score = 0;
+  if (typeof todayChangeRate === 'number') {
+    if (priceMoveTextVariants(todayChangeRate).some((v) => text.includes(v))) score += 3;
+  }
+  if (PRICE_REACTION_KEYWORDS.some((k) => text.includes(k))) score += 2;
+  if (isPublishedToday(candidate.date)) score += 1;
+  return score;
+}
+
+const HEURISTIC_MARK_THRESHOLD = 2;
 
 function cacheKeyFor(ticker: string): string {
   return `news_selection_${ticker}`;
@@ -100,6 +168,7 @@ export async function selectRelevantNews(
   ticker: string,
   stockName: string,
   extraCandidates: Promise<NewsCandidate[]> | NewsCandidate[] = [],
+  todayChangeRate?: number,
 ): Promise<{ items: NewsCandidate[]; isCached: boolean; apiError: boolean }> {
   const cached = await loadFromCache(ticker);
   if (cached) {
@@ -140,14 +209,35 @@ export async function selectRelevantNews(
 
   const fallback = (): NewsCandidate[] => naverByNameCandidates.slice(0, 3);
 
+  // 대안4 사전필터 — Haiku 호출 전에 규칙기반 점수로 정렬(안정 정렬, 동점은 원래
+  // 순서 유지) + 상위 후보 ★ 마킹. scored의 순서가 곧 Haiku에 보여줄 번호(i)가 된다.
+  const scored = candidates
+    .map((c) => ({ c, score: heuristicPriceRelevanceScore(c, todayChangeRate) }))
+    .sort((a, b) => b.score - a.score);
+
+  const changeRateLine = typeof todayChangeRate === 'number'
+    ? `오늘 등락률: ${todayChangeRate >= 0 ? '+' : ''}${todayChangeRate.toFixed(2)}%${Math.abs(todayChangeRate) >= 5 ? ' (오늘 큰 폭으로 움직임 — 규칙 1 최우선 적용)' : ''}`
+    : '오늘 등락률: 정보 없음';
+
   let selected: NewsCandidate[];
   try {
-    const titleList = candidates.map((c, i) => `${i}: ${c.title}`).join('\n');
+    // title뿐 아니라 description(스니펫)도 함께 전달 — 기존엔 제목만 보고 판단해
+    // 원인 관련 구체적 디테일(예: "정규배당 30조+임직원 보상용 자사주 15조")이
+    // 스니펫에만 있어도 선별 단계에서 활용할 방법이 없었다.
+    const titleList = scored.map(({ c, score }, i) => {
+      const mark = score >= HEURISTIC_MARK_THRESHOLD ? '★ ' : '';
+      const snippet = c.summary ? ` — ${c.summary}` : '';
+      return `${i}: ${mark}${c.title}${snippet}`;
+    }).join('\n');
     const msg = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 300,
+      // 2026-08-24 검증 중 실측: 에코프로(086520)에서 Haiku가 "분석 과정"을 프리앰블로
+      // 먼저 쓰다가 300 토큰에서 잘려 JSON을 못 낸 사례 발생(4회 중 1회, 폴백으로 안전하게
+      // 처리됨). 시스템 프롬프트가 "JSON만 출력"을 명시해도 드물게 프리앰블을 쓰는 걸
+      // 막지 못하므로, 정상 응답(보통 10~20토큰)엔 영향 없이 여유를 두어 잘림을 완화한다.
+      max_tokens: 500,
       system: SELECTION_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: `종목명: ${stockName}\n\n뉴스 제목 목록:\n${titleList}` }],
+      messages: [{ role: 'user', content: `종목명: ${stockName}\n${changeRateLine}\n\n뉴스 목록:\n${titleList}` }],
     }, { timeout: 15_000, maxRetries: 0 });
 
     console.log('[TOKEN_USAGE]', {
@@ -166,8 +256,8 @@ export async function selectRelevantNews(
       throw new Error('배열 형식 아님');
     }
     selected = indices
-      .filter((i) => Number.isInteger(i) && i >= 0 && i < candidates.length)
-      .map((i) => candidates[i]);
+      .filter((i) => Number.isInteger(i) && i >= 0 && i < scored.length)
+      .map((i) => scored[i].c);
     if (selected.length === 0 && indices.length > 0) {
       // 인덱스는 파싱됐지만 전부 범위 밖 — 폴백이 더 안전
       throw new Error('유효 인덱스 없음');

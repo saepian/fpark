@@ -571,11 +571,16 @@ export async function GET(
   // 반도체지수 8% 상승")는 위 selectRelevantNews의 종목명+종목코드 검색 후보에 애초에
   // 안 걸린다. price.sector(KIS bstp_kor_isnm)를 키로 별도 조회해 그 사각지대를 메운다
   // (lib/sector-news.ts 참고). relevantNews와 독립적이라 병렬로 실행.
+  // 2026-08-24: 가격이 이미 위(2번)에서 resolve됐으므로 별도 오케스트레이션 변경 없이
+  // changeRate만 그대로 전달 — lib/news-selection.ts 선별 프롬프트 규칙 1(오늘 가격변동의
+  // 실제 원인 최우선 선택)이 발동하려면 필요.
   const [{ items: relevantNews }, { items: sectorMacroNews }] = await Promise.all([
-    selectRelevantNews(ticker, price.name, dbNewsPromise),
+    selectRelevantNews(ticker, price.name, dbNewsPromise, price.changeRate),
     selectSectorMacroNews(price.sector),
   ]);
-  const newsBlock = buildNewsBlock(relevantNews);
+  // changeRate를 넘겨야 buildNewsBlock의 5→3 캡이 "최신순"이 아니라 "오늘 가격변동
+  // 관련성 우선순위"로 절삭한다(lib/stock-analysis-data.ts 참고).
+  const newsBlock = buildNewsBlock(relevantNews, price.changeRate);
   const sectorNewsBlock = buildNewsBlock(sectorMacroNews);
 
   // 이 종목과 직접 관련된 뉴스 유무로 리포트 유형을 서버가 먼저 결정한다 — AI가 스스로
