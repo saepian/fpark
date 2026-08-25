@@ -141,10 +141,25 @@ export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
   return result;
 }
 
+// 2026-08-25 발견: .range() 없는 단순 select는 Supabase(PostgREST) 기본 응답 상한
+// (db-max-rows, 기본 1000행)에 조용히 걸린다 — stock_master가 8/24 최초로 1000행을
+// 넘기면서(2597건) SK하이닉스(000660) 등 대형주까지 임의로 누락되는 게 실측 확인됐다
+// (검색 결과에 어떤 종목이 빠질지는 티커·시총과 무관하게 소스 API 응답 순서에 좌우됨).
+// .range() 페이지네이션으로 끝까지 읽어야 전체 목록이 보장된다.
 export async function getStockMasterList(): Promise<StockMasterEntry[]> {
-  const { data, error } = await adminClient
-    .from('stock_master')
-    .select('ticker, name, market');
-  if (error) throw error;
-  return (data ?? []) as StockMasterEntry[];
+  const PAGE_SIZE = 1000;
+  const all: StockMasterEntry[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await adminClient
+      .from('stock_master')
+      .select('ticker, name, market')
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...(data as StockMasterEntry[]));
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return all;
 }
