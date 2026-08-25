@@ -83,7 +83,7 @@ const DAILY_EMAIL_SYSTEM_INSTRUCTIONS = `당신은 국내 주식 시장 데이�
 
 focusedStockAnalysis 작성 지침: 아래 "오늘 주목 대상 종목"으로 명시된 종목은 모두 실제 관련 뉴스가 조회된 종목입니다(뉴스가 없는 종목은 이미 제외되고 여기 전달되지 않습니다) — 명시된 종목 전부에 대해, 그 종목의 뉴스를 근거로 "[뉴스 핵심 내용] 영향으로 상승/하락한 것으로 풀이됩니다"처럼 구체적으로 인용해 설명하세요(실제 등락 방향에 맞게 "상승"/"하락" 단어를 고르세요). 대상 종목이 없다고 표시되면 빈 배열 []을 반환하세요. comment는 1~2문장으로 간결하게 작성하세요.
 
-otherStockNotes 작성 지침: 아래 "그 외 관심종목(뉴스 있음)"으로 명시된 종목에 대해서만 작성하세요 — 이 종목들은 오늘 주목 대상 조건(거래대금 상위30/등락률 기준)에는 해당하지 않지만 관련 뉴스는 확인된 종목입니다. 그 뉴스를 근거로 무슨 일이 있었는지만 1문장으로 짧게 요약하세요("영향으로 상승/하락했다" 같은 인과 판단이나 오늘 주목 종목 기준에 해당하는지 여부에 대한 문구는 붙이지 마세요 — 서버가 자동으로 붙입니다). 대상 종목이 없다고 표시되면 빈 배열 []을 반환하세요.
+otherStockNotes 작성 지침: 아래 "그 외 관심종목(뉴스 있음)"으로 명시된 종목은 모두 실제 관련 뉴스가 조회된 종목입니다 — **명시된 종목 전부에 대해 빠짐없이** 배열에 1건씩 포함시키세요(종목 수가 많더라도 목록 중 일부를 건너뛰지 마세요 — 응답에서 누락되면 서버가 그 종목을 "정보 없음"으로 잘못 표시하게 됩니다). 그 뉴스를 근거로 무슨 일이 있었는지만 1문장으로 짧게 요약하세요("영향으로 상승/하락했다" 같은 인과 판단이나 오늘 주목 종목 기준에 해당하는지 여부에 대한 문구는 붙이지 마세요 — 서버가 자동으로 붙입니다). 대상 종목이 없다고 표시되면 빈 배열 []을 반환하세요.
 
 marketSection 작성 지침: 시장 전체 뉴스가 오늘 관심종목 전반의 등락과 관련 있다고 판단되면 그 영향 가능성을 짚고, 그것이 개별 종목의 반대 방향 뉴스를 상쇄했는지도 함께 판단하세요 (예: "오늘 [뉴스 내용]으로 시장 전반이 하락 압력을 받았고, 이것이 [종목]의 개별 호재를 상쇄한 것으로 추정됩니다" 또는 반대로 시장 훈풍이 개별 악재를 상쇄한 경우도 동일하게). 여러 종목에 공통으로 매칭된 뉴스가 있다면 이 필드에서 함께 언급하세요. 시장 전체 뉴스가 없거나 관련이 없다면 "특별한 시장 전체 이슈는 확인되지 않아 개별 종목 수급 요인으로 추정됩니다"라고 정직하게 명시하세요. 오늘 관심종목 전반의 등락 흐름도 한 문장으로 요약하세요.
 
@@ -121,7 +121,11 @@ async function selectRelevantNewsSafe(
   s: StockResult,
 ): Promise<{ ticker: string; items: NewsItem[]; apiError: boolean }> {
   try {
-    const { items, apiError } = await selectRelevantNews(s.ticker, s.name);
+    // 2026-08-25: todayChangeRate를 넘겨야 SELECTION_SYSTEM_PROMPT의 규칙 1(원인우선
+    // 최우선 선택)이 실제로 발동하고 heuristicPriceRelevanceScore()의 등락률 숫자
+    // 매칭(+3점, 가장 강한 신호)도 작동한다 — s.changeRate는 이미 조회돼 있어
+    // 추가 API 호출·지연 없이 그대로 전달 가능(diagnosis/stock-analysis와 동일 패턴).
+    const { items, apiError } = await selectRelevantNews(s.ticker, s.name, [], s.changeRate);
     return { ticker: s.ticker, items, apiError };
   } catch (e) {
     console.warn(`[DAILY-EMAIL] ${s.name}(${s.ticker}) 뉴스 조회 예외:`, e instanceof Error ? e.message : e);
@@ -469,6 +473,22 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
   const check = checkTemporalConsistency(combinedTextForCheck, newsTextForCheck);
   if (check.flagged) {
     console.warn(`[DAILY-EMAIL] ${userName} 시간적 사실관계 불일치 감지 (재생성 없음):`, check);
+  }
+
+  // 2026-08-25 발견: otherStockNotes에 "전체 커버" 강제 문구가 없어 종목 수가 많은 날
+  // Haiku가 응답 JSON에서 일부 종목을 통째로 빠뜨리는 경우가 실제 발송에서 확인됐다
+  // (S-Oil 사례 — 뉴스선별은 정상이었는데 생성 단계에서만 누락). 재시도까지 붙이면
+  // 유저 수만큼 반복되는 배치의 지연/비용이 늘어나므로, 여기서는 재발 여부를 알 수
+  // 있도록 감지·로그만 남긴다 — otherStockLine()의 기존 폴백 문구가 이미 화면 깨짐
+  // 없이 안전하게 처리하므로 발송 자체를 막거나 재생성할 필요는 없다.
+  const missingFocused = groupAStocks.filter((s) => !result!.focusedStockAnalysis.some((c) => c.ticker === s.ticker));
+  const missingOther = otherNewsStocks.filter((s) => !result!.otherStockNotes.some((c) => c.ticker === s.ticker));
+  if (missingFocused.length || missingOther.length) {
+    console.warn(
+      `[DAILY-EMAIL] ${userName} AI 응답에서 종목 누락 감지 — ` +
+      `focusedStockAnalysis 누락: ${missingFocused.map((s) => `${s.name}(${s.ticker})`).join(', ') || '없음'}, ` +
+      `otherStockNotes 누락: ${missingOther.map((s) => `${s.name}(${s.ticker})`).join(', ') || '없음'}`,
+    );
   }
 
   return result;
