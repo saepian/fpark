@@ -97,7 +97,7 @@ export interface DiagnosisResult {
   flowPercentage?: number;
   shortTermOutlook?: string;
   midTermOutlook?: string;
-  finalVerdict?: string; // mainAnalysisSections·sectorNarrative·riskFactors·outlook 전체를 종합한 최종 판단 1문장(점수·등급 없음), 과거 레코드는 undefined
+  finalVerdict?: string; // mainAnalysisSections·sectorNarrative·riskFactors·outlook 전체를 종합한 최종 판단 1~2문장(점수·등급 없음), 과거 레코드는 undefined
   isCached?: boolean; // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
   cachedAt?: string;
   history: DiagnosisHistory;
