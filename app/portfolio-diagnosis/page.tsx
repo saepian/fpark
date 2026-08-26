@@ -1495,6 +1495,14 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </div>
 
+          {/* 매입일 안내 — buyDate 입력률이 낮아(11.6%) 벤치마크 비교·보유기간별 관점
+              섹션이 대부분 안 뜨는 상태였다(2026-08-26 조사). 종목마다 반복 노출하면
+              최대 10줄이 되어 시끄러우므로 리스트 위에 한 번만 안내한다. 필수화는
+              기존 플로우를 막으므로 하지 않음. */}
+          <p className="text-[11px] text-indigo-400/80 mb-2">
+            💡 아래 매입일을 입력하면 코스피 대비 벤치마크 비교·보유기간별 관점 분석을 함께 볼 수 있어요 (선택)
+          </p>
+
           {/* 종목 입력 행들 */}
           <div className="flex flex-col gap-3">
             {holdings.map((h, idx) => (

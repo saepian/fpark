@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
-import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock, EyeOff, Eye, Coins } from 'lucide-react';
+import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock, EyeOff, Eye, Coins, Pencil } from 'lucide-react';
 import PageBackground from '@/components/layout/PageBackground';
 import AiLoadingOverlay from '@/components/common/AiLoadingOverlay';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
@@ -196,15 +196,22 @@ function Modal({ title, onClose, children, maxWidth = 'max-w-lg' }: {
 
 // ── 종목 등록 폼 ──────────────────────────────────────────────────────────────
 
-function AddHoldingForm({ onAdded, onCancel, showCancel }: { onAdded: () => void; onCancel?: () => void; showCancel: boolean }) {
-  const [ticker, setTicker]   = useState('');
-  const [name, setName]       = useState('');
-  const [q, setQ]             = useState('');
+// initial이 있으면 "수정" 모드 — 기존 보유종목의 매입가·수량·매입일을 고치는 용도라
+// 종목 자체(ticker)는 바꿀 수 없게 검색창을 잠근다(POST가 동일 ticker면 upsert하는
+// 기존 서버 로직을 그대로 재사용 — app/api/dashboard/holdings/route.ts 참고).
+function AddHoldingForm({ onAdded, onCancel, showCancel, initial }: {
+  onAdded: () => void; onCancel?: () => void; showCancel: boolean;
+  initial?: { ticker: string; name: string; avgPrice: string; quantity: string; buyDate: string };
+}) {
+  const isEdit = !!initial;
+  const [ticker, setTicker]   = useState(initial?.ticker ?? '');
+  const [name, setName]       = useState(initial?.name ?? '');
+  const [q, setQ]             = useState(initial?.name ?? '');
   const [results, setResults] = useState<SearchItem[]>([]);
   const [open, setOpen]       = useState(false);
-  const [avgPrice, setAvgPrice] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [buyDate, setBuyDate]   = useState('');
+  const [avgPrice, setAvgPrice] = useState(initial?.avgPrice ?? '');
+  const [quantity, setQuantity] = useState(initial?.quantity ?? '');
+  const [buyDate, setBuyDate]   = useState(initial?.buyDate ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -241,8 +248,8 @@ function AddHoldingForm({ onAdded, onCancel, showCancel }: { onAdded: () => void
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setFormError(data.error || '등록에 실패했습니다.'); return; }
-      setTicker(''); setName(''); setQ(''); setAvgPrice(''); setQuantity(''); setBuyDate('');
+      if (!res.ok) { setFormError(data.error || (isEdit ? '수정에 실패했습니다.' : '등록에 실패했습니다.')); return; }
+      if (!isEdit) { setTicker(''); setName(''); setQ(''); setAvgPrice(''); setQuantity(''); setBuyDate(''); }
       onAdded();
     } catch {
       setFormError('네트워크 오류가 발생했습니다.');
@@ -254,17 +261,21 @@ function AddHoldingForm({ onAdded, onCancel, showCancel }: { onAdded: () => void
   return (
     <div className="flex flex-col gap-3">
       <div className="relative">
-        <div className="flex items-center gap-2 bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2.5">
+        <div className={`flex items-center gap-2 bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2.5 ${isEdit ? 'opacity-70' : ''}`}>
           <Search className="w-4 h-4 text-slate-500 shrink-0" />
-          <input
-            value={q}
-            onChange={e => search(e.target.value)}
-            onFocus={() => results.length > 0 && setOpen(true)}
-            placeholder="기업명 또는 종목코드 검색"
-            className="bg-transparent text-sm text-white placeholder:text-slate-600 outline-none w-full"
-          />
+          {isEdit ? (
+            <span className="text-sm text-white">{name} <span className="text-slate-500 text-xs font-mono">{ticker}</span></span>
+          ) : (
+            <input
+              value={q}
+              onChange={e => search(e.target.value)}
+              onFocus={() => results.length > 0 && setOpen(true)}
+              placeholder="기업명 또는 종목코드 검색"
+              className="bg-transparent text-sm text-white placeholder:text-slate-600 outline-none w-full"
+            />
+          )}
         </div>
-        {open && (
+        {!isEdit && open && (
           <div className="absolute z-10 mt-1 w-full bg-[#1a1f2e] border border-slate-700 rounded-xl overflow-hidden shadow-xl">
             {results.map(item => (
               <button
@@ -307,6 +318,13 @@ function AddHoldingForm({ onAdded, onCancel, showCancel }: { onAdded: () => void
           />
         </div>
       </div>
+      {/* buyDate 입력률이 낮아(11.6%) 벤치마크·보유기간 분석이 대부분 안 뜨던 상태였다
+          (2026-08-26 조사) — 필수화 대신 이득을 짧게 안내해 자발적 입력을 유도한다. */}
+      {!buyDate && (
+        <p className="text-[11px] text-indigo-400/80 -mt-1.5">
+          💡 입력하면 보유기간별 관점·벤치마크 비교를 함께 볼 수 있어요
+        </p>
+      )}
       {formError && <p className="text-[12px] text-red-400">{formError}</p>}
       <div className="flex gap-2">
         <button
@@ -314,7 +332,7 @@ function AddHoldingForm({ onAdded, onCancel, showCancel }: { onAdded: () => void
           disabled={submitting}
           className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-colors cursor-pointer"
         >
-          {submitting ? '등록 중...' : '종목 등록'}
+          {submitting ? (isEdit ? '저장 중...' : '등록 중...') : (isEdit ? '저장' : '종목 등록')}
         </button>
         {showCancel && onCancel && (
           <button
@@ -359,6 +377,10 @@ export default function DashboardPage() {
   // 확장되며 레이아웃이 깨지는 걸 방지).
   const [analysisModal, setAnalysisModal] = useState<{ ticker: string; name: string; market: string } | null>(null);
   const [dividendModal, setDividendModal] = useState<{ ticker: string; name: string } | null>(null);
+  // 기존 보유종목의 매입가·수량·매입일을 고치는 모달 — buyDate 없이 등록한 기존 사용자가
+  // 나중에 채워넣을 수 있는 유일한 경로였던 "동일 종목 재등록 시 upsert"(서버 로직은 이미
+  // 있었음)를 UI로 노출한 것뿐, 새 엔드포인트 없음(2026-08-26).
+  const [editModal, setEditModal] = useState<HoldingRow | null>(null);
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -826,6 +848,19 @@ export default function DashboardPage() {
                             <Sparkles className="w-3.5 h-3.5" />
                           </button>
                         </IconTip>
+                        <IconTip label={h.buy_date ? '매입정보 수정' : '매입일 추가 · 벤치마크·보유기간 분석 활성화'}>
+                          <button
+                            onClick={() => setEditModal(h)}
+                            aria-label="매입정보 수정"
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              h.buy_date
+                                ? 'text-slate-600 hover:text-slate-300 hover:bg-slate-500/10'
+                                : 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10'
+                            }`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </IconTip>
                         <IconTip label="숨기기">
                           <button
                             onClick={() => setHoldingHidden(h.ticker, true)}
@@ -922,6 +957,21 @@ export default function DashboardPage() {
         {showAddForm && (
           <Modal title="종목 추가" onClose={() => setShowAddForm(false)} maxWidth="max-w-md">
             <AddHoldingForm onAdded={() => { setShowAddForm(false); loadHoldings(); loadRisk(); loadMonthly(); loadDividend(); }} onCancel={() => setShowAddForm(false)} showCancel />
+          </Modal>
+        )}
+
+        {editModal && (
+          <Modal title={`${editModal.name} · 매입정보 수정`} onClose={() => setEditModal(null)} maxWidth="max-w-md">
+            <AddHoldingForm
+              initial={{
+                ticker: editModal.ticker, name: editModal.name,
+                avgPrice: String(editModal.avg_price), quantity: String(editModal.quantity),
+                buyDate: editModal.buy_date ?? '',
+              }}
+              onAdded={() => { setEditModal(null); loadHoldings(); loadRisk(); loadMonthly(); loadDividend(); }}
+              onCancel={() => setEditModal(null)}
+              showCancel
+            />
           </Modal>
         )}
 

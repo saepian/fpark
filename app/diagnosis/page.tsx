@@ -436,7 +436,9 @@ export default function DiagnosisPage() {
               </div>
             </div>
 
-            {/* 매수 날짜 */}
+            {/* 매수 날짜 — buyDate 입력률이 낮아(11.6%) 벤치마크 비교 섹션이 대부분 안 뜨는
+                상태였다(2026-08-26 조사) — 강제 필수화는 기존 플로우를 막으므로 하지 않고,
+                입력 시 이득을 짧게 안내해 자발적 입력을 유도한다. */}
             <div>
               <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
                 Purchase Date <span className="normal-case text-slate-600 font-normal">(선택)</span>
@@ -450,6 +452,11 @@ export default function DiagnosisPage() {
                   focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all
                   [color-scheme:dark]"
               />
+              {!buyDate && (
+                <p className="mt-1.5 text-[11px] text-indigo-400/80">
+                  💡 입력하면 코스피 대비 벤치마크 비교를 함께 볼 수 있어요
+                </p>
+              )}
             </div>
 
             {error && (
