@@ -68,7 +68,7 @@ export interface DiagnosisResult {
   quantity: number;
   profitRate: number;
   profitAmount: number;
-  news: { title: string; description: string; url?: string; date?: string }[]; // date는 모멘텀 타임라인 정렬용(원문 pubDate, 없으면 빈 문자열)
+  news: { title: string; description: string; url?: string; date?: string }[]; // date(원문 pubDate)는 현재 프론트엔드 미사용 — route.ts가 뉴스 클러스터링 프롬프트 컨텍스트로만 사용
   newsBasis?: 'news' | 'estimated';
   newsIssueClusters?: { label: string; articleIndexes: number[] }[]; // news 배열의 인덱스 기준 이슈 묶음 — 뉴스가 적어 클러스터링할 게 없으면 빈 배열(참고 기사는 flat 목록으로 표시)
   institutionalFlow: string; // 도넛 옆 한 줄 캡션
@@ -313,90 +313,6 @@ function buildNewsGroups(
   const leftover = news.map((_, i) => i).filter((i) => !covered.has(i));
   if (leftover.length > 0) groups.push({ label: '기타', indexes: leftover });
   return groups;
-}
-
-interface TimelineEvent {
-  date: string;       // 정렬용 원본 문자열(뉴스: pubDate 원문, 공시: "YYYY-MM-DD") — 표시는 dateValue로 재포맷
-  type: 'news' | 'disclosure';
-  title: string;
-  url?: string;
-  issueLabel?: string; // 뉴스면 소속 클러스터 라벨(있을 때만) — newsIssueClusters와 연계
-}
-
-// 날짜 문자열이 뉴스(pubDate 원문)·공시(YYYY-MM-DD)로 포맷이 서로 달라도 동일한 타임라인에서
-// 정렬 가능하도록 lib/news-selection.ts의 NaN-safe 패턴을 그대로 재사용(파싱 실패는 맨 뒤로).
-function timelineDateValue(d: string): number {
-  if (!d) return -Infinity;
-  const t = new Date(d).getTime();
-  return isNaN(t) ? -Infinity : t;
-}
-
-function timelineDateLabel(d: string): string {
-  const t = timelineDateValue(d);
-  if (t === -Infinity) return '날짜 미상';
-  const date = new Date(t);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-}
-
-// 뉴스(newsIssueClusters 라벨 매칭) + 공시를 날짜 내림차순으로 합친 타임라인.
-// 신규 조회 없음 — 이미 result에 있는 news/disclosures를 재배열하는 것뿐. 이벤트가
-// 2개 미만이면 타임라인으로서 의미가 없으므로 null(카드 자체 생략).
-function buildTimelineEvents(result: DiagnosisResult): TimelineEvent[] | null {
-  const clusterByIndex = new Map<number, string>();
-  (result.newsIssueClusters ?? []).forEach((c) => {
-    c.articleIndexes.forEach((i) => clusterByIndex.set(i, c.label));
-  });
-
-  const newsEvents: TimelineEvent[] = result.news
-    .map((n, i) => ({ date: n.date ?? '', type: 'news' as const, title: n.title, url: n.url, issueLabel: clusterByIndex.get(i) }))
-    .filter((e) => e.date);
-
-  const disclosureEvents: TimelineEvent[] = result.disclosures.map((d) => ({
-    date: d.date, type: 'disclosure' as const, title: d.title, url: d.url,
-  }));
-
-  const events = [...newsEvents, ...disclosureEvents]
-    .sort((a, b) => timelineDateValue(b.date) - timelineDateValue(a.date));
-
-  return events.length >= 2 ? events : null;
-}
-
-function MomentumTimelineCard({ result }: { result: DiagnosisResult }) {
-  const events = buildTimelineEvents(result);
-  if (!events) return null;
-
-  return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-      <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest mb-4`}>모멘텀 타임라인</p>
-      <div className="relative flex flex-col gap-4 pl-4 border-l border-slate-700/60">
-        {events.map((e, i) => (
-          <a
-            key={i}
-            href={e.url || undefined}
-            target={e.url ? '_blank' : undefined}
-            rel={e.url ? 'noopener noreferrer' : undefined}
-            className={`relative block -ml-[21px] pl-[21px] ${e.url ? 'group cursor-pointer' : 'cursor-default'}`}
-          >
-            <span className={`absolute left-0 top-1 w-2 h-2 rounded-full ${e.type === 'news' ? 'bg-indigo-400' : 'bg-amber-400'}`} />
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-mono text-slate-500 shrink-0">{timelineDateLabel(e.date)}</span>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${e.type === 'news' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-amber-500/15 text-amber-300'}`}>
-                {e.type === 'news' ? '뉴스' : '공시'}
-              </span>
-              {e.issueLabel && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-700/50 text-slate-300">
-                  {e.issueLabel}
-                </span>
-              )}
-            </div>
-            <p className={`text-[13px] text-slate-300 leading-snug mt-0.5 ${e.url ? 'group-hover:text-indigo-300 group-hover:underline transition-colors' : ''}`}>
-              {e.title}
-            </p>
-          </a>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
@@ -793,9 +709,6 @@ export default function DiagnosisReport({
             ) : null}
           </div>
         )}
-
-        {/* ── 2-2행: 모멘텀 타임라인 (뉴스+공시를 시간순으로, 이벤트 2개 미만이면 카드 자체 생략) ── */}
-        <MomentumTimelineCard result={result} />
 
         {/* ── 3행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님, 참고용 수치 카드) ── */}
         <div className="grid grid-cols-2 gap-4 mb-4">

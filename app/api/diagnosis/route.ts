@@ -432,8 +432,9 @@ export async function POST(request: NextRequest) {
           sectorNewsBlockStr = buildNewsBlock(sectorMacroNews);
         } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock(업종) 실패:', e); }
 
-        // date는 "모멘텀 타임라인"(뉴스+공시를 시간순으로 합쳐 보여주는 카드)에서 정렬 기준으로
-        // 쓴다 — relevantNews에 이미 있던 값을 그대로 실어보내는 것뿐, 신규 조회 없음.
+        // date(원문 pubDate)는 아래 newsClusterListBlock(AI 클러스터링 프롬프트 컨텍스트)에서
+        // 쓴다 — 프론트엔드는 더 이상 소비하지 않음(모멘텀 타임라인 카드 삭제, 2026-08-26).
+        // relevantNews에 이미 있던 값을 그대로 실어보내는 것뿐, 신규 조회 없음.
         const combinedNews = relevantNews.map(n => ({
           title:       n.title,
           description: n.summary ?? '',
