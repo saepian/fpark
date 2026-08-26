@@ -667,6 +667,32 @@ export default function DiagnosisReport({
                 <span className="text-[12px] text-slate-400">보유수량</span>
                 <span className="text-[13px] text-slate-300 font-mono">{fmt(result.quantity)}주</span>
               </div>
+              {/* 52주 최고/최저 — 독립 카드(3행)였다가 흡수(2026-08-26): 해석 없는 순수
+                  참고 수치라 매입평균가·보유수량과 같은 보조정보 위계(13px, 비강조)로 통일.
+                  "현재가 대비 %"까지 한 줄에 넣으면(카드 폭 300px) 라벨이 밀려 줄바꿈되므로
+                  값/비율을 세로로 분리 — 값은 같은 줄, 비율은 그 아래 작은 보조줄로. */}
+              <div className="flex items-center justify-between px-5 py-3.5">
+                <span className="text-[12px] text-slate-400 shrink-0">52주 최고</span>
+                <span className="text-[13px] text-slate-300 font-mono text-right">
+                  {result.resistance > 0 ? fmt(result.resistance) : '-'}
+                  {result.resistance > 0 && (
+                    <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
+                      현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center justify-between px-5 py-3.5">
+                <span className="text-[12px] text-slate-400 shrink-0">52주 최저</span>
+                <span className="text-[13px] text-slate-300 font-mono text-right">
+                  {result.support > 0 ? fmt(result.support) : '-'}
+                  {result.support > 0 && (
+                    <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
+                      현재가 대비 {supportDownRate.toFixed(1)}%
+                    </span>
+                  )}
+                </span>
+              </div>
             </div>
             {result.benchmark && (
               <p className="px-5 py-2.5 text-[10px] text-slate-600 border-t border-slate-700/40">
@@ -709,53 +735,6 @@ export default function DiagnosisReport({
             ) : null}
           </div>
         )}
-
-        {/* ── 3행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님, 참고용 수치 카드) ── */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          {/* 저항선 관찰 */}
-          <div className="rounded-2xl border border-slate-700/50 overflow-hidden bg-slate-800/40">
-            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-slate-700/40">
-              <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
-                <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>52주 최고가</p>
-            </div>
-            <div className="px-5 py-4">
-              {result.resistance > 0 ? (
-                <>
-                  <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.resistance)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
-                  <p className="text-[12px] text-slate-500">
-                    현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%
-                  </p>
-                </>
-              ) : (
-                <p className="text-[13px] text-slate-500">휴장일 - 데이터 갱신 예정</p>
-              )}
-            </div>
-          </div>
-
-          {/* 지지선 관찰 */}
-          <div className="rounded-2xl border border-slate-700/50 overflow-hidden bg-slate-800/40">
-            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-slate-700/40">
-              <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
-                <TrendingDown className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>52주 최저가</p>
-            </div>
-            <div className="px-5 py-4">
-              {result.support > 0 ? (
-                <>
-                  <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(result.support)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
-                  <p className="text-[12px] text-slate-500">
-                    현재가 대비 {supportDownRate.toFixed(1)}%
-                  </p>
-                </>
-              ) : (
-                <p className="text-[13px] text-slate-500">휴장일 - 데이터 갱신 예정</p>
-              )}
-            </div>
-          </div>
-        </div>
 
         {/* ── 3-1행: 기간별 등락률 (종목분석 페이지와 동일 컴포넌트 재사용) ── */}
         <div className="mb-4">
