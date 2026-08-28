@@ -1,7 +1,8 @@
 import type { StockPrice, StockInfo, ChartDataPoint, MarketIndexData, MoverStock, AlertStock } from './types';
+import type { Json } from './database.types';
 import { adminClient as supabaseAdmin } from './supabase-admin';
 import { supabase } from './supabase';
-import { findClosestPastClose } from './market-utils';
+import { findClosestPastClose, isKoreanMarketOpen } from './market-utils';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
@@ -718,10 +719,61 @@ async function fetchChartRangeRaw(
   });
 }
 
+// 2026-08-28: 1년치 일봉(fetchDailyChart(ticker, '1Y'))이 dashboard/risk, stock/[ticker]/chart,
+// portfolio-diagnosis/dashboard/analysis(정량지표) 3곳에서 캐시 공유 없이 각자 KIS를 독립
+// 호출하던 중복을 여기(fetchDailyChart 자체)로 끌어내려 정리 — app/api/stock/[ticker]/chart
+// 라우트가 쓰던 market_cache TTL 패턴을 그대로 재사용한다(장중 5분/장외 1시간, 과거 봉은
+// 하루 1회만 바뀌므로 분 단위 정밀도 불필요). 대시보드를 먼저 본 뒤 곧바로 같은 종목으로
+// 기업분석/포트폴리오분석을 실행해도 이제 캐시를 공유해 KIS 재조회가 생략된다.
+// 1W/1M/3M는 호출부가 적고(사용자가 직접 고른 기간 탭, 섹터 peer 비교 등) 캐시로 얻는
+// 이득보다 신선도가 더 중요하다고 판단해 기존처럼 캐시 없이 항상 라이브 조회한다.
+const CHART_1Y_CACHE_TTL_MS_OPEN   = 5 * 60_000;  // 장중 5분
+const CHART_1Y_CACHE_TTL_MS_CLOSED = 60 * 60_000; // 장외 1시간
+const chartCacheKey = (ticker: string, period: string) => `stock_chart_${ticker}_${period}`;
+
+// 라이브 조회가 완전히 실패했을 때(재시도까지 소진) 마지막으로 캐시된 값이라도 대신
+// 내려주고 싶은 호출부(app/api/stock/[ticker]/chart 등)를 위해 export — TTL과 무관하게
+// 캐시가 존재하는지만 확인한다(신선도 판단은 호출부 책임).
+export async function loadDailyChartCache(
+  ticker: string,
+  period: '1W' | '1M' | '3M' | '1Y'
+): Promise<{ data: ChartDataPoint[]; updatedAt: string } | null> {
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', chartCacheKey(ticker, period))
+      .single();
+    if (!cache?.data) return null;
+    return { data: cache.data as unknown as ChartDataPoint[], updatedAt: cache.updated_at };
+  } catch {
+    return null;
+  }
+}
+
+async function saveDailyChartCache(ticker: string, period: '1Y', data: ChartDataPoint[]): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('market_cache')
+      .upsert({ key: chartCacheKey(ticker, period), data: data as unknown as Json, updated_at: new Date().toISOString() });
+    if (error) console.warn(`[fetchDailyChart] ${ticker}(${period}) 캐시 저장 실패:`, error.message);
+  } catch (e) {
+    console.warn(`[fetchDailyChart] ${ticker}(${period}) 캐시 저장 예외:`, e instanceof Error ? e.message : e);
+  }
+}
+
 export async function fetchDailyChart(
   ticker: string,
   period: '1W' | '1M' | '3M' | '1Y'
 ): Promise<ChartDataPoint[]> {
+  if (period === '1Y') {
+    const ttlMs = isKoreanMarketOpen() ? CHART_1Y_CACHE_TTL_MS_OPEN : CHART_1Y_CACHE_TTL_MS_CLOSED;
+    const fresh = await loadDailyChartCache(ticker, period);
+    if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs) {
+      return fresh.data;
+    }
+  }
+
   const endDate = new Date();
   const startDate = new Date();
   switch (period) {
@@ -730,7 +782,13 @@ export async function fetchDailyChart(
     case '3M': startDate.setMonth(endDate.getMonth() - 3); break;
     case '1Y': startDate.setFullYear(endDate.getFullYear() - 1); break;
   }
-  return fetchChartRangeRaw(ticker, startDate, endDate, `fetchDailyChart(${ticker})`);
+  const data = await fetchChartRangeRaw(ticker, startDate, endDate, `fetchDailyChart(${ticker})`);
+
+  if (period === '1Y') {
+    await saveDailyChartCache(ticker, period, data);
+  }
+
+  return data;
 }
 
 // 종목분석 페이지 "1년 전 대비" 배지 전용 — fetchDailyChart('1Y')는 100건 캡 때문에

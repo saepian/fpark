@@ -1,49 +1,10 @@
-import { NextRequest, NextResponse, after } from 'next/server';
-import { fetchDailyChart } from '../../../../../lib/kis-api';
-import { supabase } from '../../../../../lib/supabase';
-import { isKoreanMarketOpen } from '../../../../../lib/market-utils';
-import type { ChartDataPoint } from '../../../../../lib/types';
+import { NextRequest, NextResponse } from 'next/server';
+import { fetchDailyChart, loadDailyChartCache } from '../../../../../lib/kis-api';
 
 export const dynamic = 'force-dynamic';
 
 const VALID_PERIODS = ['1W', '1M', '3M', '1Y'] as const;
 type Period = (typeof VALID_PERIODS)[number];
-
-// PriceChangeBadges(종목분석 1년/1개월/1주일 전 대비 배지)가 페이지 로드마다 1Y를
-// 새로 호출하게 되면서 추가된 TTL — 이전엔 1Y를 포함해 모든 period가 캐시 없이 매 요청
-// KIS 라이브 호출이었다. 과거 봉(어제 이전)은 하루 1회만 바뀌므로 장외 TTL은 price
-// 라우트(30분)보다 훨씬 길게 잡아도 안전 — 당일 형성 중인 봉만 장중 갱신되면 되고,
-// "1년 전 대비" 배지는 분 단위 정밀도가 필요 없다. 1W/1M/3M는 기존 동작(캐시 없음) 유지.
-const CHART_1Y_CACHE_TTL_MS_OPEN   = 5 * 60_000;  // 장중 5분
-const CHART_1Y_CACHE_TTL_MS_CLOSED = 60 * 60_000; // 장외 1시간
-
-// app/api/stock/[ticker]/info/route.ts와 동일한 market_cache 패턴 재사용
-const cacheKey = (ticker: string, period: Period) => `stock_chart_${ticker}_${period}`;
-
-async function loadCache(ticker: string, period: Period): Promise<{ data: ChartDataPoint[]; updatedAt: string } | null> {
-  try {
-    const { data: cache } = await supabase
-      .from('market_cache')
-      .select('data, updated_at')
-      .eq('key', cacheKey(ticker, period))
-      .single();
-    if (!cache?.data) return null;
-    return { data: cache.data as ChartDataPoint[], updatedAt: cache.updated_at };
-  } catch {
-    return null;
-  }
-}
-
-// await 없이 던지면 응답 직후 실행 컨텍스트가 얼어붙어 fetch가 중간에 끊길 수 있어
-// after()로 등록 — 응답은 즉시 나가되 이 저장은 런타임이 끝까지 살려서 완료시킨다.
-function saveCache(ticker: string, period: Period, data: ChartDataPoint[]) {
-  after(async () => {
-    const { error } = await supabase
-      .from('market_cache')
-      .upsert({ key: cacheKey(ticker, period), data, updated_at: new Date().toISOString() });
-    if (error) console.warn(`[CHART] ${ticker} 캐시 저장 실패:`, error.message);
-  });
-}
 
 export async function GET(
   req: NextRequest,
@@ -56,19 +17,14 @@ export async function GET(
     return NextResponse.json({ error: '유효하지 않은 기간입니다.' }, { status: 400 });
   }
 
-  if (period === '1Y') {
-    const ttlMs = isKoreanMarketOpen() ? CHART_1Y_CACHE_TTL_MS_OPEN : CHART_1Y_CACHE_TTL_MS_CLOSED;
-    const fresh = await loadCache(ticker, period);
-    if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs) {
-      return NextResponse.json(fresh.data);
-    }
-  }
-
+  // 2026-08-28: TTL 캐시(장중 5분/장외 1시간, 1Y만 해당)는 fetchDailyChart 내부로
+  // 옮겨졌다(lib/kis-api.ts) — dashboard/risk, portfolio-diagnosis 등 다른 라우트와
+  // 캐시를 공유해 같은 티커의 1년치 차트를 KIS에 중복 조회하지 않기 위함. 이 라우트는
+  // 재시도 + (전부 실패 시) 마지막 캐시로 대체하는 장애 대응만 담당한다.
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const data = await fetchDailyChart(ticker, period);
-      saveCache(ticker, period, data);
       return NextResponse.json(data);
     } catch (e) {
       lastErr = e;
@@ -80,7 +36,8 @@ export async function GET(
   const message = lastErr instanceof Error ? lastErr.message : '알 수 없는 오류';
 
   // 재시도까지 실패 — 휴장일 등으로 당일 데이터가 없을 뿐일 수 있으므로 캐시된 마지막 차트로 대체
-  const cached = await loadCache(ticker, period);
+  // (fetchDailyChart가 1Y만 캐시하므로 실질적으로 1Y 요청에만 대체 데이터가 있다)
+  const cached = await loadDailyChartCache(ticker, period);
   if (cached) {
     console.error(`[CHART] ${ticker} 조회 최종 실패, 캐시로 대체 반환:`, message);
     return NextResponse.json(cached.data);
