@@ -122,7 +122,12 @@ export const STOCK_NAMES: Record<string, string> = {
 // KIS name이 빈 문자열인 경우 search-stock-info(CTPF1604R)로 보완 (process 내 캐시)
 const nameCache = new Map<string, string>();
 
-async function fetchNameFromKisSearch(ticker: string): Promise<string | null> {
+// 2026-08-28: 우선주 후보 티커 검증(lib/preferred-stock-master.ts 생성 스크립트)에도
+// 재사용하기 위해 export — search-stock-info는 PDNO(정확한 티커) 하나를 넣으면 그
+// 종목의 공식명을 돌려주는 "티커 → 이름" 조회 전용 엔드포인트라(이름으로 검색하거나
+// 전체 목록을 나열하는 기능은 없음), 후보 티커가 실존하는지 + 우선주인지(이름에 "우"
+// 포함) 검증하는 용도로 쓰기에 정확히 맞는다.
+export async function fetchNameFromKisSearch(ticker: string): Promise<string | null> {
   if (nameCache.has(ticker)) return nameCache.get(ticker)!;
   try {
     const token = await getAccessToken();

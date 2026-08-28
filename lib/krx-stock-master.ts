@@ -1,5 +1,6 @@
 import { adminClient } from './supabase-admin';
 import { fetchKrxListedInfoOfficial } from './krx-official-api';
+import { PREFERRED_STOCKS } from './preferred-stock-master';
 
 // 국내(KOSPI/KOSDAQ) 종목 검색용 자체 마스터 테이블(stock_master) 관리.
 //
@@ -68,8 +69,9 @@ async function fetchKrxMarket(market: 'KOSPI' | 'KOSDAQ'): Promise<StockMasterEn
 }
 
 export interface RefreshStockMasterResult {
-  kospi:  { ok: boolean; count: number };
-  kosdaq: { ok: boolean; count: number };
+  kospi:     { ok: boolean; count: number };
+  kosdaq:    { ok: boolean; count: number };
+  preferred: { ok: boolean; count: number };
 }
 
 // 한 시장의 종목 목록을 stock_master에 upsert. 소스(공공데이터포털/KRX 스크래핑)와
@@ -101,8 +103,9 @@ async function upsertMarket(market: 'KOSPI' | 'KOSDAQ', items: StockMasterEntry[
 // 검색 자체는 계속 동작).
 export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
   const result: RefreshStockMasterResult = {
-    kospi:  { ok: false, count: 0 },
-    kosdaq: { ok: false, count: 0 },
+    kospi:     { ok: false, count: 0 },
+    kosdaq:    { ok: false, count: 0 },
+    preferred: { ok: false, count: 0 },
   };
 
   try {
@@ -118,25 +121,31 @@ export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
   const marketsToFallback = (['KOSPI', 'KOSDAQ'] as const).filter(
     (m) => !result[m === 'KOSPI' ? 'kospi' : 'kosdaq'].ok,
   );
-  if (marketsToFallback.length === 0) return result;
 
-  console.warn(`[stock-master] KRX 스크래핑 폴백 대상: ${marketsToFallback.join(', ')}`);
-  const settled = await Promise.allSettled(marketsToFallback.map((m) => fetchKrxMarket(m)));
+  if (marketsToFallback.length > 0) {
+    console.warn(`[stock-master] KRX 스크래핑 폴백 대상: ${marketsToFallback.join(', ')}`);
+    const settled = await Promise.allSettled(marketsToFallback.map((m) => fetchKrxMarket(m)));
 
-  for (let i = 0; i < marketsToFallback.length; i++) {
-    const market = marketsToFallback[i];
-    const key = market === 'KOSPI' ? 'kospi' : 'kosdaq';
-    const s = settled[i];
-    if (s.status === 'rejected') {
-      console.error(`[stock-master] ${market} KRX 스크래핑 폴백도 실패, 기존 테이블 데이터 유지:`, s.reason);
-      continue;
+    for (let i = 0; i < marketsToFallback.length; i++) {
+      const market = marketsToFallback[i];
+      const key = market === 'KOSPI' ? 'kospi' : 'kosdaq';
+      const s = settled[i];
+      if (s.status === 'rejected') {
+        console.error(`[stock-master] ${market} KRX 스크래핑 폴백도 실패, 기존 테이블 데이터 유지:`, s.reason);
+        continue;
+      }
+      if (s.value.length === 0) {
+        console.error(`[stock-master] ${market} KRX 스크래핑 폴백 결과 0건 — 응답 포맷 변경 의심, 갱신 생략(기존 데이터 유지)`);
+        continue;
+      }
+      result[key] = await upsertMarket(market, s.value);
     }
-    if (s.value.length === 0) {
-      console.error(`[stock-master] ${market} KRX 스크래핑 폴백 결과 0건 — 응답 포맷 변경 의심, 갱신 생략(기존 데이터 유지)`);
-      continue;
-    }
-    result[key] = await upsertMarket(market, s.value);
   }
+
+  // 우선주(lib/preferred-stock-master.ts) — 위 두 데이터소스 모두 "상장법인목록" 성격이라
+  // 원천적으로 우선주를 안 내려주는 것을 확인(2026-08-28)하고 추가한 정적 보완 테이블.
+  // KOSPI/KOSDAQ 갱신 성패와 무관하게 매번 upsert — 정적 데이터라 실패 사유가 따로 없다.
+  result.preferred = await upsertMarket('KOSPI', PREFERRED_STOCKS);
 
   return result;
 }
