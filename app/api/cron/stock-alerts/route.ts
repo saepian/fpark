@@ -386,11 +386,19 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 5-3. 텔레그램 발송 — toUpsert(오늘 새로 발생/유지 중인 알림)만 대상으로, 그 중
-      //      텔레그램이 연동된 유저에게만 같은 메시지를 병행 발송한다. notifications
-      //      upsert 성패와 무관하게 독립 시도(기존 저장/이메일 경로는 그대로 두고 "그
-      //      옆에" 발송경로만 추가). 유저 단위로 격리해 한 명 실패가 나머지를 막지 않는다.
-      const telegramTargets = toUpsert.filter(alert => telegramChatIdByUser.has(alert.user_id));
+      // 5-3. 텔레그램 발송 — toUpsert는 "오늘 새로 발생한 것 + 이미 활성 상태라 시각만
+      //      갱신되는 것"이 섞여 있어 그대로 쓰면 조건이 계속 유지되는 동안(예: +30% 유지)
+      //      10분 크론이 돌 때마다 같은 알림을 반복 발송하게 된다(실측으로 확인된 문제 —
+      //      알림/저장은 upsert라 중복이 안 보이지만 텔레그램 push는 매번 새 메시지라
+      //      스팸이 됨). existingByKey에 없던(= 오늘 이 임계값을 처음 돌파한) 알림만
+      //      골라 정말 "새로 발생한" 것에 한해 발송한다. notifications upsert 성패와는
+      //      무관하게 독립 시도(기존 저장/이메일 경로는 그대로 두고 "그 옆에" 추가).
+      //      유저 단위로 격리해 한 명 실패가 나머지를 막지 않는다.
+      const newlyTriggered = toUpsert.filter(alert => {
+        const key = `${alert.user_id}:${alert.stock_code}:${alert.type}:${alert.threshold}`;
+        return !existingByKey.has(key);
+      });
+      const telegramTargets = newlyTriggered.filter(alert => telegramChatIdByUser.has(alert.user_id));
       if (telegramTargets.length > 0) {
         const results = await Promise.allSettled(
           telegramTargets.map(async (alert) => {
