@@ -6,6 +6,7 @@ import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
+import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,6 +78,9 @@ interface DiagnosisData {
   foreignFlow: string;
   flowType?: 'BUY' | 'SELL' | 'NEUTRAL';
   flowPercentage?: number;
+  // 2026-08-27 신설, 2026-08-28 이식 — 옛 공유 리포트(그 이전 생성분)에는 없어 optional.
+  surgeHistory?: SurgeHistory | null;
+  tradingValueMultiple?: TradingValueMultiple | null;
   shortTermOutlook?: string;
   midTermOutlook?: string;
   finalVerdict?: string; // 2026-08-05 신설 — 이전에 저장된 공유 리포트에는 없어 optional
@@ -770,6 +774,21 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                 </div>
                 <p className="text-[13px] text-slate-300 leading-relaxed">{d.midTermOutlook}</p>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* 5-0행: 급등/급락 이력 + 거래대금 배수 (components/diagnosis/DiagnosisReport.tsx와
+            공용 컴포넌트 — 2026-08-28 공유 페이지에 이식). surgeHistory는 hasMatches:false여도
+            항상 노출(카드 내부에서 빈 상태 처리), tradingValueMultiple은 valid:false(데이터
+            부족)일 때만 생략 — 메인 페이지와 동일한 게이트 조건. */}
+        {((d.surgeHistory != null) || (d.tradingValueMultiple?.valid)) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {d.surgeHistory != null && (
+              <SurgeHistoryCard surgeHistory={d.surgeHistory} />
+            )}
+            {d.tradingValueMultiple?.valid && (
+              <TradingValueMultipleCard t={d.tradingValueMultiple} />
             )}
           </div>
         )}
