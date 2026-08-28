@@ -257,7 +257,9 @@ export const PORTFOLIO_STOCK_FIELD_SPECS: FieldSpec[] = [
 ];
 
 // 포트폴리오 종합 분석(Stage 2) 스키마 — PORTFOLIO_SUMMARY_INSTRUCTIONS 키 순서와
-// 반드시 일치해야 한다. sectors는 'json'(중첩 객체) — partial 없이 완결 시에만 노출.
+// 반드시 일치해야 한다. 2026-08-28: sectors는 AI 스키마에서 완전히 제거됐다 — 종목명만
+// 보고 어림하던 비중을 서버가 실제 평가금액(computeSectorBreakdown)으로 정확히 계산해
+// 대체하므로, 그 계산에 필요한 value/totalValue를 갖지 못하는 AI에게 더 이상 묻지 않는다.
 // 2026-08-12: summarySections(json, partial 미지원)를 4개 독립 string 필드로 분리 —
 // 기업분석 mainAnalysisSections 분리(DIAGNOSIS_FIELD_SPECS 참고)와 동일한 이유·동일한
 // 패턴. background/newsInterpretation/historicalComparison/judgment는 원래도 flat
@@ -269,8 +271,8 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   { key: 'summarySections_newsInterpretation',    type: 'string', emit: true },
   { key: 'summarySections_historicalComparison',  type: 'string', emit: true },
   { key: 'summarySections_judgment',              type: 'string', emit: true },
-  { key: 'sectors', type: 'json', emit: true },
-  // 2026-08-04: {text,category} 객체 배열로 구조화(macro/company 태깅) — sectors와 동일하게 'json'
+  // 2026-08-04: {text,category} 객체 배열로 구조화(macro/company 태깅) — riskFactors처럼
+  // 중첩 객체 배열은 'json' 타입(partial 미지원, 완결 시에만 노출)
   { key: 'riskFactors', type: 'json', emit: true },
   { key: 'opportunityFactors', type: 'string[]', emit: true },
   { key: 'historyNarrative', type: 'string', emit: true },
@@ -286,12 +288,11 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
 // 영원히 멈춰 이후 모든 필드의 타이핑 효과가 끊긴다), historicalComparison·midTermOutlook·
 // shortTermOutlook을 아예 요청하지 않는 PORTFOLIO_SUMMARY_INSTRUCTIONS_DASHBOARD와 반드시
 // 같은 키 순서를 유지해야 한다 — 위 PORTFOLIO_SUMMARY_FIELD_SPECS를 그대로 쓰면 대시보드
-// 응답엔 존재하지 않는 키를 계속 찾다가 sectors 이후 필드가 전부 스트리밍 안 되는 문제가 생긴다.
+// 응답엔 존재하지 않는 키를 계속 찾다가 riskFactors 이후 필드가 전부 스트리밍 안 되는 문제가 생긴다.
 export const PORTFOLIO_SUMMARY_FIELD_SPECS_DASHBOARD: FieldSpec[] = [
   { key: 'summarySections_background',           type: 'string', emit: true },
   { key: 'summarySections_newsInterpretation',    type: 'string', emit: true },
   { key: 'summarySections_judgment',              type: 'string', emit: true },
-  { key: 'sectors', type: 'json', emit: true },
   { key: 'riskFactors', type: 'json', emit: true },
   { key: 'opportunityFactors', type: 'string[]', emit: true },
   { key: 'historyNarrative', type: 'string', emit: true },

@@ -116,6 +116,11 @@ interface Sector {
   warning: boolean;
 }
 
+// 정량 지표 3종(2026-08-28 신설) — app/portfolio-diagnosis/page.tsx와 동일 shape(손복제).
+interface SectorConcentration { hhi: number; effectiveCount: number; grade: '고집중' | '보통' | '분산' }
+interface RiskContributionItem { ticker: string; name: string; pct: number }
+interface PortfolioCorrelation { correlation: number; sampleSize: number; bucket: '강한 동조화' | '보통 동조화' | '약한 동조화' }
+
 interface HoldingPeriodEntry { ticker: string; name: string; holdDays: number; profitRate: number }
 
 interface PortfolioHistory {
@@ -156,6 +161,9 @@ interface PortfolioData {
   totalProfitRate: number;
   summary: string;
   sectors: Sector[];
+  sectorConcentration?: SectorConcentration | null;
+  riskContribution?:    RiskContributionItem[] | null;
+  correlation?:         PortfolioCorrelation | null;
   holdings: HoldingResult[];
   riskFactors?: RiskFactorEntry[];
   opportunityFactors?: string[];
@@ -237,6 +245,28 @@ function MainAnalysisBody({ d }: { d: DiagnosisData }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// 정량 지표 3종 공용 배지/캡션 — app/portfolio-diagnosis/page.tsx의 GradeBadge·
+// QuantMetricsCaption과 동일(손복제, 공유페이지는 서버 컴포넌트라 별도 파일 분리보다
+// 기존 파일 내 다른 컴포넌트들과 같은 패턴 유지가 낫다고 판단).
+function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning' | 'safe' }) {
+  const styles = {
+    danger:  { background: 'rgba(239,68,68,0.15)',  border: '1px solid rgba(239,68,68,0.3)',  color: '#f87171' },
+    warning: { background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' },
+    safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
+  }[tone];
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
+  );
+}
+
+function QuantMetricsCaption() {
+  return (
+    <p className="text-[11px] text-slate-600 bg-slate-800/30 border border-slate-700/40 rounded-xl px-4 py-3 mb-4">
+      종목 수가 적어 섹터 집중도·상관관계·리스크 기여도는 계산하지 않습니다(2종목 이상부터 계산).
+    </p>
   );
 }
 
@@ -721,6 +751,10 @@ function PortfolioView({ d }: { d: PortfolioData }) {
   const isUp = d.totalProfitRate >= 0;
   const sortedSectors = [...(d.sectors ?? [])].sort((a, b) => b.weight - a.weight);
   const excludedDividendNote = d.dividend?.excludedHoldings ? formatExcludedHoldingsNote(d.dividend.excludedHoldings) : null;
+  // 정량 지표 3종 공통 게이트 — app/portfolio-diagnosis/page.tsx의 quantMetricsSuppressed와
+  // 동일 원칙. 옛 공유 리포트(신설 이전 저장분)는 holdings는 있지만 이 필드들이 아예
+  // 없을 수 있어(undefined) 그 경우도 "값 없음"으로 자연스럽게 처리된다.
+  const quantMetricsSuppressed = d.holdings.length > 0 && d.holdings.length < 2;
 
   return (
     <div className="min-h-screen bg-[#0d1117] pb-16">
@@ -809,6 +843,17 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         {/* 섹터 편중도 */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">섹터 편중도 분석</p>
+          {quantMetricsSuppressed ? (
+            <QuantMetricsCaption />
+          ) : d.sectorConcentration ? (
+            <div className="flex items-center gap-2 mb-4">
+              <GradeBadge
+                label={`섹터 집중도: ${d.sectorConcentration.grade}`}
+                tone={d.sectorConcentration.grade === '고집중' ? 'danger' : d.sectorConcentration.grade === '보통' ? 'warning' : 'safe'}
+              />
+              <span className="text-[11px] text-slate-500">실효 {d.sectorConcentration.effectiveCount}개 업종</span>
+            </div>
+          ) : null}
           <div className="flex flex-col gap-3">
             {sortedSectors.map((s, i) => (
               <div key={s.name}>
@@ -894,8 +939,8 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         )}
 
         {/* 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
-        {(((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) || d.coMovementText) && (
-          <div className={`grid grid-cols-1 ${d.coMovementText ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+        {(((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) || d.coMovementText || d.correlation) && (
+          <div className={`grid grid-cols-1 ${(d.coMovementText || d.correlation) ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
             {((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) && (
               <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
@@ -921,15 +966,46 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                 )}
               </div>
             )}
-            {d.coMovementText && (
+            {(d.coMovementText || d.correlation) && (
               <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">섹터 동조화 관찰</p>
-                <p className="text-[11px] text-slate-500 mb-2">{d.coMovementText}</p>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">섹터 동조화 관찰</p>
+                  {d.correlation && (
+                    <GradeBadge
+                      label={d.correlation.bucket}
+                      tone={d.correlation.bucket === '강한 동조화' ? 'danger' : d.correlation.bucket === '보통 동조화' ? 'warning' : 'safe'}
+                    />
+                  )}
+                </div>
+                {d.coMovementText && <p className="text-[11px] text-slate-500 mb-2">{d.coMovementText}</p>}
                 {d.coMovementNarrative && (
                   <p className="text-[13px] text-slate-300 leading-relaxed">{d.coMovementNarrative}</p>
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* 변동성 기여도(정량 지표 C-1, 신설) */}
+        {d.riskContribution && d.riskContribution.length > 0 && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">변동성 기여도</p>
+            <p className="text-[10.5px] text-slate-600 mb-4">
+              비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
+            </p>
+            <div className="flex flex-col gap-3">
+              {d.riskContribution.map((r, i) => (
+                <div key={r.ticker}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[13px] text-slate-300 font-medium">{r.name}</span>
+                    <span className="text-[13px] font-mono text-slate-400">{r.pct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${SECTOR_COLORS[i % SECTOR_COLORS.length]}`} style={{ width: `${r.pct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

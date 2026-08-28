@@ -241,17 +241,20 @@ describe('StreamingFieldParser.feedWithPartial (문자단위 타이핑 효과)',
   });
 });
 
-describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors) + summarySections_* 평탄화(2026-08-12)", () => {
+describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 riskFactors) + summarySections_* 평탄화(2026-08-12)", () => {
+  // 2026-08-28: sectors가 AI 스키마에서 제거되면서(서버 계산으로 대체) 이 파일의 'json'
+  // 타입 커버리지(중첩 배열·문자열 내부 대괄호 등)를 riskFactors로 옮겼다 — riskFactors의
+  // relatedTickers는 실제 프로덕션 스키마엔 없는 필드지만, 파서는 스키마 의미를 모르고
+  // 순수하게 괄호 깊이만 세므로 중첩 배열 케이스를 재현하는 용도로만 추가했다.
   const PORTFOLIO_SAMPLE = {
     summarySections_background: '포트폴리오는 반도체 섹터에 집중돼 있으며 오늘 소폭 하락했다.',
     summarySections_newsInterpretation: '',
     summarySections_historicalComparison: '',
     summarySections_judgment: '이번 하락은 업종 전체 심리 위축에 가깝다.',
-    sectors: [
-      { name: '반도체', tickers: ['005930', '000660'], weight: 60, warning: true },
-      { name: '제약', tickers: ['185750'], weight: 40, warning: false },
+    riskFactors: [
+      { text: '반도체 섹터 60% 집중', category: 'macro', relatedTickers: ['005930', '000660'] },
+      { text: '손실 종목 비중 30%', category: 'company', relatedTickers: ['185750'] },
     ],
-    riskFactors: ['반도체 섹터 60% 집중', '손실 종목 비중 30%'],
     opportunityFactors: ['저PER 종목 다수 포함'],
     historyNarrative: '어제 대비 수익률이 소폭 개선됐다.',
     contributionNarrative: '오늘 손익 변화는 대부분 삼성전자에서 발생했다.',
@@ -261,22 +264,20 @@ describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors) + s
     midTermOutlook: '중기적으로는 실적 발표 시즌이 핵심 변수다.',
   };
 
-  it('summarySections_* 4개 string 필드를 한 번에 먹이면 정확히 파싱되고, 그 다음 sectors(json)·riskFactors도 정상 진행된다', () => {
+  it('summarySections_* 4개 string 필드를 한 번에 먹이면 정확히 파싱되고, 그 다음 riskFactors(json)도 정상 진행된다', () => {
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const { fields } = parser.feedWithPartial(JSON.stringify(PORTFOLIO_SAMPLE));
     expect(fields.find(f => f.key === 'summarySections_background')?.value).toBe(PORTFOLIO_SAMPLE.summarySections_background);
     expect(fields.find(f => f.key === 'summarySections_newsInterpretation')?.value).toBe(PORTFOLIO_SAMPLE.summarySections_newsInterpretation);
     expect(fields.find(f => f.key === 'summarySections_historicalComparison')?.value).toBe(PORTFOLIO_SAMPLE.summarySections_historicalComparison);
     expect(fields.find(f => f.key === 'summarySections_judgment')?.value).toBe(PORTFOLIO_SAMPLE.summarySections_judgment);
-    const sectors = fields.find(f => f.key === 'sectors');
-    expect(sectors?.value).toEqual(PORTFOLIO_SAMPLE.sectors);
     const riskFactors = fields.find(f => f.key === 'riskFactors');
     expect(riskFactors?.value).toEqual(PORTFOLIO_SAMPLE.riskFactors);
   });
 
   // 2026-08-12: mainAnalysisSections와 동일한 이유로 summarySections도 json→4개 string
   // 필드로 분리 — institutionalFlow 등과 같은 'string' 타입 필드가 됐으므로 이제 문자
-  // 단위 partial(타이핑 효과)을 지원해야 한다(분리 전엔 sectors처럼 완결 시 1회만 노출).
+  // 단위 partial(타이핑 효과)을 지원해야 한다(분리 전엔 riskFactors처럼 완결 시 1회만 노출).
   it('summarySections_background는 이제 string 타입이라 문자 단위로 흘리면 partial이 최종값의 접두사로 단조증가한다(타이핑 효과 확인)', () => {
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const full = JSON.stringify(PORTFOLIO_SAMPLE);
@@ -300,7 +301,7 @@ describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors) + s
     expect(done).toBe(PORTFOLIO_SAMPLE.summarySections_background);
   });
 
-  it('summarySections_judgment(4번째, sectors보다 앞)도 순서대로 도착해 partial이 정상 동작한다', () => {
+  it('summarySections_judgment(4번째, riskFactors보다 앞)도 순서대로 도착해 partial이 정상 동작한다', () => {
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const full = JSON.stringify(PORTFOLIO_SAMPLE);
     let judgmentPartialSeen = false;
@@ -319,44 +320,44 @@ describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors) + s
     expect(done).toBe(PORTFOLIO_SAMPLE.summarySections_judgment);
   });
 
-  it('중첩 배열(tickers) 내부의 첫 "]"에서 잘못 멈추지 않고 sectors 전체(바깥 배열)의 끝까지 정확히 찾는다', () => {
-    // sectors 안 첫 원소의 tickers 배열이 닫히는 지점(내부 ']')까지만 먼저 먹여서,
-    // 그 시점엔 아직 sectors 필드 자체가 완결되면 안 된다는 걸 확인한다.
+  it('중첩 배열(relatedTickers) 내부의 첫 "]"에서 잘못 멈추지 않고 riskFactors 전체(바깥 배열)의 끝까지 정확히 찾는다', () => {
+    // riskFactors 안 첫 원소의 relatedTickers 배열이 닫히는 지점(내부 ']')까지만 먼저
+    // 먹여서, 그 시점엔 아직 riskFactors 필드 자체가 완결되면 안 된다는 걸 확인한다.
     const full = JSON.stringify(PORTFOLIO_SAMPLE);
-    const innerArrayEnd = full.indexOf('"000660"]') + '"000660"]'.length; // 첫 tickers 배열 닫는 ']' 직후
+    const innerArrayEnd = full.indexOf('"000660"]') + '"000660"]'.length; // 첫 relatedTickers 배열 닫는 ']' 직후
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
 
     const r1 = parser.feedWithPartial(full.slice(0, innerArrayEnd));
-    expect(r1.fields.find(f => f.key === 'sectors')).toBeUndefined(); // 아직 바깥 배열 안 끝남
+    expect(r1.fields.find(f => f.key === 'riskFactors')).toBeUndefined(); // 아직 바깥 배열 안 끝남
 
     const r2 = parser.feedWithPartial(full.slice(innerArrayEnd));
-    const sectors = r2.fields.find(f => f.key === 'sectors');
-    expect(sectors?.value).toEqual(PORTFOLIO_SAMPLE.sectors);
+    const riskFactors = r2.fields.find(f => f.key === 'riskFactors');
+    expect(riskFactors?.value).toEqual(PORTFOLIO_SAMPLE.riskFactors);
   });
 
-  it('sectors는 emit:true·type:json이라도 partial(타이핑 효과)이 나오지 않는다 — 완결 시 1회만', () => {
+  it('riskFactors는 emit:true·type:json이라도 partial(타이핑 효과)이 나오지 않는다 — 완결 시 1회만', () => {
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const full = JSON.stringify(PORTFOLIO_SAMPLE);
-    let sawSectorsPartial = false;
+    let sawRiskFactorsPartial = false;
     for (const ch of full) {
       const { partial } = parser.feedWithPartial(ch);
-      if (partial?.key === 'sectors') sawSectorsPartial = true;
+      if (partial?.key === 'riskFactors') sawRiskFactorsPartial = true;
     }
-    expect(sawSectorsPartial).toBe(false);
+    expect(sawRiskFactorsPartial).toBe(false);
   });
 
-  it('sectors 문자열 값 안에 대괄호처럼 보이는 문자가 있어도(문자열 내부) 깊이 계산이 깨지지 않는다', () => {
+  it('riskFactors 문자열 값 안에 대괄호처럼 보이는 문자가 있어도(문자열 내부) 깊이 계산이 깨지지 않는다', () => {
     const withBracketInString = {
       ...PORTFOLIO_SAMPLE,
-      sectors: [{ name: '반도체[특수]', tickers: ['005930'], weight: 100, warning: false }],
+      riskFactors: [{ text: '반도체[특수] 섹터 집중', category: 'macro', relatedTickers: ['005930'] }],
     };
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const { fields } = parser.feedWithPartial(JSON.stringify(withBracketInString));
-    expect(fields.find(f => f.key === 'sectors')?.value).toEqual(withBracketInString.sectors);
-    expect(fields.find(f => f.key === 'riskFactors')?.value).toEqual(PORTFOLIO_SAMPLE.riskFactors);
+    expect(fields.find(f => f.key === 'riskFactors')?.value).toEqual(withBracketInString.riskFactors);
+    expect(fields.find(f => f.key === 'opportunityFactors')?.value).toEqual(PORTFOLIO_SAMPLE.opportunityFactors);
   });
 
-  it('문자 단위로 흘려도 summarySections_*/sectors/riskFactors 이후 모든 문자열 필드가 순서대로 정확히 완결된다(엔드투엔드)', () => {
+  it('문자 단위로 흘려도 summarySections_*/riskFactors 이후 모든 문자열 필드가 순서대로 정확히 완결된다(엔드투엔드)', () => {
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const full = JSON.stringify(PORTFOLIO_SAMPLE);
     const collected: Record<string, unknown> = {};
@@ -367,10 +368,10 @@ describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 sectors) + s
     expect(collected).toEqual(PORTFOLIO_SAMPLE);
   });
 
-  it('sectors가 빈 배열이어도 정상 처리된다', () => {
-    const empty = { ...PORTFOLIO_SAMPLE, sectors: [] };
+  it('riskFactors가 빈 배열이어도 정상 처리된다', () => {
+    const empty = { ...PORTFOLIO_SAMPLE, riskFactors: [] };
     const parser = new StreamingFieldParser(PORTFOLIO_SUMMARY_FIELD_SPECS);
     const { fields } = parser.feedWithPartial(JSON.stringify(empty));
-    expect(fields.find(f => f.key === 'sectors')?.value).toEqual([]);
+    expect(fields.find(f => f.key === 'riskFactors')?.value).toEqual([]);
   });
 });

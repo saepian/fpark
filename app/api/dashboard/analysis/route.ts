@@ -1,7 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { collectStockAnalysisData, computeTradingValueMultiple, buildTradingValueBlock } from '@/lib/stock-analysis-data';
+import { collectStockAnalysisData, computeTradingValueMultiple, buildTradingValueBlock, computeRiskMetrics } from '@/lib/stock-analysis-data';
 import { fetchDailyChart } from '@/lib/kis-api';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import { selectSectorMacroNews } from '@/lib/sector-news';
@@ -11,10 +11,14 @@ import { isKoreanMarketOpen } from '@/lib/market-utils';
 import type { Database, Json } from '@/lib/database.types';
 import {
   type HoldingInput, type EnrichedHolding, type StockAiResult, type PrevPortfolioRow,
+  type SectorBreakdownItem, type SectorConcentrationResult, type RiskContributionItem, type PortfolioCorrelationResult,
   EMPTY_SUMMARY_SECTIONS,
   buildPortfolioMarketDayBlock, buildPortfolioHistoryBlock, buildCoMovementText, buildHoldingPeriodFactsLine,
   analyzeOneStock, analyzePortfolioSummary,
   PORTFOLIO_FIRST_TONE, PORTFOLIO_ONE_DAY_TONE, PORTFOLIO_FEW_DAYS_TONE, PORTFOLIO_LONG_GAP_TONE,
+  computeSectorBreakdown, computeSectorConcentration, computeRiskContribution,
+  computePortfolioCorrelation, buildCorrelationFactsLine,
+  MIN_HOLDINGS_FOR_QUANT_METRICS,
 } from '@/lib/portfolio-analysis-pipeline';
 
 export const dynamic     = 'force-dynamic';
@@ -61,7 +65,10 @@ interface DashboardMergedHolding {
 interface DashboardAnalysisResult {
   totalInvested: number; totalValue: number; totalProfit: number; totalProfitRate: number;
   summary: string; summarySections: { background: string; newsInterpretation: string; historicalComparison: string; judgment: string };
-  sectors: unknown[]; holdings: DashboardMergedHolding[];
+  sectors: SectorBreakdownItem[]; holdings: DashboardMergedHolding[];
+  sectorConcentration: SectorConcentrationResult | null;
+  riskContribution: RiskContributionItem[] | null;
+  correlation: PortfolioCorrelationResult | null;
   riskFactors: unknown[]; opportunityFactors: string[];
   shortTermOutlook: string; midTermOutlook: string;
   coMovementText: string | null; coMovementNarrative: string;
@@ -121,6 +128,10 @@ export async function POST() {
           totalInvested: cached.totalInvested, totalValue: cached.totalValue,
           totalProfit: cached.totalProfit, totalProfitRate: cached.totalProfitRate,
           history: cached.history, holdingPeriod: cached.holdingPeriod,
+          // 이 필드들이 없는 옛 캐시(신설 이전 저장분)는 undefined ?? null로 안전 폴백 —
+          // 프론트는 null을 "종목 수 부족/계산 불가"와 동일하게 취급해 캡션으로 대체한다.
+          riskContribution: cached.riskContribution ?? null,
+          correlation: cached.correlation ?? null,
         });
         send(controller, {
           type: 'holding-meta',
@@ -140,6 +151,7 @@ export async function POST() {
         send(controller, { type: 'portfolio-field', key: 'summarySections_historicalComparison', value: cached.summarySections.historicalComparison });
         send(controller, { type: 'portfolio-field', key: 'summarySections_judgment', value: cached.summarySections.judgment });
         send(controller, { type: 'portfolio-field', key: 'sectors', value: cached.sectors });
+        send(controller, { type: 'portfolio-field', key: 'sectorConcentration', value: cached.sectorConcentration ?? null });
         send(controller, { type: 'portfolio-field', key: 'riskFactors', value: cached.riskFactors });
         send(controller, { type: 'portfolio-field', key: 'opportunityFactors', value: cached.opportunityFactors });
         send(controller, { type: 'portfolio-field', key: 'holdingPeriodNarrative', value: cached.holdingPeriod.narrative });
@@ -162,10 +174,13 @@ export async function POST() {
         send(controller, { type: 'progress', label: '종목 데이터 수집 중...' });
         console.log(`[DASHBOARD-ANALYSIS] 데이터 수집 시작 (${holdings.length}개 종목)`);
 
-        // v1 스코프: 벤치마크·배당·급등이력·MDD/변동성은 의도적으로 제외(portfolio-diagnosis
-        // 대비 트림된 Stage 0) — collectStockAnalysisData(현재가·PER·수급·뉴스)와
-        // fetchDailyChart('1M')(오늘 손익 기여도·거래대금배수 계산용, 급등이력/MDD엔 부족한
-        // 짧은 기간이라 자연히 그 계산에서는 빠짐)만 조회한다.
+        // v1 스코프: 벤치마크·배당·급등이력은 의도적으로 계속 제외(portfolio-diagnosis
+        // 대비 트림된 Stage 0) — collectStockAnalysisData(현재가·PER·수급·뉴스)만 조회한다.
+        // 2026-08-28: 정량 지표 B(종목간 상관관계)·C-1(변동성 기여도)가 1년치 일별 종가와
+        // computeRiskMetrics(mdd/volatility)를 필요로 해서, 차트 fetch를 '1M'→'1Y'로
+        // 늘리고 MDD/변동성 계산을 여기서도 추가했다(portfolio-diagnosis와 동일 호출 —
+        // KIS 한 번의 요청 범위만 다를 뿐 왕복 횟수는 그대로라 지연 영향은 미미할 것으로
+        // 판단, 실측으로 검증 필요).
         const analysisDataPromises = holdings.map(h =>
           withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
         );
@@ -190,7 +205,7 @@ export async function POST() {
         const [analysisResults, chartResults, newsSelectionResults, sectorMacroMap] = await Promise.all([
           Promise.allSettled(analysisDataPromises),
           Promise.allSettled(
-            holdings.map(h => withTimeout(fetchDailyChart(h.ticker, '1M'), 15000, null)),
+            holdings.map(h => withTimeout(fetchDailyChart(h.ticker, '1Y'), 15000, null)),
           ),
           Promise.allSettled(
             holdings.map((h, i) => {
@@ -224,6 +239,7 @@ export async function POST() {
 
           const cr        = chartResults[i];
           const chartData = (cr.status === 'fulfilled' && cr.value) ? cr.value : [];
+          const risk      = computeRiskMetrics(chartData.map(p => p.close));
 
           let todayChangeRate: number | null = null;
           let todayContribution: number | null = null;
@@ -243,7 +259,8 @@ export async function POST() {
             ...h, name: resolvedName, currentPrice, invested, value, profit, profitRate,
             analysisData: ad, relevantNews, sectorMacroNews,
             dividendSummary: null, dividendHistory: [],
-            mdd: null, volatility: null,
+            mdd:        risk?.mdd        ?? null,
+            volatility: risk?.volatility ?? null,
             todayChangeRate, todayContribution, surgeHistoryBlock: null, tradingValueBlock,
           };
         });
@@ -263,6 +280,19 @@ export async function POST() {
         const totalValue      = enriched.reduce((s, h) => s + h.value, 0);
         const totalProfit     = totalValue - totalInvested;
         const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
+
+        // 정량 지표 B·C-1 — portfolio-diagnosis와 동일 원칙(app/api/portfolio-diagnosis/
+        // route.ts 참고), Stage 1 없이 바로 계산 가능해 meta 이벤트로 즉시 흘려보낸다.
+        const hasEnoughHoldingsForQuant = enriched.length >= MIN_HOLDINGS_FOR_QUANT_METRICS;
+        const riskContribution = hasEnoughHoldingsForQuant
+          ? computeRiskContribution(enriched, totalValue)
+          : null;
+        const correlation = hasEnoughHoldingsForQuant
+          ? computePortfolioCorrelation(enriched.map((h, i) => {
+              const cr = chartResults[i];
+              return { weight: totalValue > 0 ? h.value / totalValue : 0, chart: (cr.status === 'fulfilled' && cr.value) ? cr.value : [] };
+            }))
+          : null;
 
         const lossHoldings  = enriched.filter(h => h.profitRate < 0);
         const lossCount     = lossHoldings.length;
@@ -332,6 +362,8 @@ export async function POST() {
             compositionChanged, addedTickers, removedTickers,
           },
           holdingPeriod: { longest: holdingPeriodFacts.longest, mostRecent: holdingPeriodFacts.mostRecent },
+          riskContribution,
+          correlation,
         });
         send(controller, {
           type: 'holding-meta',
@@ -354,7 +386,15 @@ export async function POST() {
 
         const coMovementText = buildCoMovementText(enriched, stockResults);
         const coMovementFactsLine = coMovementText ?? '동조화 사례 없음';
+        const correlationFactsLine = buildCorrelationFactsLine(correlation);
         send(controller, { type: 'stage1-done', coMovementText });
+
+        // 정량 지표 A — portfolio-diagnosis와 동일(stockResults 폴백이 있어야 그룹핑
+        // 가능해서 Stage 1 완료 직후). sectors는 이제 AI가 만들지 않는다.
+        const sectors = computeSectorBreakdown(enriched, stockResults, totalValue);
+        const sectorConcentration = hasEnoughHoldingsForQuant ? computeSectorConcentration(sectors) : null;
+        send(controller, { type: 'portfolio-field', key: 'sectors', value: sectors });
+        send(controller, { type: 'portfolio-field', key: 'sectorConcentration', value: sectorConcentration });
 
         send(controller, { type: 'progress', label: '포트폴리오 종합 분석 중...' });
         const nameMap: Record<string, string> = {};
@@ -382,7 +422,7 @@ export async function POST() {
           stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, null,
           { lossCount, lossWeightPct, riskiestLines: [] },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          '데이터 없음', coMovementFactsLine, gapTone, portfolioMarketDayBlock, 'dashboard',
+          '데이터 없음', coMovementFactsLine, correlationFactsLine, gapTone, portfolioMarketDayBlock, 'dashboard',
           emitPartial, emitField,
         );
         if (summary._failed) {
@@ -406,7 +446,12 @@ export async function POST() {
           totalProfitRate: parseFloat(totalProfitRate.toFixed(2)),
           summary: summary.summary ?? '',
           summarySections: summary.summarySections ?? EMPTY_SUMMARY_SECTIONS,
-          sectors: summary.sectors ?? [],
+          // sectors는 더 이상 AI 추정치가 아니라 실제 평가금액 기준 서버 계산값 —
+          // portfolio-diagnosis와 동일 원칙(위 computeSectorBreakdown 호출 참고).
+          sectors,
+          sectorConcentration,
+          riskContribution,
+          correlation,
           holdings: mergedHoldings,
           riskFactors: summary.riskFactors ?? [],
           opportunityFactors: summary.opportunityFactors ?? [],

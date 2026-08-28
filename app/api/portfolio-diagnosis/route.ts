@@ -28,6 +28,12 @@ import {
   buildPortfolioMarketDayBlock, buildPortfolioHistoryBlock, buildCoMovementText, buildHoldingPeriodFactsLine,
   analyzeOneStock, analyzePortfolioSummary,
   PORTFOLIO_FIRST_TONE, PORTFOLIO_ONE_DAY_TONE, PORTFOLIO_FEW_DAYS_TONE, PORTFOLIO_LONG_GAP_TONE,
+  computeSectorBreakdown, computeSectorConcentration, computeRiskContribution,
+  computePortfolioCorrelation, buildCorrelationFactsLine,
+  // 정량 지표(A/B/C-1) 공통 게이트 — 종목 수가 이보다 적으면 지표 자체가 무의미(N=1은
+  // 섹터든 상관관계든 계산할 대상이 없음)하다고 판단해 프론트에서 카드를 숨기고 캡션으로
+  // 대체한다(설계 검토 합의 사항).
+  MIN_HOLDINGS_FOR_QUANT_METRICS,
 } from '@/lib/portfolio-analysis-pipeline';
 
 export const dynamic     = 'force-dynamic';
@@ -376,6 +382,21 @@ export async function POST(request: NextRequest) {
         const totalProfit     = totalValue - totalInvested;
         const totalProfitRate = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
 
+        // 정량 지표 B(종목간 상관관계)·C-1(변동성 기여도) — 섹터 그룹핑(A)과 달리
+        // stockResults(Stage 1) 없이도 이미 계산 가능해서(둘 다 value/volatility/차트만
+        // 필요) Stage 1을 기다리지 않고 meta 이벤트로 바로 흘려보낸다. 종목 수가
+        // MIN_HOLDINGS_FOR_QUANT_METRICS 미만이면 지표 자체가 무의미해 null로 둔다.
+        const hasEnoughHoldingsForQuant = enriched.length >= MIN_HOLDINGS_FOR_QUANT_METRICS;
+        const riskContribution = hasEnoughHoldingsForQuant
+          ? computeRiskContribution(enriched, totalValue)
+          : null;
+        const correlation = hasEnoughHoldingsForQuant
+          ? computePortfolioCorrelation(enriched.map((h, i) => {
+              const cr = chartResults[i];
+              return { weight: totalValue > 0 ? h.value / totalValue : 0, chart: (cr.status === 'fulfilled' && cr.value) ? cr.value : [] };
+            }))
+          : null;
+
         // 배당 정보(2026-08-04 신설) — 전체 무배당이면 null(섹션 자체 미노출).
         const dividendSummary = computePortfolioDividendSummary(
           enriched.map(h => ({
@@ -492,6 +513,8 @@ export async function POST(request: NextRequest) {
             mostRecent: holdingPeriodFacts.mostRecent,
           },
           dividend: dividendSummary,
+          riskContribution,
+          correlation,
         });
         send(controller, {
           type: 'holding-meta',
@@ -562,7 +585,17 @@ export async function POST(request: NextRequest) {
         // Stage 1이 끝난 지금 시점에야 알 수 있다 — stage1-done 이벤트로 함께 통지.
         const coMovementText = buildCoMovementText(enriched, stockResults);
         const coMovementFactsLine = coMovementText ?? '동조화 사례 없음';
+        const correlationFactsLine = buildCorrelationFactsLine(correlation);
         send(controller, { type: 'stage1-done', coMovementText });
+
+        // 정량 지표 A(섹터 실효분산업종수) — 그룹핑 키가 stockResults(AI sector 라벨
+        // 폴백)를 필요로 해서 co-movement와 같은 시점(Stage 1 완료 직후)에야 계산 가능.
+        // sectors는 더 이상 AI 추정치가 아니라 여기서 계산한 실제 평가금액 기준 값을
+        // finalResult에 그대로 쓴다 — analyzePortfolioSummary는 이제 이 필드를 만들지 않는다.
+        const sectors = computeSectorBreakdown(enriched, stockResults, totalValue);
+        const sectorConcentration = hasEnoughHoldingsForQuant ? computeSectorConcentration(sectors) : null;
+        send(controller, { type: 'portfolio-field', key: 'sectors', value: sectors });
+        send(controller, { type: 'portfolio-field', key: 'sectorConcentration', value: sectorConcentration });
 
         // 포트폴리오 내 과거 유사 급등락 이력 — Stage 0에서 종목별로 이미 계산된 값을 모음
         const surgeFactsLine = enriched
@@ -604,7 +637,7 @@ export async function POST(request: NextRequest) {
           stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, benchmark,
           { lossCount, lossWeightPct, riskiestLines },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          surgeFactsLine, coMovementFactsLine, gapTone, portfolioMarketDayBlock, 'diagnosis',
+          surgeFactsLine, coMovementFactsLine, correlationFactsLine, gapTone, portfolioMarketDayBlock, 'diagnosis',
           emitPortfolioPartial, emitPortfolioField,
         );
         // Stage 1은 다 됐는데 Stage 2만 실패/폴백된 경우 — 이미 보여준 종목별 카드는
@@ -654,7 +687,12 @@ export async function POST(request: NextRequest) {
           totalProfitRate: parseFloat(totalProfitRate.toFixed(2)),
           summary:            summary.summary            ?? '',
           summarySections:    summary.summarySections    ?? EMPTY_SUMMARY_SECTIONS,
-          sectors:            summary.sectors            ?? [],
+          // sectors는 더 이상 AI 추정치가 아니라 실제 평가금액 기준 서버 계산값(위 Stage 1
+          // 직후 computeSectorBreakdown) — summary(AI 응답)에는 이 필드가 아예 없다.
+          sectors,
+          sectorConcentration,
+          riskContribution,
+          correlation,
           sectorSentiment,
           holdings:           mergedHoldings,
           riskFactors:        summary.riskFactors        ?? [],

@@ -61,13 +61,22 @@ interface DashboardSummarySections {
   background: string; newsInterpretation: string; historicalComparison: string; judgment: string;
 }
 
+// 정량 지표 3종(2026-08-28 신설) — app/portfolio-diagnosis/page.tsx와 동일 shape(손복제).
+interface DashboardSector { name: string; tickers: string[]; weight: number; warning: boolean }
+interface SectorConcentration { hhi: number; effectiveCount: number; grade: '고집중' | '보통' | '분산' }
+interface RiskContributionItem { ticker: string; name: string; pct: number }
+interface PortfolioCorrelation { correlation: number; sampleSize: number; bucket: '강한 동조화' | '보통 동조화' | '약한 동조화' }
+
 interface StreamedDashboardResult {
   totalInvested?: number; totalValue?: number; totalProfit?: number; totalProfitRate?: number;
   holdings?: DashboardHoldingResult[];
   history?: DashboardHistory;
   holdingPeriod?: { longest: HoldingPeriodEntry | null; mostRecent: HoldingPeriodEntry | null; narrative?: string };
   summarySections?: DashboardSummarySections;
-  sectors?: unknown[];
+  sectors?: DashboardSector[];
+  sectorConcentration?: SectorConcentration | null;
+  riskContribution?:    RiskContributionItem[] | null;
+  correlation?:         PortfolioCorrelation | null;
   riskFactors?: ({ text: string; category?: 'macro' | 'company' } | string)[];
   opportunityFactors?: string[];
   coMovementText?: string | null; coMovementNarrative?: string;
@@ -126,6 +135,31 @@ function FieldSkeleton({ lines = 2 }: { lines?: number }) {
         <div key={i} className="h-3 rounded bg-slate-700/40" style={{ width: i === lines - 1 ? '60%' : '100%' }} />
       ))}
     </div>
+  );
+}
+
+// 정량 지표 3종 공용 배지/캡션/색상 — app/portfolio-diagnosis/page.tsx와 동일(손복제).
+const SECTOR_HEX = [
+  '#6366f1', '#8b5cf6', '#0ea5e9', '#10b981',
+  '#f59e0b', '#ec4899', '#14b8a6', '#f97316',
+];
+
+function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning' | 'safe' }) {
+  const styles = {
+    danger:  { background: 'rgba(239,68,68,0.15)',  border: '1px solid rgba(239,68,68,0.3)',  color: '#f87171' },
+    warning: { background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' },
+    safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
+  }[tone];
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
+  );
+}
+
+function QuantMetricsCaption() {
+  return (
+    <p className="text-[11px] text-slate-600 bg-slate-800/30 border border-slate-700/40 rounded-xl px-4 py-3 mb-4">
+      종목 수가 적어 섹터 집중도·상관관계·리스크 기여도는 계산하지 않습니다(2종목 이상부터 계산).
+    </p>
   );
 }
 
@@ -1137,16 +1171,89 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {analysisResult.coMovementText && (
-              <Card title="섹터 동조화 관찰" className="mb-4">
-                <p className="text-[11px] text-slate-500 mb-2">{analysisResult.coMovementText}</p>
-                {analysisResult.coMovementNarrative !== undefined ? (
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {smoothText.revealed.coMovementNarrative?.text ?? analysisResult.coMovementNarrative}
-                    {smoothText.revealed.coMovementNarrative?.active && <TypingCursor />}
-                  </p>
-                ) : !stage2Failed && <FieldSkeleton lines={1} />}
-              </Card>
+            {/* 정량 지표 3종(2026-08-28 신설) — app/portfolio-diagnosis/page.tsx와 동일
+                원칙. 대시보드는 원래 섹터 비중 카드 자체가 없었지만, sectors가 이제
+                서버 계산값(실제 평가금액 기준)이라 여기서도 그대로 보여줄 근거가 있다. */}
+            {(holdings?.length ?? 0) > 0 && (holdings?.length ?? 0) < 2 ? (
+              <QuantMetricsCaption />
+            ) : (
+              <>
+                {analysisResult.sectors && analysisResult.sectors.length > 0 && (
+                  <Card title="섹터 편중도 분석" className="mb-4">
+                    {analysisResult.sectorConcentration && (
+                      <div className="flex items-center gap-2 mb-4">
+                        <GradeBadge
+                          label={`섹터 집중도: ${analysisResult.sectorConcentration.grade}`}
+                          tone={analysisResult.sectorConcentration.grade === '고집중' ? 'danger' : analysisResult.sectorConcentration.grade === '보통' ? 'warning' : 'safe'}
+                        />
+                        <span className="text-[11px] text-slate-500">실효 {analysisResult.sectorConcentration.effectiveCount}개 업종</span>
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-3">
+                      {[...analysisResult.sectors].sort((a, b) => b.weight - a.weight).map((s, i) => (
+                        <div key={s.name}>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: SECTOR_HEX[i % SECTOR_HEX.length] }} />
+                              <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
+                              {s.warning && <GradeBadge label="과집중" tone="danger" />}
+                            </div>
+                            <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${s.weight}%`, backgroundColor: s.warning ? '#ef4444' : SECTOR_HEX[i % SECTOR_HEX.length] }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+
+                {(analysisResult.coMovementText || analysisResult.correlation) && (
+                  <Card className="mb-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>섹터 동조화 관찰</p>
+                      {analysisResult.correlation && (
+                        <GradeBadge
+                          label={analysisResult.correlation.bucket}
+                          tone={analysisResult.correlation.bucket === '강한 동조화' ? 'danger' : analysisResult.correlation.bucket === '보통 동조화' ? 'warning' : 'safe'}
+                        />
+                      )}
+                    </div>
+                    {analysisResult.coMovementText && <p className="text-[11px] text-slate-500 mb-2">{analysisResult.coMovementText}</p>}
+                    {analysisResult.coMovementNarrative !== undefined ? (
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        {smoothText.revealed.coMovementNarrative?.text ?? analysisResult.coMovementNarrative}
+                        {smoothText.revealed.coMovementNarrative?.active && <TypingCursor />}
+                      </p>
+                    ) : !stage2Failed && <FieldSkeleton lines={1} />}
+                  </Card>
+                )}
+
+                {analysisResult.riskContribution && analysisResult.riskContribution.length > 0 && (
+                  <Card title="변동성 기여도" className="mb-4">
+                    <p className="text-[10.5px] text-slate-600 mb-4">
+                      비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      {analysisResult.riskContribution.map((r, i) => (
+                        <div key={r.ticker}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[13px] text-slate-300 font-medium">{r.name}</span>
+                            <span className="text-[13px] font-mono text-slate-400">{r.pct}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
+                            <div className="h-full rounded-full transition-all" style={{ width: `${r.pct}%`, backgroundColor: SECTOR_HEX[i % SECTOR_HEX.length] }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+              </>
             )}
 
             {reportReady && (

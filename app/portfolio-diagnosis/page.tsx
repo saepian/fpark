@@ -43,6 +43,13 @@ interface Sector {
   warning: boolean;
 }
 
+// 정량 지표 3종(2026-08-28 신설, 설계 검토 문서 참고) — 전부 AI가 아니라 서버 계산값.
+// 종목 수가 MIN_HOLDINGS_FOR_QUANT_METRICS(2) 미만이면 서버가 null을 보내고, 프론트는
+// 그 경우를 "종목 수가 적어 계산하지 않음" 캡션으로 통일해서 보여준다.
+interface SectorConcentration { hhi: number; effectiveCount: number; grade: '고집중' | '보통' | '분산' }
+interface RiskContributionItem { ticker: string; name: string; pct: number }
+interface PortfolioCorrelation { correlation: number; sampleSize: number; bucket: '강한 동조화' | '보통 동조화' | '약한 동조화' }
+
 // 섹터별 최근 뉴스 논조(2단계 UI 노출, 2026-08-21) — news_sentiment_daily는 CURATED_TICKERS_MKT
 // (대형주 100종목) 한정이라 보유종목 전체가 아니라 일부만 반영될 수 있다. coveredCount/totalCount로
 // "N종목 중 M종목만 반영" 각주를 달고, 데이터 있는 종목이 0개인 섹터는 서버가 애초에 제외한다.
@@ -128,6 +135,9 @@ interface PortfolioResult {
   summary:          string;
   summarySections?: PortfolioSummarySections; // 있으면 소제목별 렌더링, 없으면(과거 레코드) summary 문자열로 폴백
   sectors:          Sector[];
+  sectorConcentration?: SectorConcentration | null;
+  riskContribution?:    RiskContributionItem[] | null;
+  correlation?:         PortfolioCorrelation | null;
   sectorSentiment?: SectorSentimentEntry[];
   holdings:         HoldingResult[];
   riskFactors?:        RiskFactorEntry[];
@@ -280,6 +290,30 @@ function StatDelta({ label, value, positive }: { label: string; value: string; p
       <span className="text-[11px] text-slate-500">{label}</span>
       <span className={`text-[13px] font-bold font-mono ${positive ? 'text-red-400' : 'text-blue-400'}`}>{value}</span>
     </div>
+  );
+}
+
+// 정량 지표 3종 공용 배지 — 등급 문구를 색으로도 구분해 숫자를 못 읽어도 위험도가
+// 직관적으로 전달되게 한다(색맹 접근성까지는 아니지만 문구가 항상 함께 있어 텍스트만으로도
+// 판단 가능). 종목 수 부족 시엔 이 배지 대신 QuantMetricsCaption으로 통일해서 보여준다.
+function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning' | 'safe' }) {
+  const styles = {
+    danger:  { background: 'rgba(239,68,68,0.15)',  border: '1px solid rgba(239,68,68,0.3)',  color: '#f87171' },
+    warning: { background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' },
+    safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
+  }[tone];
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
+  );
+}
+
+// 종목 수(1개)가 적어 정량 지표 3종(섹터 집중도·상관관계·리스크 기여도)을 계산하지 않을 때
+// 공통으로 보여주는 캡션 — 카드마다 따로 안내하면 반복적이라 하나로 통일했다.
+function QuantMetricsCaption() {
+  return (
+    <p className="text-[11px] text-slate-600 bg-slate-800/30 border border-slate-700/40 rounded-xl px-4 py-3 mb-4">
+      종목 수가 적어 섹터 집중도·상관관계·리스크 기여도는 계산하지 않습니다(2종목 이상부터 계산).
+    </p>
   );
 }
 
@@ -732,9 +766,14 @@ export default function PortfolioDiagnosisPage() {
     const holdingsList    = result.holdings ?? [];
     const topContributors = result.topContributors ?? { n: 0, positive: [], negative: [] };
     const isUp = totalProfitRate >= 0;
-    // sectors는 Stage2 완료 시 한 번에 도착 — 그 전엔 undefined
+    // sectors는 Stage 1 완료 직후 서버 계산값으로 도착(2026-08-28 — 예전엔 AI Stage2
+    // 완료를 기다려야 했던 것보다 빨라짐). 그 전엔 undefined.
     const sortedSectors = result.sectors ? [...result.sectors].sort((a, b) => b.weight - a.weight) : null;
     const reportReady = streamFinished && !stage2Failed;
+    // 정량 지표 3종(섹터 집중도·상관관계·리스크 기여도) 공통 게이트 — holdings 배열은
+    // holding-meta 이벤트로 Stage 1보다도 먼저 채워지므로, 종목 수 자체는 이 값들이
+    // 도착하기 전에도 이미 알 수 있다.
+    const quantMetricsSuppressed = holdingsList.length > 0 && holdingsList.length < 2;
     const excludedDividendNote = result.dividend ? formatExcludedHoldingsNote(result.dividend.excludedHoldings) : null;
 
     return (
@@ -944,7 +983,7 @@ export default function PortfolioDiagnosisPage() {
             </Card>
           )}
 
-          {/* 3행: 섹터 편중도 — Stage2 완료 시 한 번에 도착(부분 표시 없음) */}
+          {/* 3행: 섹터 편중도 — Stage 1 완료 직후 서버 계산값으로 도착(부분 표시 없음) */}
           {sortedSectors === null ? (
             !stage2Failed && (
               <Card title="섹터 편중도 분석" className="mb-4">
@@ -953,6 +992,20 @@ export default function PortfolioDiagnosisPage() {
             )
           ) : (
             <Card title="섹터 편중도 분석" className="mb-4">
+              {/* 정량 지표 A(섹터 실효분산업종수) — HHI(비중 제곱합)의 역수로, "종목은
+                  여러 개여도 사실상 몇 개 업종에 분산된 효과인지"를 직관적인 개수로
+                  보여준다. 종목 수 부족 시엔 캡션으로 대체(quantMetricsSuppressed). */}
+              {quantMetricsSuppressed ? (
+                <QuantMetricsCaption />
+              ) : result.sectorConcentration ? (
+                <div className="flex items-center gap-2 mb-4">
+                  <GradeBadge
+                    label={`섹터 집중도: ${result.sectorConcentration.grade}`}
+                    tone={result.sectorConcentration.grade === '고집중' ? 'danger' : result.sectorConcentration.grade === '보통' ? 'warning' : 'safe'}
+                  />
+                  <span className="text-[11px] text-slate-500">실효 {result.sectorConcentration.effectiveCount}개 업종</span>
+                </div>
+              ) : null}
               <div className="flex flex-col gap-3">
                 {sortedSectors.map((s, i) => {
                   const hex = SECTOR_HEX[i % SECTOR_HEX.length];
@@ -1054,8 +1107,8 @@ export default function PortfolioDiagnosisPage() {
           )}
 
           {/* 3-2행: 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
-          {((topContributors.positive.length ?? 0) > 0 || (topContributors.negative.length ?? 0) > 0 || result.coMovementText) && (
-            <div className={`grid grid-cols-1 ${result.coMovementText ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+          {((topContributors.positive.length ?? 0) > 0 || (topContributors.negative.length ?? 0) > 0 || result.coMovementText || result.correlation) && (
+            <div className={`grid grid-cols-1 ${(result.coMovementText || result.correlation) ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
               {(topContributors.positive.length > 0 || topContributors.negative.length > 0) && (
                 <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
                   <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-1`}>
@@ -1086,10 +1139,22 @@ export default function PortfolioDiagnosisPage() {
                   )}
                 </div>
               )}
-              {result.coMovementText && (
+              {(result.coMovementText || result.correlation) && (
                 <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                  <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-3`}>섹터 동조화 관찰</p>
-                  <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>섹터 동조화 관찰</p>
+                    {/* 정량 지표 B(종목간 상관관계) — 원시 상관계수는 화면에 그대로
+                        노출하지 않고(전문용어 그대로는 신뢰를 오히려 깎을 수 있다는
+                        설계 검토 판단) "강함/보통/약함" 배지로만 보여준다. 실제 상관계수
+                        수치는 AI 프롬프트(coMovementNarrative 생성용 사실)에만 전달된다. */}
+                    {result.correlation && (
+                      <GradeBadge
+                        label={result.correlation.bucket}
+                        tone={result.correlation.bucket === '강한 동조화' ? 'danger' : result.correlation.bucket === '보통 동조화' ? 'warning' : 'safe'}
+                      />
+                    )}
+                  </div>
+                  {result.coMovementText && <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>}
                   {result.coMovementNarrative !== undefined ? (
                     <p className="text-xs text-slate-300 leading-relaxed">
                       {smoothText.revealed.coMovementNarrative?.text ?? result.coMovementNarrative}{smoothText.revealed.coMovementNarrative?.active && <TypingCursor />}
@@ -1100,6 +1165,32 @@ export default function PortfolioDiagnosisPage() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* 3-3행: 변동성 기여도(정량 지표 C-1, 신설) — 비중×변동성 단순 근사치이며
+              종목 간 상관관계는 반영하지 않는다는 점을 라벨에 명시해 과대해석을 방지한다. */}
+          {result.riskContribution && result.riskContribution.length > 0 && (
+            <Card title="변동성 기여도" className="mb-4">
+              <p className="text-[10.5px] text-slate-600 mb-4">
+                비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
+              </p>
+              <div className="flex flex-col gap-3">
+                {result.riskContribution.map((r, i) => (
+                  <div key={r.ticker}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[13px] text-slate-300 font-medium">{r.name}</span>
+                      <span className="text-[13px] font-mono text-slate-400">{r.pct}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${r.pct}%`, backgroundColor: SECTOR_HEX[i % SECTOR_HEX.length] }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
           )}
 
           {/* 4행: 기업별 관찰 지표 — 카드 위치는 입력 순서 고정, 내용(섹터/사유)은 완료되는 대로 채움 */}

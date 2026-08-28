@@ -9,7 +9,7 @@ import type { ChartDataPoint } from './types';
 // 재사용, TTL만 다름).
 const USDKRW_CACHE_KEY = 'usdkrw_1y_daily';
 const USDKRW_TTL_MS = 12 * 60 * 60 * 1000; // 12시간 — 환율 시계열은 하루 몇 번씩 새로 받을 필요 없음
-const MIN_SAMPLE_SIZE = 30;   // 이보다 교집합 표본이 적으면 상관계수를 신뢰하기 어려워 null
+export const MIN_SAMPLE_SIZE = 30;   // 이보다 교집합 표본이 적으면 상관계수를 신뢰하기 어려워 null
 const WEAK_CORRELATION = 0.3; // |r| < 0.3이면 "약한 상관"으로 판단해 카드 자체 생략(호출부 책임)
 
 let _sb: ReturnType<typeof createClient<Database>> | null = null;
@@ -92,7 +92,8 @@ export async function fetchUsdKrwDaily1Y(): Promise<FxDailyPoint[]> {
 // 일별 종가 배열 → {날짜: 전일 대비 수익률} 맵. computeRiskMetrics(lib/stock-analysis-data.ts)와
 // 같은 "종가 레벨이 아니라 일별 %변화율" 원칙 — 두 시계열 다 장기 추세가 있어 레벨끼리
 // 상관계수를 내면 실제 일별 관계와 무관하게 허위로 높게 나올 수 있다(spurious correlation).
-function toDailyReturns(points: { date: string; close: number }[]): Map<string, number> {
+// export: lib/portfolio-analysis-pipeline.ts의 종목간 상관관계 계산이 동일 원칙을 재사용.
+export function toDailyReturns(points: { date: string; close: number }[]): Map<string, number> {
   const map = new Map<string, number>();
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1].close;
@@ -111,41 +112,51 @@ export type FxCorrelationResult = {
   sampleSize: number;  // 상관계수 계산에 실제로 쓰인 날짜 교집합 개수
 };
 
-// 종목 일별 수익률 vs 환율 일별 수익률의 피어슨 상관계수. 날짜 교집합(inner join)만
-// 사용하고, 표본이 MIN_SAMPLE_SIZE보다 적으면 신뢰할 수 없다고 보고 null. |r|이
-// WEAK_CORRELATION(0.3) 미만인 "약한 상관"도 여기서는 그대로 반환하며(계산 자체는
-// 유효한 결과), UI에 보여줄지 여부는 호출부가 이 임계값으로 판단한다.
+// 두 "날짜→일별수익률" 맵의 피어슨 상관계수 core — computeFxCorrelation(종목 vs 환율)과
+// lib/portfolio-analysis-pipeline.ts의 종목×종목 쌍별 계산이 공유한다. 날짜 교집합(inner
+// join)만 쓰고, 표본이 minSampleSize보다 적으면 신뢰할 수 없다고 보고 null. correlation은
+// 반올림하지 않은 원값을 반환 — 여러 쌍을 가중평균할 때 중간 반올림 오차가 누적되는 걸
+// 방지하기 위함(반올림은 호출부가 최종 표시 직전에 한 번만).
+export function correlateReturnMaps(
+  a: Map<string, number>,
+  b: Map<string, number>,
+  minSampleSize: number = MIN_SAMPLE_SIZE,
+): { correlation: number; sampleSize: number } | null {
+  const matched: { a: number; b: number }[] = [];
+  for (const [date, av] of a) {
+    const bv = b.get(date);
+    if (bv !== undefined) matched.push({ a: av, b: bv });
+  }
+
+  if (matched.length < minSampleSize) return null;
+
+  const n = matched.length;
+  const meanA = matched.reduce((s, m) => s + m.a, 0) / n;
+  const meanB = matched.reduce((s, m) => s + m.b, 0) / n;
+
+  let cov = 0, varA = 0, varB = 0;
+  for (const m of matched) {
+    const da = m.a - meanA;
+    const db = m.b - meanB;
+    cov += da * db;
+    varA += da * da;
+    varB += db * db;
+  }
+  if (varA === 0 || varB === 0) return null;
+
+  return { correlation: cov / Math.sqrt(varA * varB), sampleSize: n };
+}
+
+// 종목 일별 수익률 vs 환율 일별 수익률의 피어슨 상관계수. |r|이 WEAK_CORRELATION(0.3)
+// 미만인 "약한 상관"도 여기서는 그대로 반환하며(계산 자체는 유효한 결과), UI에 보여줄지
+// 여부는 호출부가 이 임계값으로 판단한다.
 export function computeFxCorrelation(
   stockChart: ChartDataPoint[],
   fxDaily: FxDailyPoint[],
 ): FxCorrelationResult | null {
-  const stockReturns = toDailyReturns(stockChart);
-  const fxReturns    = toDailyReturns(fxDaily);
-
-  const matched: { stock: number; fx: number }[] = [];
-  for (const [date, stockRet] of stockReturns) {
-    const fxRet = fxReturns.get(date);
-    if (fxRet !== undefined) matched.push({ stock: stockRet, fx: fxRet });
-  }
-
-  if (matched.length < MIN_SAMPLE_SIZE) return null;
-
-  const n = matched.length;
-  const meanStock = matched.reduce((s, m) => s + m.stock, 0) / n;
-  const meanFx    = matched.reduce((s, m) => s + m.fx, 0) / n;
-
-  let cov = 0, varStock = 0, varFx = 0;
-  for (const m of matched) {
-    const ds = m.stock - meanStock;
-    const df = m.fx - meanFx;
-    cov += ds * df;
-    varStock += ds * ds;
-    varFx += df * df;
-  }
-  if (varStock === 0 || varFx === 0) return null;
-
-  const r = cov / Math.sqrt(varStock * varFx);
-  return { correlation: parseFloat(r.toFixed(2)), sampleSize: n };
+  const result = correlateReturnMaps(toDailyReturns(stockChart), toDailyReturns(fxDaily));
+  if (!result) return null;
+  return { correlation: parseFloat(result.correlation.toFixed(2)), sampleSize: result.sampleSize };
 }
 
 export function isFxCorrelationMeaningful(r: FxCorrelationResult | null): r is FxCorrelationResult {
