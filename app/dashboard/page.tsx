@@ -396,6 +396,13 @@ export default function DashboardPage() {
 
   const lastUpdatedRef   = useRef<Date | null>(null);
   const isRefreshingRef  = useRef(false);
+  // 2026-08-28: isRefreshingRef가 폴링끼리 안 겹치게 막는 건 맞지만, 그 사이에 들어온
+  // "진짜 새로고침이 필요한" 호출(예: 편집 모달 저장 직후 loadHoldings())까지 조용히
+  // 버려지는 레이스컨디션이 있었다(8/26 buyDate 편집기능 검증 중 발견 — 저장 직후 연필
+  // 아이콘 색이 안 바뀌고 새로고침해야 반영됨). 진행 중인 요청과 겹치면 무시하는 대신
+  // "끝나면 한 번 더 실행"으로 큐잉해 폴링 중복 방지 목적은 그대로 유지하면서도 어떤
+  // 호출도 완전히 유실되지 않게 한다.
+  const refreshPendingRef = useRef(false);
 
   // AI 분석
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -419,8 +426,14 @@ export default function DashboardPage() {
   // ── Init ──────────────────────────────────────────────────────────────────
 
   const loadHoldings = useCallback(async () => {
-    if (isRefreshingRef.current) return;
+    if (isRefreshingRef.current) {
+      // 이미 요청이 진행 중 — 이 호출을 버리지 않고 큐에 표시만 해둔다. 진행 중인
+      // 요청이 끝나면 finally에서 이 표시를 보고 한 번 더 실행한다.
+      refreshPendingRef.current = true;
+      return;
+    }
     isRefreshingRef.current = true;
+    refreshPendingRef.current = false;
     try {
       const res  = await fetch('/api/dashboard/holdings');
       const data = await res.json();
@@ -436,6 +449,10 @@ export default function DashboardPage() {
     } finally {
       lastUpdatedRef.current = new Date();
       isRefreshingRef.current = false;
+      if (refreshPendingRef.current) {
+        refreshPendingRef.current = false;
+        loadHoldings();
+      }
     }
   }, []);
 
