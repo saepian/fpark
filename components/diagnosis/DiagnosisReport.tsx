@@ -440,9 +440,63 @@ function MainAnalysisBody({ result, isGenerating, revealed }: { result: Diagnosi
   );
 }
 
-// "직전 기업분석 대비" 카드 — 종목 리포트(components/stock/AiAnalysis.tsx)의 "🔄 어제 대비"
-// 카드와 동일한 시각 언어를 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시하고
-// (AI가 지어낸 숫자가 아님), narrative만 AI 해석 문장이다.
+// "YYYY-MM-DD" → "8/18" — 카드 안에서만 쓰는 짧은 날짜 라벨.
+function fmtShortDate(dateStr: string): string {
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  return `${Number(parts[1])}/${Number(parts[2])}`;
+}
+
+// 그때(직전 진단)/지금(오늘)의 "절대적 손익 상태" 한 블록. 색상은 이 블록 자신의
+// 부호로 정한다(수익=빨강/손실=파랑 — 한국 관례) — 델타 부호로 정하지 않는다.
+// emphasize(오늘 쪽)만 크고 진하게 키워 "지금 수익 중인지 손실 중인지"가 먼저 눈에
+// 들어오게 하고, 그때 쪽은 같은 색 규칙을 쓰되 작고 옅게 눌러 보조 정보로 남긴다.
+function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: number; amount: number; emphasize: boolean }) {
+  const color = rate >= 0 ? 'text-red-400' : 'text-blue-400';
+  return (
+    <div className={emphasize ? '' : 'opacity-60'}>
+      <p className="text-[10px] text-slate-500 mb-0.5">{label}</p>
+      <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>
+        {fmtRate(rate)}
+      </p>
+      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[10.5px]'}`}>
+        {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
+      </p>
+    </div>
+  );
+}
+
+// 그때→지금 조합별 보조 문구 — 델타 부호만이 아니라 "상태(수익/손실) 유지냐 전환이냐"까지
+// 구분해서 서술한다. 수익유지(증가/감소)·수익→손실전환·손실→수익전환·손실유지(악화/회복)
+// 6가지 조합을 전부 커버(설계 검토에서 요구한 4가지 핵심 케이스 + 대칭 케이스).
+function buildStateSentence(prevRate: number, rateDelta: number, amountDelta: number): string {
+  const prevProfit = prevRate >= 0;
+  const currProfit = prevRate + rateDelta >= 0;
+  const rateStr   = `${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`;
+  const amountStr = `${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`;
+  const deltaTxt  = `직전 대비 ${rateStr}(${amountStr})`;
+
+  if (prevProfit && currProfit) {
+    return rateDelta >= 0
+      ? `${deltaTxt} 늘며 수익 폭이 커졌습니다.`
+      : `${deltaTxt} 줄었지만, 여전히 수익 구간입니다.`;
+  }
+  if (prevProfit && !currProfit) {
+    return `${deltaTxt} — 직전 수익 구간에서 손실로 전환됐습니다.`;
+  }
+  if (!prevProfit && currProfit) {
+    return `${deltaTxt} — 직전 손실 구간에서 수익으로 전환됐습니다.`;
+  }
+  return rateDelta < 0
+    ? `${deltaTxt} — 손실 폭이 커졌습니다.`
+    : `${deltaTxt} — 손실 폭이 줄었지만, 여전히 손실 구간입니다.`;
+}
+
+// "직전 기업분석 대비" 카드 — 그때/지금의 절대 손익 상태를 나란히 먼저 보여주고, 변화량은
+// 그 아래 보조 문구로만 붙인다(2026-08-28 재설계 — 델타만 보여주면 "지금도 수익 중인데
+// 손실 난 것처럼" 오해할 수 있다는 문제 대응). 델타 수치·상태 문구 전부 서버가 계산해
+// 넘긴 값으로 서버가/이 컴포넌트가 결정형으로 만들고(AI가 지어낸 숫자 아님), narrative만
+// AI 해석 문장이다.
 function HistoryCompareCard({ result, isGenerating, revealed }: { result: DiagnosisResult; isGenerating?: boolean; revealed?: Record<string, RevealedField> }) {
   const h = result.history;
   const isFirst = h.daysSince === null;
@@ -458,27 +512,41 @@ function HistoryCompareCard({ result, isGenerating, revealed }: { result: Diagno
   // 서로 다른 기준(분모)으로 계산된 값이라 단순 차감이 무의미해진다(실측 사례 —
   // avgPrice 70,000→290,000일 때 rateDelta가 -313.12%p로 왜곡됨). amountDelta와
   // 동일하게 holdingsChanged로 게이팅. priceDelta는 매입가와 무관해 계속 유효.
-  const rateDelta   = !isFirst && !h.holdingsChanged && typeof h.prevProfitRate === 'number' ? result.profitRate - h.prevProfitRate : null;
-  const amountDelta = !isFirst && !h.holdingsChanged && typeof h.prevProfitAmount === 'number' ? result.profitAmount - h.prevProfitAmount : null;
+  const canCompareState = !isFirst && !h.holdingsChanged && typeof h.prevProfitRate === 'number' && typeof h.prevProfitAmount === 'number';
+  const rateDelta   = canCompareState ? result.profitRate - h.prevProfitRate! : null;
+  const amountDelta = canCompareState ? result.profitAmount - h.prevProfitAmount! : null;
   const priceDelta  = !isFirst && typeof h.prevCurrentPrice === 'number' ? result.currentPrice - h.prevCurrentPrice : null;
+  const prevDateLabel = h.prevDate ? fmtShortDate(h.prevDate) : null;
 
   return (
     <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
       <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-wide mb-2`}>{label}</p>
       {!isFirst && (
-        <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
-          {rateDelta !== null && (
-            <StatDelta label="수익률" value={`${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`} positive={rateDelta >= 0} />
+        <div className="mb-2.5">
+          {canCompareState ? (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2">
+              <StateBlock label={prevDateLabel ? `직전 진단(${prevDateLabel})` : '직전 진단'} rate={h.prevProfitRate!} amount={h.prevProfitAmount!} emphasize={false} />
+              <span className="text-slate-600 text-[13px]">→</span>
+              <StateBlock label="오늘" rate={result.profitRate} amount={result.profitAmount} emphasize />
+            </div>
+          ) : (
+            <div className="mb-2">
+              <StateBlock label="오늘" rate={result.profitRate} amount={result.profitAmount} emphasize />
+            </div>
           )}
-          {amountDelta !== null && (
-            <StatDelta label="평가손익" value={`${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`} positive={amountDelta >= 0} />
-          )}
-          {priceDelta !== null && (
-            <StatDelta label="주가" value={`${priceDelta >= 0 ? '+' : ''}${fmt(Math.round(priceDelta))}원`} positive={priceDelta >= 0} />
-          )}
-          {h.holdingsChanged && (
-            <span className="text-[11px] text-amber-500/80">보유정보 변경으로 수익률·손익 금액 비교 제외</span>
-          )}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
+            {canCompareState && (
+              <span className="text-[11.5px] text-slate-400">
+                {buildStateSentence(h.prevProfitRate!, rateDelta!, amountDelta!)}
+              </span>
+            )}
+            {priceDelta !== null && (
+              <StatDelta label="주가" value={`${priceDelta >= 0 ? '+' : ''}${fmt(Math.round(priceDelta))}원`} positive={priceDelta >= 0} />
+            )}
+            {h.holdingsChanged && (
+              <span className="text-[11px] text-amber-500/80">보유정보 변경으로 수익률·손익 금액 비교 제외</span>
+            )}
+          </div>
         </div>
       )}
       {h.narrative ? (

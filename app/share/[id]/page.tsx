@@ -279,8 +279,57 @@ function StatDelta({ label, value, positive }: { label: string; value: string; p
   );
 }
 
-// components/diagnosis/DiagnosisReport.tsx의 HistoryCompareCard와 동일한 로직 —
+// "YYYY-MM-DD" → "8/18"
+function fmtShortDate(dateStr: string): string {
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  return `${Number(parts[1])}/${Number(parts[2])}`;
+}
+
+// components/diagnosis/DiagnosisReport.tsx의 StateBlock과 동일 — 손복제.
+function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: number; amount: number; emphasize: boolean }) {
+  const color = rate >= 0 ? 'text-red-400' : 'text-blue-400';
+  return (
+    <div className={emphasize ? '' : 'opacity-60'}>
+      <p className="text-[10px] text-slate-500 mb-0.5">{label}</p>
+      <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>{fmtRate(rate)}</p>
+      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[10.5px]'}`}>
+        {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
+      </p>
+    </div>
+  );
+}
+
+// components/diagnosis/DiagnosisReport.tsx의 buildStateSentence와 동일 — 손복제.
+function buildStateSentence(prevRate: number, rateDelta: number, amountDelta: number): string {
+  const prevProfit = prevRate >= 0;
+  const currProfit = prevRate + rateDelta >= 0;
+  const rateStr   = `${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`;
+  const amountStr = `${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`;
+  const deltaTxt  = `직전 대비 ${rateStr}(${amountStr})`;
+
+  if (prevProfit && currProfit) {
+    return rateDelta >= 0
+      ? `${deltaTxt} 늘며 수익 폭이 커졌습니다.`
+      : `${deltaTxt} 줄었지만, 여전히 수익 구간입니다.`;
+  }
+  if (prevProfit && !currProfit) {
+    return `${deltaTxt} — 직전 수익 구간에서 손실로 전환됐습니다.`;
+  }
+  if (!prevProfit && currProfit) {
+    return `${deltaTxt} — 직전 손실 구간에서 수익으로 전환됐습니다.`;
+  }
+  return rateDelta < 0
+    ? `${deltaTxt} — 손실 폭이 커졌습니다.`
+    : `${deltaTxt} — 손실 폭이 줄었지만, 여전히 손실 구간입니다.`;
+}
+
+// components/diagnosis/DiagnosisReport.tsx의 HistoryCompareCard와 동일한 로직(2026-08-28
+// 재설계 — 그때/지금 절대 상태를 먼저 보여주고 변화량은 보조 문구로) —
 // 이 파일은 그 컴포넌트를 재사용하지 않고 손복제된 구조라 함께 갱신해야 한다.
+// (겸사겸사 수정: 기존 이 파일 버전은 rateDelta에 holdingsChanged 게이팅이 빠져있던
+// 드리프트 버그가 있었음 — amountDelta는 이미 게이팅돼 있었는데 rateDelta만 누락됨.
+// 이번에 canCompareState 하나로 통일하며 같이 바로잡았다.)
 function HistoryCompareCard({ d }: { d: DiagnosisData }) {
   const h = d.history;
   const isFirst = h.daysSince === null;
@@ -292,27 +341,41 @@ function HistoryCompareCard({ d }: { d: DiagnosisData }) {
         ? `🔄 ${h.daysSince}일 전 진단 대비`
         : '🔄 오랜만에 재조회';
 
-  const rateDelta   = !isFirst && typeof h.prevProfitRate === 'number' ? d.profitRate - h.prevProfitRate : null;
-  const amountDelta = !isFirst && !h.holdingsChanged && typeof h.prevProfitAmount === 'number' ? d.profitAmount - h.prevProfitAmount : null;
+  const canCompareState = !isFirst && !h.holdingsChanged && typeof h.prevProfitRate === 'number' && typeof h.prevProfitAmount === 'number';
+  const rateDelta   = canCompareState ? d.profitRate - h.prevProfitRate! : null;
+  const amountDelta = canCompareState ? d.profitAmount - h.prevProfitAmount! : null;
   const priceDelta  = !isFirst && typeof h.prevCurrentPrice === 'number' ? d.currentPrice - h.prevCurrentPrice : null;
+  const prevDateLabel = h.prevDate ? fmtShortDate(h.prevDate) : null;
 
   return (
     <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
       <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
       {!isFirst && (
-        <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
-          {rateDelta !== null && (
-            <StatDelta label="수익률" value={`${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`} positive={rateDelta >= 0} />
+        <div className="mb-2.5">
+          {canCompareState ? (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2">
+              <StateBlock label={prevDateLabel ? `직전 진단(${prevDateLabel})` : '직전 진단'} rate={h.prevProfitRate!} amount={h.prevProfitAmount!} emphasize={false} />
+              <span className="text-slate-600 text-[13px]">→</span>
+              <StateBlock label="오늘" rate={d.profitRate} amount={d.profitAmount} emphasize />
+            </div>
+          ) : (
+            <div className="mb-2">
+              <StateBlock label="오늘" rate={d.profitRate} amount={d.profitAmount} emphasize />
+            </div>
           )}
-          {amountDelta !== null && (
-            <StatDelta label="평가손익" value={`${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`} positive={amountDelta >= 0} />
-          )}
-          {priceDelta !== null && (
-            <StatDelta label="주가" value={`${priceDelta >= 0 ? '+' : ''}${fmt(Math.round(priceDelta))}원`} positive={priceDelta >= 0} />
-          )}
-          {h.holdingsChanged && (
-            <span className="text-[11px] text-amber-500/80">보유정보 변경으로 손익 금액 비교 제외</span>
-          )}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
+            {canCompareState && (
+              <span className="text-[11.5px] text-slate-400">
+                {buildStateSentence(h.prevProfitRate!, rateDelta!, amountDelta!)}
+              </span>
+            )}
+            {priceDelta !== null && (
+              <StatDelta label="주가" value={`${priceDelta >= 0 ? '+' : ''}${fmt(Math.round(priceDelta))}원`} positive={priceDelta >= 0} />
+            )}
+            {h.holdingsChanged && (
+              <span className="text-[11px] text-amber-500/80">보유정보 변경으로 수익률·손익 금액 비교 제외</span>
+            )}
+          </div>
         </div>
       )}
       <p className="text-[13px] text-slate-300 leading-relaxed">{h.narrative}</p>
