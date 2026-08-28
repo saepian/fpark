@@ -780,7 +780,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           history:       buildHistory(''), // narrative는 Stage1의 historyNarrative 필드가 채움
           sectorComparison,
           fxCorrelation,
-          surgeHistory,        // 서버 계산 — 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 (hasMatches:false면 카드 생략)
+          surgeHistory,        // 서버 계산 — 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 (hasMatches:false면 프론트가 '이력 없음' 빈 상태로 표시, 2026-08-28)
           tradingValueMultiple, // 서버 계산 — 오늘 거래대금의 최근 20거래일 평균 대비 배수 (valid:false면 카드 생략)
           annualFinancials,
           disclosures,
@@ -993,7 +993,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           history:       buildHistory(historyNarrative), // 서버 계산 델타 + AI 해석 (직전 진단 대비)
           sectorComparison,   // 서버 계산 — peer 평균 등락률과의 차이 (동종업계 없으면 null)
           fxCorrelation,      // 서버 계산 — 최근 1년 원/달러 환율과의 피어슨 상관계수 (|r|<0.3이거나 표본 부족이면 null)
-          surgeHistory,        // 서버 계산 — 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 (hasMatches:false면 카드 생략)
+          surgeHistory,        // 서버 계산 — 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 (hasMatches:false면 프론트가 '이력 없음' 빈 상태로 표시, 2026-08-28)
           tradingValueMultiple, // 서버 계산 — 오늘 거래대금의 최근 20거래일 평균 대비 배수 (valid:false면 카드 생략)
           annualFinancials,   // 서버 계산 — 최근 3개년 확정 연간 실적 (없으면 빈 배열)
           disclosures,        // 서버 계산 — DART 최근 14일 주요 공시 (없으면 빈 배열, UI는 있을 때만 강조 카드)
