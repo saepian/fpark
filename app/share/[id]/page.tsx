@@ -1,12 +1,13 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { TrendingUp, TrendingDown, Sparkles, AlertCircle } from 'lucide-react';
+import { Sparkles, AlertCircle } from 'lucide-react';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
+import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -519,9 +520,6 @@ function ShareCTA() {
 // ── Diagnosis View ─────────────────────────────────────────────────────────────
 
 function DiagnosisView({ d }: { d: DiagnosisData }) {
-  const isProfit = d.profitRate >= 0;
-  const resistanceUpRate = d.resistance > 0 ? ((d.resistance - d.currentPrice) / d.currentPrice * 100) : 0;
-  const supportDownRate  = d.support    > 0 ? ((d.support    - d.currentPrice) / d.currentPrice * 100) : 0;
 
   return (
     <div className="min-h-screen bg-[#0d1117] pb-16">
@@ -570,64 +568,16 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             </div>
           </div>
 
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl overflow-hidden">
-            <div className="px-5 pt-4 pb-2 border-b border-slate-700/50">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Performance Snapshot</p>
-            </div>
-            <div className="divide-y divide-slate-700/40">
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">현재가</span>
-                <span className="text-[15px] font-bold text-white font-mono">{fmt(d.currentPrice)} <span className="text-[11px] text-slate-500 font-normal">KRW</span></span>
-              </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">기업 수익률</span>
-                <span className={`text-[15px] font-bold font-mono flex items-center gap-1 ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                  {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                  {fmtRate(d.profitRate)}
-                </span>
-              </div>
-              {d.benchmark && (
-                <>
-                  <div className="flex items-center justify-between px-5 py-3.5">
-                    <span className="text-[12px] text-slate-400">같은 기간 {d.benchmark.indexName} 등락률</span>
-                    <span className={`text-[13px] font-bold font-mono ${d.benchmark.indexChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                      {fmtRate(d.benchmark.indexChangeRate)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between px-5 py-3.5">
-                    <span className="text-[12px] text-slate-400">시장 대비</span>
-                    {(() => {
-                      const diff = d.benchmark.stockProfitRate - d.benchmark.indexChangeRate;
-                      return (
-                        <span className={`text-[13px] font-bold font-mono ${diff >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                          {diff >= 0 ? '+' : ''}{diff.toFixed(2)}%p
-                        </span>
-                      );
-                    })()}
-                  </div>
-                </>
-              )}
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">평가손익</span>
-                <span className={`text-[14px] font-bold font-mono ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                  {d.profitAmount > 0 ? '+' : ''}{fmt(d.profitAmount)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">매입평균가</span>
-                <span className="text-[13px] text-slate-300 font-mono">{fmt(d.avgPrice)}</span>
-              </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">보유수량</span>
-                <span className="text-[13px] text-slate-300 font-mono">{fmt(d.quantity)}주</span>
-              </div>
-            </div>
-            {d.benchmark && (
-              <p className="px-5 py-2.5 text-[10px] text-slate-600 border-t border-slate-700/40">
-                비교 기간: {d.benchmark.fromDate} ~ {d.benchmark.toDate} (매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
-              </p>
-            )}
-          </div>
+          <PerformanceSnapshotCard
+            currentPrice={d.currentPrice}
+            profitRate={d.profitRate}
+            profitAmount={d.profitAmount}
+            avgPrice={d.avgPrice}
+            quantity={d.quantity}
+            resistance={d.resistance}
+            support={d.support}
+            benchmark={d.benchmark}
+          />
         </div>
 
         {/* 2행: 직전 기업분석 대비 (신설) */}
@@ -659,35 +609,6 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             )}
           </div>
         )}
-
-        {/* 3행: 저항선 관찰 / 지지선 관찰 (목표가·손절가 아님, 참고용 수치 카드) */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="rounded-2xl border border-slate-700/50 overflow-hidden bg-slate-800/40">
-            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-slate-700/40">
-              <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
-                <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최고가</p>
-            </div>
-            <div className="px-5 py-4">
-              <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(d.resistance)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
-              <p className="text-[12px] text-slate-500">현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%</p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-700/50 overflow-hidden bg-slate-800/40">
-            <div className="flex items-center gap-2 px-5 pt-4 pb-3 border-b border-slate-700/40">
-              <div className="w-7 h-7 rounded-lg bg-slate-700/40 flex items-center justify-center">
-                <TrendingDown className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">52주 최저가</p>
-            </div>
-            <div className="px-5 py-4">
-              <p className="text-2xl font-black text-slate-200 font-mono mb-1">{fmt(d.support)} <span className="text-sm font-normal text-slate-500">KRW</span></p>
-              <p className="text-[12px] text-slate-500">현재가 대비 {supportDownRate.toFixed(1)}%</p>
-            </div>
-          </div>
-        </div>
 
         {/* 4행: 기관/외국인 동향 도넛 + 업종 대비 + 리스크 요인 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">

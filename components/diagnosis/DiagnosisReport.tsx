@@ -1,12 +1,13 @@
 'use client';
 
-import { Sparkles, ChevronLeft, Printer, TrendingUp, TrendingDown, AlertCircle, RefreshCw } from 'lucide-react';
+import { Sparkles, ChevronLeft, Printer, AlertCircle } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
+import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import type { RevealedField } from '@/lib/useSmoothTypingText';
@@ -597,14 +598,14 @@ interface DiagnosisReportProps {
 // app/diagnosis/page.tsx의 결과 리포트 뷰를 그대로 추출한 컴포넌트.
 // 실제 종목진단 페이지와 랜딩페이지(ai-portfolio) 예시 카드가 이 컴포넌트를 공유하므로
 // 리포트 UI가 바뀌면 두 곳 모두 자동으로 최신 상태를 유지한다.
-// (app/share/[id]/page.tsx의 DiagnosisView는 별도로 손복제돼 있어 이 파일과 함께 갱신할 것)
+// (app/share/[id]/page.tsx의 DiagnosisView는 별도로 손복제돼 있어 이 파일과 함께 갱신할 것 —
+// 단, SurgeHistoryCard/TradingValueMultipleCard/PerformanceSnapshotCard처럼 훅·브라우저 API를
+// 안 쓰는 순수 카드는 components/diagnosis/ 아래 공용 컴포넌트로 뽑아 두 곳에서 재사용 중이니,
+// 그런 카드를 고칠 땐 손복제가 아니라 그 공용 파일을 고치면 된다.)
 export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
   isGenerating = false, revealed,
 }: DiagnosisReportProps) {
-  const isProfit = result.profitRate >= 0;
-  const resistanceUpRate = result.resistance > 0 ? ((result.resistance - result.currentPrice) / result.currentPrice * 100) : 0;
-  const supportDownRate  = result.support    > 0 ? ((result.support    - result.currentPrice) / result.currentPrice * 100) : 0;
   const newsGroups = buildNewsGroups(result.news, result.newsIssueClusters);
 
   return (
@@ -678,99 +679,18 @@ export default function DiagnosisReport({
           </div>
 
           {/* PERFORMANCE SNAPSHOT */}
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl overflow-hidden">
-            <div className="px-5 pt-4 pb-2 border-b border-slate-700/50">
-              <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>Performance Snapshot</p>
-            </div>
-            {result.isCached && (
-              <div className="flex items-center gap-1.5 px-5 pt-3 text-[11px] text-amber-500">
-                <RefreshCw className="w-3 h-3 animate-spin" />
-                <span>
-                  최근 거래일 종가 기준
-                  {result.cachedAt && ` · ${new Date(result.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}
-                </span>
-              </div>
-            )}
-            <div className="divide-y divide-slate-700/40">
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">현재가</span>
-                <span className="text-[15px] font-bold text-white font-mono">{fmt(result.currentPrice)} <span className="text-[11px] text-slate-500 font-normal">KRW</span></span>
-              </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">기업 수익률</span>
-                <span className={`text-[15px] font-bold font-mono flex items-center gap-1 ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                  {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-                  {fmtRate(result.profitRate)}
-                </span>
-              </div>
-              {result.benchmark && (
-                <>
-                  <div className="flex items-center justify-between px-5 py-3.5">
-                    <span className="text-[12px] text-slate-400">같은 기간 {result.benchmark.indexName} 등락률</span>
-                    <span className={`text-[13px] font-bold font-mono ${result.benchmark.indexChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                      {fmtRate(result.benchmark.indexChangeRate)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between px-5 py-3.5">
-                    <span className="text-[12px] text-slate-400">시장 대비</span>
-                    {(() => {
-                      const diff = result.benchmark.stockProfitRate - result.benchmark.indexChangeRate;
-                      return (
-                        <span className={`text-[13px] font-bold font-mono ${diff >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                          {diff >= 0 ? '+' : ''}{diff.toFixed(2)}%p
-                        </span>
-                      );
-                    })()}
-                  </div>
-                </>
-              )}
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">평가손익</span>
-                <span className={`text-[14px] font-bold font-mono ${isProfit ? 'text-red-400' : 'text-blue-400'}`}>
-                  {result.profitAmount > 0 ? '+' : ''}{fmt(result.profitAmount)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">매입평균가</span>
-                <span className="text-[13px] text-slate-300 font-mono">{fmt(result.avgPrice)}</span>
-              </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400">보유수량</span>
-                <span className="text-[13px] text-slate-300 font-mono">{fmt(result.quantity)}주</span>
-              </div>
-              {/* 52주 최고/최저 — 독립 카드(3행)였다가 흡수(2026-08-26): 해석 없는 순수
-                  참고 수치라 매입평균가·보유수량과 같은 보조정보 위계(13px, 비강조)로 통일.
-                  "현재가 대비 %"까지 한 줄에 넣으면(카드 폭 300px) 라벨이 밀려 줄바꿈되므로
-                  값/비율을 세로로 분리 — 값은 같은 줄, 비율은 그 아래 작은 보조줄로. */}
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400 shrink-0">52주 최고</span>
-                <span className="text-[13px] text-slate-300 font-mono text-right">
-                  {result.resistance > 0 ? fmt(result.resistance) : '-'}
-                  {result.resistance > 0 && (
-                    <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
-                      현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center justify-between px-5 py-3.5">
-                <span className="text-[12px] text-slate-400 shrink-0">52주 최저</span>
-                <span className="text-[13px] text-slate-300 font-mono text-right">
-                  {result.support > 0 ? fmt(result.support) : '-'}
-                  {result.support > 0 && (
-                    <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
-                      현재가 대비 {supportDownRate.toFixed(1)}%
-                    </span>
-                  )}
-                </span>
-              </div>
-            </div>
-            {result.benchmark && (
-              <p className="px-5 py-2.5 text-[10px] text-slate-600 border-t border-slate-700/40">
-                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
-              </p>
-            )}
-          </div>
+          <PerformanceSnapshotCard
+            currentPrice={result.currentPrice}
+            profitRate={result.profitRate}
+            profitAmount={result.profitAmount}
+            avgPrice={result.avgPrice}
+            quantity={result.quantity}
+            resistance={result.resistance}
+            support={result.support}
+            benchmark={result.benchmark}
+            isCached={result.isCached}
+            cachedAt={result.cachedAt}
+          />
         </div>
 
         {/* ── 2행: 직전 기업분석 대비 (신설) ── */}
