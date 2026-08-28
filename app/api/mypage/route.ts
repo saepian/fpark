@@ -34,7 +34,7 @@ export async function GET() {
   // users 테이블 조회 — service role key로 RLS 우회
   const { data: userRow } = await adminClient
     .from('users')
-    .select('plan, created_at, email_alert_enabled, morning_briefing_enabled, subscription_status, payment_method, next_billed_at, depositor_real_name, subscription_start_date')
+    .select('plan, created_at, email_alert_enabled, morning_briefing_enabled, subscription_status, payment_method, next_billed_at, depositor_real_name, subscription_start_date, telegram_chat_id, telegram_linked_at')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -141,6 +141,8 @@ export async function GET() {
     emailAlertEnabled: userRow?.email_alert_enabled ?? true,
     morningBriefingEnabled: userRow?.morning_briefing_enabled ?? true,
     depositorRealName: userRow?.depositor_real_name ?? null,
+    telegramLinked: !!userRow?.telegram_chat_id,
+    telegramLinkedAt: userRow?.telegram_linked_at ?? null,
     usage: {
       diagnosisMonth:     diagnosisCount,
       portfolioMonth:     portfolioCount,

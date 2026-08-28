@@ -20,6 +20,8 @@ interface MyPageData {
   emailAlertEnabled: boolean;
   morningBriefingEnabled: boolean;
   depositorRealName: string | null;
+  telegramLinked: boolean;
+  telegramLinkedAt: string | null;
   usage: { diagnosisMonth: number; portfolioMonth: number; stockAnalysisMonth: number; nextResetDate: string };
   payments: { id: string; created_at: string; plan: string; amount: number; status: string }[];
   subscription: {
@@ -330,6 +332,9 @@ export default function MyPage() {
   const [togglingEmail, setTogglingEmail] = useState(false);
   const [morningBriefingEnabled, setMorningBriefingEnabled] = useState(true);
   const [togglingMorning, setTogglingMorning] = useState(false);
+  const [telegramLinked, setTelegramLinked] = useState(false);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramError, setTelegramError] = useState('');
   const [depositorRealName, setDepositorRealName] = useState('');
   const [savingDepositorName, setSavingDepositorName] = useState(false);
   const [depositorNameSaved, setDepositorNameSaved] = useState(false);
@@ -357,6 +362,7 @@ export default function MyPage() {
         setEmailAlertEnabled(json.emailAlertEnabled ?? true);
         setMorningBriefingEnabled(json.morningBriefingEnabled ?? true);
         setDepositorRealName(json.depositorRealName ?? '');
+        setTelegramLinked(json.telegramLinked ?? false);
       })
       .catch(() => router.push(loginUrlWithRedirect(window.location.pathname + window.location.search)));
   };
@@ -394,6 +400,51 @@ export default function MyPage() {
       body: JSON.stringify({ morning_briefing_enabled: next }),
     });
     setTogglingMorning(false);
+  };
+
+  // 연동 시작 — 서버가 만든 1회용 딥링크를 새 탭으로 열고, 텔레그램에서 완료할 때까지
+  // 짧게 폴링한다(최대 2분, 3초 간격) — 유저가 링크 다녀온 뒤 수동 새로고침 안 해도
+  // 버튼이 자동으로 "연동됨"으로 바뀌게 하기 위함. 이 창을 벗어나면(페이지 이동 등)
+  // 그냥 멈추고, 다음에 마이페이지 들어오면 loadMypage가 실제 상태를 다시 읽는다.
+  const handleLinkTelegram = async () => {
+    setTelegramLoading(true);
+    setTelegramError('');
+    try {
+      const res = await fetch('/api/mypage/telegram', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? '연동 링크 생성에 실패했습니다.');
+      window.open(json.deepLink, '_blank', 'noopener,noreferrer');
+
+      const deadline = Date.now() + 2 * 60_000;
+      const poll = async () => {
+        if (Date.now() > deadline) { setTelegramLoading(false); return; }
+        const r = await fetch('/api/mypage').then(r => r.json()).catch(() => null);
+        if (r?.telegramLinked) {
+          setTelegramLinked(true);
+          setTelegramLoading(false);
+          return;
+        }
+        setTimeout(poll, 3000);
+      };
+      setTimeout(poll, 3000);
+    } catch (e) {
+      setTelegramError(e instanceof Error ? e.message : '연동 링크 생성에 실패했습니다.');
+      setTelegramLoading(false);
+    }
+  };
+
+  const handleUnlinkTelegram = async () => {
+    setTelegramLoading(true);
+    setTelegramError('');
+    try {
+      const res = await fetch('/api/mypage/telegram', { method: 'DELETE' });
+      if (!res.ok) throw new Error('연동 해제에 실패했습니다.');
+      setTelegramLinked(false);
+    } catch (e) {
+      setTelegramError(e instanceof Error ? e.message : '연동 해제에 실패했습니다.');
+    } finally {
+      setTelegramLoading(false);
+    }
   };
 
   const handleSaveDepositorName = async () => {
@@ -959,6 +1010,32 @@ export default function MyPage() {
                     className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
                     style={{ left: emailAlertEnabled ? '26px' : '2px' }}
                   />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[13.5px] font-semibold text-slate-200">텔레그램 알림</p>
+                  <p className="text-[11.5px] text-slate-500 mt-0.5">
+                    {telegramLinked
+                      ? '관심종목 주가·수급 알림을 텔레그램으로 실시간 수신 중'
+                      : '관심종목 주가·수급 알림을 텔레그램으로 실시간으로 받아보세요'}
+                  </p>
+                  {telegramError && <p className="text-[11px] text-red-400 mt-1">{telegramError}</p>}
+                </div>
+                <button
+                  onClick={telegramLinked ? handleUnlinkTelegram : handleLinkTelegram}
+                  disabled={telegramLoading}
+                  className="shrink-0 px-3.5 py-2 rounded-lg text-[11.5px] font-semibold tracking-wide transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={telegramLinked ? {
+                    background: 'rgba(30,37,55,0.8)', border: '1px solid rgba(51,65,85,0.5)', color: '#94a3b8',
+                  } : {
+                    background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', border: 'none', color: '#fff',
+                  }}
+                >
+                  {telegramLoading
+                    ? (telegramLinked ? '해제 중…' : '확인 중…')
+                    : (telegramLinked ? '연동 해제' : '텔레그램 연동하기')}
                 </button>
               </div>
             </div>

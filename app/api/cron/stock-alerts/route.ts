@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminClient as supabase } from '@/lib/supabase-admin';
 import { fetchStockPrice, fetchDailyChart, getAccessToken, acquireKisRateSlot } from '@/lib/kis-api';
 import { getDomesticMarketDayContext } from '@/lib/market-day-context';
+import { sendTelegramMessage, isBlockedByUser } from '@/lib/telegram';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -145,10 +146,11 @@ export async function GET(request: NextRequest) {
   const notifDate = `${todayStr.slice(0, 4)}-${todayStr.slice(4, 6)}-${todayStr.slice(6, 8)}`;
   const todayStart = kstMidnightIso(todayStr);
 
-  // 1. Pro 구독자 목록
+  // 1. Pro 구독자 목록 — telegram_chat_id도 같이 가져와 아래 5-3(텔레그램 발송)에서
+  //    재조회 없이 바로 쓴다.
   const { data: proUsers, error: usersError } = await supabase
     .from('users')
-    .select('id')
+    .select('id, telegram_chat_id')
     .eq('plan', 'pro');
 
   if (usersError) {
@@ -161,7 +163,12 @@ export async function GET(request: NextRequest) {
   }
 
   const userIds = proUsers.map((u: { id: string }) => u.id);
-  console.log(`[STOCK-ALERTS] Pro 구독자: ${userIds.length}명 — ${userIds.join(', ')}`);
+  const telegramChatIdByUser = new Map(
+    proUsers
+      .filter((u: { telegram_chat_id: string | null }) => u.telegram_chat_id)
+      .map((u: { id: string; telegram_chat_id: string | null }) => [u.id, u.telegram_chat_id as string]),
+  );
+  console.log(`[STOCK-ALERTS] Pro 구독자: ${userIds.length}명 (텔레그램 연동 ${telegramChatIdByUser.size}명) — ${userIds.join(', ')}`);
 
   // 2. 관심종목 조회 (국내 주식만)
   const { data: watchlistItems, error: watchErr } = await supabase
@@ -293,6 +300,8 @@ export async function GET(request: NextRequest) {
   console.log(`[STOCK-ALERTS] 알림 대상: ${alerts.length}건 — ${alerts.map(a => `${a.stock_code}/${a.type}/${a.threshold}`).join(', ')}`);
   let upserted = 0;
   let errors = 0;
+  let telegramSent = 0;
+  let telegramFailed = 0;
 
   if (alerts.length > 0) {
     const affectedUserIds = [...new Set(alerts.map(a => a.user_id))];
@@ -376,9 +385,37 @@ export async function GET(request: NextRequest) {
           console.log(`[STOCK-ALERTS] ✓ upsert 완료: ${upserted}건`);
         }
       }
+
+      // 5-3. 텔레그램 발송 — toUpsert(오늘 새로 발생/유지 중인 알림)만 대상으로, 그 중
+      //      텔레그램이 연동된 유저에게만 같은 메시지를 병행 발송한다. notifications
+      //      upsert 성패와 무관하게 독립 시도(기존 저장/이메일 경로는 그대로 두고 "그
+      //      옆에" 발송경로만 추가). 유저 단위로 격리해 한 명 실패가 나머지를 막지 않는다.
+      const telegramTargets = toUpsert.filter(alert => telegramChatIdByUser.has(alert.user_id));
+      if (telegramTargets.length > 0) {
+        const results = await Promise.allSettled(
+          telegramTargets.map(async (alert) => {
+            const chatId = telegramChatIdByUser.get(alert.user_id)!;
+            const result = await sendTelegramMessage(chatId, alert.message);
+            if (!result.ok) {
+              if (isBlockedByUser(result)) {
+                // 유저가 봇을 차단/삭제한 경우 — 매 사이클 조용히 실패만 쌓이지 않도록
+                // 연동을 자동 해제한다(마이페이지에서 다시 연동하면 복구됨).
+                console.warn(`[STOCK-ALERTS] 텔레그램 전송 거부(차단 추정) — 연동 해제: user=${alert.user_id}`);
+                await supabase.from('users').update({ telegram_chat_id: null, telegram_linked_at: null }).eq('id', alert.user_id);
+              } else {
+                console.warn(`[STOCK-ALERTS] 텔레그램 전송 실패: user=${alert.user_id} ${result.description}`);
+              }
+              throw new Error(result.description ?? 'telegram send failed');
+            }
+          }),
+        );
+        telegramSent = results.filter(r => r.status === 'fulfilled').length;
+        telegramFailed = results.length - telegramSent;
+        console.log(`[STOCK-ALERTS] 텔레그램 발송 — 성공 ${telegramSent}건, 실패 ${telegramFailed}건 (대상 ${telegramTargets.length}건)`);
+      }
     }
   }
 
-  console.log(`[STOCK-ALERTS] 완료 — upsert: ${upserted}, 오류: ${errors}, 대상: ${alerts.length}건`);
-  return NextResponse.json({ ok: true, upserted, errors, total: alerts.length });
+  console.log(`[STOCK-ALERTS] 완료 — upsert: ${upserted}, 오류: ${errors}, 텔레그램: ${telegramSent}/${telegramSent + telegramFailed}, 대상: ${alerts.length}건`);
+  return NextResponse.json({ ok: true, upserted, errors, telegramSent, telegramFailed, total: alerts.length });
 }

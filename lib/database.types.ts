@@ -863,6 +863,30 @@ export type Database = {
         }
         Relationships: []
       }
+      telegram_link_tokens: {
+        Row: {
+          created_at: string
+          expires_at: string
+          token: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          token: string
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          token?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       users: {
         Row: {
           billing_key: string | null
@@ -885,6 +909,8 @@ export type Database = {
           subscription_plan: string | null
           subscription_start_date: string | null
           subscription_status: string | null
+          telegram_chat_id: string | null
+          telegram_linked_at: string | null
           terms_agreed_at: string | null
           welcome_email_sent_at: string | null
         }
@@ -909,6 +935,8 @@ export type Database = {
           subscription_plan?: string | null
           subscription_start_date?: string | null
           subscription_status?: string | null
+          telegram_chat_id?: string | null
+          telegram_linked_at?: string | null
           terms_agreed_at?: string | null
           welcome_email_sent_at?: string | null
         }
@@ -933,6 +961,8 @@ export type Database = {
           subscription_plan?: string | null
           subscription_start_date?: string | null
           subscription_status?: string | null
+          telegram_chat_id?: string | null
+          telegram_linked_at?: string | null
           terms_agreed_at?: string | null
           welcome_email_sent_at?: string | null
         }
