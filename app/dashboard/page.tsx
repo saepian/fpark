@@ -57,6 +57,17 @@ interface DashboardHistory {
 
 interface HoldingPeriodEntry { ticker: string; name: string; holdDays: number; profitRate: number }
 
+// /api/dashboard/monthly-returns가 lib/market-day-context.ts(getDomesticMarketDayContext)로
+// 계산해 내려주는 결과 그대로의 shape(서버가 이미 조회해둔 차트 데이터 재사용, 새 KIS 호출
+// 없음) — "오늘의 등락" 위젯이 비거래일(주말·공휴일)에 마지막 거래일 데이터를 "오늘"인
+// 것처럼 라벨링하던 문제 수정용(2026-08-31).
+interface MarketDayInfo {
+  isTradingDay: boolean;
+  lastTradingDate: string;
+  daysSinceLastTradingDate: number;
+  reason: 'weekend' | 'holiday' | null;
+}
+
 interface DashboardSummarySections {
   background: string; newsInterpretation: string; historicalComparison: string; judgment: string;
 }
@@ -87,6 +98,14 @@ interface StreamedDashboardResult {
 function fmt(n: number)  { return n.toLocaleString(); }
 function fmtR(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 function fmtDate(d: string) { return d.replaceAll('-', '.'); }
+
+const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'];
+// "YYYY-MM-DD" → "8월29일(금)" — "오늘의 등락" 위젯이 비거래일에 실제 기준일을 밝힐 때 사용.
+function fmtMarketDay(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const weekday = WEEKDAY_KO[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${m}월${d}일(${weekday})`;
+}
 
 // 종목카드 내부 통계 라벨(현재가/평가손익/52주 최고·최저/시가총액/5일변동률) — 색상
 // 차이만으로는 다크테마에서 라벨과 값이 잘 구분되지 않아 옅은 배경의 배지 형태로 분리.
@@ -472,12 +491,16 @@ export default function DashboardPage() {
   // 테이블, chart-near 라우트와 공유)를 건다.
   const [monthlyData, setMonthlyData] = useState<MonthlyPoint[]>([]);
   const [dailyData,   setDailyData]   = useState<MonthlyPoint[]>([]);
+  // "오늘의 등락" 위젯의 거래일 판정 — 실패해도 null로 남겨 기존 "오늘의 등락" 표기로
+  // 안전하게 폴백한다(과거엔 이 정보 자체가 없었으므로 실패 시 동작은 수정 전과 동일).
+  const [marketDay,   setMarketDay]   = useState<MarketDayInfo | null>(null);
   const loadMonthly = useCallback(async () => {
     try {
       const res  = await fetch('/api/dashboard/monthly-returns');
       const data = await res.json();
       if (res.ok && Array.isArray(data.monthly)) setMonthlyData(data.monthly);
       if (res.ok && Array.isArray(data.daily)) setDailyData(data.daily);
+      if (res.ok && data.marketDay) setMarketDay(data.marketDay);
     } catch { /* 라인차트는 부가 정보라 실패해도 조용히 무시 */ }
   }, []);
 
@@ -787,7 +810,11 @@ export default function DashboardPage() {
               : { background: 'linear-gradient(135deg, rgba(96,165,250,0.14) 0%, #171b28 60%)', border: '1px solid rgba(96,165,250,0.4)' }
           }
         >
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2.5">오늘의 등락 · 전일 종가 대비</p>
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2.5">
+            {marketDay && !marketDay.isTradingDay
+              ? `${fmtMarketDay(marketDay.lastTradingDate)} 마감 기준 · 전일 종가 대비`
+              : '오늘의 등락 · 전일 종가 대비'}
+          </p>
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-baseline gap-2">
               <span className={`text-xl font-bold font-mono ${todayChangeAmount >= 0 ? 'text-red-400' : 'text-blue-400'}`}>

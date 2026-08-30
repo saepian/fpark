@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { getCachedChartNear } from '@/lib/chart-near-cache';
 import { computePortfolioMonthlySeries, computePortfolioDailySeries } from '@/lib/market-utils';
+import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -75,5 +76,13 @@ export async function GET() {
   // 일별 보기(최근 30거래일)도 같은 6개월치 points에서 잘라 쓴다 — 별도 조회 없음.
   const monthly = computePortfolioMonthlySeries(withPoints, totalInvested, 6);
   const daily = computePortfolioDailySeries(withPoints, totalInvested, 30);
-  return NextResponse.json({ monthly, daily });
+
+  // "오늘의 등락" 위젯(대시보드 페이지)이 비거래일(주말·공휴일)에 마지막 거래일 데이터를
+  // "오늘"인 것처럼 라벨링하던 문제 — 여기서 이미 조회한 차트 데이터(withPoints)를 그대로
+  // 재사용해 거래일 여부를 판정한다(app/api/dashboard/analysis/route.ts와 동일한
+  // firstAvailableChart 패턴, 새 KIS 호출 없음).
+  const firstAvailableChart = withPoints.map(w => w.points ?? []).find(c => c.length > 0) ?? [];
+  const marketDay = getDomesticMarketDayContext(firstAvailableChart);
+
+  return NextResponse.json({ monthly, daily, marketDay });
 }
