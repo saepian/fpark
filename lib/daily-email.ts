@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { type InvestorFlowRankRow } from '@/lib/kis-api';
 import { selectRelevantNews } from '@/lib/news-selection';
 import { fetchNaverNews } from '@/lib/naver-news';
-import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, scanComplianceViolations } from '@/lib/ai-compliance';
 import { nowKstString, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency } from '@/lib/ai-grounding';
 import { makeUnsubToken } from '@/lib/unsubscribe-token';
 
@@ -90,6 +90,7 @@ marketSection 작성 지침: 시장 전체 뉴스가 오늘 관심종목 전반�
 outlookSection 작성 지침: 투자자가 참고할 만한 관찰 포인트를 2~3줄로 짧게 작성하세요 (지시가 아닌 정보 형태로).
 
 작성 규칙 (반드시 준수):
+- 뉴스 기사 원문·제목에 "매수"/"매도"/"순매수"/"순매도"/"매수세"/"매도세" 같은 표현이 그대로 등장하더라도, 코멘트를 쓸 때 그 단어를 그대로 옮기지 마세요 — 시스템 프롬프트 최상단의 컴플라이언스 지침대로 "자금 유입"/"자금 유출"/"유입세"/"유출세" 등으로 반드시 바꿔 쓰세요(2026-08-31 QA에서 실제 발송 로그의 절반 이상이 이 규칙을 어기고 뉴스 원문 표현을 그대로 옮긴 게 확인됐습니다 — 요약 대상이지 인용 대상이 아닙니다).
 - "금리 우려", "실적 부진", "업황 둔화", "미국발 조정" 같은 구체적 원인은 위에 제공된 뉴스(종목별 또는 시장 전체)에 실제로 등장하는 경우에만 사용하세요. 뉴스로 확인되지 않은 원인을 절대 지어내지 마세요.
 - 뉴스 근거가 없는 종목의 등락은 반드시 "수급 요인으로 추정됨" 형태로만 표현하고, 없는 뉴스를 있는 것처럼 서술하지 마세요.
 - 종목의 등락률은 반드시 맨 위 "관심종목 등락 현황"에 제공된 수치만 사용하세요. 뉴스 기사 본문/제목에 등락률 수치(예: "7% 급락")가 포함되어 있어도, 그 수치를 해당 종목의 현재 등락률로 착각해 인용하지 마세요 — 기사 속 수치는 기사가 작성된 시점(장 초반 등)의 별도 수치일 수 있습니다. 기사 속 수치를 굳이 언급해야 한다면 "기사에 따르면 장 초반 한때 -N%" 처럼 현재 등락률과 명확히 구분해서 표현하세요.
@@ -381,7 +382,13 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
     try {
       const message = await Promise.race([
         anthropic.messages.create({
-          model: 'claude-haiku-4-5-20251001',
+          // 2026-08-31: claude-haiku-4-5 → claude-sonnet-4-6 교체 — 컴플라이언스 위반율
+          // 실측 53%(프롬프트 보강 후 87.5% 통과)였는데, 남은 12.5%는 Haiku의 지시 준수
+          // 한계로 추정됨. 3종 리포트(종목분석/기업분석/포트폴리오분석)가 이미 sonnet-4-6을
+          // 쓰고 위반율 1.7%였던 전례를 따라 근본 해결. 응답 지연 증가는 아래 timeoutMs
+          // (동적 상한, 최대 60s)와 maxDuration=300(route.ts)로 이미 여유 있게 흡수됨 —
+          // 실측 검증 결과는 이 커밋의 세션 로그 참고.
+          model: 'claude-sonnet-4-6',
           max_tokens: 4000,
           system: [
             { type: 'text', text: COMPLIANCE_PRINCIPLE },
@@ -391,6 +398,13 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
         }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
       ]);
+      console.log('[TOKEN_USAGE]', {
+        route: 'daily-email', targetStockCount,
+        input_tokens: message.usage.input_tokens,
+        output_tokens: message.usage.output_tokens,
+        cache_creation_input_tokens: message.usage.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: message.usage.cache_read_input_tokens ?? 0,
+      });
       const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
       if (!text) return null;
       const match = text.match(/\{[\s\S]*\}/);
@@ -473,6 +487,14 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
   const check = checkTemporalConsistency(combinedTextForCheck, newsTextForCheck);
   if (check.flagged) {
     console.warn(`[DAILY-EMAIL] ${userName} 시간적 사실관계 불일치 감지 (재생성 없음):`, check);
+  }
+  // 컴플라이언스 금지어 사후 검사(lib/ai-compliance.ts scanComplianceViolations) — 국내
+  // 종목분석/기업분석/포트폴리오분석 3종에만 붙였던 걸 2026-08-31 알림 시스템 QA에서
+  // daily-alert-email에도 누락돼 있었음을 확인해 여기에도 추가. 위 시간적 검증과 같은
+  // 이유(유저 수만큼 반복되는 배치)로 재생성은 붙이지 않고 로그만 남긴다.
+  const complianceHits = scanComplianceViolations(combinedTextForCheck);
+  if (complianceHits.length > 0) {
+    console.error(`[DAILY-EMAIL] ${userName} 컴플라이언스 금지어 감지 (재생성 없음, 모니터링 필요):`, complianceHits);
   }
 
   // 2026-08-25 발견: otherStockNotes에 "전체 커버" 강제 문구가 없어 종목 수가 많은 날
