@@ -91,6 +91,7 @@ function DiagnosisThumb() {
         generatedAt="2026-07-10 09:00"
         actions={false}
         showBackground={false}
+        livePriceTable={false}
       />
     </div>
   );
@@ -294,7 +295,7 @@ const TAB_COPY: Record<PlanType, TabCopy> = {
         isLive: false,
       },
     ],
-    closingNote: '이 외에도 뉴스·시장 데이터는 무제한으로 보실 수 있고, 관심종목은 워치리스트에 자유롭게 등록해두실 수 있어요.',
+    closingNote: '이 외에도 뉴스·시장 데이터는 무제한으로 보실 수 있고, 관심종목은 워치리스트에 최대 15개까지 등록해두실 수 있어요.',
     transition: '매달 여러 종목을 살펴보고, 보유 종목 전체를 한 번에 점검해보고 싶으시다면 BASIC 플랜부터는 월 이용 횟수가 늘어나고 포트폴리오 분석도 가능해져요.',
   },
   basic: {

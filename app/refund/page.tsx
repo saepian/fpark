@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 };
 
 const REFUND_EMAIL = 'saepian2@gmail.com';
-const LAST_UPDATED = '2026년 7월 7일';
+const LAST_UPDATED = '2026년 8월 31일';
 
 const webPageJsonLd = {
   '@context': 'https://schema.org',
@@ -24,7 +24,7 @@ const webPageJsonLd = {
   alternateName: 'Refund Policy',
   description: 'FPARK 서비스의 환불 기준 및 환불 절차를 안내합니다.',
   url: 'https://fpark.com/refund',
-  dateModified: '2026-07-07',
+  dateModified: '2026-08-31',
   inLanguage: 'ko-KR',
   isPartOf: {
     '@type': 'WebSite',
@@ -83,17 +83,7 @@ export default function RefundPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">3. 1회 이용권</h2>
-          <p>기업 분석 및 포트폴리오 분석과 같은 1회 이용권은 아래 조건을 모두 충족하는 경우 전액 환불이 가능합니다.</p>
-          <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
-            <li>미사용 상태</li>
-            <li>구매일로부터 7일 이내</li>
-          </ul>
-          <p className="mt-3">이미 사용한 이용권은 환불되지 않습니다.</p>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-semibold text-white mb-3">4. 자동결제 해지</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">3. 자동결제 해지</h2>
           <p>구독은 마이페이지 &gt; 구독 취소 메뉴에서 언제든지 해지할 수 있습니다.</p>
           <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
             <li>결제일로부터 7일 이내로 환불 대상에 해당하는 경우, 환불 처리와 동시에 서비스 이용이 즉시 중단됩니다.</li>
@@ -103,7 +93,7 @@ export default function RefundPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">5. 환불 신청</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">4. 환불 신청</h2>
           <p>마이페이지 &gt; 구독 취소 메뉴에서 취소를 신청하면 위 환불 기준에 따라 환불 금액이 자동으로 계산되어 접수됩니다.</p>
           <p className="mt-3">그 외 문의사항은 아래 이메일로 연락해주세요.</p>
           <p className="mt-2">
@@ -119,13 +109,13 @@ export default function RefundPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">6. 환불 처리 기간</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">5. 환불 처리 기간</h2>
           <p>환불 승인 후 영업일 기준 3~7일 이내 결제수단으로 환불됩니다.</p>
           <p className="mt-2 text-slate-400">카드사 또는 결제사 정책에 따라 실제 입금일은 달라질 수 있습니다.</p>
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">7. 예외사항</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">6. 예외사항</h2>
           <p>다음 경우에는 환불이 제한될 수 있습니다.</p>
           <ul className="list-disc list-inside mt-2 space-y-1 text-slate-400">
             <li>서비스 이용 기록이 있는 경우</li>
@@ -136,7 +126,7 @@ export default function RefundPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-white mb-3">8. 문의</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">7. 문의</h2>
           <p>문의 이메일: <a href={`mailto:${REFUND_EMAIL}`} className="text-indigo-400 hover:underline">{REFUND_EMAIL}</a></p>
         </section>
       </div>

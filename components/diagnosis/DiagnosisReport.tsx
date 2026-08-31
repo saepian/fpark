@@ -548,6 +548,12 @@ interface DiagnosisReportProps {
   onReset?: () => void;
   actions?: boolean;        // 공유·인쇄·다시진단 버튼 노출 여부 (기본 true)
   showBackground?: boolean; // PageBackground(파티클 캔버스) 렌더 여부 (기본 true)
+  // 2026-08-31 QA에서 발견: welcome 페이지 예시 썸네일(DiagnosisThumb)이 존재하지 않는
+  // 가짜 티커("000000")로 이 컴포넌트를 렌더링하는데, PriceChangeTable은 result의 허구
+  // 데이터와 무관하게 ticker prop만 보고 실제 라이브 API를 호출해 매 방문마다 500 에러가
+  // 났다(축소·클리핑된 썸네일이라 화면엔 안 보였지만 서버 호출·에러로그는 실제로 발생).
+  // 기본값 true라 실제 종목분석 페이지는 변경 없음 — 정적 예시 호출부만 false로 끔.
+  livePriceTable?: boolean;
   // 2026-08-11 스트리밍 전환 — 둘 다 기본값(false/null)이면 이전과 완전히 동일하게 동작한다
   // (app/welcome/page.tsx 등 정적 예시 호출부는 변경 없음). app/diagnosis/page.tsx만 SSE
   // 진행 상태를 실어 넘긴다.
@@ -566,7 +572,7 @@ interface DiagnosisReportProps {
 // 그런 카드를 고칠 땐 손복제가 아니라 그 공용 파일을 고치면 된다.)
 export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
-  isGenerating = false, revealed,
+  isGenerating = false, revealed, livePriceTable = true,
 }: DiagnosisReportProps) {
   const newsGroups = buildNewsGroups(result.news, result.newsIssueClusters);
 
@@ -690,9 +696,11 @@ export default function DiagnosisReport({
         )}
 
         {/* ── 3-1행: 기간별 등락률 (종목분석 페이지와 동일 컴포넌트 재사용) ── */}
-        <div className="mb-4">
-          <PriceChangeTable ticker={ticker} />
-        </div>
+        {livePriceTable && (
+          <div className="mb-4">
+            <PriceChangeTable ticker={ticker} />
+          </div>
+        )}
 
         {/* ── 3-2행: 배당 정보 (DART 최신 사업연도 요약 + KIS 최근 5년 지급이력) ── */}
         <DividendInfo summary={result.dividendSummary} history={result.dividendHistory} />
