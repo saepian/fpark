@@ -39,6 +39,17 @@ export function isKoreanMarketOpen(): boolean {
   return minutes >= 9 * 60 && minutes < 15 * 60 + 30;
 }
 
+// 자정(00:00)부터 당일 장 시작(09:00) 직전까지의 KST 구간 — 요일 상관없이 "오늘 아직
+// 장이 열리지 않은 새벽"이면 true(주말도 포함되지만 그 시간대엔 isKoreanMarketOpen()이
+// 이미 false라 실질적 영향은 없음). 대시보드 "AI 분석" 버튼처럼 "장마감~자정"에만
+// 활성화되어야 하는 기능이 isKoreanMarketOpen()과 함께 써서 자정 이후 재비활성화를
+// 판단한다(2026-08-31, isKoreanMarketOpen()과 동일한 KST 변환 패턴 재사용).
+export function isKoreanMarketPreOpen(): boolean {
+  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const minutes = kst.getHours() * 60 + kst.getMinutes();
+  return minutes < 9 * 60;
+}
+
 // 오늘(KST) 기준 거꾸로 최대 maxCandidates개의 "평일" 후보 날짜를 생성한다.
 // 공휴일 캘린더가 없으므로 요일만으로 후보를 만들고, 실제 거래일 여부(공휴일 스킵)는
 // 호출 측이 KIS 응답이 비어있지 않은지로 판별한다 (findFirstNonEmptyByDate 참고).

@@ -12,6 +12,8 @@ import {
   computePriceChangeBadges,
   getPriceChangeTargets,
   computePortfolioPeriodChange,
+  isKoreanMarketOpen,
+  isKoreanMarketPreOpen,
 } from './market-utils';
 import type { ChartDataPoint } from './types';
 
@@ -56,6 +58,53 @@ describe('getTradingDateCandidates', () => {
   it('getLastTradingDate()는 항상 getTradingDateCandidates(1)[0]과 같은 값을 반환한다', () => {
     vi.setSystemTime(new Date('2026-07-19T12:00:00+09:00'));
     expect(getLastTradingDate()).toEqual(getTradingDateCandidates(1)[0]);
+  });
+});
+
+// 대시보드 종목별 "AI 분석" 버튼의 활성 구간(장마감~자정)을 판정하는 두 함수 —
+// isKoreanMarketOpen()이 false이면서 isKoreanMarketPreOpen()도 false인 구간(장마감~자정)에만
+// 버튼이 활성화되어야 한다(2026-08-31, marketOpen만으로는 자정 이후~다음 장까지 계속
+// 활성 상태로 남던 문제 수정).
+describe('isKoreanMarketOpen / isKoreanMarketPreOpen', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('평일 장중(10:00)에는 개장, 자정 이전 구간은 아니다', () => {
+    // 2026-07-17은 금요일(KST)
+    vi.setSystemTime(new Date('2026-07-17T10:00:00+09:00'));
+    expect(isKoreanMarketOpen()).toBe(true);
+    expect(isKoreanMarketPreOpen()).toBe(false);
+  });
+
+  it('평일 장마감 직후(15:31)에는 폐장, 자정 이전 구간도 아니다 — AI 분석 버튼 활성 구간', () => {
+    vi.setSystemTime(new Date('2026-07-17T15:31:00+09:00'));
+    expect(isKoreanMarketOpen()).toBe(false);
+    expect(isKoreanMarketPreOpen()).toBe(false);
+  });
+
+  it('평일 자정 직후(00:00)에는 폐장이면서 자정 이전 구간 — AI 분석 버튼 비활성 구간', () => {
+    vi.setSystemTime(new Date('2026-07-20T00:00:00+09:00'));
+    expect(isKoreanMarketOpen()).toBe(false);
+    expect(isKoreanMarketPreOpen()).toBe(true);
+  });
+
+  it('평일 새벽(08:59)에는 여전히 자정 이전 구간, 개장(09:00) 직전 경계에서 전환된다', () => {
+    vi.setSystemTime(new Date('2026-07-20T08:59:00+09:00'));
+    expect(isKoreanMarketPreOpen()).toBe(true);
+    vi.setSystemTime(new Date('2026-07-20T09:00:00+09:00'));
+    expect(isKoreanMarketPreOpen()).toBe(false);
+    expect(isKoreanMarketOpen()).toBe(true);
+  });
+
+  it('주말 새벽에도 자정 이전 구간 판정은 요일과 무관하게 동일하다', () => {
+    // 2026-07-19는 일요일(KST)
+    vi.setSystemTime(new Date('2026-07-19T03:00:00+09:00'));
+    expect(isKoreanMarketOpen()).toBe(false);
+    expect(isKoreanMarketPreOpen()).toBe(true);
   });
 });
 

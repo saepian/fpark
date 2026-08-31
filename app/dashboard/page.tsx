@@ -9,7 +9,7 @@ import PageBackground from '@/components/layout/PageBackground';
 import AiLoadingOverlay from '@/components/common/AiLoadingOverlay';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
-import { isKoreanMarketOpen } from '@/lib/market-utils';
+import { isKoreanMarketOpen, isKoreanMarketPreOpen } from '@/lib/market-utils';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import { useCountUp } from '@/lib/use-count-up';
 import AiAnalysis from '@/components/stock/AiAnalysis';
@@ -412,6 +412,11 @@ export default function DashboardPage() {
   const [holdingsError, setHoldingsError] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [marketOpen, setMarketOpen]   = useState(true);
+  // 종목별 AI 분석 버튼의 활성 구간을 "장마감~자정"으로 끊기 위한 추가 조건 — 자정부터
+  // 다음 장이 열리기 전까지는 marketOpen이 false여도 다시 비활성화한다(2026-08-31,
+  // 8/14 재열람버그 수정 때 aiAnalysisUsedToday를 없애며 marketOpen만 남아 장마감 후
+  // 다음 장 열릴 때까지 계속 활성 상태로 남아있던 문제).
+  const [afterMidnight, setAfterMidnight] = useState(false);
 
   const lastUpdatedRef   = useRef<Date | null>(null);
   const isRefreshingRef  = useRef(false);
@@ -540,6 +545,7 @@ export default function DashboardPage() {
 
     const tick = () => {
       setMarketOpen(isKoreanMarketOpen());
+      setAfterMidnight(isKoreanMarketPreOpen());
       if (document.visibilityState !== 'visible') return;
       const last = lastUpdatedRef.current;
       if (!last || Date.now() - last.getTime() >= POLL_MS) loadHoldings();
@@ -549,6 +555,7 @@ export default function DashboardPage() {
     const onVisibilityChange = () => { if (document.visibilityState === 'visible') tick(); };
     document.addEventListener('visibilitychange', onVisibilityChange);
     setMarketOpen(isKoreanMarketOpen());
+    setAfterMidnight(isKoreanMarketPreOpen());
 
     return () => {
       clearInterval(id);
@@ -916,10 +923,14 @@ export default function DashboardPage() {
                             </button>
                           </IconTip>
                         )}
-                        <IconTip label={marketOpen ? 'AI 분석은 장 마감 후 이용할 수 있습니다' : 'AI 분석'}>
+                        <IconTip label={
+                          marketOpen ? 'AI 분석은 장 마감 후 이용할 수 있습니다'
+                          : afterMidnight ? '자정 이후엔 다음 장 마감 후 다시 이용 가능합니다'
+                          : 'AI 분석'
+                        }>
                           <button
                             onClick={() => setAnalysisModal({ ticker: h.ticker, name: h.name, market: h.market })}
-                            disabled={marketOpen}
+                            disabled={marketOpen || afterMidnight}
                             aria-label="AI 분석"
                             className="p-1.5 rounded-lg text-indigo-300 hover:text-indigo-200 hover:bg-indigo-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                           >
