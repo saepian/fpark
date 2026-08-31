@@ -20,7 +20,7 @@ import {
 import { fetchSectorPeers, computeSectorRelativeChange } from '@/lib/sector-peers';
 import { fetchUsdKrwDaily1Y, computeFxCorrelation, isFxCorrelationMeaningful } from '@/lib/fx-correlation';
 import { fetchRecentDisclosures, type DartDisclosure, fetchDividendSummary, type DartDividendSummary } from '@/lib/dart-api';
-import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, scanComplianceViolations } from '@/lib/ai-compliance';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import { selectSectorMacroNews } from '@/lib/sector-news';
 import { fetchNewsSentimentTrend } from '@/lib/news-sentiment';
@@ -1053,6 +1053,12 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
         const temporalCheck = checkTemporalConsistency(diagnosisReportText, diagnosisNewsText);
         if (temporalCheck.flagged) {
           console.warn('[DIAGNOSIS] 시간적 사실관계 불일치 감지 (재생성 없음, 모니터링용):', temporalCheck);
+        }
+        // 컴플라이언스 금지어 사후 검사(lib/ai-compliance.ts scanComplianceViolations) —
+        // 이 라우트도 위 temporalCheck와 같은 이유로 재생성은 붙이지 않고 로그만 남긴다.
+        const complianceHits = scanComplianceViolations(diagnosisReportText);
+        if (complianceHits.length > 0) {
+          console.error('[DIAGNOSIS] 컴플라이언스 금지어 감지 (재생성 없음, 모니터링 필요):', complianceHits);
         }
 
         // DB 저장 (실패해도 결과 반환) — JSON 파싱에 성공했을 때만 저장(기존과 동일 조건,

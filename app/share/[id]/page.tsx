@@ -8,6 +8,10 @@ import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
 import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
+import { SectorComparisonCard, type SectorComparison as SectorComparisonData } from '@/components/diagnosis/SectorComparisonCard';
+import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
+import PriceChangeTable from '@/components/stock/PriceChangeTable';
+import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChangeTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,11 +27,6 @@ interface DiagnosisHistory {
   prevFlowPercentage?: number | null;
   holdingsChanged?: boolean;
   narrative: string;
-}
-
-interface SectorComparison {
-  peerAvgChangeRate: number;
-  deltaVsPeer: number;
 }
 
 interface AnnualFinancialRow {
@@ -88,12 +87,16 @@ interface DiagnosisData {
   news: { title: string; description: string; url?: string }[];
   history: DiagnosisHistory;
   // 2026-07-13 신설 — 이전에 저장된 공유 리포트에는 없을 수 있어 optional로 둠
-  sectorComparison?: SectorComparison | null;
+  sectorComparison?: SectorComparisonData | null;
   sectorNarrative?: string;
   annualFinancials?: AnnualFinancialRow[];
   financialsNarrative?: string;
   disclosures?: DartDisclosure[];
   disclosureNarrative?: string;
+  // 배당 정보 — 2026-08-31 QA에서 공유 페이지에 아예 빠져있던 것을 발견해 추가(메인
+  // 페이지 DiagnosisReport.tsx는 이미 갖고 있던 필드, DividendInfo.tsx와 동일 shape).
+  dividendSummary?: DartDividendSummary | null;
+  dividendHistory?: DividendHistoryRow[];
 }
 
 interface HoldingResult {
@@ -165,6 +168,11 @@ interface PortfolioData {
   totalProfit: number;
   totalProfitRate: number;
   summary: string;
+  // 2026-08-12 메인 페이지에 신설된 4개 소제목 분리 — 있으면 이걸로 렌더링하고, 없으면
+  // (그 이전 공유 리포트) summary 문자열 폴백을 그대로 쓴다(메인 페이지와 동일 정책).
+  // 2026-08-31 QA 발견: 공유 페이지가 이 필드 자체를 몰라서 새 리포트를 공유해도 항상
+  // 옛 폴백(문장 2개씩 기계적으로 묶기)만 보여주고 있었음.
+  summarySections?: { background: string; newsInterpretation: string; historicalComparison: string; judgment: string };
   sectors: Sector[];
   sectorConcentration?: SectorConcentration | null;
   riskContribution?:    RiskContributionItem[] | null;
@@ -610,6 +618,16 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           </div>
         )}
 
+        {/* 3-1행: 기간별 등락률 — 메인 페이지(DiagnosisReport.tsx)와 동일 컴포넌트 재사용.
+            2026-08-31 QA 발견: 공유 페이지엔 이 카드가 아예 없었음. */}
+        <div className="mb-4">
+          <PriceChangeTable ticker={d.ticker} />
+        </div>
+
+        {/* 3-2행: 배당 정보 — 메인 페이지와 동일 컴포넌트 재사용. 2026-08-31 QA 발견:
+            공유 페이지엔 이 카드가 아예 없었음. */}
+        <DividendInfo summary={d.dividendSummary ?? null} history={d.dividendHistory ?? []} />
+
         {/* 4행: 기관/외국인 동향 도넛 + 업종 대비 + 리스크 요인 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
@@ -639,27 +657,16 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             </div>
           </div>
 
+          {/* 메인 페이지(DiagnosisReport.tsx)와 완전히 같은 컴포넌트 — 2026-08-31 QA에서
+              여기가 손복제 상태로 남아 sectorName/peerNames 캡션과 스파크라인 차트가
+              누락돼있던 드리프트를 발견해 공유 컴포넌트로 교체(SectorComparisonCard.tsx). */}
           {d.sectorComparison && (
-            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">업종 대비</p>
-              </div>
-              <div className="flex flex-col divide-y divide-slate-700/40 mb-3">
-                <div className="flex items-center justify-between py-2 first:pt-0">
-                  <span className="text-[12px] text-slate-400">업종 평균 등락률</span>
-                  <span className="text-[13px] font-bold font-mono text-slate-300">{fmtRate(d.sectorComparison.peerAvgChangeRate)}</span>
-                </div>
-                <div className="flex items-center justify-between py-2 last:pb-0">
-                  <span className="text-[12px] text-slate-400">업종 대비 차이</span>
-                  <span className={`text-[13px] font-bold font-mono ${d.sectorComparison.deltaVsPeer >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                    {d.sectorComparison.deltaVsPeer >= 0 ? '+' : ''}{d.sectorComparison.deltaVsPeer.toFixed(2)}%p
-                  </span>
-                </div>
-              </div>
-              {d.sectorNarrative && (
+            <SectorComparisonCard
+              data={d.sectorComparison}
+              narrative={d.sectorNarrative ? (
                 <p className="text-[12px] text-slate-400 leading-relaxed">{d.sectorNarrative}</p>
-              )}
-            </div>
+              ) : null}
+            />
           )}
 
           <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
@@ -798,26 +805,55 @@ function PortfolioView({ d }: { d: PortfolioData }) {
               <Sparkles className="w-4 h-4 text-indigo-400" />
               <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
             </div>
-            <div className="flex flex-col gap-3">
-              {d.summary
-                .replace(/([.!?])\s+/g, '$1\n')
-                .split('\n')
-                .filter(Boolean)
-                .reduce<string[][]>((acc, s, i) => {
-                  if (i % 2 === 0) acc.push([s]);
-                  else acc[acc.length - 1].push(s);
-                  return acc;
-                }, [])
-                .map((group, i) => (
-                  <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>{group.join(' ')}</p>
-                ))
-              }
-            </div>
+            {/* 메인 페이지(app/portfolio-diagnosis/page.tsx)와 동일 정책 — 소제목 4분리
+                (summarySections)가 있으면 그걸로, 없으면(옛 공유 리포트) 문장 2개씩
+                기계적으로 묶는 옛 폴백을 쓴다. 2026-08-31까지는 이 필드 자체를 몰라서
+                새 리포트를 공유해도 항상 폴백만 보여주고 있었다. */}
+            {d.summarySections && Object.values(d.summarySections).some(Boolean) ? (
+              <div className="flex flex-col gap-4">
+                {[
+                  { label: '구조적 배경',   text: d.summarySections.background },
+                  { label: '뉴스 해석',     text: d.summarySections.newsInterpretation },
+                  { label: '과거 유사 이력', text: d.summarySections.historicalComparison },
+                  { label: '종합 판단',     text: d.summarySections.judgment },
+                ].filter(b => b.text).map((b) => (
+                  <div key={b.label}>
+                    <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                    <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {d.summary
+                  .replace(/([.!?])\s+/g, '$1\n')
+                  .split('\n')
+                  .filter(Boolean)
+                  .reduce<string[][]>((acc, s, i) => {
+                    if (i % 2 === 0) acc.push([s]);
+                    else acc[acc.length - 1].push(s);
+                    return acc;
+                  }, [])
+                  .map((group, i) => (
+                    <p key={i} className="text-[14px] text-slate-300" style={{ lineHeight: 1.8 }}>{group.join(' ')}</p>
+                  ))
+                }
+              </div>
+            )}
           </div>
         </div>
 
         {/* 직전 진단 대비 (신설) */}
         <PortfolioHistoryCard d={d} />
+
+        {/* 기간별 포트폴리오 평가금액 변동 — 메인 페이지(app/portfolio-diagnosis/page.tsx)와
+            동일 컴포넌트 재사용. 2026-08-31 QA 발견: 공유 페이지엔 이 카드가 아예 없었음. */}
+        <div className="mb-4">
+          <PortfolioPeriodChangeTable
+            holdings={(d.holdings ?? []).map(h => ({ ticker: h.ticker, name: h.name, quantity: h.quantity }))}
+            currentTotalValue={d.totalValue ?? 0}
+          />
+        </div>
 
         {/* 벤치마크 비교 (사실 수치만, 판단 없음) */}
         {d.benchmark && (

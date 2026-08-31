@@ -9,7 +9,7 @@
 // 라우트의 비즈니스 맥락(입력 소스·DB 테이블·과금 모델)이 서로 달라 의도적으로 포함하지
 // 않았다 — app/api/portfolio-diagnosis/route.ts, app/api/dashboard/analysis/route.ts 참고.
 import Anthropic from '@anthropic-ai/sdk';
-import { COMPLIANCE_PRINCIPLE, clampSignal, type Signal } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, clampSignal, scanComplianceViolations, type Signal } from '@/lib/ai-compliance';
 import { buildInvestorBlock, type StockAnalysisData } from '@/lib/stock-analysis-data';
 import type { DartDividendSummary } from '@/lib/dart-api';
 import type { DividendHistoryRow } from '@/lib/kis-api';
@@ -577,6 +577,10 @@ export async function analyzeOneStock(
     if (check.flagged) {
       console.warn(`[PORTFOLIO-PIPELINE] ${h.ticker} 시간적 사실관계 불일치 감지 (재생성 없음):`, check);
     }
+    const complianceHits = scanComplianceViolations(parsed.reason ?? '');
+    if (complianceHits.length > 0) {
+      console.error(`[PORTFOLIO-PIPELINE] ${h.ticker} 컴플라이언스 금지어 감지 (재생성 없음, 모니터링 필요):`, complianceHits);
+    }
 
     return { ...parsed, signal: clampSignal(parsed.signal), newsBasis };
   } catch (e) {
@@ -738,6 +742,10 @@ export async function analyzePortfolioSummary(
     const check = checkTemporalConsistency(summaryText, allNewsText);
     if (check.flagged) {
       console.warn('[PORTFOLIO-PIPELINE] 포트폴리오 종합 요약 시간적 사실관계 불일치 감지 (재생성 없음):', check);
+    }
+    const complianceHits = scanComplianceViolations(summaryText);
+    if (complianceHits.length > 0) {
+      console.error('[PORTFOLIO-PIPELINE] 포트폴리오 종합 요약 컴플라이언스 금지어 감지 (재생성 없음, 모니터링 필요):', complianceHits);
     }
 
     return { ...parsed, summary: flatSummary, summarySections };

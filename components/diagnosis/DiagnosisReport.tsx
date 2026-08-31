@@ -8,6 +8,7 @@ import PriceChangeTable from '@/components/stock/PriceChangeTable';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
 import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
+import { SectorComparisonCard, type SectorComparison } from '@/components/diagnosis/SectorComparisonCard';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import type { RevealedField } from '@/lib/useSmoothTypingText';
@@ -24,13 +25,7 @@ export interface DiagnosisHistory {
   narrative: string; // AI가 해석한 "직전 진단 대비" 서술
 }
 
-export interface SectorComparison {
-  peerAvgChangeRate: number;
-  deltaVsPeer: number;
-  sectorName?: string;   // KIS 업종명(예: "전기·전자") — 없으면 캡션에서 생략
-  peerNames?: string[];  // 비교에 쓰인 동종업계 peer 종목명 전체(평균 계산에 쓰인 개수와 동일)
-  sparkline?: { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null; // 최근 1개월 상대수익률(이 종목 vs peer 평균, 첫날 대비 누적%) — peer 차트 조회 실패 등으로 없으면 null
-}
+export type { SectorComparison };
 
 // 뉴스 논조 추이(2단계 UI 노출, 2026-08-21) — news_sentiment_daily는 CURATED_TICKERS_MKT
 // (대형주 100종목) 한정 크론이라 그 밖의 종목은 서버가 null을 보내며, 그 경우 카드 자체를 생략한다.
@@ -143,39 +138,6 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
         {label}
       </text>
     </svg>
-  );
-}
-
-// "업종 대비" 카드 안에 들어가는 작은 스파크라인 — 최근 1개월 상대수익률(이 종목 vs peer
-// 평균, 첫날 대비 누적%)을 축·범례 없이 보여준다. MarketSummary.tsx의 MiniAreaChart와
-// 같은 "축·범례 없는 미니 차트" 원칙을 따르되, 여기는 실제 시계열 2개(가짜 장식용 곡선이
-// 아님)라 범례 대신 아래 10px 캡션으로 색을 설명한다.
-function SectorSparkline({ sparkline }: { sparkline: { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } }) {
-  const data = sparkline.dates.map((d, i) => ({
-    date: d,
-    stock: sparkline.stockReturns[i],
-    peerAvg: sparkline.peerAvgReturns[i],
-  }));
-  return (
-    <div className="mb-2">
-      <div style={{ height: 44 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-            <Line type="monotone" dataKey="peerAvg" stroke="#64748b" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-            <Line type="monotone" dataKey="stock" stroke="#818cf8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="flex items-center gap-3 mt-1">
-        <span className="flex items-center gap-1 text-[10px] text-slate-500">
-          <span className="w-2 h-0.5 rounded-full bg-indigo-400 inline-block" /> 이 종목
-        </span>
-        <span className="flex items-center gap-1 text-[10px] text-slate-500">
-          <span className="w-2 h-0.5 rounded-full bg-slate-500 inline-block" /> 업종 평균
-        </span>
-        <span className="text-[10px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
-      </div>
-    </div>
   );
 }
 
@@ -785,46 +747,22 @@ export default function DiagnosisReport({
             </div>
           </div>
 
-          {/* 업종 대비 (동종업계 peer 없으면 카드 자체 생략) */}
+          {/* 업종 대비 (동종업계 peer 없으면 카드 자체 생략) — 카드 전체가 공유 페이지와
+              공유하는 컴포넌트(SectorComparisonCard, 드리프트 방지). narrative만 이 페이지의
+              스트리밍 타이핑 커서 상태를 반영해 여기서 조립해 넘긴다. */}
           {result.sectorComparison && (
-            <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>업종 대비</p>
-              </div>
-              <div className="flex flex-col divide-y divide-slate-700/40 mb-3">
-                <div className="flex items-center justify-between py-2 first:pt-0">
-                  <span className="text-[12px] text-slate-400">업종 평균 등락률</span>
-                  <span className="text-[13px] font-bold font-mono text-slate-300">{fmtRate(result.sectorComparison.peerAvgChangeRate)}</span>
-                </div>
-                <div className="flex items-center justify-between py-2 last:pb-0">
-                  <span className="text-[12px] text-slate-400">업종 대비 차이</span>
-                  <span className={`text-[13px] font-bold font-mono ${result.sectorComparison.deltaVsPeer >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                    {result.sectorComparison.deltaVsPeer >= 0 ? '+' : ''}{result.sectorComparison.deltaVsPeer.toFixed(2)}%p
-                  </span>
-                </div>
-              </div>
-              {(result.sectorComparison.sectorName || (result.sectorComparison.peerNames?.length ?? 0) > 0) && (
-                <p className="text-[11px] text-slate-500 mb-2">
-                  {result.sectorComparison.sectorName}
-                  {(result.sectorComparison.peerNames?.length ?? 0) > 0 && (
-                    <>
-                      {result.sectorComparison.sectorName ? ' · ' : ''}
-                      {result.sectorComparison.peerNames!.slice(0, 3).join('·')} 등 {result.sectorComparison.peerNames!.length}개 종목 평균
-                    </>
-                  )}
-                </p>
-              )}
-              {result.sectorComparison.sparkline && (
-                <SectorSparkline sparkline={result.sectorComparison.sparkline} />
-              )}
-              {result.sectorNarrative ? (
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {revealed?.sectorNarrative?.text ?? result.sectorNarrative}{revealed?.sectorNarrative?.active && <TypingCursor />}
-                </p>
-              ) : isGenerating ? (
-                <FieldSkeleton lines={2} />
-              ) : null}
-            </div>
+            <SectorComparisonCard
+              data={result.sectorComparison}
+              narrative={
+                result.sectorNarrative ? (
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {revealed?.sectorNarrative?.text ?? result.sectorNarrative}{revealed?.sectorNarrative?.active && <TypingCursor />}
+                  </p>
+                ) : isGenerating ? (
+                  <FieldSkeleton lines={2} />
+                ) : null
+              }
+            />
           )}
 
           {/* 리스크 요인 */}
