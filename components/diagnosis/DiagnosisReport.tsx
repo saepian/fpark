@@ -361,11 +361,14 @@ function fmtShortDate(dateStr: string): string {
 // 부호로 정한다(수익=빨강/손실=파랑 — 한국 관례) — 델타 부호로 정하지 않는다.
 // emphasize(오늘 쪽)만 크고 진하게 키워 "지금 수익 중인지 손실 중인지"가 먼저 눈에
 // 들어오게 하고, 그때 쪽은 같은 색 규칙을 쓰되 작고 옅게 눌러 보조 정보로 남긴다.
+// 2026-09-01: 두 블록을 카드 폭을 반씩 나눠 채우는 미니 패널(배당 정보 카드의 미니카드와
+// 같은 bg-slate-800 계열)로 바꿈 — 예전엔 내용만큼만 차지하는 flex라 카드 우측 60%가
+// 빈 공간으로 남았다. 부모가 grid [1fr auto 1fr]로 폭을 배분하므로 여기선 min-w-0만 챙긴다.
 function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: number; amount: number; emphasize: boolean }) {
   const color = rate >= 0 ? 'text-red-400' : 'text-blue-400';
   return (
-    <div className={emphasize ? '' : 'opacity-60'}>
-      <p className="text-[10px] text-slate-500 mb-0.5">{label}</p>
+    <div className={`min-w-0 flex flex-col justify-center rounded-xl px-3.5 py-2.5 ${emphasize ? 'bg-slate-800/40 border border-slate-700/40' : 'bg-slate-800/20 border border-transparent opacity-70'}`}>
+      <p className="text-[10px] text-slate-500 mb-0.5 truncate">{label}</p>
       <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>
         {fmtRate(rate)}
       </p>
@@ -434,9 +437,9 @@ function HistoryCompareCard({ result, isGenerating, revealed }: { result: Diagno
       {!isFirst && (
         <div className="mb-2.5">
           {canCompareState ? (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 mb-2">
               <StateBlock label={prevDateLabel ? `직전 진단(${prevDateLabel})` : '직전 진단'} rate={h.prevProfitRate!} amount={h.prevProfitAmount!} emphasize={false} />
-              <span className="text-slate-600 text-[13px]">→</span>
+              <span className="self-center text-slate-600 text-[13px]">→</span>
               <StateBlock label="오늘" rate={result.profitRate} amount={result.profitAmount} emphasize />
             </div>
           ) : (

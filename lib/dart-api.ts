@@ -222,9 +222,18 @@ function parseDartNumber(v: string | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
-async function fetchAlotMatter(corpCode: string, bsnsYear: string): Promise<Record<string, string>[] | null> {
+// DART 응답 분류 — status '000'(정상)·'013'(조회된 데이터 없음)만 "DART가 확정해 준
+// 결과"다. HTTP 오류·타임아웃·그 외 status(020 요청 한도 초과, 8xx/9xx 시스템 오류 등)는
+// "이번 요청에서는 알아내지 못한 것"이라 둘을 반드시 구분해서 돌려준다 — 2026-09-01 실측:
+// 예전엔 둘 다 null로 뭉개져 호출부가 일시 실패를 "확정 무배당"으로 7일간 캐싱했다
+// (삼성전자 005930 등 배당이 분명히 있는 종목 10건이 8/28 한꺼번에 무배당으로 오염됨).
+type AlotMatterResult =
+  | { ok: true; rows: Record<string, string>[] } // rows.length === 0 이면 '013'(그 해 보고서 없음)
+  | { ok: false; reason: string };
+
+async function fetchAlotMatter(corpCode: string, bsnsYear: string): Promise<AlotMatterResult> {
   const apiKey = process.env.DART_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { ok: false, reason: 'DART_API_KEY 미설정' };
   try {
     const url = new URL(`${DART_BASE}/alotMatter.json`);
     url.searchParams.set('crtfc_key', apiKey);
@@ -232,12 +241,15 @@ async function fetchAlotMatter(corpCode: string, bsnsYear: string): Promise<Reco
     url.searchParams.set('bsns_year', bsnsYear);
     url.searchParams.set('reprt_code', '11011'); // 사업보고서(연간)
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
+    if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
     const data = await res.json();
-    if (data.status !== '000' || !Array.isArray(data.list)) return null;
-    return data.list;
-  } catch {
-    return null;
+    if (data.status === '013') return { ok: true, rows: [] };
+    if (data.status !== '000' || !Array.isArray(data.list)) {
+      return { ok: false, reason: `status ${data.status ?? '?'} ${data.message ?? ''}`.trim() };
+    }
+    return { ok: true, rows: data.list };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? `${e.name}: ${e.message}` : String(e) };
   }
 }
 
@@ -274,19 +286,32 @@ export async function fetchDividendSummary(ticker: string): Promise<DartDividend
     // 캐시 조회 실패 시 새로 계산
   }
 
+  // null(무배당)은 DART가 확정해 준 경우에만 캐싱한다 — corp_code 맵 로드 실패,
+  // alotMatter HTTP 오류/타임아웃/한도 초과 같은 일시 실패는 "모름"이지 "무배당"이
+  // 아니므로 이번 요청엔 null을 돌려주되 캐시에는 남기지 않아 다음 요청이 재시도하게
+  // 둔다(캐시에 남기면 TTL 7일 동안 요약 탭이 통째로 사라진다).
   let summary: DartDividendSummary | null = null;
+  let confirmed = false;
   try {
-    const corpCode = await fetchCorpCode(ticker);
-    if (corpCode) {
+    // fetchCorpCode()는 "맵 로드 실패"와 "맵에 없는 종목"을 둘 다 null로 돌려줘 구분이
+    // 안 되므로 여기서는 맵을 직접 연다 — 로드 실패는 throw로 빠져 미확정으로 남는다.
+    const corpCode = (await loadCorpCodeMap()).get(ticker) ?? null;
+    if (!corpCode) {
+      // 맵은 정상인데 종목이 없음 = DART 공시 주체가 아님(ETF·우선주 코드 등) — 확정.
+      confirmed = true;
+    } else {
       const thisYear = new Date().getFullYear();
+      const failures: string[] = [];
       // 사업보고서는 회계연도 종료 후 90일 내 제출이라 연초엔 최신 완료연도 데이터가
-      // 아직 없을 수 있음 — 작년 실패 시 재작년으로 폴백.
+      // 아직 없을 수 있음 — 작년이 '013'(보고서 없음)이면 재작년으로 폴백.
       for (const y of [thisYear - 1, thisYear - 2]) {
-        const rows = await fetchAlotMatter(corpCode, String(y));
-        if (!rows || rows.length === 0) continue;
+        const r = await fetchAlotMatter(corpCode, String(y));
+        if (r.ok === false) { failures.push(`${y}: ${r.reason}`); continue; }
+        if (r.rows.length === 0) continue;
+        const rows = r.rows;
 
         const find = (se: string, stockKnd?: string) =>
-          rows.find((r) => r.se === se && (stockKnd ? (r.stock_knd === stockKnd || r.stock_knd === '-') : true));
+          rows.find((row) => row.se === se && (stockKnd ? (row.stock_knd === stockKnd || row.stock_knd === '-') : true));
 
         const dividendYield    = parseDartNumber(find('현금배당수익률(%)', '보통주')?.thstrm);
         const dividendPerShare = parseDartNumber(find('주당 현금배당금(원)', '보통주')?.thstrm);
@@ -297,19 +322,27 @@ export async function fetchDividendSummary(ticker: string): Promise<DartDividend
         }
         break; // 데이터가 있는 최신 연도를 찾았으면(배당 유무와 무관) 더 과거로 가지 않음
       }
+      // 시도한 연도 중 하나라도 일시 실패가 섞였으면 미확정 — 예컨대 작년만 실패하고
+      // 재작년으로 폴백한 결과를 7일간 굳혀 두면 그동안 한 해 묵은 값을 보여주게 된다.
+      confirmed = failures.length === 0;
+      if (failures.length > 0) {
+        console.warn(`[DART] ${ticker} alotMatter 조회 실패(캐시 안 함):`, failures.join(' / '));
+      }
     }
   } catch (e) {
     console.error(`[DART] fetchDividendSummary 실패 ${ticker}:`, e instanceof Error ? e.message : e);
   }
 
-  try {
-    const cacheValue: DividendSummaryCacheValue = { dividendSummary: summary };
-    const { error } = await getSb()
-      .from('market_cache')
-      .upsert({ key: cacheKey, data: cacheValue, updated_at: new Date().toISOString() });
-    if (error) console.warn(`[DART] ${ticker} 배당 요약 캐시 저장 실패:`, error.message);
-  } catch (e) {
-    console.warn(`[DART] ${ticker} 배당 요약 캐시 저장 실패:`, e instanceof Error ? e.message : e);
+  if (confirmed) {
+    try {
+      const cacheValue: DividendSummaryCacheValue = { dividendSummary: summary };
+      const { error } = await getSb()
+        .from('market_cache')
+        .upsert({ key: cacheKey, data: cacheValue, updated_at: new Date().toISOString() });
+      if (error) console.warn(`[DART] ${ticker} 배당 요약 캐시 저장 실패:`, error.message);
+    } catch (e) {
+      console.warn(`[DART] ${ticker} 배당 요약 캐시 저장 실패:`, e instanceof Error ? e.message : e);
+    }
   }
 
   return summary;

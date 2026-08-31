@@ -303,8 +303,8 @@ function fmtShortDate(dateStr: string): string {
 function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: number; amount: number; emphasize: boolean }) {
   const color = rate >= 0 ? 'text-red-400' : 'text-blue-400';
   return (
-    <div className={emphasize ? '' : 'opacity-60'}>
-      <p className="text-[10px] text-slate-500 mb-0.5">{label}</p>
+    <div className={`min-w-0 flex flex-col justify-center rounded-xl px-3.5 py-2.5 ${emphasize ? 'bg-slate-800/40 border border-slate-700/40' : 'bg-slate-800/20 border border-transparent opacity-70'}`}>
+      <p className="text-[10px] text-slate-500 mb-0.5 truncate">{label}</p>
       <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>{fmtRate(rate)}</p>
       <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[10.5px]'}`}>
         {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
@@ -366,9 +366,9 @@ function HistoryCompareCard({ d }: { d: DiagnosisData }) {
       {!isFirst && (
         <div className="mb-2.5">
           {canCompareState ? (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 mb-2">
               <StateBlock label={prevDateLabel ? `직전 진단(${prevDateLabel})` : '직전 진단'} rate={h.prevProfitRate!} amount={h.prevProfitAmount!} emphasize={false} />
-              <span className="text-slate-600 text-[13px]">→</span>
+              <span className="self-center text-slate-600 text-[13px]">→</span>
               <StateBlock label="오늘" rate={d.profitRate} amount={d.profitAmount} emphasize />
             </div>
           ) : (
