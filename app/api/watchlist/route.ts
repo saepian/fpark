@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { fetchStockPrice } from '../../../lib/kis-api';
+// 2026-08-31: fetchStockPrice(라이브) → fetchStockPriceCached — 홈 관심종목 위젯이 유저마다
+// 주기 폴링하는 라우트라 같은 종목을 유저 수만큼 KIS 재조회하던 최상위 병목. 공용 캐시
+// (lib/kis-api.ts, 장중 30초/장외 30분)로 /price·dashboard·검색과 시세를 공유한다.
+import { fetchStockPriceCached } from '../../../lib/kis-api';
 import { fetchOverseasQuote } from '../../../lib/yahoo-finance';
 import type { Database } from '../../../lib/database.types';
 
@@ -76,7 +79,7 @@ export async function GET() {
       try {
         return await withRetry(async () => {
           if (market === 'kr') {
-            const stock = await fetchStockPrice(item.ticker);
+            const stock = await fetchStockPriceCached(item.ticker);
             return { ...item, price: stock.price, changeRate: stock.changeRate, currency: 'KRW' };
           } else {
             const quote = await fetchOverseasQuote(item.ticker);

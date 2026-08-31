@@ -10,7 +10,7 @@ import WeeklyChart from '../../../components/stock/WeeklyChart';
 import InvestorFlow from '../../../components/stock/InvestorFlow';
 import SectorPeers from '../../../components/stock/SectorPeers';
 import FinanceSummary from '../../../components/stock/FinanceSummary';
-import { fetchStockPrice } from '../../../lib/kis-api';
+import { fetchStockPriceCached } from '../../../lib/kis-api';
 
 interface PageProps {
   params: Promise<{ ticker: string }>;
@@ -19,7 +19,7 @@ interface PageProps {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { ticker } = await params;
   try {
-    const price = await fetchStockPrice(ticker);
+    const price = await fetchStockPriceCached(ticker);
     return { title: `${price.name} (${ticker}) | fpark` };
   } catch {
     return { title: `${ticker} | fpark` };

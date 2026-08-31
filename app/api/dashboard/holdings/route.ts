@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { fetchStockQuote } from '@/lib/kis-api';
+// 2026-08-31: fetchStockQuote(라이브) → fetchStockQuoteCached — 대시보드가 5분 폴링으로
+// 보유종목(최대 15)마다 KIS를 유저 수만큼 재조회하던 병목. 공용 시세 캐시(lib/kis-api.ts)를
+// /price·watchlist·검색과 공유(원본 KIS 응답을 한 번만 저장해 StockQuote로 파생).
+import { fetchStockQuoteCached } from '@/lib/kis-api';
 import { checkPlan, resolveDashboardHoldingsLimit } from '@/lib/plan';
 import type { Database } from '@/lib/database.types';
 
@@ -66,7 +69,7 @@ export async function GET() {
         // 시세와 52주고저/시총/PER/PBR/업종을 같은 KIS 응답(inquire-price)에서 함께 받는다
         // (fetchStockQuote) — 카드에 52주고저·시총, 산업군별 비중 도넛에 업종을 추가해도
         // 호출 횟수는 늘지 않음.
-        const stock = await fetchStockQuote(item.ticker);
+        const stock = await fetchStockQuoteCached(item.ticker);
         return {
           ...item,
           currentPrice: stock.price, changeRate: stock.changeRate,

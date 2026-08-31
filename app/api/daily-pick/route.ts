@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDailyPickSupabase } from '@/lib/daily-pick';
-import { fetchStockPrice } from '@/lib/kis-api';
+import { fetchStockPriceCached } from '@/lib/kis-api';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 15;
@@ -47,7 +47,7 @@ export async function GET() {
 
   // 현재가 실시간 업데이트
   try {
-    const price = await fetchStockPrice(pick.ticker);
+    const price = await fetchStockPriceCached(pick.ticker);
     return NextResponse.json({
       ...pick,
       currentPrice: price.price,

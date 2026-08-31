@@ -1,64 +1,14 @@
-import { NextRequest, NextResponse, after } from 'next/server';
-import { fetchStockPrice } from '../../../../../lib/kis-api';
-import { supabase } from '../../../../../lib/supabase';
-import { isKoreanMarketOpen } from '../../../../../lib/market-utils';
-import type { StockPrice } from '../../../../../lib/types';
+import { NextRequest, NextResponse } from 'next/server';
+import { fetchStockPriceCached, loadStockQuoteCache, stockPriceFromQuoteCache } from '../../../../../lib/kis-api';
 
 export const dynamic = 'force-dynamic';
 
-// app/api/stock/[ticker]/info/route.ts와 동일한 market_cache 패턴 재사용
-const cacheKey = (ticker: string) => `stock_price_${ticker}`;
-
-// 2026-07-15: 이 라우트가 매 요청마다 KIS를 라이브 호출해서 국내증시 페이지 5분
-// 자동 새로고침 도입 후 부하 문제 확인 — TTL 캐시 추가. 종목분석 장중 신선도
-// 로직(app/api/stock/[ticker]/analysis/route.ts)은 이 라우트를 거치지 않고
-// fetchStockPrice()를 직접 호출하므로 이 캐시의 영향을 받지 않는다(격리 확인됨).
-// 국내증시 5분 새로고침보다는 훨씬 짧아야 새로고침이 무의미해지지 않는다.
-const CACHE_TTL_MS_OPEN   = 30_000;      // 장중 30초
-const CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
-
-// 2026-07-20: 장마감 동시호가(15:20~15:30) 도중 찍힌 캐시가 장외 TTL(30분) 동안
-// 그대로 재사용돼, 마감 후 헤더가 확정 종가보다 오래된 값을 보여주는 문제 확인
-// (daily 라우트는 캐시가 없어 항상 확정 종가라 헤더와 표가 서로 달라 보였음).
-// 종목분석 라우트(app/api/stock/[ticker]/analysis/route.ts)의 isIntradayCacheStale과
-// 동일한 패턴 — 캐시가 마감 전에 생성됐고 지금이 마감 후면, TTL과 무관하게 1회 무효화.
-const MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30; // 15:30
-
-function kstMinutesSinceMidnight(d: Date): number {
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return kst.getUTCHours() * 60 + kst.getUTCMinutes();
-}
-
-function isPriceCacheStale(cachedUpdatedAt: string): boolean {
-  const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedUpdatedAt)) < MARKET_CLOSE_MINUTES_KST;
-  const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= MARKET_CLOSE_MINUTES_KST;
-  return generatedBeforeClose && nowIsAfterClose;
-}
-
-async function loadCache(ticker: string): Promise<{ data: StockPrice; updatedAt: string } | null> {
-  try {
-    const { data: cache } = await supabase
-      .from('market_cache')
-      .select('data, updated_at')
-      .eq('key', cacheKey(ticker))
-      .single();
-    if (!cache?.data) return null;
-    return { data: cache.data as StockPrice, updatedAt: cache.updated_at };
-  } catch {
-    return null;
-  }
-}
-
-// await 없이 던지면 응답 직후 실행 컨텍스트가 얼어붙어 fetch가 중간에 끊길 수 있어
-// after()로 등록 — 응답은 즉시 나가되 이 저장은 런타임이 끝까지 살려서 완료시킨다.
-function saveCache(ticker: string, data: StockPrice) {
-  after(async () => {
-    const { error } = await supabase
-      .from('market_cache')
-      .upsert({ key: cacheKey(ticker), data, updated_at: new Date().toISOString() });
-    if (error) console.warn(`[PRICE] ${ticker} 캐시 저장 실패:`, error.message);
-  });
-}
+// 2026-08-31: 이 라우트에만 있던 market_cache TTL 캐시(장중 30초/장외 30분 + 마감 전
+// 생성 캐시의 마감 후 1회 무효화)를 lib/kis-api.ts의 fetchStockPriceCached()로 끌어내려
+// /api/watchlist·/api/dashboard/holdings·/api/search·종목상세 서버컴포넌트와 공유한다
+// (트래픽 점검에서 "같은 종목을 유저마다·폴링마다 KIS 재조회"가 최상위 병목으로 확인됨).
+// 이 라우트는 이제 얇은 래퍼 + 라이브 실패 시 폴백 체인(옛 캐시 → Yahoo)만 담당한다.
+// 캐시 정책 변경(TTL 등)은 lib/kis-api.ts 한 곳에서만 한다.
 
 async function fetchYahooPrice(ticker: string): Promise<{
   ticker: string; name: string; price: number;
@@ -94,29 +44,20 @@ export async function GET(
 ) {
   const { ticker } = await params;
 
-  // TTL 이내면 라이브 호출 없이 캐시 재사용 — 단, 마감 전에 생성된 캐시를 마감 후
-  // 처음 조회하는 경우는 TTL과 무관하게 무효화(위 isPriceCacheStale 주석 참고).
-  const ttlMs = isKoreanMarketOpen() ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
-  const fresh = await loadCache(ticker);
-  if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs && !isPriceCacheStale(fresh.updatedAt)) {
-    return NextResponse.json({ ...fresh.data, isCached: true, cachedAt: fresh.updatedAt });
-  }
-
-  // 1순위: KIS API
+  // 1순위: 공용 캐시(신선하면 캐시, 아니면 KIS 라이브 후 저장)
   try {
-    const data = await fetchStockPrice(ticker, { waitForLock: false });
-    saveCache(ticker, data);
+    const data = await fetchStockPriceCached(ticker, { waitForLock: false });
     return NextResponse.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : '알 수 없는 오류';
     console.warn(`[PRICE] KIS 실패 ${ticker}: ${message}, 캐시 폴백 시도`);
   }
 
-  // 2순위: 캐시된 마지막 거래일 데이터 — 휴장일에도 실제 거래량·거래대금·업종을 보여줄 수 있음
-  const cached = await loadCache(ticker);
+  // 2순위: 캐시된 마지막 거래일 데이터(TTL 무관) — 휴장일에도 실제 거래량·거래대금·업종을 보여줄 수 있음
+  const cached = await loadStockQuoteCache(ticker);
   if (cached) {
     console.error(`[PRICE] ${ticker} KIS 실패, 캐시로 대체 반환 (${cached.updatedAt} 기준)`);
-    return NextResponse.json({ ...cached.data, isCached: true, cachedAt: cached.updatedAt });
+    return NextResponse.json(stockPriceFromQuoteCache(ticker, cached));
   }
 
   // 3순위: Yahoo Finance (.KS → .KQ 순) — 가격만 확인 가능, 거래량/거래대금은 알 수 없음

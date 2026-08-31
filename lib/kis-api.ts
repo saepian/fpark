@@ -604,13 +604,12 @@ async function queryPrice(
   return data.output;
 }
 
-export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockPrice> {
-  const o = await queryPrice(ticker, false, opts);
-  const name = await resolveStockName(ticker, o);
+// inquire-price 원본 output + 해석된 종목명 → StockPrice. fetchStockPrice(라이브)와
+// fetchStockPriceCached(캐시)가 같은 매핑을 공유하도록 순수 함수로 분리(2026-08-31).
+function buildStockPrice(ticker: string, o: any, name: string): StockPrice {
   // rprs_mrkt_kor_name 예시: "KOSPI200"(코스피), "KOSDAQ"/"KSQ150"(코스닥)
   const marketLabel = String(o.rprs_mrkt_kor_name ?? '');
   const market: 'KOSPI' | 'KOSDAQ' = /KOSDAQ|KSQ/i.test(marketLabel) ? 'KOSDAQ' : 'KOSPI';
-
   return {
     ticker,
     name,
@@ -622,6 +621,128 @@ export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boo
     sector: (o.bstp_kor_isnm ?? '').trim(),
     market,
   };
+}
+
+export type StockQuote = StockPrice & Pick<StockInfo, 'week52High' | 'week52Low' | 'marketCap' | 'per' | 'pbr'>;
+
+function buildStockQuote(ticker: string, o: any, name: string): StockQuote {
+  return {
+    ...buildStockPrice(ticker, o, name),
+    week52High: parseInt(o.w52_hgpr, 10),
+    week52Low: parseInt(o.w52_lwpr, 10),
+    marketCap: formatMarketCap(parseInt(o.hts_avls, 10)),
+    per: parseFloat(o.per) || 0,
+    pbr: parseFloat(o.pbr) || 0,
+  };
+}
+
+export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockPrice> {
+  const o = await queryPrice(ticker, false, opts);
+  const name = await resolveStockName(ticker, o);
+  return buildStockPrice(ticker, o, name);
+}
+
+// ── 시세 공용 캐시 (2026-08-31 트래픽 점검) ────────────────────────────────────
+// 배경: app/api/stock/[ticker]/price 라우트만 market_cache(stock_price_*) TTL 캐시를 갖고
+// 있고, /api/watchlist(홈 관심종목 위젯 폴링)·/api/dashboard/holdings·/api/search·
+// 종목상세 서버컴포넌트 등은 fetchStockPrice/fetchStockQuote를 직접 불러 "유저마다·
+// 폴링마다 종목별로" KIS를 두드렸다 — 같은 삼성전자를 100명이 보면 100번 조회. KIS는
+// 전역 초당 15건 하드캡(acquireKisRateSlot)이라 이게 규모 확장 시 첫 번째로 무너지는
+// 병목이었다. fetchDailyChart의 1Y 캐시와 같은 패턴(장중/장외 TTL 구분, market_cache,
+// 저장은 await)으로 시세도 lib 레벨에서 한 번만 조회하고 모든 호출부가 공유한다.
+//
+// 캐시 단위는 "inquire-price 원본 output + 해석된 종목명" — StockPrice(가격/등락/거래량)와
+// StockQuote(+52주고저/시총/PER/PBR)가 같은 KIS 응답에서 나오므로 원본을 한 번 저장해두면
+// 두 형태 모두 재조회 없이 파생할 수 있다(종목명 해석에 드는 search-stock-info 추가 호출도
+// 같이 절약). 키는 티커 기준 단일(stock_quote_raw_{ticker}) — 예전 price 라우트 전용 키
+// (stock_price_*, StockPrice 형태)는 더 이상 쓰지 않고 자연 만료되게 둔다(형태가 달라
+// 같은 키를 재사용하면 옛 행을 원본으로 오독할 수 있어 키를 분리).
+//
+// TTL은 price 라우트가 쓰던 값 그대로(장중 30초 — 국내증시 5분 새로고침보다 충분히 짧아야
+// 새로고침이 무의미해지지 않음 / 장외 30분). 여기에 price 라우트의 "마감 전 생성 캐시를
+// 마감 후 처음 조회하면 TTL 무관 무효화"(2026-07-20, 동시호가 잠정치가 30분간 굳던 버그)
+// 규칙도 그대로 옮겨 온다.
+//
+// 신선도가 생명인 곳은 계속 라이브(fetchStockPrice)를 쓴다: 종목분석/기업분석 라우트
+// (장중 신선도 판정 로직이 캐시 우회를 전제), stock-alerts(임계값 알림의 진실源),
+// daily-alert-email/news-sentiment 크론.
+const QUOTE_CACHE_TTL_MS_OPEN   = 30_000;
+const QUOTE_CACHE_TTL_MS_CLOSED = 30 * 60_000;
+const QUOTE_MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30;
+const quoteCacheKey = (ticker: string) => `stock_quote_raw_${ticker}`;
+
+type CachedQuoteRaw = { output: Record<string, string>; name: string };
+
+function kstMinutesSinceMidnight(d: Date): number {
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return kst.getUTCHours() * 60 + kst.getUTCMinutes();
+}
+
+function isQuoteCacheStaleAcrossClose(cachedUpdatedAt: string): boolean {
+  const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedUpdatedAt)) < QUOTE_MARKET_CLOSE_MINUTES_KST;
+  const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= QUOTE_MARKET_CLOSE_MINUTES_KST;
+  return generatedBeforeClose && nowIsAfterClose;
+}
+
+// TTL과 무관하게 캐시 존재만 확인 — 라이브 실패 시 "마지막 거래일 값이라도" 내려주고 싶은
+// 호출부(price 라우트의 휴장일 폴백)를 위해 export. 신선도 판단은 호출부 책임.
+export async function loadStockQuoteCache(ticker: string): Promise<{ raw: CachedQuoteRaw; updatedAt: string } | null> {
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', quoteCacheKey(ticker))
+      .single();
+    const raw = cache?.data as unknown as CachedQuoteRaw | null;
+    if (!raw?.output || typeof raw.name !== 'string') return null;
+    return { raw, updatedAt: cache!.updated_at };
+  } catch {
+    return null;
+  }
+}
+
+async function saveStockQuoteCache(ticker: string, raw: CachedQuoteRaw): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('market_cache')
+      .upsert({ key: quoteCacheKey(ticker), data: raw as unknown as Json, updated_at: new Date().toISOString() });
+    if (error) console.warn(`[fetchStockPriceCached] ${ticker} 캐시 저장 실패:`, error.message);
+  } catch (e) {
+    console.warn(`[fetchStockPriceCached] ${ticker} 캐시 저장 예외:`, e instanceof Error ? e.message : e);
+  }
+}
+
+// 신선한 캐시가 있으면 그것을, 없으면 KIS 라이브(queryPrice → 레이트리미터 게이트 포함)로
+// 조회 후 저장. 라이브 실패는 그대로 throw — 폴백(옛 캐시/Yahoo)은 호출부 정책.
+async function queryPriceCached(ticker: string, opts?: { waitForLock?: boolean }): Promise<{ raw: CachedQuoteRaw; cachedAt: string | null }> {
+  const ttlMs = isKoreanMarketOpen() ? QUOTE_CACHE_TTL_MS_OPEN : QUOTE_CACHE_TTL_MS_CLOSED;
+  const fresh = await loadStockQuoteCache(ticker);
+  if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs && !isQuoteCacheStaleAcrossClose(fresh.updatedAt)) {
+    return { raw: fresh.raw, cachedAt: fresh.updatedAt };
+  }
+  const o = await queryPrice(ticker, false, opts);
+  const name = await resolveStockName(ticker, o);
+  const raw: CachedQuoteRaw = { output: o, name };
+  await saveStockQuoteCache(ticker, raw);
+  return { raw, cachedAt: null };
+}
+
+// TTL 무관 옛 캐시(loadStockQuoteCache 결과)를 StockPrice로 변환 — 라이브 실패 시 "마지막
+// 거래일 값" 폴백을 내려주는 호출부용(캐시 저장 시각을 cachedAt으로 표시).
+export function stockPriceFromQuoteCache(ticker: string, cached: { raw: CachedQuoteRaw; updatedAt: string }): StockPrice {
+  return { ...buildStockPrice(ticker, cached.raw.output, cached.raw.name), isCached: true, cachedAt: cached.updatedAt };
+}
+
+export async function fetchStockPriceCached(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockPrice> {
+  const { raw, cachedAt } = await queryPriceCached(ticker, opts);
+  const price = buildStockPrice(ticker, raw.output, raw.name);
+  return cachedAt ? { ...price, isCached: true, cachedAt } : price;
+}
+
+export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockQuote> {
+  const { raw, cachedAt } = await queryPriceCached(ticker, opts);
+  const quote = buildStockQuote(ticker, raw.output, raw.name);
+  return cachedAt ? { ...quote, isCached: true, cachedAt } : quote;
 }
 
 export async function fetchStockInfo(ticker: string): Promise<StockInfo> {
@@ -640,28 +761,10 @@ export async function fetchStockInfo(ticker: string): Promise<StockInfo> {
 // fetchStockPrice + fetchStockInfo가 둘 다 동일한 inquire-price 응답(queryPrice)에서
 // 서로 다른 필드만 골라 쓰던 걸 한 호출로 합친 것 — 시세와 52주고저/시총/PER/PBR을
 // 동시에 필요로 하는 호출부(대시보드 홀딩스 등)가 KIS 호출을 두 번 하지 않게 한다.
-export async function fetchStockQuote(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockPrice & Pick<StockInfo, 'week52High' | 'week52Low' | 'marketCap' | 'per' | 'pbr'>> {
+export async function fetchStockQuote(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockQuote> {
   const o = await queryPrice(ticker, false, opts);
   const name = await resolveStockName(ticker, o);
-  const marketLabel = String(o.rprs_mrkt_kor_name ?? '');
-  const market: 'KOSPI' | 'KOSDAQ' = /KOSDAQ|KSQ/i.test(marketLabel) ? 'KOSDAQ' : 'KOSPI';
-
-  return {
-    ticker,
-    name,
-    price: parseInt(o.stck_prpr, 10),
-    change: signedChange(o.prdy_vrss, o.prdy_vrss_sign),
-    changeRate: signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
-    volume: parseInt(o.acml_vol, 10),
-    tradingValue: formatTradingValue(parseInt(o.acml_tr_pbmn, 10)),
-    sector: (o.bstp_kor_isnm ?? '').trim(),
-    market,
-    week52High: parseInt(o.w52_hgpr, 10),
-    week52Low: parseInt(o.w52_lwpr, 10),
-    marketCap: formatMarketCap(parseInt(o.hts_avls, 10)),
-    per: parseFloat(o.per) || 0,
-    pbr: parseFloat(o.pbr) || 0,
-  };
+  return buildStockQuote(ticker, o, name);
 }
 
 // inquire-daily-itemchartprice 실제 호출 — FID_INPUT_DATE_1/2로 넓은 범위를 요청해도

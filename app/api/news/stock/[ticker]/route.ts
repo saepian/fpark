@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { STOCK_NAMES, fetchStockPrice } from '@/lib/kis-api';
+import { STOCK_NAMES, fetchStockPriceCached } from '@/lib/kis-api';
 import { selectRelevantNews, type NewsCandidate } from '@/lib/news-selection';
 import type { NewsItem } from '@/lib/types';
 
@@ -23,7 +23,7 @@ export async function GET(
 
   // STOCK_NAMES는 스크리닝용으로 curated된 ~90종목만 커버 — 그 밖의 종목도 이름 검색이
   // 되도록 KIS에서 실시간으로 종목명을 해석(실패 시 STOCK_NAMES로 폴백)
-  const stockName = STOCK_NAMES[ticker] ?? await fetchStockPrice(ticker).then((p) => p.name, () => undefined);
+  const stockName = STOCK_NAMES[ticker] ?? await fetchStockPriceCached(ticker).then((p) => p.name, () => undefined);
 
   if (!stockName) {
     return NextResponse.json({ news: [] });
