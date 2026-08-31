@@ -7,9 +7,21 @@ import { sanitizeRedirect } from '@/lib/auth-redirect';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  const redirectTo = sanitizeRedirect(searchParams.get('state'));
+  const state = searchParams.get('state');
 
   if (!code) {
+    return NextResponse.redirect('https://fpark.com/?error=auth_failed');
+  }
+
+  // 로그인 CSRF 방어 — /api/auth/naver가 심어둔 nonce 쿠키와 state가 일치해야만 진행한다
+  // (일치하지 않으면 이 브라우저가 시작한 로그인이 아니라는 뜻이므로 즉시 차단, 네이버
+  // 토큰 교환 호출 자체를 하지 않는다). 쿠키가 만료/유실된 정상 케이스(다른 탭에서 다시
+  // 시도 등)도 여기로 들어오므로 에러 문구는 "실패"로만 안내하고 서버 로그에 원인을 남긴다.
+  const cookieStore = await cookies();
+  const expectedState = cookieStore.get('naver_oauth_state')?.value;
+  const redirectTo = sanitizeRedirect(cookieStore.get('naver_oauth_redirect')?.value);
+  if (!state || !expectedState || state !== expectedState) {
+    console.error('[NAVER_CALLBACK] state 불일치 — CSRF 의심 또는 쿠키 만료:', { hasState: !!state, hasExpected: !!expectedState });
     return NextResponse.redirect('https://fpark.com/?error=auth_failed');
   }
 
@@ -22,7 +34,7 @@ export async function GET(request: Request) {
       client_id: process.env.NAVER_CLIENT_ID!,
       client_secret: process.env.NAVER_CLIENT_SECRET!,
       code,
-      state: searchParams.get('state') || '',
+      state,
     }),
   });
   const tokenData = await tokenRes.json();
@@ -38,8 +50,7 @@ export async function GET(request: Request) {
   const userData = await userRes.json();
   const naverUser = userData.response;
 
-  // Supabase에 유저 생성/로그인
-  const cookieStore = await cookies();
+  // Supabase에 유저 생성/로그인 — cookieStore는 위에서 이미 받아뒀다(state 검증에 재사용).
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -97,7 +108,10 @@ export async function GET(request: Request) {
 
   const hashed_token = linkData.properties.hashed_token;
 
-  return NextResponse.redirect(
+  const response = NextResponse.redirect(
     `https://fpark.com/auth/confirm?token_hash=${hashed_token}&type=magiclink&next=${encodeURIComponent(redirectTo)}`
   );
+  response.cookies.delete('naver_oauth_state');
+  response.cookies.delete('naver_oauth_redirect');
+  return response;
 }

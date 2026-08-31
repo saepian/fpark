@@ -13,13 +13,21 @@ export interface LastActualPayment {
 
 // 결제수단(계좌이체/Dodo)에 따라 기록 테이블이 다르므로 둘 다 조회해 실제 값이 있는
 // 쪽을 채택한다 — 한 유저는 한 가지 결제수단만 쓰므로 최대 한쪽에서만 값이 나온다.
-export async function getLastActualPayment(userId: string): Promise<LastActualPayment | null> {
+//
+// 2026-08-31 QA에서 발견: currentPlan 필터 없이 그냥 "가장 최근 승인된 결제"를 가져오면,
+// 유저의 현재 플랜과 그 결제 건의 plan이 어긋나는 경우(관리자가 users.plan을 직접
+// 수정했거나, 취소 후 다른 플랜으로 재가입한 이력이 뒤섞이는 등) 엉뚱한 플랜의 결제액이
+// "월 결제금액"으로 표시되는 것을 실측 확인(테스트 계정: users.plan='pro'인데 가장 최근
+// 승인 건은 basic 9,900원이라 mypage에 9,900원으로 잘못 표시됨). currentPlan으로 필터해
+// 항상 지금 구독 중인 플랜에 해당하는 결제 기록만 채택하도록 수정.
+export async function getLastActualPayment(userId: string, currentPlan: 'basic' | 'pro'): Promise<LastActualPayment | null> {
   const [{ data: lastApproved }, { data: lastDodoPayment }] = await Promise.all([
     adminClient
       .from('bank_transfer_requests')
       .select('amount, is_annual')
       .eq('user_id', userId)
       .eq('status', 'approved')
+      .eq('plan', currentPlan)
       .order('processed_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -29,6 +37,7 @@ export async function getLastActualPayment(userId: string): Promise<LastActualPa
       .eq('user_id', userId)
       .eq('payment_method', 'DODO')
       .eq('status', 'paid')
+      .eq('plan', currentPlan)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),

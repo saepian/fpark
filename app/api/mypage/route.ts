@@ -120,7 +120,7 @@ export async function GET() {
       }
     })(),
 
-    plan === 'free' ? Promise.resolve(null) : getLastActualPayment(user.id),
+    plan === 'free' ? Promise.resolve(null) : getLastActualPayment(user.id, plan),
   ]);
 
   // 2026-07-23 가격 인상 대응 — 라이브 PLAN_AMOUNTS를 그대로 보여주면, 가입 당시 옛 가격을

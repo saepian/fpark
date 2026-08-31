@@ -107,7 +107,7 @@ async function computeUpgradeQuote(
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .gte('usage_date', kstDateStr(cycleStart)),
-    getLastActualPayment(userId),
+    getLastActualPayment(userId, 'basic'),
   ]);
 
   // 2026-07-23 가격 인상 대응 — 라이브 PLAN_AMOUNTS.basic.monthly 대신 이 유저가 실제로 내고

@@ -67,11 +67,16 @@ async function loadCancellableUser(userId: string) {
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .gte('usage_date', userRow.subscription_start_date.split('T')[0]),
+    // 2026-08-31 QA: plan 필터 없이 "가장 최근 승인 건"만 보면, 취소 후 다른 플랜으로
+    // 재가입한 이력이 섞이거나 users.plan이 별도로 보정된 경우 현재 플랜과 무관한 결제
+    // 금액으로 환불 비율을 계산하게 된다(lib/subscription-pricing.ts getLastActualPayment과
+    // 동일한 이유로 동일하게 수정) — 반드시 현재 plan에 해당하는 결제 건만 채택한다.
     adminClient
       .from('bank_transfer_requests')
       .select('amount, is_annual')
       .eq('user_id', userId)
       .eq('status', 'approved')
+      .eq('plan', plan)
       .order('processed_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -84,6 +89,7 @@ async function loadCancellableUser(userId: string) {
       .eq('user_id', userId)
       .eq('payment_method', 'DODO')
       .eq('status', 'paid')
+      .eq('plan', plan)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
