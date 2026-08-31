@@ -16,7 +16,7 @@ import {
   buildNewsBlock,
 } from '@/lib/stock-analysis-data';
 import { overseasSearchName } from '@/lib/overseas-korean-names';
-import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, type Signal } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, signalToSentiment, clampSignal, scanComplianceViolations, type Signal } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency, kstDateStr, daysBetween } from '@/lib/ai-grounding';
 import { getOverseasMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
@@ -767,16 +767,24 @@ ${yesterdayComparisonBlock}
       (key, value) => send({ type: 'field-partial', key, value }),
     );
     const check1 = checkTemporalConsistency(first.reportText, newsText);
+    const compliance1 = scanComplianceViolations(first.reportText);
     let finalParsed = first.parsed;
 
-    if (check1.flagged) {
-      console.warn('[OVERSEAS ANALYSIS] 시간적 사실관계 불일치 감지, 1회 재생성 시도:', check1);
+    if (check1.flagged || compliance1.length > 0) {
+      if (check1.flagged) console.warn('[OVERSEAS ANALYSIS] 시간적 사실관계 불일치 감지, 1회 재생성 시도:', check1);
+      if (compliance1.length > 0) console.warn('[OVERSEAS ANALYSIS] 컴플라이언스 금지어 감지, 1회 재생성 시도:', compliance1);
       const second = await streamOneGeneration(emitIfChanged('field-updated'));
       const check2 = checkTemporalConsistency(second.reportText, newsText);
+      const compliance2 = scanComplianceViolations(second.reportText);
       if (check2.flagged) {
         console.error('[OVERSEAS ANALYSIS] 재생성 후에도 불일치 감지 — 결과는 그대로 반환, 모니터링 필요:', check2);
-      } else {
+      } else if (check1.flagged) {
         console.log('[OVERSEAS ANALYSIS] 재생성으로 불일치 해소됨');
+      }
+      if (compliance2.length > 0) {
+        console.error('[OVERSEAS ANALYSIS] 재생성 후에도 컴플라이언스 금지어 감지 — 결과는 그대로 반환, 모니터링 필요:', compliance2);
+      } else if (compliance1.length > 0) {
+        console.log('[OVERSEAS ANALYSIS] 재생성으로 컴플라이언스 위반 해소됨');
       }
       finalParsed = second.parsed;
     }

@@ -64,9 +64,14 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
           </Link>
         </div>
 
-        {/* 중앙: 검색창 — md+ 에서만 absolute 중앙 고정 */}
-        <div className="hidden md:block absolute left-1/2 -translate-x-1/2 w-full max-w-[500px] px-4">
-          <SearchBar onSelectStock={handleSelectStock} />
+        {/* 중앙: 검색창 — md+ 에서 flex-1로 로고/우측 네비 사이 남는 공간만 차지.
+            2026-08-31 QA: 이전엔 absolute left-1/2 중앙고정이라 우측 네비(홈~요금제 8개)가
+            넓어지면 검색창과 실측 겹침(1280~1600px 데스크톱 폭에서 재현, "홈" 버튼이
+            검색창 클릭을 가로챔) — flex 흐름에 편입시켜 겹치지 않고 자연히 줄어들게 수정. */}
+        <div className="hidden md:flex flex-1 min-w-0 justify-center px-4">
+          <div className="w-full max-w-[500px]">
+            <SearchBar onSelectStock={handleSelectStock} />
+          </div>
         </div>
 
         {/* 우측: 네비 + 구분선 + 알림 + 개인화 + 햄버거(모바일) */}

@@ -13,6 +13,7 @@ import {
   getCachedRanking,
   getLastCloseRanking,
   fetchDailyRanking,
+  EXCLUDE_PATTERN,
 } from '@/lib/market-ranking';
 
 export const dynamic = 'force-dynamic';
@@ -68,9 +69,9 @@ export async function GET(request: Request) {
           if (r.status === 'fulfilled') rows.push(...(r.value.output ?? []));
           else console.warn(`[ranking] ${tab} 시장 조회 실패:`, r.reason);
         }
-        const validRows = rows.filter(isValidStockItem);
+        const validRows = rows.filter(isValidStockItem).filter((item) => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? ''));
         if (validRows.length < rows.length) {
-          console.warn(`[ranking] ${tab}: 유효성 필터로 ${rows.length - validRows.length}행 제외 (${rows.length}행 → ${validRows.length}행)`);
+          console.warn(`[ranking] ${tab}: 유효성/제외 필터로 ${rows.length - validRows.length}행 제외 (${rows.length}행 → ${validRows.length}행)`);
         }
         if (validRows.length === 0) throw new Error(`${tab}: 유효 행 0개 (원본 ${rows.length}행 모두 불량)`);
         validRows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
@@ -93,9 +94,9 @@ export async function GET(request: Request) {
       try {
         const data = await fetchFluctuation('1');
         const rows: any[] = data.output ?? [];
-        const validRows = rows.filter(isValidStockItem);
+        const validRows = rows.filter(isValidStockItem).filter((item) => !EXCLUDE_PATTERN.test(item.hts_kor_isnm ?? ''));
         if (validRows.length < rows.length) {
-          console.warn(`[ranking] ${tab}: 유효성 필터로 ${rows.length - validRows.length}행 제외 (${rows.length}행 → ${validRows.length}행)`);
+          console.warn(`[ranking] ${tab}: 유효성/제외 필터로 ${rows.length - validRows.length}행 제외 (${rows.length}행 → ${validRows.length}행)`);
         }
         if (validRows.length === 0) throw new Error(`${tab}: 유효 행 0개 (원본 ${rows.length}행 모두 불량)`);
         validRows.sort((a, b) => Number(b.acml_vol) - Number(a.acml_vol));

@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Resend } from 'resend';
 import { adminClient } from '@/lib/supabase-admin';
 import { makeUnsubToken } from '@/lib/unsubscribe-token';
-import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
+import { COMPLIANCE_PRINCIPLE, INVESTMENT_DISCLAIMER, scanComplianceViolations } from '@/lib/ai-compliance';
 import { fetchNaverNews, type NaverNewsItem } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, checkTemporalConsistency } from '@/lib/ai-grounding';
 import { listAllAuthUserEmails } from '@/lib/list-all-auth-users';
@@ -129,6 +129,10 @@ ${newsBlock}
       if (check.flagged) {
         console.warn(`[MORNING-BRIEFING] ${name} 시간적 사실관계 불일치 감지 (재생성 없음):`, check);
       }
+      const complianceHits = scanComplianceViolations(`${result.summary} ${result.context}`);
+      if (complianceHits.length > 0) {
+        console.error(`[MORNING-BRIEFING] ${name} 컴플라이언스 금지어 감지 (재생성 없음, 모니터링 필요):`, complianceHits);
+      }
       return result;
     }
   } catch (e) {
@@ -201,6 +205,10 @@ ${newsText}
     const check = checkTemporalConsistency(`${summary} ${context}`, newsTextForCheck);
     if (check.flagged) {
       console.warn('[MORNING-BRIEFING] 미국증시 요약 시간적 사실관계 불일치 감지 (재생성 없음):', check);
+    }
+    const complianceHits = scanComplianceViolations(`${summary} ${context}`);
+    if (complianceHits.length > 0) {
+      console.error('[MORNING-BRIEFING] 미국증시 요약 컴플라이언스 금지어 감지 (재생성 없음, 모니터링 필요):', complianceHits);
     }
 
     return { summary, context, indices };

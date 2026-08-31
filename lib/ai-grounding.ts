@@ -7,6 +7,8 @@
 // 새 AI 리포트/인사이트 엔드포인트를 추가할 때도 이 파일의 함수들을 재사용할 것 — 각 파일에서
 // 따로 비슷한 문구를 정의하면 문구가 흩어져 다음 종목/이벤트에서 같은 버그가 반복되기 쉽다.
 
+import { scanComplianceViolations } from './ai-compliance';
+
 // KST 기준 오늘 날짜 문자열(YYYY-MM-DD). "직전 리포트/진단과의 간격" 계산처럼
 // 날짜 단위로만 비교하면 되는 곳(시각까지는 불필요)에 report_date 컬럼과 짝을 맞춰 쓴다.
 export function kstDateStr(d: Date = new Date()): string {
@@ -118,15 +120,27 @@ export async function withTemporalRetry<T>(
 ): Promise<T> {
   const first = await generate();
   const check1 = checkTemporalConsistency(first.reportText, newsText);
-  if (!check1.flagged) return first.parsed;
+  // 컴플라이언스 금지어 사후 검사(lib/ai-compliance.ts scanComplianceViolations)도 시간적
+  // 사실관계 검증과 같은 자리에서 같은 정책(불일치 시 1회 재생성)으로 처리한다 — 2026-08-31
+  // QA에서 이 공용 래퍼를 쓰는 곳(lib/daily-pick.ts, 홈페이지 AI 인사이트 카드)에 컴플라이언스
+  // 스캐너가 아예 안 붙어있던 걸 발견해 여기에 추가(이 함수를 쓰는 다른 호출부에도 자동 적용됨).
+  const compliance1 = scanComplianceViolations(first.reportText);
+  if (!check1.flagged && compliance1.length === 0) return first.parsed;
 
-  console.warn(`${logPrefix} 시간적 사실관계 불일치 감지, 1회 재생성 시도:`, check1);
+  if (check1.flagged) console.warn(`${logPrefix} 시간적 사실관계 불일치 감지, 1회 재생성 시도:`, check1);
+  if (compliance1.length > 0) console.warn(`${logPrefix} 컴플라이언스 금지어 감지, 1회 재생성 시도:`, compliance1);
   const second = await generate();
   const check2 = checkTemporalConsistency(second.reportText, newsText);
+  const compliance2 = scanComplianceViolations(second.reportText);
   if (check2.flagged) {
     console.error(`${logPrefix} 재생성 후에도 불일치 감지 — 결과는 그대로 반환, 모니터링 필요:`, check2);
-  } else {
+  } else if (check1.flagged) {
     console.log(`${logPrefix} 재생성으로 불일치 해소됨`);
+  }
+  if (compliance2.length > 0) {
+    console.error(`${logPrefix} 재생성 후에도 컴플라이언스 금지어 감지 — 결과는 그대로 반환, 모니터링 필요:`, compliance2);
+  } else if (compliance1.length > 0) {
+    console.log(`${logPrefix} 재생성으로 컴플라이언스 위반 해소됨`);
   }
   return second.parsed;
 }
