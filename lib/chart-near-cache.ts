@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { fetchChartBackTo } from './kis-api';
 import { supabase } from './supabase';
-import { kstYearMonthDay, kstMidnight } from './ai-grounding';
+import { kstYearMonthDay, kstMidnight, kstDateStr } from './ai-grounding';
 import type { ChartDataPoint } from './types';
 
 // app/api/stock/[ticker]/chart-near/route.ts에서 추출 — 대시보드 월별 수익률 추이도
@@ -96,4 +96,19 @@ export async function getCachedChartNear(ticker: string, monthsAgo: number): Pro
   }
 
   return [];
+}
+
+// 이 캐시가 "오늘(KST)" 안에 한 번이라도 갱신됐는지 — 대시보드 "오늘의 등락" 위젯의 거래일
+// 판정(getDomesticMarketDayContext)에 이 캐시를 재사용할 때, "마지막 차트 행이 오늘이
+// 아니다"라는 신호를 믿어도 되는지 판단하는 데 쓴다. 2026-08-31 QA에서 실측된 버그: 이
+// 캐시는 24시간 롤링 TTL이라 토요일 오후에 갱신되면 월요일 오후까지("24시간 후") "신선함"
+// 취급되며 그 안엔 금요일 마감 데이터만 들어있다 — 그 결과 월요일 오전(실제 거래일)에
+// "8월29일(금) 마감 기준"처럼 실제로는 거래일인데 비거래일로 오라벨링됐다. 캐시가 오늘
+// 갱신된 적이 없다면(주말 동안 아무도 안 불러 그대로 남아있는 경우 등) "오늘 데이터가
+// 없다"는 사실 자체를 신뢰할 수 없으므로, 호출부가 이 값이 false일 때는 거래일 판정을
+// 건너뛰고 보수적으로 거래일로 간주해야 한다.
+export async function isChartCacheFreshFromToday(ticker: string, monthsAgo: number): Promise<boolean> {
+  const cache = await loadCache(ticker, monthsAgo);
+  if (!cache) return false;
+  return kstDateStr(new Date(cache.updatedAt)) === kstDateStr(new Date());
 }

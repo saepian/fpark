@@ -427,6 +427,13 @@ export default function DashboardPage() {
   // "끝나면 한 번 더 실행"으로 큐잉해 폴링 중복 방지 목적은 그대로 유지하면서도 어떤
   // 호출도 완전히 유실되지 않게 한다.
   const refreshPendingRef = useRef(false);
+  // 숨기기/다시 보이기 연타 레이스컨디션 방지용(2026-08-31 오픈 전 QA에서 실측 재현 —
+  // 종목별 PATCH를 순서 보장 없이 fire-and-forget으로 쏘던 탓에, 5연타(숨김→보임→숨김→
+  // 보임→숨김) 직후엔 UI가 마지막 클릭대로 "숨김"을 보여줘도 네트워크 왕복 순서가 뒤바뀌어
+  // DB엔 더 이전 클릭의 값("보임")이 최종 저장되는 경우가 있었다 — 새로고침하면 되돌아감).
+  // setHoldingHidden 참고.
+  const hidingChainRef = useRef<Record<string, Promise<unknown>>>({});
+  const hidingSeqRef   = useRef<Record<string, number>>({});
 
   // AI 분석
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -578,15 +585,29 @@ export default function DashboardPage() {
   // 숨기기/다시 보이기 — row는 유지하고 표시 플래그만 바꾼다. 낙관적으로 즉시
   // 반영하고, 카드그리드/스탯카드/차트가 전부 다시 계산되게 리스크·추이도 새로 부른다
   // (숨김 전환 직후 투자원금 합계가 바뀌므로 월별·일별 추이·위험도도 갱신 필요).
+  //
+  // 같은 종목에 대한 PATCH를 티커별로 체인(직렬화)한다 — 병렬로 쏘면 네트워크 왕복
+  // 순서가 뒤바뀌어(먼저 보낸 요청이 나중에 도착) 최종 클릭과 다른 값이 DB에 남는
+  // 레이스컨디션이 있었다(2026-08-31 실측 재현: 5연타 후 새로고침하면 값이 되돌아감).
+  // seq로 "가장 최근 클릭"만 리스크/월별 갱신을 담당하게 해 연타 중 중복 API 호출도 줄인다.
   const setHoldingHidden = async (ticker: string, hidden: boolean) => {
     setHoldings(prev => prev ? prev.map(h => h.ticker === ticker ? { ...h, hidden } : h) : prev);
-    try {
-      await fetch('/api/dashboard/holdings', {
+
+    const seq = (hidingSeqRef.current[ticker] ?? 0) + 1;
+    hidingSeqRef.current[ticker] = seq;
+
+    const prevChain = hidingChainRef.current[ticker] ?? Promise.resolve();
+    const thisChain = prevChain.catch(() => {}).then(() =>
+      fetch('/api/dashboard/holdings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticker, hidden }),
-      });
-    } catch { /* noop */ }
+      }).catch(() => {}),
+    );
+    hidingChainRef.current[ticker] = thisChain;
+    await thisChain;
+
+    if (hidingSeqRef.current[ticker] !== seq) return; // 그 사이 더 최신 클릭이 있으면 그쪽이 갱신을 담당
     loadRisk();
     loadMonthly();
   };
@@ -1124,7 +1145,12 @@ export default function DashboardPage() {
           );
         })()}
 
-        {/* AI 분석 버튼 — 장중에는 숨김(장마감 후·거래일에만 노출) */}
+        {/* AI 분석 버튼 — 장중에는 숨김(장마감 후·거래일에만 노출). 종목별 카드 버튼(8/31
+            수정)과 동일하게 "장마감~자정"만 활성 구간으로 좁힌다 — marketOpen만 보면
+            자정 이후~다음 장 시작 전까지도 계속 활성 상태로 남아, 이 시간대에 클릭하면
+            아직 오늘 거래 데이터가 없는데도 "오늘의 AI 분석"이라는 라벨로 생성을 시도하게
+            된다(서버의 getDomesticMarketDayContext도 개장 전 새벽엔 보수적으로 거래일로
+            간주해 이 케이스를 막아주지 못함 — lib/market-day-context.ts 상단 주석 참고). */}
         {!marketOpen && !analysisResult && (
           <Card className="mb-4">
             <div className="flex items-center justify-between gap-4">
@@ -1132,15 +1158,19 @@ export default function DashboardPage() {
                 <Sparkles className="w-4 h-4 text-indigo-400" />
                 <div>
                   <p className="text-[13px] font-semibold text-white">오늘의 AI 분석</p>
-                  <p className="text-[11px] text-slate-500">보유 종목의 오늘 뉴스·이슈·시세를 종합 해석합니다 (하루 1회 생성)</p>
+                  <p className="text-[11px] text-slate-500">
+                    {afterMidnight
+                      ? '자정 이후엔 다음 장 마감 후 다시 이용 가능합니다'
+                      : '보유 종목의 오늘 뉴스·이슈·시세를 종합 해석합니다 (하루 1회 생성)'}
+                  </p>
                 </div>
               </div>
               <button
                 onClick={runAnalysis}
-                disabled={analysisLoading}
+                disabled={analysisLoading || afterMidnight}
                 className="shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold
                   bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500
-                  disabled:opacity-50 text-white transition-all cursor-pointer"
+                  disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all cursor-pointer"
               >
                 {analysisLoading ? (
                   <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> {analysisLabel || '분석 중...'}</>
@@ -1181,7 +1211,9 @@ export default function DashboardPage() {
                 <p className="text-[13px] text-amber-200/90 leading-relaxed">AI 종합 평가를 불러오지 못했습니다. 종목별 분석은 위에서 확인하실 수 있습니다.</p>
                 <button
                   onClick={runAnalysis}
-                  className="flex items-center gap-1.5 shrink-0 px-4 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[12px] font-semibold transition-colors cursor-pointer"
+                  disabled={afterMidnight}
+                  title={afterMidnight ? '자정 이후엔 다음 장 마감 후 다시 이용 가능합니다' : undefined}
+                  className="flex items-center gap-1.5 shrink-0 px-4 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[12px] font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RefreshCw className="w-3.5 h-3.5" /> 다시 시도
                 </button>
@@ -1314,8 +1346,11 @@ export default function DashboardPage() {
             {reportReady && (
               <button
                 onClick={runAnalysis}
+                disabled={afterMidnight}
+                title={afterMidnight ? '자정 이후엔 다음 장 마감 후 다시 이용 가능합니다' : undefined}
                 className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] font-semibold
-                  bg-slate-800/60 hover:bg-slate-800 text-slate-400 border border-slate-700 transition-colors cursor-pointer"
+                  bg-slate-800/60 hover:bg-slate-800 text-slate-400 border border-slate-700 transition-colors cursor-pointer
+                  disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> 다시 불러오기 (당일 캐시)
               </button>
