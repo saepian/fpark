@@ -22,6 +22,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockState = vi.hoisted(() => ({
   tokenRow: null as { access_token: string; expired_at: string } | null,
   lockHeld: false,
+  // 2026-08-31 추가: 발급 직후 "kis_tokens 최신 행"(KIS가 기존 토큰을 그대로 돌려줬는지
+  // 대조용)과, 저장/감사로그 insert·update 페이로드 캡처.
+  latestRow: null as { id: number; access_token: string; expired_at: string } | null,
+  inserts: [] as any[],
+  updates: [] as any[],
   saveTokenFails: false, // 2026-07-10 kis_tokens.id 시퀀스 미설정으로 실제 발생했던
                           // "토큰 저장 insert 실패"를 재현하기 위한 스위치.
 }));
@@ -41,15 +46,21 @@ vi.mock('@/lib/supabase-admin', () => {
     maybeSingle: () => Promise.resolve(
       mockState.lockHeld
         ? { data: { expired_at: new Date(Date.now() + 8000).toISOString() }, error: null }
-        : { data: null, error: null }
+        : mockState.latestRow
+          ? { data: mockState.latestRow, error: null }
+          : { data: null, error: null }
     ),
     delete: () => chain,
+    // 2026-08-31: KIS가 기존 토큰을 그대로 돌려준 경우 기존 행의 expired_at만 보정하는
+    // update().eq() 경로 — bare-await되므로 chain 반환이면 충분하다(페이로드는 검증용 캡처).
+    update: (payload: any) => { mockState.updates.push(payload); return chain; },
     // acquireIssueLock()이 insert 실패 후 .select().eq().maybeSingle()로 체이닝하므로
     // eq()는 (bare-await되는 delete().eq() 호출도 여전히 성립하도록) chain을 반환한다.
     eq: () => chain,
     // 락 sentinel(id=-1) insert는 lockHeld로, 새 토큰 저장 insert(id 미지정)는
     // saveTokenFails로 각각 독립적으로 실패를 흉내낼 수 있도록 payload로 구분한다.
     insert: (payload: any) => {
+      mockState.inserts.push(payload);
       if (payload?.id === -1) {
         return Promise.resolve(mockState.lockHeld ? { error: new Error('conflict') } : { error: null });
       }
@@ -69,6 +80,8 @@ import {
   KisTokenExpiredError,
   KisTokenIssueError,
   getAccessToken,
+  invalidateAccessToken,
+  parseKisTokenExpiry,
   fetchMarketIndex,
   fetchCuratedMovers,
 } from './kis-api';
@@ -77,6 +90,9 @@ beforeEach(() => {
   mockState.tokenRow = { access_token: 'FAKE_VALID_TOKEN', expired_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() };
   mockState.lockHeld = false;
   mockState.saveTokenFails = false;
+  mockState.latestRow = null;
+  mockState.inserts.length = 0;
+  mockState.updates.length = 0;
 });
 
 describe('assertKisTokenValid — 조기 만료 코드 분류', () => {
@@ -260,5 +276,76 @@ describe('getAccessToken — 토큰 저장 insert 실패 시 로그 정확성', 
 
     errorSpy.mockRestore();
     logSpy.mockRestore();
+  });
+});
+
+// 2026-08-31 KIS 토큰 재발급 재조사 후속 — 발급 응답 처리 회귀 테스트.
+// 실측 배경: KIS는 유효기간 내 재요청 시 "기존 토큰을 그대로" 돌려준다(같은 날 16:07
+// 프로덕션이 받은 토큰이 다른 프로세스가 11:44에 받은 것과 문자열까지 동일). 그런데
+// 만료를 now+expires_in으로 계산해 저장하면 실제 만료보다 늦게 기록돼 죽은 토큰을
+// 유효한 줄 알고 쓰는 구간이 생긴다. 또 tokenP 호출 이력이 kis_tokens 저장 성패와
+// 무관하게 남아야 "몇 번 발급됐는지"를 DB로 정확히 알 수 있다.
+describe('getAccessToken — 발급 응답 처리 (2026-08-31)', () => {
+  const kisIssueResponse = {
+    access_token: 'ISSUED_TOKEN_qVSQuwZA',
+    token_type: 'Bearer',
+    expires_in: 86400,
+    access_token_token_expired: '2026-09-01 11:44:33', // KIS 벽시계(KST)
+  };
+
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    mockState.tokenRow = null; // DB에 유효 토큰 없음 → 발급 경로로 진입
+    await invalidateAccessToken(); // 이전 테스트가 남긴 인메모리 캐시 제거
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200, json: async () => kisIssueResponse, text: async () => '',
+    } as Response)));
+  });
+
+  it('parseKisTokenExpiry — KIS "YYYY-MM-DD HH:mm:ss"(KST)를 절대시각으로 변환, 이상 형식은 null', () => {
+    expect(parseKisTokenExpiry('2026-09-01 11:44:33')?.toISOString()).toBe('2026-09-01T02:44:33.000Z');
+    expect(parseKisTokenExpiry('2026-09-01T11:44:33')?.toISOString()).toBe('2026-09-01T02:44:33.000Z');
+    expect(parseKisTokenExpiry('')).toBeNull();
+    expect(parseKisTokenExpiry(undefined)).toBeNull();
+    expect(parseKisTokenExpiry('9/1/2026')).toBeNull();
+  });
+
+  it('만료시각은 expires_in 계산이 아니라 KIS access_token_token_expired를 그대로 저장한다', async () => {
+    const token = await getAccessToken();
+    expect(token).toBe('ISSUED_TOKEN_qVSQuwZA');
+    const saved = mockState.inserts.find((p) => p?.access_token === 'ISSUED_TOKEN_qVSQuwZA');
+    expect(saved).toBeTruthy();
+    expect(saved.expired_at).toBe('2026-09-01T02:44:33.000Z'); // now+86400s가 아님
+  });
+
+  it('KIS가 kis_tokens 최신 행과 동일한 토큰을 돌려주면 새 행을 만들지 않고 만료시각만 보정한다', async () => {
+    mockState.latestRow = { id: 53, access_token: 'ISSUED_TOKEN_qVSQuwZA', expired_at: '2026-09-01T07:07:57.945+00:00' };
+    await getAccessToken();
+    expect(mockState.inserts.some((p) => p?.access_token === 'ISSUED_TOKEN_qVSQuwZA')).toBe(false); // 중복 행 없음
+    expect(mockState.updates).toEqual([{ expired_at: '2026-09-01T02:44:33.000Z' }]);
+    const audit = mockState.inserts.find((p) => p?.outcome !== undefined);
+    expect(audit.same_as_previous).toBe(true);
+  });
+
+  it('발급 성공 시 kis_token_issue_log에 outcome=succeeded 감사 행이 남는다(사유·토큰tail·KIS만료 포함)', async () => {
+    await getAccessToken();
+    const audit = mockState.inserts.find((p) => p?.outcome !== undefined);
+    expect(audit).toMatchObject({
+      outcome: 'succeeded', reason: 'no-db-token', http_status: 200,
+      token_tail: 'qVSQuwZA', kis_expired_at: '2026-09-01T02:44:33.000Z', same_as_previous: false,
+    });
+    expect(audit.finished_at).toBeTruthy();
+  });
+
+  it('KIS가 발급을 거부(EGW00133 등 4xx)해도 감사 행은 outcome=failed로 반드시 남는다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, status: 403, json: async () => ({}), text: async () => '{"error_code":"EGW00133"}',
+    } as Response)));
+    await expect(getAccessToken()).rejects.toThrow(KisTokenIssueError);
+    const audit = mockState.inserts.find((p) => p?.outcome !== undefined);
+    expect(audit).toMatchObject({ outcome: 'failed', http_status: 403 });
+    expect(audit.message).toContain('EGW00133');
+    // 토큰 행은 없음 — 발급 락 sentinel(id=-1, access_token:'LOCK')은 토큰 행이 아니므로 제외
+    expect(mockState.inserts.some((p) => p?.access_token && p?.id !== -1)).toBe(false);
   });
 });

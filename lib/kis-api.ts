@@ -1,5 +1,5 @@
 import type { StockPrice, StockInfo, ChartDataPoint, MarketIndexData, MoverStock, AlertStock } from './types';
-import type { Json } from './database.types';
+import type { Json, Database } from './database.types';
 import { adminClient as supabaseAdmin } from './supabase-admin';
 import { supabase } from './supabase';
 import { findClosestPastClose, isKoreanMarketOpen } from './market-utils';
@@ -172,6 +172,17 @@ async function resolveStockName(ticker: string, o: any): Promise<string> {
   return ticker;
 }
 
+// KIS tokenP 응답의 access_token_token_expired("2026-09-01 11:44:33", KST 벽시계)를 절대
+// 시각으로 변환. 형식이 예상과 다르면 null을 돌려 호출부가 expires_in 폴백을 쓰게 한다.
+// export는 테스트(lib/kis-api-token-retry.test.ts) 검증용.
+export function parseKisTokenExpiry(raw: unknown): Date | null {
+  if (typeof raw !== 'string') return null;
+  const m = raw.trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}+09:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 // 인메모리 캐시: 동일 invocation 내 중복 발급 방지
 let tokenCache: { token: string; expiresAt: number } | null = null;
 // 동시 발급 요청 중복 방지
@@ -256,6 +267,8 @@ export async function getAccessToken(opts?: { waitForLock?: boolean }): Promise<
   }
 
   tokenFetchPromise = (async () => {
+    // 왜 발급까지 왔는지 — 감사 로그(kis_token_issue_log.reason)용.
+    let issueReason: 'expiring-soon' | 'no-db-token' | 'db-read-failed' | 'unknown' = 'unknown';
     // 3) Supabase 영속 캐시 (serverless invocation 간 공유) — id>0 조건으로
     // 발급 락 sentinel 행(id=-1)은 제외한다.
     try {
@@ -284,11 +297,14 @@ export async function getAccessToken(opts?: { waitForLock?: boolean }): Promise<
           return tokenData.access_token;
         }
         console.log('[KIS] 토큰 만료 임박 (10분 미만), 재발급');
+        issueReason = 'expiring-soon';
       } else {
         console.log('[KIS] 토큰 상태:', { supabaseToken: false });
+        issueReason = 'no-db-token';
       }
     } catch (e) {
       console.log('[KIS] 토큰 캐시 조회 실패, 새로 발급:', e instanceof Error ? e.message : e);
+      issueReason = 'db-read-failed';
     }
 
     // 4) 발급 락 획득 시도 — 이걸 획득한 프로세스만 실제로 KIS에 발급을 요청한다.
@@ -334,8 +350,20 @@ export async function getAccessToken(opts?: { waitForLock?: boolean }): Promise<
       throw err;
     }
 
+    // 2026-08-31 재조사 후속: "실제 tokenP 호출"을 kis_tokens 저장 성패와 무관하게
+    // 빠짐없이 남기는 감사 로그(kis_token_issue_log). 같은 날 KIS 알림톡은 4회 발급인데
+    // kis_tokens에는 1행만 있어 "DB만 보고 정상"이라고 오판한 사고의 재발 방지 —
+    // 발급 시도 자체를 finally에서 무조건 1행 기록한다(성공/실패/예외 모두).
+    const audit: Database['public']['Tables']['kis_token_issue_log']['Insert'] = {
+      requested_at: new Date().toISOString(),
+      reason: issueReason,
+      wait_for_lock: waitForLock,
+      outcome: 'exception',
+      source: process.env.VERCEL_URL ?? process.env.VERCEL_ENV ?? 'local',
+    };
+
     try {
-      console.log('[KIS] 새 토큰 발급 요청');
+      console.log('[KIS] 새 토큰 발급 요청', { reason: issueReason });
       const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
         method: 'POST',
         headers: { 'content-type': 'application/json; charset=UTF-8' },
@@ -346,56 +374,103 @@ export async function getAccessToken(opts?: { waitForLock?: boolean }): Promise<
         }),
         cache: 'no-store',
       });
+      audit.http_status = res.status;
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
+        audit.outcome = 'failed';
+        audit.message = text.slice(0, 500);
         const err = new KisTokenIssueError(`KIS 토큰 발급 실패 [${res.status}]: ${text}`);
         lastIssueFailure = { at: Date.now(), error: err };
         throw err;
       }
 
       const data = await res.json();
-      const expiresAt = new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
+      // 2026-08-31 재조사에서 실측: KIS는 같은 앱키로 유효기간 내 재요청하면 "기존 토큰을
+      // 그대로" 돌려준다(이날 16:07 프로덕션이 받은 토큰이 다른 프로세스가 11:44에 발급받은
+      // 것과 문자열까지 동일). 그런데 여기서 만료를 now+expires_in으로 계산해 저장하니
+      // 실제 만료(11:44+24h)보다 4시간 23분 늦게 기록됐고, 그 구간엔 이미 죽은 토큰을
+      // 유효한 줄 알고 쓰다 EGW00123→무효화→재발급이 연쇄될 구조였다. KIS 응답의
+      // access_token_token_expired("YYYY-MM-DD HH:mm:ss", KST)를 만료의 진실源으로 쓴다.
+      const expiresAt = parseKisTokenExpiry(data.access_token_token_expired)
+        ?? new Date(Date.now() + (data.expires_in ?? 86400) * 1000);
+      audit.kis_expired_at = expiresAt.toISOString();
+      audit.token_tail = String(data.access_token ?? '').slice(-8);
       tokenCache = { token: data.access_token, expiresAt: expiresAt.getTime() };
       lastIssueFailure = null;
+      if (expiresAt.getTime() - Date.now() < 10 * 60 * 1000) {
+        // KIS가 돌려준 "기존" 토큰이 이미 만료 임박이면 다음 호출이 곧바로 또 발급을 시도한다 —
+        // 잦은 발급 제한("1일 1회 원칙") 위반으로 이어질 수 있어 눈에 띄게 남긴다.
+        console.warn('[KIS] KIS가 돌려준 토큰의 실제 만료가 10분 미만 — 재발급 연쇄 주의', expiresAt.toISOString());
+      }
 
-      // 5) 새 토큰 저장 — 예전엔 기존 행을 전부 지우고 새로 넣었는데, 그러면 재발급
-      // 이력이 하나도 안 남아 "오늘 몇 번, 몇 시에 재발급됐는지"를 나중에 확인할 방법이
-      // Vercel 로그(보존 기간이 짧음)뿐이었다(2026-07-08 재발급 빈도 조사 때 직접 겪음).
-      // 이제는 지우지 않고 계속 쌓되, 최근 50건만 남기고 오래된 건 정리한다 — 조회는
-      // 여전히 created_at 최신 1건만 보므로 캐시 동작에는 영향 없음.
+      // 5) 저장 — 예전엔 기존 행을 전부 지우고 새로 넣었는데, 그러면 재발급 이력이 하나도
+      // 안 남아 "오늘 몇 번, 몇 시에 재발급됐는지"를 나중에 확인할 방법이 Vercel 로그
+      // (보존 기간이 짧음)뿐이었다(2026-07-08). 이제는 계속 쌓되 최근 50건만 남긴다.
+      // 2026-08-31: KIS가 현재 저장된 것과 동일한 토큰을 돌려준 경우(위 참고) 같은 토큰을
+      // 새 행으로 또 넣지 않고 기존 행의 expired_at만 KIS 기준으로 바로잡는다 — 그래야
+      // kis_tokens 행 수가 "실제로 새로 발급된 횟수"를 정직하게 반영한다(호출 횟수는
+      // kis_token_issue_log가 담당).
       try {
-        // insert()의 반환값(error)을 확인하지 않고 무조건 "저장 완료"를 로그로
-        // 남기던 버그가 있었다 — Supabase-js는 DB 에러(예: PK 충돌)를 던지지
-        // 않고 { error }로만 알려주는데, 이걸 체크 안 하면 매번 저장이 실패해도
-        // 로그는 계속 성공이라고 거짓말을 한다(2026-07-10 kis_tokens.id 시퀀스
-        // 미설정으로 실제 이 버그가 발생해, 로그만 성공이고 DB엔 새 토큰이 단
-        // 한 번도 저장되지 않던 것을 발견).
-        const { error: insertError } = await supabaseAdmin.from('kis_tokens').insert({
-          access_token: data.access_token,
-          expired_at: expiresAt.toISOString(),
-        });
-        if (insertError) {
-          console.error('[KIS] 토큰 저장 실패(insert 에러):', insertError);
-        } else {
-          console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
+        const { data: latest } = await supabaseAdmin
+          .from('kis_tokens')
+          .select('id, access_token, expired_at')
+          .gt('id', 0)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const sameAsStored = !!latest?.access_token && latest.access_token === data.access_token;
+        audit.same_as_previous = sameAsStored;
 
-          const { data: history } = await supabaseAdmin
+        if (sameAsStored) {
+          const { error: updError } = await supabaseAdmin
             .from('kis_tokens')
-            .select('id')
-            .gt('id', 0)
-            .order('created_at', { ascending: false })
-            .range(50, 1000);
-          if (history && history.length > 0) {
-            await supabaseAdmin.from('kis_tokens').delete().in('id', history.map((r) => r.id));
+            .update({ expired_at: expiresAt.toISOString() })
+            .eq('id', latest!.id);
+          if (updError) console.error('[KIS] 기존 토큰 만료시각 보정 실패:', updError);
+          else console.log('[KIS] KIS가 기존 토큰을 그대로 반환 — 새 행 없이 만료시각만 보정:', expiresAt.toISOString());
+        } else {
+          // insert()의 반환값(error)을 확인하지 않고 무조건 "저장 완료"를 로그로 남기던
+          // 버그가 있었다(2026-07-10 kis_tokens.id 시퀀스 미설정으로 실제 발생) — 반드시 체크.
+          const { error: insertError } = await supabaseAdmin.from('kis_tokens').insert({
+            access_token: data.access_token,
+            expired_at: expiresAt.toISOString(),
+          });
+          if (insertError) {
+            audit.message = `kis_tokens insert 실패: ${insertError.message}`;
+            console.error('[KIS] 토큰 저장 실패(insert 에러):', insertError);
+          } else {
+            console.log('[KIS] 새 토큰 저장 완료, 만료:', expiresAt.toISOString());
+            const { data: history } = await supabaseAdmin
+              .from('kis_tokens')
+              .select('id')
+              .gt('id', 0)
+              .order('created_at', { ascending: false })
+              .range(50, 1000);
+            if (history && history.length > 0) {
+              await supabaseAdmin.from('kis_tokens').delete().in('id', history.map((r) => r.id));
+            }
           }
         }
       } catch (e) {
+        audit.message = `저장 예외: ${e instanceof Error ? e.message : String(e)}`;
         console.error('[KIS] 토큰 저장 실패:', e);
       }
 
+      audit.outcome = 'succeeded';
       return data.access_token;
+    } catch (e) {
+      if (audit.outcome === 'exception') audit.message = e instanceof Error ? e.message : String(e);
+      throw e;
     } finally {
+      audit.finished_at = new Date().toISOString();
+      try {
+        const { error: auditError } = await supabaseAdmin.from('kis_token_issue_log').insert(audit);
+        if (auditError) console.error('[KIS] 발급 감사로그 저장 실패:', auditError.message);
+      } catch (e) {
+        console.error('[KIS] 발급 감사로그 저장 예외:', e instanceof Error ? e.message : e);
+      }
       await releaseIssueLock();
     }
   })().finally(() => {

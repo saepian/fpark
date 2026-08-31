@@ -389,6 +389,51 @@ export type Database = {
         }
         Relationships: []
       }
+      kis_token_issue_log: {
+        Row: {
+          finished_at: string | null
+          http_status: number | null
+          id: number
+          kis_expired_at: string | null
+          message: string | null
+          outcome: string
+          reason: string
+          requested_at: string
+          same_as_previous: boolean | null
+          source: string | null
+          token_tail: string | null
+          wait_for_lock: boolean
+        }
+        Insert: {
+          finished_at?: string | null
+          http_status?: number | null
+          id?: number
+          kis_expired_at?: string | null
+          message?: string | null
+          outcome: string
+          reason: string
+          requested_at?: string
+          same_as_previous?: boolean | null
+          source?: string | null
+          token_tail?: string | null
+          wait_for_lock?: boolean
+        }
+        Update: {
+          finished_at?: string | null
+          http_status?: number | null
+          id?: number
+          kis_expired_at?: string | null
+          message?: string | null
+          outcome?: string
+          reason?: string
+          requested_at?: string
+          same_as_previous?: boolean | null
+          source?: string | null
+          token_tail?: string | null
+          wait_for_lock?: boolean
+        }
+        Relationships: []
+      }
       kis_tokens: {
         Row: {
           access_token: string
