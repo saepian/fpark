@@ -376,8 +376,22 @@ ${marketNewsBlock ? `\n다음은 오늘 시장 전체(코스피/코스닥/금리
   // 늘려도 전체 크론 소요시간은 "가장 느린 유저 1명" 기준으로만 늘어나고 유저 수에
   // 비례해 누적되지 않는다 — maxDuration=300 대비 상한(cap)을 둬서 극단적으로 큰
   // 워치리스트(60종목+)에서도 2회 재시도 합산이 예산을 넘지 않게 방어한다.
+  // 2026-08-31 오후 재발: claude-haiku-4-5 → claude-sonnet-4-6 교체(컴플라이언스 대응,
+  // 커밋 8cbaa37) 이후 첫 정기발송(15:45 KST)에서 targetStockCount=15 유저가 46,250ms
+  // 예산 안에서 재시도 포함 2회 모두 timeout으로 실패(marketSection까지 함께 폴백,
+  // 같은 JSON 응답이라 공통 원인). 긴급 조사 결과: 이 유저와 동일한 조건(실제
+  // 시스템프롬프트·15종목)을 격리 재현하면 26~36초에 정상 완료돼 옛 예산(46,250ms) 안에
+  // 들어오긴 하지만 여유가 26~43%뿐이었고, 2인 동시 호출도 시도해봤으나 서로 유의미하게
+  // 느려지지 않아(동시성 경합은 원인이 아님) 실제 발송 실패는 통상적인 API 지연 변동폭이
+  // 이 얇은 여유를 두 번 다 넘어선 것으로 판단된다 — Sonnet은 Haiku보다 이 워크로드에서
+  // 유의미하게 느리므로(과거 Haiku 기준으로 조정된 계수를 그대로 물려받고 있었음), 기준
+  // 자체를 Sonnet 실측치에 맞게 다시 잡는다. 워치리스트는 플랜 무관 최대 15개로
+  // 하드캡돼 있어(app/api/watchlist/route.ts) targetStockCount는 이론상으로도 15를 넘지
+  // 않는다 — 15개 기준 새 예산(30,000+15*3,000=75,000ms)은 오늘 실측한 최악값(36.2초)
+  // 대비 2배 이상 여유. 2회 재시도 합산 최악값(150,000ms)도 maxDuration=300s 안에서
+  // 유저 앞단 파이프라인(뉴스·시세 수집)과 충분히 공존 가능.
   const targetStockCount = groupAStocks.length + otherNewsStocks.length;
-  const timeoutMs = Math.min(20_000 + targetStockCount * 1_750, 60_000);
+  const timeoutMs = Math.min(30_000 + targetStockCount * 3_000, 90_000);
   const attempt = async (): Promise<DailyAiResult | null> => {
     try {
       const message = await Promise.race([
