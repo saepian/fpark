@@ -488,12 +488,19 @@ export async function GET(request: NextRequest) {
   const usMarket = await usMarketPromise;
   console.log(`[MORNING-BRIEFING] 미국증시 개요 — ${usMarket ? '조회 성공' : '전체 실패(섹션 생략)'}`);
 
-  // 7. 발송 (순차 — Resend 속도 제한 준수)
+  // 7. 발송 — 청크 병렬 (2026-08-31 트래픽 점검: daily-alert-email과 동일한 "완전 순차
+  //    루프라 유저 수에 비례해 늘어나 200~300명대부터 maxDuration을 위협"하는 구조를
+  //    그대로 갖고 있어 같은 패턴으로 전환. 5명씩 + 배치 사이 1200ms는 daily-alert-email
+  //    드라이런 시뮬레이션으로 Resend 한도(팀당 초당 10건) 대비 1초 윈도우 최대 5건으로
+  //    검증된 값. 개별 실패는 로그만 남기고 계속 진행, 로그 insert는 배치 단위 bulk.
+  const EMAIL_CHUNK_SIZE = 5;
+  const EMAIL_CHUNK_DELAY_MS = 1200;
+
   let sent = 0;
   let failed = 0;
   const subject = `[fpark] ${mm}월 ${dd}일 오늘의 관심종목 뉴스 분석`;
 
-  for (const ub of userBriefings) {
+  const sendOne = async (ub: UserBriefing) => {
     const html = buildMorningEmailHtml({
       userName: ub.userName,
       dateStr,
@@ -519,15 +526,29 @@ export async function GET(request: NextRequest) {
       console.error(`[MORNING-BRIEFING] 발송 실패 (${ub.email}):`, e instanceof Error ? e.message : e);
     }
 
-    try {
-      await adminClient.from('email_send_logs').insert({
-        user_id:            ub.userId,
-        stock_count:        ub.stocks.length,
-        ai_comment:         `[아침브리핑] ${ub.stocks.map((s) => s.name).join(', ')}`,
-        status,
-      });
-    } catch (e) {
-      console.warn('[MORNING-BRIEFING] 로그 저장 실패:', e instanceof Error ? e.message : e);
+    return {
+      user_id:     ub.userId,
+      stock_count: ub.stocks.length,
+      ai_comment:  `[아침브리핑] ${ub.stocks.map((s) => s.name).join(', ')}`,
+      status,
+    };
+  };
+
+  for (let i = 0; i < userBriefings.length; i += EMAIL_CHUNK_SIZE) {
+    const chunk = userBriefings.slice(i, i + EMAIL_CHUNK_SIZE);
+    const settled = await Promise.allSettled(chunk.map(sendOne));
+    const logRows = settled.flatMap((r, j) => {
+      if (r.status === 'fulfilled') return [r.value];
+      failed++;
+      console.error(`[MORNING-BRIEFING] ${chunk[j].email} 발송 처리 중 예상 밖 예외:`, r.reason);
+      return [];
+    });
+    if (logRows.length > 0) {
+      const { error: logError } = await adminClient.from('email_send_logs').insert(logRows);
+      if (logError) console.warn('[MORNING-BRIEFING] 로그 저장 실패(배치):', logError.message);
+    }
+    if (i + EMAIL_CHUNK_SIZE < userBriefings.length) {
+      await new Promise((r) => setTimeout(r, EMAIL_CHUNK_DELAY_MS));
     }
   }
 

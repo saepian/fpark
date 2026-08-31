@@ -1,7 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchStockPrice } from '../../../lib/kis-api';
 import { getStockMasterList, type StockMasterEntry } from '../../../lib/krx-stock-master';
-import type { SearchResult } from '../../../lib/types';
+import { supabase } from '../../../lib/supabase';
+import { isKoreanMarketOpen } from '../../../lib/market-utils';
+import type { SearchResult, StockPrice } from '../../../lib/types';
+
+// 2026-08-31 트래픽 점검: 이 라우트는 비로그인 포함 모든 방문자의 헤더 검색창이
+// 키 입력마다(200ms 디바운스) 호출하고, 매 호출이 국내 매칭 상위 5종목의 시세를
+// fetchStockPrice()로 KIS에 라이브 조회하고 있었다 — KIS는 전역 초당 15건 하드캡
+// (lib/kis-api.ts acquireKisRateSlot)이라 동시에 타이핑하는 방문자 3~4명만으로도
+// 대시보드·관심종목·알림 크론까지 공유하는 KIS 예산을 통째로 잠식하는 구조였다.
+// app/api/stock/[ticker]/price가 이미 같은 티커의 시세를 market_cache
+// (stock_price_{ticker}, 장중 30초/장외 30분 TTL)에 넣어두므로, 그 캐시가 신선하면
+// KIS를 건너뛰고 재사용한다(5종목을 한 번의 IN 쿼리로 읽음). 캐시가 없거나 만료된
+// 티커만 종전처럼 라이브 조회(레이트리미터 게이트는 fetchStockPrice 내부에 그대로).
+const PRICE_CACHE_TTL_MS_OPEN   = 30_000;
+const PRICE_CACHE_TTL_MS_CLOSED = 30 * 60_000;
+
+async function loadFreshPriceCache(tickers: string[]): Promise<Map<string, StockPrice>> {
+  const fresh = new Map<string, StockPrice>();
+  if (tickers.length === 0) return fresh;
+  const ttlMs = isKoreanMarketOpen() ? PRICE_CACHE_TTL_MS_OPEN : PRICE_CACHE_TTL_MS_CLOSED;
+  try {
+    const { data } = await supabase
+      .from('market_cache')
+      .select('key, data, updated_at')
+      .in('key', tickers.map((t) => `stock_price_${t}`));
+    for (const row of data ?? []) {
+      const age = Date.now() - new Date(row.updated_at).getTime();
+      if (age < ttlMs && row.data) {
+        fresh.set(row.key.replace('stock_price_', ''), row.data as unknown as StockPrice);
+      }
+    }
+  } catch {
+    // 캐시 조회 실패는 라이브 조회로 자연 폴백
+  }
+  return fresh;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -168,10 +203,16 @@ export async function GET(req: NextRequest) {
 
   const matched = scored.slice(0, 5);
 
-  // 국내 가격 조회 + 해외 검색 병렬
+  // 국내 가격 조회(신선한 market_cache 우선, 없으면 KIS 라이브) + 해외 검색 병렬
+  const freshPrices = await loadFreshPriceCache(matched.map((s) => s.ticker));
   const [domesticResults, overseasResults] = await Promise.all([
     Promise.all(
       matched.map(async (s): Promise<SearchResult> => {
+        const cached = freshPrices.get(s.ticker);
+        if (cached) {
+          const name = (cached.name && cached.name !== s.ticker) ? cached.name : s.name;
+          return { ticker: s.ticker, name, price: cached.price, changeRate: cached.changeRate };
+        }
         try {
           const price = await fetchStockPrice(s.ticker);
           const name = (price.name && price.name !== s.ticker) ? price.name : s.name;

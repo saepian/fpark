@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAccessToken } from '@/lib/kis-api';
+import { getAccessToken, acquireKisRateSlot } from '@/lib/kis-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +32,9 @@ export async function GET(
       url.searchParams.set('FID_ORG_ADJ_PRC', '0');
 
       try {
+        // 2026-08-31 트래픽 점검: investors 라우트와 같은 이유로 전역 KIS 레이트리미터
+        // 게이트 추가(직접 fetch라 게이트를 우회하고 있었음).
+        await acquireKisRateSlot();
         const res = await fetch(url.toString(), {
           headers: headers(token),
           cache: 'no-store',

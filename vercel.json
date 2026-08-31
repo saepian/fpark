@@ -11,7 +11,7 @@
       "maxDuration": 60
     },
     "app/api/cron/stock-alerts/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "app/api/cron/daily-alert-email/route.ts": {
       "maxDuration": 300

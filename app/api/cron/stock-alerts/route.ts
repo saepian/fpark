@@ -5,7 +5,12 @@ import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 import { sendTelegramMessage, isBlockedByUser } from '@/lib/telegram';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// 2026-08-31 트래픽 점검: 유니크 관심종목 수에 비례해 KIS 호출(종목당 시세 1 + 수급 1~2)이
+// 늘어나는데 전역 레이트리미터가 초당 15건이라, 60초 예산으로는 유니크 종목 약 100개
+// (Pro 유저 수십 명 수준)부터 크론이 중간에 잘려 뒷부분 종목의 알림이 통째로 누락된다.
+// daily-alert-email/morning-briefing과 동일하게 300초로 상향(vercel.json도 함께) —
+// 10분 주기 실행이라 겹칠 일은 없다. 근본적인 확장(유저 샤딩 등)은 별도 설계.
+export const maxDuration = 300;
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 const PRICE_THRESHOLDS = [5, 10, 20, 30];

@@ -1,4 +1,4 @@
-import { getAccessToken } from '@/lib/kis-api';
+import { getAccessToken, acquireKisRateSlot } from '@/lib/kis-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +16,12 @@ function kisHeaders(token: string, trId: string) {
 }
 
 async function kisGet(token: string, trId: string, path: string) {
+  // 2026-08-31 트래픽 점검: 이 라우트는 요청당 KIS 4건을 캐시 없이 직접 호출하면서
+  // 전역 레이트리미터(acquireKisRateSlot, 초당 15건)를 우회하고 있었다 — 다른 모든
+  // KIS 소비자(대시보드·관심종목·알림 크론)는 게이트를 거치는데 여기만 무방비라,
+  // 종목 상세 페이지 동시접속이 늘면 이 라우트가 먼저 EGW00201을 유발하고 그 여파가
+  // 게이트를 지키는 쪽에까지 번지는 구조였다. 게이트만 추가(캐싱은 별도 설계 필요).
+  await acquireKisRateSlot();
   const res = await fetch(`${KIS}${path}`, {
     headers: kisHeaders(token, trId),
     cache: 'no-store',
