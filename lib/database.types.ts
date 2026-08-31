@@ -478,6 +478,7 @@ export type Database = {
           notif_date: string
           stock_code: string
           stock_name: string
+          telegram_sent_at: string | null
           threshold: number
           type: string
           updated_at: string
@@ -493,6 +494,7 @@ export type Database = {
           notif_date?: string
           stock_code: string
           stock_name: string
+          telegram_sent_at?: string | null
           threshold: number
           type: string
           updated_at?: string
@@ -508,6 +510,7 @@ export type Database = {
           notif_date?: string
           stock_code?: string
           stock_name?: string
+          telegram_sent_at?: string | null
           threshold?: number
           type?: string
           updated_at?: string
@@ -1033,7 +1036,7 @@ export type Database = {
           p_type: string
           p_user_id: string
         }
-        Returns: { id: string | null; is_new: boolean; skipped: boolean }[]
+        Returns: { id: string | null; is_new: boolean; skipped: boolean; telegram_sent_at: string | null }[]
       }
     }
     Enums: {

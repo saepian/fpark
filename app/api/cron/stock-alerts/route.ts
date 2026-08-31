@@ -352,7 +352,7 @@ export async function GET(request: NextRequest) {
     //      "오늘 이미 알린 뒤 비활성화된 임계값 재돌파는 재알림 생략"(일 단위 리셋 정책,
     //      2026-08-01 재설계)도 RPC 안의 EXISTS 체크로 원자적으로 처리 — 호출부(여기)엔
     //      더 이상 별도 SELECT/Map이 없다.
-    const upsertResults: { alert: AlertItem; isNew: boolean; skipped: boolean }[] = [];
+    const upsertResults: { alert: AlertItem; id: string; isNew: boolean; skipped: boolean; telegramSentAt: string | null }[] = [];
     const upsertFailures: { alert: AlertItem; message: string }[] = [];
 
     for (let i = 0; i < alerts.length; i += 3) {
@@ -378,7 +378,10 @@ export async function GET(request: NextRequest) {
       settled.forEach((r, idx) => {
         const alert = chunk[idx];
         if (r.status === 'fulfilled') {
-          upsertResults.push({ alert, isNew: r.value.is_new, skipped: r.value.skipped });
+          upsertResults.push({
+            alert, id: r.value.id, isNew: r.value.is_new, skipped: r.value.skipped,
+            telegramSentAt: r.value.telegram_sent_at,
+          });
         } else {
           upsertFailures.push({ alert, message: r.reason instanceof Error ? r.reason.message : String(r.reason) });
         }
@@ -399,14 +402,20 @@ export async function GET(request: NextRequest) {
     upserted = upsertResults.filter(r => !r.skipped).length;
     console.log(`[STOCK-ALERTS] ✓ upsert 완료: ${upserted}건`);
 
-    // 5-3. 텔레그램 발송 — RPC가 원자적으로 알려준 is_new=true(=진짜 신규 삽입)만 대상으로
-    //      한다. notifications upsert 성패와는 무관하게 독립 시도(기존 저장/이메일 경로는
-    //      그대로 두고 "그 옆에" 추가). 유저 단위로 격리해 한 명 실패가 나머지를 막지 않는다.
-    const newlyTriggered = upsertResults.filter(r => r.isNew && !r.skipped).map(r => r.alert);
-    const telegramTargets = newlyTriggered.filter(alert => telegramChatIdByUser.has(alert.user_id));
+    // 5-3. 텔레그램 발송 — 2026-08-31 오후 긴급 수정: 대상 판단을 is_new(=진짜 신규
+    //      삽입이었는가)가 아니라 telegramSentAt(=텔레그램이 실제로 성공한 적이 있는가)
+    //      기준으로 바꿨다. is_new만 보면 "최초 삽입 시점에 텔레그램이 실패하거나 아예
+    //      시도 못 한" 행이 그 뒤로 영원히 재시도되지 않는 문제가 있었다(실측: 오전
+    //      09:50 생성된 6건이 이후 여러 사이클 동안 계속 조건을 유지했는데도 텔레그램만
+    //      한 번도 안 감 — is_new가 최초 사이클 이후 계속 false였기 때문). skipped(오늘
+    //      이미 알렸다가 조건 미충족으로 꺼진 뒤 재돌파한 것 — 일부러 재알림 안 함)는
+    //      여전히 제외한다.
+    const telegramEligible = upsertResults.filter(r => !r.skipped && !r.telegramSentAt);
+    const telegramTargets = telegramEligible.filter(r => telegramChatIdByUser.has(r.alert.user_id));
     if (telegramTargets.length > 0) {
       const results = await Promise.allSettled(
-        telegramTargets.map(async (alert) => {
+        telegramTargets.map(async (target) => {
+          const { alert, id } = target;
           const chatId = telegramChatIdByUser.get(alert.user_id)!;
           const result = await sendTelegramMessage(chatId, alert.message);
           if (!result.ok) {
@@ -419,6 +428,15 @@ export async function GET(request: NextRequest) {
               console.warn(`[STOCK-ALERTS] 텔레그램 전송 실패: user=${alert.user_id} ${result.description}`);
             }
             throw new Error(result.description ?? 'telegram send failed');
+          }
+          // telegram_sent_at을 성공 직후 바로 기록 — 이걸 안 하면 다음 사이클에도
+          // telegramSentAt이 계속 null이라 조건이 유지되는 한 매번 중복 발송된다.
+          const { error: markErr } = await supabase
+            .from('notifications')
+            .update({ telegram_sent_at: new Date().toISOString() })
+            .eq('id', id);
+          if (markErr) {
+            console.error(`[STOCK-ALERTS] telegram_sent_at 기록 실패(발송은 성공) — id=${id}:`, markErr.message);
           }
         }),
       );

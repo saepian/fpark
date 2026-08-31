@@ -28,6 +28,7 @@ type FakeRow = {
   threshold: number;
   notif_date: string;
   is_active: boolean;
+  telegram_sent_at: string | null;
 };
 
 function makeFakeUpsertStore() {
@@ -35,23 +36,24 @@ function makeFakeUpsertStore() {
   let seq = 0;
   return {
     rows,
-    // upsert_stock_alert RPC(supabase/migrations/20260831_notifications_atomic_upsert.sql)의
-    // 동작을 그대로 흉내낸다: 오늘 이 키로 비활성 row가 있으면 스킵, 활성 row가 있으면
-    // 갱신(is_new=false), 없으면 신규 삽입(is_new=true).
+    // upsert_stock_alert RPC(supabase/migrations/20260831_notifications_atomic_upsert.sql,
+    // 20260831_notifications_telegram_retry.sql)의 동작을 그대로 흉내낸다: 오늘 이 키로
+    // 비활성 row가 있으면 스킵, 활성 row가 있으면 갱신(is_new=false, 기존
+    // telegram_sent_at을 그대로 반환), 없으면 신규 삽입(is_new=true, telegram_sent_at=null).
     upsertStockAlert(args: { p_user_id: string; p_stock_code: string; p_type: string; p_threshold: number; p_notif_date: string }) {
       const match = (r: FakeRow) =>
         r.user_id === args.p_user_id && r.stock_code === args.p_stock_code &&
         r.type === args.p_type && r.threshold === args.p_threshold && r.notif_date === args.p_notif_date;
 
       const inactive = rows.find(r => match(r) && !r.is_active);
-      if (inactive) return { id: null, is_new: false, skipped: true };
+      if (inactive) return { id: null, is_new: false, skipped: true, telegram_sent_at: null };
 
       const active = rows.find(r => match(r) && r.is_active);
-      if (active) return { id: active.id, is_new: false, skipped: false };
+      if (active) return { id: active.id, is_new: false, skipped: false, telegram_sent_at: active.telegram_sent_at };
 
-      const row: FakeRow = { id: `n${++seq}`, user_id: args.p_user_id, stock_code: args.p_stock_code, type: args.p_type, threshold: args.p_threshold, notif_date: args.p_notif_date, is_active: true };
+      const row: FakeRow = { id: `n${++seq}`, user_id: args.p_user_id, stock_code: args.p_stock_code, type: args.p_type, threshold: args.p_threshold, notif_date: args.p_notif_date, is_active: true, telegram_sent_at: null };
       rows.push(row);
-      return { id: row.id, is_new: true, skipped: false };
+      return { id: row.id, is_new: true, skipped: false, telegram_sent_at: null };
     },
     // 5-1(조건 미충족 비활성화)의 SELECT(오늘자 활성 row 조회) 흉내 — route.ts가 실제로
     // 넘기는 user_id/stock_code 필터(affectedUserIds/affectedStocks)를 그대로 받는다.
@@ -60,6 +62,10 @@ function makeFakeUpsertStore() {
     },
     deactivate(ids: string[]) {
       for (const r of rows) if (ids.includes(r.id)) r.is_active = false;
+    },
+    markTelegramSent(id: string, sentAt: string) {
+      const row = rows.find(r => r.id === id);
+      if (row) row.telegram_sent_at = sentAt;
     },
   };
 }
@@ -140,9 +146,14 @@ vi.mock('@/lib/supabase-admin', () => {
         if (table === 'notifications') {
           return {
             select: () => notificationsSelectChain,
-            update: (payload: { is_active: boolean }) => ({
+            update: (payload: { is_active?: boolean; telegram_sent_at?: string }) => ({
               in: (_col: string, ids: string[]) => {
                 if (payload.is_active === false) mockState.store!.deactivate(ids);
+                return Promise.resolve({ error: null });
+              },
+              // 5-3(텔레그램 발송 성공 직후 telegram_sent_at 기록)이 쓰는 .eq('id', id) 경로.
+              eq: (_col: string, id: string) => {
+                if (payload.telegram_sent_at) mockState.store!.markTelegramSent(id, payload.telegram_sent_at);
                 return Promise.resolve({ error: null });
               },
             }),
@@ -319,4 +330,46 @@ describe('GET /api/cron/stock-alerts — 원자적 upsert 신규/기존 판별(2
     expect(body3.telegramSent).toBe(0);
     expect(mockState.telegramSent.length).toBe(0);
   });
+});
+
+describe('GET /api/cron/stock-alerts — telegram_sent_at 기반 재시도(2026-08-31 오후 긴급 수정)', () => {
+  const CYCLE_1 = '2026-08-18T09:10:00+09:00';
+  const CYCLE_2 = '2026-08-18T09:20:00+09:00';
+
+  beforeEach(() => {
+    mockState.watchlist = [{ user_id: 'user-1', ticker: '005930', name: '삼성전자' }];
+    mockState.anchorChart = [{ date: '2026-08-14' }, { date: '2026-08-18' }];
+    mockState.telegramChatIdByUser = { 'user-1': 'chat-1' };
+  });
+
+  it(
+    '실제 8/31 사고 재현 — 최초 삽입 시점에 텔레그램이 실패해도(is_new는 그 뒤 영원히 false) ' +
+    '조건이 유지되는 한 다음 사이클에 자동 재시도된다',
+    async () => {
+      const { sendTelegramMessage } = await import('@/lib/telegram');
+      // 사이클 1: -5% 돌파(신규 삽입) + 텔레그램 전송이 실패한다고 가정.
+      vi.setSystemTime(new Date(CYCLE_1));
+      mockState.priceByTicker['005930'] = { name: '삼성전자', price: 100000, changeRate: -5 };
+      vi.mocked(sendTelegramMessage).mockResolvedValueOnce({ ok: false, description: 'network error' } as any);
+      const res1 = await GET(makeRequest());
+      const body1 = await res1.json();
+      expect(body1.telegramSent).toBe(0);
+      expect(body1.telegramFailed).toBe(1); // 발송 시도는 했으나 실패
+      expect(mockState.telegramSent.length).toBe(0);
+
+      // is_new는 최초 삽입 이후 계속 false이지만, telegram_sent_at이 여전히 null이므로
+      // 사이클 2에서 조건이 그대로 유지되면(-5% 지속) 재시도돼야 한다 — is_new만 보던
+      // 예전 로직이었다면 여기서 telegramSent가 0으로 남아 실제 사고가 재현됐을 것.
+      vi.setSystemTime(new Date(CYCLE_2));
+      const res2 = await GET(makeRequest());
+      const body2 = await res2.json();
+      expect(body2.telegramSent).toBe(1);
+      expect(mockState.telegramSent.length).toBe(1);
+      expect(mockState.telegramSent[0].text).toContain('삼성전자');
+
+      // 성공한 뒤엔 telegram_sent_at이 기록돼 있어야(=다음 사이클엔 재시도 대상에서 빠짐).
+      const row = mockState.store!.rows.find(r => r.stock_code === '005930' && r.threshold === 5);
+      expect(row?.telegram_sent_at).toBeTruthy();
+    },
+  );
 });
