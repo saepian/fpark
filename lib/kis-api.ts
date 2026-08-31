@@ -480,6 +480,16 @@ export async function getAccessToken(opts?: { waitForLock?: boolean }): Promise<
   return tokenFetchPromise;
 }
 
+// 2026-08-31: 같은 KIS 앱키를 쓰는 외부 프로젝트(video-pipeline)가 fpark의 단일 토큰 캐시를
+// 함께 쓰도록 하는 내부 API(app/api/internal/kis-token)용 — getAccessToken()과 완전히 같은
+// 경로(인메모리 → kis_tokens → 락 → 발급)를 타되, 호출자가 자체 캐시 만료 판단을 할 수 있게
+// 만료 시각을 함께 돌려준다. 별도의 발급 경로가 절대 아니다(=락·쿨다운·감사로그 전부 공유).
+export async function getAccessTokenWithExpiry(opts?: { waitForLock?: boolean }): Promise<{ token: string; expiresAt: string | null }> {
+  const token = await getAccessToken(opts);
+  const expiresAt = tokenCache && tokenCache.token === token ? new Date(tokenCache.expiresAt).toISOString() : null;
+  return { token, expiresAt };
+}
+
 // 캐시된 토큰이 KIS에 의해 (다른 프로세스의 재발급 등으로) 조기 무효화된 경우
 // 강제로 새 토큰을 발급받도록 캐시를 비운다.
 //
