@@ -273,14 +273,34 @@ export async function GET(request: NextRequest) {
     }),
   );
 
-  // 8. 이메일 발송 (순차 — Resend 속도 제한 준수)
+  // 8. 이메일 발송 — 청크 병렬 (2026-08-31 재조사: 완전 순차라 유저당 300~800ms씩 걸려
+  //    200~300명대부터 maxDuration=300s 예산을 위협하는 것으로 확인돼 전환).
+  //    fetchPricesInChunks/NEWS_BATCH_SIZE와 동일한 패턴 재사용 — Resend 자체 한도(팀당
+  //    초당 10건, 2026-08-31 공식문서 확인) 대비 여유를 두려 했다. 처음엔 6명+700ms로
+  //    잡았는데, 드라이런 시뮬레이션(안전한 모의 발송, 실제 Resend 호출 없음)으로 1초
+  //    슬라이딩 윈도우를 직접 재봤더니 배치 하나가 즉시 6건을 동시에 쏘고 그 다음 배치가
+  //    (완료시간+700ms) 뒤에 또 6건을 쏘는 구조라 두 배치가 1초 창 안에 겹치면 순간
+  //    12건까지 몰릴 수 있음을 확인(한도 10건 초과). 배치 시작 간격이 항상 1초를 넘도록
+  //    5명+1200ms로 재조정 — 같은 시뮬레이션으로 재검증한 결과 1초 윈도우 내 최대 5건으로
+  //    안전하게 확인됨(300명 규모 시뮬레이션에서도 최대 5건 유지, 총 소요 약 87초).
+  //    개별 유저 실패가 배치 전체를 막지 않도록 Promise.allSettled를 그대로 쓰고, 로그
+  //    insert도 배치 단위로 묶어 DB 왕복을 줄인다.
+  const EMAIL_CHUNK_SIZE = 5;
+  const EMAIL_CHUNK_DELAY_MS = 1200;
+
   let sent = 0;
   let failed = 0;
   const subject = `[Finance Park] ${mm}월 ${dd}일 관심종목 일일 리포트`;
 
-  for (let i = 0; i < userCtxList.length; i++) {
-    const ctx       = userCtxList[i];
-    const aiSettled = aiResults[i];
+  type EmailLogRow = {
+    user_id: string;
+    stock_count: number;
+    notification_count: number;
+    ai_comment: string | null;
+    status: 'sent' | 'failed';
+  };
+
+  const sendOne = async (ctx: UserCtx, aiSettled: PromiseSettledResult<DailyAiResult>): Promise<EmailLogRow> => {
     if (aiSettled.status === 'rejected') {
       console.error(`[DAILY-EMAIL] ${ctx.email} generateAiComment 예상 밖 예외:`, aiSettled.reason);
     }
@@ -333,16 +353,41 @@ export async function GET(request: NextRequest) {
       console.error(`[DAILY-EMAIL] 발송 실패 (${ctx.email}):`, e instanceof Error ? e.message : e);
     }
 
-    try {
-      await adminClient.from('email_send_logs').insert({
-        user_id:            ctx.userId,
-        stock_count:        ctx.stocks.length,
-        notification_count: ctx.notifications.length,
-        ai_comment:         aiComment || null,
-        status,
-      });
-    } catch (e) {
-      console.warn('[DAILY-EMAIL] 로그 저장 실패:', e instanceof Error ? e.message : e);
+    return {
+      user_id:            ctx.userId,
+      stock_count:        ctx.stocks.length,
+      notification_count: ctx.notifications.length,
+      ai_comment:         aiComment || null,
+      status,
+    };
+  };
+
+  for (let i = 0; i < userCtxList.length; i += EMAIL_CHUNK_SIZE) {
+    const chunkCtx = userCtxList.slice(i, i + EMAIL_CHUNK_SIZE);
+    const chunkSettled = await Promise.allSettled(
+      chunkCtx.map((ctx, j) => sendOne(ctx, aiResults[i + j])),
+    );
+    // sendOne 자체는 내부에서 send 실패를 전부 삼켜 항상 fulfilled로 끝나지만(status:'failed'로
+    // 반환), 방어적으로 rejected 케이스도 걸러서 로그만 남기고 배치는 계속 진행한다.
+    const logRows: EmailLogRow[] = [];
+    chunkSettled.forEach((r, j) => {
+      if (r.status === 'fulfilled') {
+        logRows.push(r.value);
+      } else {
+        failed++;
+        console.error(`[DAILY-EMAIL] ${chunkCtx[j].email} 발송 처리 중 예상 밖 예외:`, r.reason);
+      }
+    });
+
+    if (logRows.length > 0) {
+      const { error: logError } = await adminClient.from('email_send_logs').insert(logRows);
+      if (logError) {
+        console.warn('[DAILY-EMAIL] 로그 저장 실패(배치):', logError.message);
+      }
+    }
+
+    if (i + EMAIL_CHUNK_SIZE < userCtxList.length) {
+      await new Promise((r) => setTimeout(r, EMAIL_CHUNK_DELAY_MS));
     }
   }
 
