@@ -480,6 +480,7 @@ export type Database = {
           stock_name: string
           threshold: number
           type: string
+          updated_at: string
           user_id: string
         }
         Insert: {
@@ -494,6 +495,7 @@ export type Database = {
           stock_name: string
           threshold: number
           type: string
+          updated_at?: string
           user_id: string
         }
         Update: {
@@ -508,6 +510,7 @@ export type Database = {
           stock_name?: string
           threshold?: number
           type?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -1018,6 +1021,19 @@ export type Database = {
       update_watchlist_order: {
         Args: { p_orders: number[]; p_tickers: string[]; p_user_id: string }
         Returns: undefined
+      }
+      upsert_stock_alert: {
+        Args: {
+          p_current_value: number
+          p_message: string
+          p_notif_date: string
+          p_stock_code: string
+          p_stock_name: string
+          p_threshold: number
+          p_type: string
+          p_user_id: string
+        }
+        Returns: { id: string | null; is_new: boolean; skipped: boolean }[]
       }
     }
     Enums: {

@@ -308,29 +308,24 @@ export async function GET(request: NextRequest) {
     const affectedStocks  = [...new Set(alerts.map(a => a.stock_code))];
     const stillValidKeys  = new Set(alerts.map(a => `${a.user_id}:${a.stock_code}:${a.type}:${a.threshold}`));
 
-    // 오늘자 기존 row를 (is_active 여부까지) 조회 — 5-1(비활성화 대상 판별)과
-    // 5-2(신규/재활성화 여부 판별)가 같은 조회 결과를 공유한다.
-    const { data: existingRows, error: selErr } = await supabase
+    // 5-1. 더 이상 조건을 충족하지 않는 (user, stock, type, threshold)의 "오늘 활성" 알림을
+    //      비활성화(is_active=false) — 이 판단은 아래 5-2의 버그와 무관해 구조를 그대로
+    //      유지한다(예: 10분 전엔 -10%였다가 지금은 -7%로 회복 → -10% 티어는 비활성화,
+    //      -5%는 유지/갱신).
+    const { data: activeRows, error: selErr } = await supabase
       .from('notifications')
-      .select('id, user_id, stock_code, type, threshold, is_active')
+      .select('id, user_id, stock_code, type, threshold')
       .in('user_id', affectedUserIds)
       .in('stock_code', affectedStocks)
-      .eq('notif_date', notifDate);
+      .eq('notif_date', notifDate)
+      .eq('is_active', true);
 
     if (selErr) {
-      console.error('[STOCK-ALERTS] 기존 알림 조회 실패:', selErr.message);
+      console.error('[STOCK-ALERTS] 활성 알림 조회 실패:', selErr.message);
       errors++;
     } else {
-      const rows = existingRows ?? [];
-      const existingByKey = new Map(
-        rows.map(row => [`${row.user_id}:${row.stock_code}:${row.type}:${row.threshold}`, row]),
-      );
-
-      // 5-1. 더 이상 조건을 충족하지 않는 (user, stock, type, threshold)의 "오늘 활성" 알림을
-      //      비활성화(is_active=false) — 이미 비활성인 row는 건드릴 필요 없음.
-      //      (예: 10분 전엔 -10%였다가 지금은 -7%로 회복 → -10% 티어는 비활성화, -5%는 유지/갱신)
-      const staleIds = rows
-        .filter(row => row.is_active && !stillValidKeys.has(`${row.user_id}:${row.stock_code}:${row.type}:${row.threshold}`))
+      const staleIds = (activeRows ?? [])
+        .filter(row => !stillValidKeys.has(`${row.user_id}:${row.stock_code}:${row.type}:${row.threshold}`))
         .map(row => row.id);
 
       if (staleIds.length > 0) {
@@ -342,85 +337,94 @@ export async function GET(request: NextRequest) {
           console.log(`[STOCK-ALERTS] 조건 미충족 알림 ${staleIds.length}건 비활성화`);
         }
       }
+    }
 
-      // 5-2. Upsert 대상 필터링 — 오늘 해당 키로 이미 비활성화된 row가 있으면(= 오늘 한 번
-      //      알렸다가 조건 미충족으로 꺼진 뒤 재돌파한 경우) upsert에서 제외해 재알림/재활성화를
-      //      막는다. 대상: (a) 오늘 처음 돌파(기존 row 없음) → INSERT, (b) 오늘 계속 활성 상태로
-      //      유지 중(is_active=true) → 가격·시각만 갱신(is_read는 건드리지 않음 — 이미 읽은
-      //      알림이 조건 유지 중 매 사이클 다시 안읽음으로 리셋되는 것 방지).
-      const toUpsert = alerts.filter(alert => {
-        const existing = existingByKey.get(`${alert.user_id}:${alert.stock_code}:${alert.type}:${alert.threshold}`);
-        return !existing || existing.is_active;
-      });
-      const skipped = alerts.length - toUpsert.length;
-      if (skipped > 0) {
-        console.log(`[STOCK-ALERTS] 오늘 이미 알린 뒤 비활성화된 임계값 재돌파 ${skipped}건 — 재알림 생략(일 단위 리셋 정책)`);
-      }
+    // 5-2. 원자적 upsert — "오늘 새로 발생했는가"를 SELECT로 기존 행을 조회해 메모리
+    //      Map(existingByKey)과 대조한 뒤 판단하던 2단계 구조(신규 트리거만 걸러
+    //      newlyTriggered)를 걷어냈다. 2026-08-31 실측에서 이 구조가 실제로 신규였던
+    //      알림 3건(앱클론/대우건설/다날 price_down 5%)을 "이미 존재"로 오분류해 텔레그램
+    //      발송이 통째로 스킵되는 문제가 있었음(사이트 알림 자체는 정상 upsert됨 — 정확한
+    //      결함 라인은 특정 못했지만 "판단 시점(SELECT)"과 "쓰기 시점(UPSERT)"이 분리된
+    //      구조 자체가 근본 원인으로 보임). upsert_stock_alert RPC(SQL migration
+    //      20260831_notifications_atomic_upsert.sql)가 INSERT ... ON CONFLICT ... DO
+    //      UPDATE ... RETURNING (xmax = 0)로 "이번 호출이 실제 INSERT였는지"를 하나의
+    //      원자적 SQL 문 안에서 바로 알려주므로, 판단과 쓰기가 어긋날 여지 자체가 없다.
+    //      "오늘 이미 알린 뒤 비활성화된 임계값 재돌파는 재알림 생략"(일 단위 리셋 정책,
+    //      2026-08-01 재설계)도 RPC 안의 EXISTS 체크로 원자적으로 처리 — 호출부(여기)엔
+    //      더 이상 별도 SELECT/Map이 없다.
+    const upsertResults: { alert: AlertItem; isNew: boolean; skipped: boolean }[] = [];
+    const upsertFailures: { alert: AlertItem; message: string }[] = [];
 
-      if (toUpsert.length > 0) {
-        const { data: upsertData, error: upsertErr } = await supabase
-          .from('notifications')
-          .upsert(
-            toUpsert.map(alert => ({
-              user_id:       alert.user_id,
-              stock_code:    alert.stock_code,
-              stock_name:    alert.stock_name,
-              type:          alert.type,
-              message:       alert.message,
-              threshold:     alert.threshold,
-              current_value: alert.current_value,
-              is_active:     true,
-              notif_date:    notifDate,
-              created_at:    new Date().toISOString(),
-            })),
-            { onConflict: 'user_id,stock_code,type,threshold,notif_date', ignoreDuplicates: false },
-          )
-          .select('id');
-
-        if (upsertErr) {
-          console.error('[STOCK-ALERTS] upsert 실패:', upsertErr.message);
-          errors++;
+    for (let i = 0; i < alerts.length; i += 3) {
+      const chunk = alerts.slice(i, i + 3);
+      const settled = await Promise.allSettled(
+        chunk.map(async (alert) => {
+          const { data, error } = await supabase.rpc('upsert_stock_alert', {
+            p_user_id:       alert.user_id,
+            p_stock_code:    alert.stock_code,
+            p_stock_name:    alert.stock_name,
+            p_type:          alert.type,
+            p_message:       alert.message,
+            p_threshold:     alert.threshold,
+            p_current_value: alert.current_value,
+            p_notif_date:    notifDate,
+          });
+          if (error) throw error;
+          const row = Array.isArray(data) ? data[0] : data;
+          if (!row) throw new Error('upsert_stock_alert가 빈 결과를 반환함');
+          return row;
+        }),
+      );
+      settled.forEach((r, idx) => {
+        const alert = chunk[idx];
+        if (r.status === 'fulfilled') {
+          upsertResults.push({ alert, isNew: r.value.is_new, skipped: r.value.skipped });
         } else {
-          upserted = upsertData?.length ?? toUpsert.length;
-          console.log(`[STOCK-ALERTS] ✓ upsert 완료: ${upserted}건`);
+          upsertFailures.push({ alert, message: r.reason instanceof Error ? r.reason.message : String(r.reason) });
         }
-      }
-
-      // 5-3. 텔레그램 발송 — toUpsert는 "오늘 새로 발생한 것 + 이미 활성 상태라 시각만
-      //      갱신되는 것"이 섞여 있어 그대로 쓰면 조건이 계속 유지되는 동안(예: +30% 유지)
-      //      10분 크론이 돌 때마다 같은 알림을 반복 발송하게 된다(실측으로 확인된 문제 —
-      //      알림/저장은 upsert라 중복이 안 보이지만 텔레그램 push는 매번 새 메시지라
-      //      스팸이 됨). existingByKey에 없던(= 오늘 이 임계값을 처음 돌파한) 알림만
-      //      골라 정말 "새로 발생한" 것에 한해 발송한다. notifications upsert 성패와는
-      //      무관하게 독립 시도(기존 저장/이메일 경로는 그대로 두고 "그 옆에" 추가).
-      //      유저 단위로 격리해 한 명 실패가 나머지를 막지 않는다.
-      const newlyTriggered = toUpsert.filter(alert => {
-        const key = `${alert.user_id}:${alert.stock_code}:${alert.type}:${alert.threshold}`;
-        return !existingByKey.has(key);
       });
-      const telegramTargets = newlyTriggered.filter(alert => telegramChatIdByUser.has(alert.user_id));
-      if (telegramTargets.length > 0) {
-        const results = await Promise.allSettled(
-          telegramTargets.map(async (alert) => {
-            const chatId = telegramChatIdByUser.get(alert.user_id)!;
-            const result = await sendTelegramMessage(chatId, alert.message);
-            if (!result.ok) {
-              if (isBlockedByUser(result)) {
-                // 유저가 봇을 차단/삭제한 경우 — 매 사이클 조용히 실패만 쌓이지 않도록
-                // 연동을 자동 해제한다(마이페이지에서 다시 연동하면 복구됨).
-                console.warn(`[STOCK-ALERTS] 텔레그램 전송 거부(차단 추정) — 연동 해제: user=${alert.user_id}`);
-                await supabase.from('users').update({ telegram_chat_id: null, telegram_linked_at: null }).eq('id', alert.user_id);
-              } else {
-                console.warn(`[STOCK-ALERTS] 텔레그램 전송 실패: user=${alert.user_id} ${result.description}`);
-              }
-              throw new Error(result.description ?? 'telegram send failed');
+      if (i + 3 < alerts.length) await new Promise(res => setTimeout(res, 300));
+    }
+
+    for (const f of upsertFailures) {
+      console.error(`[STOCK-ALERTS] upsert 실패: ${f.alert.stock_code}/${f.alert.type}/${f.alert.threshold} — ${f.message}`);
+    }
+    errors += upsertFailures.length;
+
+    const skippedCount = upsertResults.filter(r => r.skipped).length;
+    if (skippedCount > 0) {
+      console.log(`[STOCK-ALERTS] 오늘 이미 알린 뒤 비활성화된 임계값 재돌파 ${skippedCount}건 — 재알림 생략(일 단위 리셋 정책)`);
+    }
+
+    upserted = upsertResults.filter(r => !r.skipped).length;
+    console.log(`[STOCK-ALERTS] ✓ upsert 완료: ${upserted}건`);
+
+    // 5-3. 텔레그램 발송 — RPC가 원자적으로 알려준 is_new=true(=진짜 신규 삽입)만 대상으로
+    //      한다. notifications upsert 성패와는 무관하게 독립 시도(기존 저장/이메일 경로는
+    //      그대로 두고 "그 옆에" 추가). 유저 단위로 격리해 한 명 실패가 나머지를 막지 않는다.
+    const newlyTriggered = upsertResults.filter(r => r.isNew && !r.skipped).map(r => r.alert);
+    const telegramTargets = newlyTriggered.filter(alert => telegramChatIdByUser.has(alert.user_id));
+    if (telegramTargets.length > 0) {
+      const results = await Promise.allSettled(
+        telegramTargets.map(async (alert) => {
+          const chatId = telegramChatIdByUser.get(alert.user_id)!;
+          const result = await sendTelegramMessage(chatId, alert.message);
+          if (!result.ok) {
+            if (isBlockedByUser(result)) {
+              // 유저가 봇을 차단/삭제한 경우 — 매 사이클 조용히 실패만 쌓이지 않도록
+              // 연동을 자동 해제한다(마이페이지에서 다시 연동하면 복구됨).
+              console.warn(`[STOCK-ALERTS] 텔레그램 전송 거부(차단 추정) — 연동 해제: user=${alert.user_id}`);
+              await supabase.from('users').update({ telegram_chat_id: null, telegram_linked_at: null }).eq('id', alert.user_id);
+            } else {
+              console.warn(`[STOCK-ALERTS] 텔레그램 전송 실패: user=${alert.user_id} ${result.description}`);
             }
-          }),
-        );
-        telegramSent = results.filter(r => r.status === 'fulfilled').length;
-        telegramFailed = results.length - telegramSent;
-        console.log(`[STOCK-ALERTS] 텔레그램 발송 — 성공 ${telegramSent}건, 실패 ${telegramFailed}건 (대상 ${telegramTargets.length}건)`);
-      }
+            throw new Error(result.description ?? 'telegram send failed');
+          }
+        }),
+      );
+      telegramSent = results.filter(r => r.status === 'fulfilled').length;
+      telegramFailed = results.length - telegramSent;
+      console.log(`[STOCK-ALERTS] 텔레그램 발송 — 성공 ${telegramSent}건, 실패 ${telegramFailed}건 (대상 ${telegramTargets.length}건)`);
     }
   }
 

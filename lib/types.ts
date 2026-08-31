@@ -151,6 +151,7 @@ export interface StockNotification {
   is_read: boolean;
   is_active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface NotificationsResponse {
