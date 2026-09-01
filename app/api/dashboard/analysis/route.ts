@@ -15,11 +15,12 @@ import {
   EMPTY_SUMMARY_SECTIONS,
   buildPortfolioMarketDayBlock, buildPortfolioHistoryBlock, buildCoMovementText, buildHoldingPeriodFactsLine,
   analyzeOneStock, analyzePortfolioSummary,
-  PORTFOLIO_FIRST_TONE, PORTFOLIO_ONE_DAY_TONE, PORTFOLIO_FEW_DAYS_TONE, PORTFOLIO_LONG_GAP_TONE,
   computeSectorBreakdown, computeSectorConcentration, computeRiskContribution,
   computePortfolioCorrelation, buildCorrelationFactsLine,
   MIN_HOLDINGS_FOR_QUANT_METRICS,
+  type PortfolioSummarySections,
 } from '@/lib/portfolio-analysis-pipeline';
+import { buildPortfolioStructureFacts } from '@/lib/portfolio-structure-facts';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 120; // portfolio-diagnosis와 동일한 Stage1/Stage2 파이프라인이라 같은 여유 필요
@@ -64,7 +65,7 @@ interface DashboardMergedHolding {
 
 interface DashboardAnalysisResult {
   totalInvested: number; totalValue: number; totalProfit: number; totalProfitRate: number;
-  summary: string; summarySections: { background: string; newsInterpretation: string; historicalComparison: string; judgment: string };
+  summary: string; summarySections: PortfolioSummarySections;
   sectors: SectorBreakdownItem[]; holdings: DashboardMergedHolding[];
   sectorConcentration: SectorConcentrationResult | null;
   riskContribution: RiskContributionItem[] | null;
@@ -73,7 +74,8 @@ interface DashboardAnalysisResult {
   shortTermOutlook: string; midTermOutlook: string;
   coMovementText: string | null; coMovementNarrative: string;
   holdingPeriod: { longest: unknown; mostRecent: unknown; narrative: string };
-  history: { daysSince: number | null; prevDate?: string; narrative: string };
+  // 2026-09-01: 직전 분석 서술 제거 — 옛 캐시 행에만 남아 있는 필드라 optional
+  history?: { daysSince: number | null; prevDate?: string; narrative: string };
 }
 
 export async function POST() {
@@ -146,10 +148,12 @@ export async function POST() {
           send(controller, { type: 'holding-field', ticker: h.ticker, key: 'sector', value: h.sector });
         }
         send(controller, { type: 'stage1-done', coMovementText: cached.coMovementText });
-        send(controller, { type: 'portfolio-field', key: 'summarySections_background', value: cached.summarySections.background });
-        send(controller, { type: 'portfolio-field', key: 'summarySections_newsInterpretation', value: cached.summarySections.newsInterpretation });
-        send(controller, { type: 'portfolio-field', key: 'summarySections_historicalComparison', value: cached.summarySections.historicalComparison });
-        send(controller, { type: 'portfolio-field', key: 'summarySections_judgment', value: cached.summarySections.judgment });
+        // 2026-09-01: v2(structure/concentration/pnlStructure) + v1(background/…) 키를 전부 재생 —
+        // 이날 이전에 저장된 당일 캐시는 v1만 채워져 있고, 프론트(AiSummarySections)가 채워진
+        // 쪽으로 소제목을 판별한다. 없는 키는 빈 문자열.
+        for (const k of ['structure', 'concentration', 'pnlStructure', 'background', 'newsInterpretation', 'historicalComparison', 'judgment'] as const) {
+          send(controller, { type: 'portfolio-field', key: `summarySections_${k}`, value: cached.summarySections?.[k] ?? '' });
+        }
         send(controller, { type: 'portfolio-field', key: 'sectors', value: cached.sectors });
         send(controller, { type: 'portfolio-field', key: 'sectorConcentration', value: cached.sectorConcentration ?? null });
         send(controller, { type: 'portfolio-field', key: 'riskFactors', value: cached.riskFactors });
@@ -298,43 +302,8 @@ export async function POST() {
         const lossCount     = lossHoldings.length;
         const lossWeightPct = totalValue > 0 ? (lossHoldings.reduce((s, h) => s + h.value, 0) / totalValue) * 100 : 0;
 
-        // ── 직전 대시보드 분석(오늘 이전 가장 최근 1건) 조회 ──
-        let prevRow: PrevPortfolioRow | null = null;
-        try {
-          const { data } = await supabase
-            .from('dashboard_analysis')
-            .select('report_date, result, created_at')
-            .eq('user_id', user.id)
-            .lt('report_date', todayStr)
-            .order('report_date', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (data?.result) {
-            const r = data.result as unknown as DashboardAnalysisResult;
-            prevRow = {
-              report_date: data.report_date,
-              created_at:  data.created_at,
-              result: { totalProfitRate: r.totalProfitRate, totalProfit: r.totalProfit, holdings: r.holdings.map(h => ({ ticker: h.ticker, name: h.name })) },
-            };
-          }
-        } catch (e) {
-          console.warn('[DASHBOARD-ANALYSIS] 직전 분석 조회 실패, 비교 없이 진행:', e instanceof Error ? e.message : e);
-        }
-        const daysSinceLastReport = (prevRow && prevRow.report_date) ? daysBetween(todayStr, prevRow.report_date) : null;
-        const currentHoldingsForHistory = enriched.map(h => ({ ticker: h.ticker, name: h.name }));
-        const {
-          block: historyComparisonBlock, addedTickers, removedTickers, compositionChanged,
-        } = buildPortfolioHistoryBlock(
-          prevRow,
-          { totalProfitRate, totalProfit, holdings: currentHoldingsForHistory },
-          daysSinceLastReport,
-        );
-        const gapTone =
-          daysSinceLastReport === null ? PORTFOLIO_FIRST_TONE :
-          daysSinceLastReport === 1 ? PORTFOLIO_ONE_DAY_TONE :
-          daysSinceLastReport <= 6 ? PORTFOLIO_FEW_DAYS_TONE :
-          PORTFOLIO_LONG_GAP_TONE;
-
+        // 2026-09-01: "직전 분석 대비"(historyNarrative)는 포트폴리오분석과 함께 제거 — 대시보드 화면은
+        // 원래도 이 서술을 그리지 않았고, 직전 행 조회는 프롬프트용이었으므로 DB 왕복 자체를 없앴다.
         const topContributorsN = Math.min(5, Math.max(3, Math.ceil(enriched.length / 2)));
         const contributors = enriched.filter(h => h.todayContribution !== null);
         const topPositive = [...contributors].filter(h => (h.todayContribution as number) > 0)
@@ -356,11 +325,6 @@ export async function POST() {
           type: 'meta',
           totalInvested, totalValue, totalProfit,
           totalProfitRate: parseFloat(totalProfitRate.toFixed(2)),
-          history: {
-            daysSince: daysSinceLastReport,
-            prevDate: prevRow?.report_date,
-            compositionChanged, addedTickers, removedTickers,
-          },
           holdingPeriod: { longest: holdingPeriodFacts.longest, mostRecent: holdingPeriodFacts.mostRecent },
           riskContribution,
           correlation,
@@ -418,11 +382,21 @@ export async function POST() {
           .flatMap(h => h.sectorMacroNews)
           .filter(n => (seenSectorMacroTitles.has(n.title) ? false : (seenSectorMacroTitles.add(n.title), true)));
 
+        // 2026-09-01: 포트폴리오분석과 동일한 [포트폴리오 구조 데이터] 블록 — 같은 함수, 같은 스키마.
+        const structureFactsBlock = buildPortfolioStructureFacts({
+          holdings: enriched.map(h => ({
+            ticker: h.ticker, name: h.name, value: h.value, invested: h.invested,
+            profit: h.profit, profitRate: h.profitRate, volatility: h.volatility,
+          })),
+          totalValue, totalInvested, totalProfit,
+          sectors, sectorConcentration, riskContribution, correlation,
+        });
+
         const summary = await analyzePortfolioSummary(
           stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, null,
           { lossCount, lossWeightPct, riskiestLines: [] },
-          historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          '데이터 없음', coMovementFactsLine, correlationFactsLine, '', gapTone, portfolioMarketDayBlock, 'dashboard',
+          contributionFactsLine, holdingPeriodFacts.line,
+          coMovementFactsLine, correlationFactsLine, structureFactsBlock, portfolioMarketDayBlock,
           emitPartial, emitField,
         );
         if (summary._failed) {
@@ -462,10 +436,6 @@ export async function POST() {
           holdingPeriod: {
             longest: holdingPeriodFacts.longest, mostRecent: holdingPeriodFacts.mostRecent,
             narrative: summary.holdingPeriodNarrative || '',
-          },
-          history: {
-            daysSince: daysSinceLastReport, prevDate: prevRow?.report_date,
-            narrative: summary.historyNarrative || (daysSinceLastReport === null ? '이 대시보드의 첫 분석입니다.' : ''),
           },
         };
 

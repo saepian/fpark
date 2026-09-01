@@ -27,7 +27,6 @@ import {
   EMPTY_SUMMARY_SECTIONS,
   buildPortfolioMarketDayBlock, buildPortfolioHistoryBlock, buildCoMovementText, buildHoldingPeriodFactsLine,
   analyzeOneStock, analyzePortfolioSummary,
-  PORTFOLIO_FIRST_TONE, PORTFOLIO_ONE_DAY_TONE, PORTFOLIO_FEW_DAYS_TONE, PORTFOLIO_LONG_GAP_TONE,
   computeSectorBreakdown, computeSectorConcentration, computeRiskContribution,
   computePortfolioCorrelation, buildCorrelationFactsLine,
   // 정량 지표(A/B/C-1) 공통 게이트 — 종목 수가 이보다 적으면 지표 자체가 무의미(N=1은
@@ -438,18 +437,13 @@ export async function POST(request: NextRequest) {
         }
         const daysSinceLastReport = (prevRow && prevRow.report_date) ? daysBetween(todayStr, prevRow.report_date) : null;
         const currentHoldingsForHistory = enriched.map(h => ({ ticker: h.ticker, name: h.name }));
-        const {
-          block: historyComparisonBlock, addedTickers, removedTickers, compositionChanged,
-        } = buildPortfolioHistoryBlock(
+        // 2026-09-01: 직전 진단 대비 서술(historyNarrative)은 제거됐고, 여기서는 과거 리포트/공유
+        // 스냅샷 호환을 위한 history 수치(구성 변화·직전 수치)만 계산해 저장한다.
+        const { addedTickers, removedTickers, compositionChanged } = buildPortfolioHistoryBlock(
           prevRow,
           { totalProfitRate, totalProfit, holdings: currentHoldingsForHistory },
           daysSinceLastReport,
         );
-        const gapTone =
-          daysSinceLastReport === null ? PORTFOLIO_FIRST_TONE :
-          daysSinceLastReport === 1 ? PORTFOLIO_ONE_DAY_TONE :
-          daysSinceLastReport <= 6 ? PORTFOLIO_FEW_DAYS_TONE :
-          PORTFOLIO_LONG_GAP_TONE;
 
         // ── 오늘 손익 기여도 상위 종목 (방향당 최대 N개 컷오프, N은 보유종목 수에 비례) ──
         // 2026-07-13 4차 개선: N을 3으로 고정하면 보유종목이 늘어날 때(최대 10개) 상위
@@ -598,12 +592,6 @@ export async function POST(request: NextRequest) {
         send(controller, { type: 'portfolio-field', key: 'sectors', value: sectors });
         send(controller, { type: 'portfolio-field', key: 'sectorConcentration', value: sectorConcentration });
 
-        // 포트폴리오 내 과거 유사 급등락 이력 — Stage 0에서 종목별로 이미 계산된 값을 모음
-        const surgeFactsLine = enriched
-          .filter(h => h.surgeHistoryBlock)
-          .map(h => `- ${h.name}: ${h.surgeHistoryBlock}`)
-          .join('\n') || '데이터 없음';
-
         // Stage 2: 포트폴리오 종합 분석
         send(controller, { type: 'progress', label: '포트폴리오 종합 분석 중...' });
         console.log('[PORTFOLIO-DIAGNOSIS] Stage 2 시작 — 종합 분석');
@@ -650,8 +638,8 @@ export async function POST(request: NextRequest) {
         const summary = await analyzePortfolioSummary(
           stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, benchmark,
           { lossCount, lossWeightPct, riskiestLines },
-          historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          surgeFactsLine, coMovementFactsLine, correlationFactsLine, structureFactsBlock, gapTone, portfolioMarketDayBlock, 'diagnosis',
+          contributionFactsLine, holdingPeriodFacts.line,
+          coMovementFactsLine, correlationFactsLine, structureFactsBlock, portfolioMarketDayBlock,
           emitPortfolioPartial, emitPortfolioField,
         );
         // Stage 1은 다 됐는데 Stage 2만 실패/폴백된 경우 — 이미 보여준 종목별 카드는

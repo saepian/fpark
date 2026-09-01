@@ -54,4 +54,46 @@ describe('scanComplianceViolations', () => {
     const hits = scanComplianceViolations('오늘 시장은 뚜렷한 매도 우위였다.');
     expect(hits[0].context).toContain('매도');
   });
+
+  // ── 2026-09-01 리밸런싱·비중 조정 제안(지시형 문장) 탐지 ──
+  describe('리밸런싱 제안(지시형) 탐지', () => {
+    const rebal = (t: string) => scanComplianceViolations(t).filter(h => h.term === '리밸런싱 제안');
+
+    it('"비중을 줄이세요/조정하세요/낮추세요" 같은 지시형 문장을 잡는다', () => {
+      expect(rebal('반도체 비중을 줄이세요.').length).toBe(1);
+      expect(rebal('섹터 비중을 조정하는 것이 좋습니다.').length).toBe(1);
+      expect(rebal('SK하이닉스 비중을 낮출 필요가 있다.').length).toBe(1);
+      expect(rebal('현금 비중을 늘리는 게 좋겠다.').length).toBe(1);
+      expect(rebal('손실 종목은 정리하는 편이 좋다.').length).toBe(1);
+      expect(rebal('포트폴리오 리밸런싱을 권장한다.').length).toBe(1);
+      expect(rebal('다른 섹터로 분산하시기 바랍니다.').length).toBe(1);
+      expect(rebal('보유 비중을 재조정할 시점이다.').length).toBe(1);
+    });
+
+    it('"분산 효과/분산 투자/포트폴리오 분산" 같은 명사형 정상 서술은 오탐하지 않는다', () => {
+      expect(rebal('상관계수 0.23이라는 약한 동조화와 맞물려 분산 효과가 존재하는 구조다.').length).toBe(0);
+      expect(rebal('6종목이 6개 섹터에 고르게 분산된 구조로, 분산 투자 효과가 실제로 작동하고 있다.').length).toBe(0);
+      expect(rebal('포트폴리오 분산 정도는 HHI 0.175로 분산 등급에 해당한다.').length).toBe(0);
+      expect(rebal('반도체 2종목 합산 비중이 65%를 차지해 사실상 단일 섹터 집중 구조다.').length).toBe(0);
+      expect(rebal('비중 1위 종목이 손익도 좌우하는 구조라 이 종목의 방향에 성과가 종속돼 있다.').length).toBe(0);
+    });
+
+    it('"조정 국면/밸류에이션 조정/편입 시점" 같은 다른 뜻의 조정·편입 서술도 오탐하지 않는다', () => {
+      expect(rebal('반도체 섹터가 밸류에이션 조정 국면에 들어서면서 비중이 큰 종목일수록 영향이 컸다.').length).toBe(0);
+      expect(rebal('종목별 편입 시점에 따라 성과가 갈렸는데, 보유 기간이 긴 종목이 조정 압력을 더 받았다.').length).toBe(0);
+      expect(rebal('실적 추정치 조정이 뒤따르며 비중 상위 종목의 손실 폭이 확대됐다.').length).toBe(0);
+    });
+
+    it('관찰 서술과 지시형 문장이 섞여 있으면 지시형 문장만 잡고 문맥을 남긴다', () => {
+      const hits = rebal('분산 효과가 제한적인 구조다. 따라서 반도체 비중을 조정해 볼 만하다.');
+      expect(hits.length).toBe(1);
+      expect(hits[0].context).toContain('비중을 조정해 볼 만');
+    });
+
+    it('기존 금지어 스캔과 함께 동작한다(매도 + 리밸런싱 제안 둘 다 보고)', () => {
+      const hits = scanComplianceViolations('손실 종목은 매도하고 비중을 줄이세요.');
+      expect(hits.some(h => h.term === '매도')).toBe(true);
+      expect(hits.some(h => h.term === '리밸런싱 제안')).toBe(true);
+    });
+  });
 });

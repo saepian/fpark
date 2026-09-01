@@ -10,6 +10,7 @@ import AiLoadingOverlay from '@/components/common/AiLoadingOverlay';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { isKoreanMarketOpen, isKoreanMarketPreOpen } from '@/lib/market-utils';
+import AiSummarySections, { SUMMARY_SECTION_KEYS, type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import { useCountUp } from '@/lib/use-count-up';
 import AiAnalysis from '@/components/stock/AiAnalysis';
@@ -68,9 +69,6 @@ interface MarketDayInfo {
   reason: 'weekend' | 'holiday' | null;
 }
 
-interface DashboardSummarySections {
-  background: string; newsInterpretation: string; historicalComparison: string; judgment: string;
-}
 
 // 정량 지표 3종(2026-08-28 신설) — app/portfolio-diagnosis/page.tsx와 동일 shape(손복제).
 interface DashboardSector { name: string; tickers: string[]; weight: number; warning: boolean }
@@ -83,7 +81,7 @@ interface StreamedDashboardResult {
   holdings?: DashboardHoldingResult[];
   history?: DashboardHistory;
   holdingPeriod?: { longest: HoldingPeriodEntry | null; mostRecent: HoldingPeriodEntry | null; narrative?: string };
-  summarySections?: DashboardSummarySections;
+  summarySections?: AiSummarySectionsData;
   sectors?: DashboardSector[];
   sectorConcentration?: SectorConcentration | null;
   riskContribution?:    RiskContributionItem[] | null;
@@ -114,13 +112,6 @@ const STAT_LABEL_CLASS = 'inline-block text-[11px] font-semibold text-slate-400 
 // Stage2 'portfolio-field(-partial)' 이벤트 key를 StreamedDashboardResult 형태로 매핑.
 // app/api/dashboard/analysis/route.ts가 portfolio-diagnosis와 동일한 이벤트 shape을 쓰므로
 // app/portfolio-diagnosis/page.tsx의 applyPortfolioField와 동일한 원칙을 그대로 재사용.
-const SUMMARY_SECTION_KEYS: Record<string, keyof DashboardSummarySections> = {
-  summarySections_background: 'background',
-  summarySections_newsInterpretation: 'newsInterpretation',
-  summarySections_historicalComparison: 'historicalComparison',
-  summarySections_judgment: 'judgment',
-};
-
 function applyPortfolioField(prev: StreamedDashboardResult | null, key: string, value: unknown): StreamedDashboardResult {
   const base = prev ?? {};
   if (key === 'historyNarrative') {
@@ -134,7 +125,6 @@ function applyPortfolioField(prev: StreamedDashboardResult | null, key: string, 
     return {
       ...base,
       summarySections: {
-        background: '', newsInterpretation: '', historicalComparison: '', judgment: '',
         ...base.summarySections,
         [sectionKey]: value as string,
       },
@@ -1226,34 +1216,10 @@ export default function DashboardPage() {
                     <Sparkles className="w-4 h-4 text-indigo-400" />
                     <p className={`${SECTION_TITLE_CLASS} text-indigo-400/70 uppercase tracking-widest`}>AI 종합 평가</p>
                   </div>
-                  {(() => {
-                    const sections = analysisResult.summarySections;
-                    if (!sections) return <FieldSkeleton lines={3} />;
-                    const blocks = [
-                      { key: 'summarySections_background',        label: '구조적 배경', text: sections.background },
-                      { key: 'summarySections_newsInterpretation', label: '뉴스 해석',   text: sections.newsInterpretation },
-                      { key: 'summarySections_judgment',           label: '종합 판단',   text: sections.judgment },
-                    ];
-                    return (
-                      <div className="flex flex-col gap-4">
-                        {blocks.map(b => (
-                          b.text ? (
-                            <div key={b.label}>
-                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
-                              <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>
-                                {smoothText.revealed[b.key]?.text ?? b.text}{smoothText.revealed[b.key]?.active && <TypingCursor />}
-                              </p>
-                            </div>
-                          ) : !streamFinished ? (
-                            <div key={b.label}>
-                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
-                              <FieldSkeleton lines={2} />
-                            </div>
-                          ) : null
-                        ))}
-                      </div>
-                    );
-                  })()}
+                  {/* 2026-09-01: 포트폴리오분석·공유 페이지와 같은 공용 컴포넌트 — 소제목/스키마 판별 로직 단일화 */}
+                  {analysisResult.summarySections
+                    ? <AiSummarySections sections={analysisResult.summarySections} revealed={smoothText.revealed} streamFinished={streamFinished} />
+                    : <FieldSkeleton lines={3} />}
                 </div>
               </div>
             )}

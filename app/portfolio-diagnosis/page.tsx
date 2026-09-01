@@ -18,6 +18,7 @@ import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
+import AiSummarySections, { SUMMARY_SECTION_KEYS, hasAnySummarySection, type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
 import { useSmoothTypingText, type RevealedField } from '@/lib/useSmoothTypingText';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -103,14 +104,8 @@ interface PortfolioHistory {
   narrative: string;
 }
 
-// 2026-09-01: 포트폴리오분석 AI 종합평가 재설계 — structure/concentration/pnlStructure(v2, 포트폴리오
-// 구조 중심)가 있으면 그 소제목으로, 없고 background/newsInterpretation/historicalComparison(v1,
-// 2026-09-01 이전 리포트)만 있으면 옛 소제목으로 렌더링한다(둘 다 optional — 어느 쪽이 채워졌는지로 판별).
-interface PortfolioSummarySections {
-  structure?: string; concentration?: string; pnlStructure?: string;
-  background?: string; newsInterpretation?: string; historicalComparison?: string;
-  judgment: string;
-}
+// AI 종합평가 소제목 스키마(v1/v2)와 판별 로직은 components/portfolio/AiSummarySections.tsx가 단일 소유.
+type PortfolioSummarySections = AiSummarySectionsData;
 
 // 2026-08-04: riskFactors가 {text,category} 객체 배열로 구조화됨 — category 없는 옛 문자열
 // 항목(과거 리포트/공유 스냅샷)도 그대로 렌더링할 수 있도록 string도 함께 허용.
@@ -221,15 +216,6 @@ function emptyHolding(): HoldingInput {
 // 2026-08-12 스키마 분리)를 summarySections 하위 필드명으로 되돌리는 매핑 — 이 키로
 // 도착한 값(partial 포함)을 prev.summarySections 객체 안에 merge한다
 // (app/diagnosis/page.tsx의 MAIN_ANALYSIS_SECTION_KEYS와 동일 패턴).
-const SUMMARY_SECTION_KEYS: Record<string, keyof PortfolioSummarySections> = {
-  summarySections_structure: 'structure',
-  summarySections_concentration: 'concentration',
-  summarySections_pnlStructure: 'pnlStructure',
-  summarySections_background: 'background',
-  summarySections_newsInterpretation: 'newsInterpretation',
-  summarySections_historicalComparison: 'historicalComparison',
-  summarySections_judgment: 'judgment',
-};
 
 // Stage2 'portfolio-field(-partial)' 이벤트의 key를 PortfolioResult 형태로 매핑.
 // historyNarrative/holdingPeriodNarrative는 중첩 객체 안으로 들어가고, summarySections_*
@@ -253,7 +239,6 @@ function applyPortfolioField(prev: StreamedResult | null, key: string, value: un
     return {
       ...base,
       summarySections: {
-        judgment: '',
         ...base.summarySections,
         [sectionKey]: value as string,
       },
@@ -843,48 +828,10 @@ export default function PortfolioDiagnosisPage() {
                 </div>
                 {(() => {
                   const sections = result.summarySections;
-                  const hasSections = sections && Object.values(sections).some(Boolean);
-                  if (hasSections) {
-                    // 2026-08-12: summarySections를 4개의 독립 string 필드로 스키마 분리(서버가
-                    // summarySections_background 등 4개 top-level 필드를 스트리밍하고, 클라이언트가
-                    // 다시 이 객체로 merge — applyPortfolioField 참고)한 덕분에 institutionalFlow와
-                    // 동일한 패턴(글자 있으면 표시+커서, 아직 생성 중이면 스켈레톤, 완료 후에도
-                    // 비어있으면(선택 필드) 숨김)으로 4블록을 각각 독립적으로 타이핑 렌더링한다.
-                    // 2026-09-01: v1(뉴스 중심 — 2026-09-01 이전 리포트) 필드가 채워져 있으면 옛 소제목,
-                    // 아니면 v2(포트폴리오 구조 중심) 소제목. 스트리밍 중엔 v2 키만 도착하므로 v2로 그려진다.
-                    const isLegacy = !!(sections.background || sections.newsInterpretation || sections.historicalComparison);
-                    const blocks = isLegacy
-                      ? [
-                          { key: 'summarySections_background',          label: '구조적 배경',   text: sections.background },
-                          { key: 'summarySections_newsInterpretation',   label: '뉴스 해석',     text: sections.newsInterpretation },
-                          { key: 'summarySections_historicalComparison', label: '과거 유사 이력', text: sections.historicalComparison },
-                          { key: 'summarySections_judgment',             label: '종합 판단',     text: sections.judgment },
-                        ]
-                      : [
-                          { key: 'summarySections_structure',     label: '포트폴리오 구조', text: sections.structure },
-                          { key: 'summarySections_concentration', label: '집중·분산도',     text: sections.concentration },
-                          { key: 'summarySections_pnlStructure',  label: '손익 기여 구조',  text: sections.pnlStructure },
-                          { key: 'summarySections_judgment',      label: '종합 판단',       text: sections.judgment },
-                        ];
-                    return (
-                      <div className="flex flex-col gap-4">
-                        {blocks.map((b) => (
-                          b.text ? (
-                            <div key={b.label}>
-                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
-                              <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>
-                                {smoothText.revealed[b.key]?.text ?? b.text}{smoothText.revealed[b.key]?.active && <TypingCursor />}
-                              </p>
-                            </div>
-                          ) : !streamFinished ? (
-                            <div key={b.label}>
-                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
-                              <FieldSkeleton lines={2} />
-                            </div>
-                          ) : null
-                        ))}
-                      </div>
-                    );
+                  if (hasAnySummarySection(sections)) {
+                    // 2026-09-01: 공유·대시보드와 같은 공용 컴포넌트(components/portfolio/AiSummarySections) —
+                    // v1/v2 소제목 판별, 타이핑 효과, 스켈레톤 정책을 한 곳에서만 정한다.
+                    return <AiSummarySections sections={sections!} revealed={smoothText.revealed} streamFinished={streamFinished} />;
                   }
                   if (result.summary !== undefined) {
                     // 2026-08-03 이전 방식 폴백 — summarySections가 없을 때(예상 밖 실패

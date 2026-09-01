@@ -270,7 +270,7 @@ export const PORTFOLIO_STOCK_FIELD_SPECS: FieldSpec[] = [
 // summarySections 4조각이 structure(포트폴리오 구조)/concentration(집중·분산도)/
 // pnlStructure(손익 기여 구조)/judgment(종합 판단)로 바뀌었고, "직전 진단 대비" 카드를
 // 포트폴리오분석에서 제거하면서 historyNarrative도 이 스키마에서 빠졌다(종목 구성이 자주
-// 바뀌어 비교 자체가 무의미한 경우가 많았음). 대시보드(아래 _DASHBOARD)는 옛 구조 그대로.
+// 바뀌어 비교 자체가 무의미한 경우가 많았음). 2026-09-01(2차): 대시보드도 이 스펙을 그대로 쓴다.
 export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   { key: 'summarySections_structure',      type: 'string', emit: true },
   { key: 'summarySections_concentration',  type: 'string', emit: true },
@@ -285,24 +285,6 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   { key: 'coMovementNarrative', type: 'string', emit: true },
   { key: 'shortTermOutlook', type: 'string', emit: true },
   { key: 'midTermOutlook', type: 'string', emit: true },
-];
-
-// 2026-08-14 대시보드 "AI 종합평가" 스코프 축소용 — 이 파서는 spec을 buffer 안에서
-// 순서대로만 찾으므로(tryExtract가 this.cursor 이후로 다음 키를 못 찾으면 specIndex가
-// 영원히 멈춰 이후 모든 필드의 타이핑 효과가 끊긴다), historicalComparison·midTermOutlook·
-// shortTermOutlook을 아예 요청하지 않는 PORTFOLIO_SUMMARY_INSTRUCTIONS_DASHBOARD와 반드시
-// 같은 키 순서를 유지해야 한다 — 위 PORTFOLIO_SUMMARY_FIELD_SPECS를 그대로 쓰면 대시보드
-// 응답엔 존재하지 않는 키를 계속 찾다가 riskFactors 이후 필드가 전부 스트리밍 안 되는 문제가 생긴다.
-export const PORTFOLIO_SUMMARY_FIELD_SPECS_DASHBOARD: FieldSpec[] = [
-  { key: 'summarySections_background',           type: 'string', emit: true },
-  { key: 'summarySections_newsInterpretation',    type: 'string', emit: true },
-  { key: 'summarySections_judgment',              type: 'string', emit: true },
-  { key: 'riskFactors', type: 'json', emit: true },
-  { key: 'opportunityFactors', type: 'string[]', emit: true },
-  { key: 'historyNarrative', type: 'string', emit: true },
-  { key: 'contributionNarrative', type: 'string', emit: true },
-  { key: 'holdingPeriodNarrative', type: 'string', emit: true },
-  { key: 'coMovementNarrative', type: 'string', emit: true },
 ];
 
 // 2026-08-11 기업분석 스트리밍 전환 — app/api/diagnosis/route.ts의

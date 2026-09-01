@@ -21,7 +21,7 @@ import {
   checkTemporalConsistency, daysBetween,
 } from '@/lib/ai-grounding';
 import { buildMarketDayBlock, type MarketDayContext } from '@/lib/market-day-context';
-import { StreamingFieldParser, PORTFOLIO_STOCK_FIELD_SPECS, PORTFOLIO_SUMMARY_FIELD_SPECS, PORTFOLIO_SUMMARY_FIELD_SPECS_DASHBOARD } from '@/lib/streaming-json-fields';
+import { StreamingFieldParser, PORTFOLIO_STOCK_FIELD_SPECS, PORTFOLIO_SUMMARY_FIELD_SPECS } from '@/lib/streaming-json-fields';
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -43,8 +43,6 @@ signal은 매매 지시가 아니라 현재 수급·가격 패턴에 대한 관�
 - 뉴스도 업종 배경도 없으면 거래대금·과거 급등락 이력 중 더 근거가 뚜렷한 쪽 하나로 판단을 채우세요.
 아래에 주어지는 실제 종목 데이터를 분석 대상으로 삼아, 응답의 "ticker" 필드에는 위 플레이스홀더 대신 그 종목의 실제 코드를 채워 넣으세요. ${TEMPORAL_GROUNDING_INSTRUCTION}`;
 
-const PORTFOLIO_SUMMARY_SYSTEM = `${COMPLIANCE_PRINCIPLE} ${WORDING_SOFTENING_PRINCIPLE} 한국주식 포트폴리오를 섹터·수급·뉴스 관점에서 종합 해석하는 애널리스트입니다. 이 리포트는 fpark의 핵심 유료 콘텐츠입니다 — 사실을 나열하는 데 그치지 말고, 왜 그런 결과가 나왔는지에 대한 판단과 해석을 반드시 포함하세요. 같은 날 만들어지는 개별 기업분석 리포트와 동등하거나 더 깊은 수준이어야 합니다. 숫자(PER·수급 등) 근거와 실제 뉴스 이슈의 배경까지 함께 담아 설명하되, 무엇을 하라고 지시하지 마세요. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.`;
-
 // 2026-09-01 포트폴리오분석 AI 종합평가 재설계 — "구조적 배경/뉴스 해석/과거 유사 이력/종합 판단"
 // 4소제목이 사실상 뉴스 해설로 채워져 "내 포트폴리오를 분석한 것 같지 않다"는 문제 대응.
 // 서버가 이미 계산한 정량 지표([포트폴리오 구조 데이터] 블록 — lib/portfolio-structure-facts.ts)를
@@ -52,7 +50,7 @@ const PORTFOLIO_SUMMARY_SYSTEM = `${COMPLIANCE_PRINCIPLE} ${WORDING_SOFTENING_PR
 // 종합 판단으로 바꿨다. 뉴스는 종합 판단에서 구조 서술을 뒷받침하는 최소한의 배경으로만.
 // "직전 진단 대비"(historyNarrative)는 포트폴리오에서 제거 — 종목 구성이 자주 바뀌어 비교가
 // 무의미한 경우가 많았고(AI가 "비교 자체가 의미 없다"고 쓰는 상황까지 발생), 시간축 맥락은
-// "기간별 평가금액 변동" 카드가 이미 담당한다. 대시보드 경로(_DASHBOARD)는 옛 구조 유지.
+// "기간별 평가금액 변동" 카드가 이미 담당한다. 대시보드도 같은 스키마·프롬프트를 쓴다(2차).
 const PORTFOLIO_SUMMARY_SYSTEM_STRUCTURE = `${COMPLIANCE_PRINCIPLE} ${WORDING_SOFTENING_PRINCIPLE} 한국주식 포트폴리오를 '구성 구조' — 종목별 평가금액 비중, 섹터 집중도(HHI·실효 업종 수), 종목 간 상관계수, 변동성 기여도, 매입가 대비 손익 구조 — 관점에서 해석하는 애널리스트입니다. 이 리포트는 fpark의 핵심 유료 콘텐츠입니다. 사용자가 알고 싶은 것은 '오늘 어떤 뉴스가 있었는지'가 아니라 '내 포트폴리오가 어떤 구조이고, 그 구조 때문에 손익이 어떻게 만들어지고 있는지'입니다. 따라서 summarySections_* 4개 필드는 반드시 [포트폴리오 구조 데이터]에 제공된 수치(비중 %, 섹터 %, HHI·실효 업종 수, 상관계수, 변동성 기여도 %, 손익 비율 %)를 문장 안에 직접 인용해 서술하고, 그 수치를 임의로 다시 계산하거나 바꿔 쓰지 마세요. 뉴스·수급은 summarySections_judgment에서 구조 서술을 뒷받침하는 최소한의 배경(한 구절 이내)으로만 언급하고, 구조 서술 3개 필드에서는 뉴스를 언급하지 마세요. 사실을 나열하는 데 그치지 말고 그 구조가 무엇을 의미하는지(어떤 이벤트에 얼마나 노출되는지, 분산이 실제로 작동하는지, 손익이 어디에서 결정되는지)까지 판단하되, 비중을 줄이라/늘리라/조정하라/정리하라/분산하라는 리밸런싱·매매 제안은 절대 하지 마세요 — "이런 구조다/이런 비중이다/그래서 이런 성격의 노출이 있다"는 관찰과 의미 해석까지만 하고, 그 다음 행동은 사용자의 몫으로 남기세요. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.`;
 
 const PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS = `{"summarySections_structure":"【2~3문장, 필수】[포트폴리오 구조 데이터]만을 근거로 이 포트폴리오가 '어떻게 생겼는지'를 서술 — 종목 수, 평가금액 기준 상위 비중 종목과 그 비중(%), 섹터 구성(어느 섹터가 몇 %를 차지하는지), 그리고 현재 손익 상태의 큰 그림(몇 종목이 손실/이익 구간인지). 제공된 비중 %·섹터 % 수치를 문장 안에 직접 인용할 것. 뉴스·수급·오늘 등락 언급 금지(뉴스 배경은 summarySections_judgment의 몫, 오늘 등락 기여는 contributionNarrative의 몫). 총수익률·총평가손익 숫자는 상단 카드에 이미 표시되므로 반복 금지. 예) '4종목 중 반도체 2종목(삼성전자 45.0%, SK하이닉스 20.0%)이 평가금액의 65%를 차지하고, 자동차·IT 서비스가 각각 25%·10%를 나눠 갖는 구조로, 4종목 중 3종목이 매입가 대비 손실 구간에 있다.'","summarySections_concentration":"【2~3문장, 정량 지표(섹터 집중도·상관계수·변동성 기여도) 중 하나라도 제공됐을 때만 — 전부 '계산 안 함'이면 빈 문자열 \\"\\"】섹터 집중도(HHI·실효 업종 수·등급), 종목 간 상관계수(동조화 강도), 변동성 기여도(어느 종목이 전체 변동성의 몇 %를 차지하는지, 같은 섹터 합산이면 몇 %)를 서로 연결해 '분산이 실제로 작동하는 구조인지'를 판단하세요. 수치 직접 인용 필수. 예) '삼성전자가 변동성 기여도의 30.9%를 차지하고 반도체 2종목 합산으로는 65%에 이르며, 실효 업종 수 2.0개(명목 3개)·상관계수 0.72라는 수치가 말해주듯 종목은 4개지만 사실상 단일 섹터에 가까운 구조로, 반도체 업황 하나에 포트폴리오 전체가 같은 방향으로 노출돼 있다.' 비중을 줄이라/늘리라/조정하라는 제안 절대 금지 — 구조가 이렇다는 관찰과 그 구조의 의미(특정 섹터 이벤트에 얼마나 노출되는지, 분산 효과가 어느 정도인지)까지만.","summarySections_pnlStructure":"【2~3문장, 필수】[포트폴리오 구조 데이터]의 종목별 손익률·평가손익과 손익 구조 집계를 근거로 '손익이 어디서 만들어지고 있는지'를 서술 — 몇 종목이 손실/이익 구간인지, 손실(또는 이익)의 대부분이 어느 종목·섹터에서 나오는지(전체 손실/이익 중 비율 %), 비중이 큰 종목과 손익이 큰 종목이 일치하는지(일치하면 '비중이 손익을 좌우하는 구조', 불일치하면 '비중은 작지만 손익 변동이 큰 종목이 있는 구조'). 예) '4종목 중 3종목이 손실 구간이며, 그중 반도체 2종목의 손실이 전체 손실의 87.5%를 차지해 손익 구조 역시 섹터 집중을 그대로 반영하고 있다. 비중 1위인 삼성전자가 손실 절대액에서도 1위라 포트폴리오 성과는 사실상 이 한 종목의 방향에 좌우되는 셈이다.' 오늘 하루 등락(contributionNarrative의 몫)과 구분해 '매입가 대비 누적 손익' 관점으로만 서술. 매도/손절/비중 조정 제안 절대 금지, 미래 손익 예측 금지.","summarySections_judgment":"【1~2문장, 판단형(필수)】위 세 구조 서술을 하나의 스탠스로 종합 — 이 포트폴리오의 현재 성과가 '구조(집중·동조화·비중)'에서 비롯되는지 '개별 종목 이슈'에서 비롯되는지를 판단하세요. 뉴스·수급은 이 판단을 뒷받침하는 최소한의 배경으로만 한 구절 이내 언급 가능(예: '반도체 업황 뉴스가 오늘 움직임의 배경이긴 하지만, 성과를 좌우하는 건 뉴스보다 65%에 달하는 섹터 집중 구조 쪽이다'). 이 필드는 앞선 필드들에서 이미 내린 '판단'을 교차 종합하는 자리이므로 '겹치는 내용 반복 금지' 규칙의 예외지만, 수치·사실을 새로 나열하지 말고 판단만 연결하세요. 벤치마크·오늘 손익 기여도 수치는 별도 필드가 있으니 여기서 언급 금지. 미래 가격·수익률 예측 금지, 비중 조정·매매 제안 금지.","riskFactors":[{"text":"포트폴리오 전체 관점의 리스크 요인1(수치 포함, 손실 종목 비중·섹터 과집중·변동성 기여 편중·상관계수 등 [포트폴리오 구조 데이터] 근거)","category":"macro"|"company"},{"text":"요인2","category":"macro"|"company"},{"text":"요인3","category":"macro"|"company"}],"opportunityFactors":["포트폴리오 전체 관점에서 관찰 가능한 긍정적 데이터 포인트 1~3개(수치·근거 포함, riskFactors와 동일 형식) — 이미 본문(종목별 문단·summarySections_*)에 나온 개별 사실을 그대로 복사하지 말고, 포트폴리오 관점에서 종합해 새롭게 서술. 예) 'DL이앤씨와 종근당 모두 외국인·기관의 자금 유입이 관찰되는데, 이는 반도체 업황 심리 위축과 달리 개별 밸류에이션 매력에 반응하는 흐름으로 풀이됩니다.' 뚜렷한 긍정 신호가 없으면 억지로 지어내지 말고 [\\"현재 뚜렷한 긍정 신호가 부족합니다\\"] 하나만 반환하거나 1~2개로 줄여도 됨"],"contributionNarrative":"【[오늘 손익 기여도]에 제공된 상위 기여 종목을 근거로 1~2문장 — 구체적 금액은 화면에 이미 별도로 표시되므로 여기서는 숫자를 반복하지 말고(금액을 다시 옮겨 적지 말 것) 어떤 종목이 왜 기여했는지 의미 위주로만 서술, 그 종목의 [종목별 개별 관찰] reason과 같은 문장을 반복하지 말 것】예) '오늘 포트폴리오 평가손익 변화는 대부분 종근당 하락에서 발생했습니다.' 매매 권유가 아니라 순수 관찰 서술, 데이터가 없으면 빈 문자열","holdingPeriodNarrative":"【[보유 기간 비교]에 데이터가 있을 때만 1문장 — 없으면 빈 문자열】구체적 수익률 수치는 화면에 별도 표시되므로 여기서는 편입 시점에 따라 성과가 왜 갈렸는지(업황 변화, 편입 시점의 가격 수준 등) 해석 위주로. 편입 타이밍을 지시하거나 '그래서 지금 사야 한다'는 식으로 연결 금지","coMovementNarrative":"【[섹터 동조화 관찰 데이터]에 상관계수 수치 또는 사례가 있을 때만 1~2문장 — 둘 다 없으면 빈 문자열】summarySections_concentration이 '구조(분산이 작동하는지)'를 다뤘다면, 여기서는 '오늘 실제로 같은 방향으로 움직였는지'라는 당일 관찰에 집중하세요 — 상관계수 수치를 근거로 삼되 concentration과 같은 문장을 반복하지 말고, 오늘의 동조화 사례가 있으면 그 사실과 왜 그런 동조화가 생겼는지(개별 재료보다 업종 심리가 더 강하게 작용했는지 등)를 서술. 각 종목의 개별 이슈(이미 [종목별 개별 관찰] reason에 있음)를 다시 설명하지 말 것.","shortTermOutlook":"【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】포트폴리오 '구조' 관점의 단기 관찰 변수 — 종목 나열 금지, 섹터 비중이 가장 큰 구조로 인해 어떤 단기 이벤트에 노출돼 있는지 사실 1개 + 그것이 왜 지켜볼 가치가 있는지 1구절. 예) '반도체 섹터가 65%를 차지하는 구조상, 다음 주 메모리 가격·실적 발표 결과가 포트폴리오 전체에 영향을 줄 수 있어 지켜볼 변수다.' '수익률이 갈릴 수 있다'/'상승·하락 여력' 같이 가격을 예측하는 표현 절대 금지","midTermOutlook":"【최대 120자, 절대 넘기지 말 것 — 반드시 1문장】포트폴리오 '구조' 관점의 중기 관찰 변수 — 종목 나열 금지, 괄호로 부연 수치를 나열하지 말 것, 섹터 편중·구성 특성에서 비롯되는 중기 취약점/기회 사실 1개 + 그것이 왜 지켜볼 가치가 있는지 1구절만 짧게, 가격 방향·수익률 예측 절대 금지"}
@@ -74,45 +72,10 @@ const PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS = `{"summarySections_structure":"
 - ${MARKET_DAY_GROUNDING_INSTRUCTION}
 - summarySections_*·riskFactors·contributionNarrative·holdingPeriodNarrative·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
 
-// 2026-08-14 대시보드 "AI 종합평가"를 "당일 분석"으로 범위 축소 — historicalComparison(과거 급등락
-// 비교, 대시보드 Stage0엔 애초에 급등락 이력 데이터를 안 넘겨 항상 빈 문자열이었음)과
-// midTermOutlook(중기 관찰 변수)을 스키마에서 아예 제거한다. 같은 날 "관찰 변수" 카드(단기
-// 관찰 변수만 담던 shortTermOutlook)도 UI에서 통째로 없애기로 해 함께 제거했다. portfolio-diagnosis는
-// 세 필드 모두 여전히 실제로 노출·사용하므로 건드리지 않고, 대시보드 호출 경로에서만 이 변형을 쓴다
-// (analyzePortfolioSummary의 scope 파라미터로 분기).
-const PORTFOLIO_SUMMARY_INSTRUCTIONS_DASHBOARD = `{"summarySections_background":"【1~2문장】전체 수익률의 구조적 배경(섹터 편중·수급 현황)을 서술하세요. 총수익률·평가손익 숫자(예: '-19.44%', '+123만원')를 문장에 직접 쓰지 마세요 — 이미 상단 카드에 표시됩니다.","summarySections_newsInterpretation":"【1~2문장, 뉴스가 있는 종목이 하나라도 있을 때만 — 없으면 빈 문자열 \\"\\"】뉴스가 있는 종목은 그 뉴스가 '왜' 나왔는지, 시장이 왜 그렇게 반응했는지(또는 반응하지 않았는지)까지 배경 해석하세요 — 제목만 스치듯 언급 금지, 최소 1개 종목은 깊이 있게(예: 컨센서스 조정 근거, 계약 구조 변화 등 구체적 배경). 아래 [종목별 개별 관찰]에 이미 나온 그 종목의 reason 문장(화면에 별도 카드로 표시됨)을 그대로 옮겨 쓰지 말고, reason이 다루지 않은 배경 설명에 집중하세요.","summarySections_judgment":"【1문장, 판단형(필수)】현재 상황의 성격을 판단하는 문장(예: '이번 하락은 개별 종목 이슈보다 업종 전체 심리 위축에 가깝다', '이 흐름이 지속 가능한지는 다음 실적에서 확인될 필요가 있다') — 미래 수익률이나 가격을 예측하는 것이 아니라 현재 상황의 성격을 판단해야 합니다. 벤치마크·직전 진단 대비·손익 기여도 수치는 각각 별도 필드가 있으니 여기서 언급하지 마세요. 이 필드는 앞선 필드들(summarySections_background/newsInterpretation 등)에서 이미 내린 개별 '판단'을 교차 종합하는 자리이므로, 다른 필드에 적용되는 '겹치는 내용 반복 금지' 규칙의 예외입니다 — 단, '사실'(수치·뉴스 제목 등)을 새로 나열하지 말고 이미 내린 '판단'들만 하나의 최종 스탠스로 연결하세요.","riskFactors":[{"text":"포트폴리오 전체 관점의 리스크 요인1(수치 포함, 손실 종목 비중·섹터 과집중·벤치마크 대비 부진·개별 종목 변동성 등 근거)","category":"macro"|"company"},{"text":"요인2","category":"macro"|"company"},{"text":"요인3","category":"macro"|"company"}],"opportunityFactors":["포트폴리오 전체 관점에서 관찰 가능한 긍정적 데이터 포인트 1~3개(수치·근거 포함, riskFactors와 동일 형식) — 이미 본문(종목별 문단·summarySections_*)에 나온 개별 사실을 그대로 복사하지 말고, 포트폴리오 관점에서 종합해 새롭게 서술. 예) 'DL이앤씨와 종근당 모두 외국인·기관의 저점 매수 성격 자금 유입이 관찰되는데, 이는 반도체 업황 심리 위축과 달리 개별 밸류에이션 매력에 반응하는 흐름으로 풀이됩니다.' 뚜렷한 긍정 신호가 없으면 억지로 지어내지 말고 [\\"현재 뚜렷한 긍정 신호가 부족합니다\\"] 하나만 반환하거나 1~2개로 줄여도 됨"],"historyNarrative":"【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로. 보유 종목 구성이 바뀌었으면([직전 진단과의 차이]에 명시됨) 반드시 그 사실을 언급할 것 — 단, 새로 편입/제거된 개별 종목의 뉴스 배경까지 여기서 설명하지 말고(그건 summarySections_newsInterpretation의 몫) 시간축(직전 대비 무엇이 달라졌는지)에만 집중하세요","contributionNarrative":"【[오늘 손익 기여도]에 제공된 상위 기여 종목을 근거로 1~2문장 — 구체적 금액은 화면에 이미 별도로 표시되므로 여기서는 숫자를 반복하지 말고(금액을 다시 옮겨 적지 말 것) 어떤 종목이 왜 기여했는지 의미 위주로만 서술, 그 종목의 [종목별 개별 관찰] reason과 같은 문장을 반복하지 말 것】예) '오늘 포트폴리오 평가손익 변화는 대부분 종근당 하락에서 발생했습니다.' 매수/매도 권유가 아니라 순수 관찰 서술, 데이터가 없으면 빈 문자열","holdingPeriodNarrative":"【[보유 기간 비교]에 데이터가 있을 때만 1문장 — 없으면 빈 문자열】구체적 수익률 수치는 화면에 별도 표시되므로 여기서는 편입 시점에 따라 성과가 왜 갈렸는지(업황 변화, 매수 시점의 가격 수준 등) 해석 위주로. 매수 타이밍을 지시하거나 '그래서 지금 사야 한다'는 식으로 연결 금지","coMovementNarrative":"【[섹터 동조화 관찰 데이터]에 상관계수 수치 또는 사례가 있을 때만 1~2문장 — 둘 다 없으면 빈 문자열】상관계수 수치가 제공되면 그 수치(강도)를 핵심 근거로 삼아 판단하고, 오늘 같은 방향으로 움직인 사례가 함께 있으면 그 사실도 엮어서 해석하세요 — 상관계수 없이 오늘 하루의 동조화 여부만으로 단정하지 마세요. 단순히 '같은 방향으로 움직였다'는 사실 재진술에 그치지 말고, 왜 그런 동조화가 생겼는지(개별 재료보다 업종 심리가 더 강하게 작용했는지 등)와 포트폴리오 분산 효과 관점에서 어떤 함의가 있는지까지 서술. 예) '개별 종목 재료가 서로 다름에도 최근 상관계수가 0.8을 넘을 만큼 강하게 같은 방향으로 움직였다는 것은 업종 전체 심리가 더 강하게 작용했다는 뜻이며, 분산 투자 효과가 기대만큼 작동하지 않고 있음을 시사합니다.'"}
-
-위 JSON 스키마를 반드시 준수하세요. summarySections_background/newsInterpretation/judgment 3개 필드는 반드시 포함되어야 합니다(summarySections_newsInterpretation은 데이터 없으면 빈 문자열 허용, summarySections_background·summarySections_judgment는 필수).
-규칙:
-- JSON 키 순서 및 구조 변경 금지
-- riskFactors는 개별 종목이 아니라 포트폴리오 전체 구조(손실 비중·섹터 편중·벤치마크 대비·변동성)를 보는 관점으로 작성하세요
-- riskFactors[].category는 그 요인의 성격에 따라 "macro"(업종 전체 심리·거시 환경·섹터 공통 이슈처럼 개별 종목을 넘어선 요인) 또는 "company"(특정 종목의 손실 비중·개별 변동성·그 종목만의 이슈처럼 종목 단위 요인) 중 하나로만 판정하세요 — 두 성격이 섞인 요인이면 더 근본적인 원인 쪽으로 판정
-- opportunityFactors는 riskFactors와 동일한 컴플라이언스 원칙이 적용됩니다 — "매수 신호"·"지금이 기회"처럼 투자를 유인하는 표현이 아니라 어디까지나 "관찰 가능한 긍정적 데이터 포인트" 수준으로 서술하세요. 목표가·매수 추천·"상승 여력" 같은 표현 절대 금지
-- 뉴스가 있는 종목은 그 이슈를 근거로 언급하고, 뉴스가 없는 종목은 수급·기술적 요인으로만 설명하며 뉴스를 지어내지 마세요. "관련 뉴스 없음"이라는 이유만으로 그 종목을 summarySections_newsInterpretation에서 아예 빼지 마세요 — 뉴스가 없다는 사실 자체도 관찰(예: '특별한 뉴스 없이 수급 요인으로 움직였다')로 서술할 수 있습니다
-- 벤치마크 수치는 별도 카드로 이미 표시되므로 summarySections_*·historyNarrative 등 어디에서도 다시 언급하지 마세요
-- summarySections_background/newsInterpretation/judgment 각 필드·riskFactors·opportunityFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·coMovementNarrative는 서로 같은 사실을 반복 서술하지 마세요 — 각 필드는 서로 다른 내용을 담아야 합니다. 위 [종목별 개별 관찰](각 종목의 reason — 이미 "기업별 관찰 지표" 카드로 화면에 별도 표시됨)에 담긴 특정 종목의 구체적 사실(개별 뉴스 이슈, 특정 수치 등)도 그대로 옮겨 쓰지 마세요 — 이 필드들은 개별 종목 단위를 넘어서는 포트폴리오 레벨 관점을 각자 전담해야 합니다: newsInterpretation=그 뉴스가 왜 나왔는지의 배경, historyNarrative=직전 진단 대비 시간축 변화, coMovementNarrative=여러 종목에 걸친 동조화, contributionNarrative=오늘 손익 기여 구도, riskFactors/opportunityFactors=포트폴리오 구조적 위험·기회, judgment=위 판단들을 종합한 최종 스탠스(예외, 아래 참고). 여러 종목이 같은 이슈로 얽혀 있으면 종목별로 나열하지 말고 "왜 여러 종목이 동시에 영향받았는지"라는 상위 패턴으로 압축하세요.
-- summarySections_judgment은 예외입니다 — 앞선 필드들에서 이미 내린 '판단'을 다시 끌어와 하나의 스탠스로 연결하는 자리이므로 위 반복 금지 규칙이 적용되지 않습니다. 다만 '사실'을 새로 나열하지 말고 '판단'만 종합하세요.
-- ${TEMPORAL_GROUNDING_INSTRUCTION}
-- ${MARKET_DAY_GROUNDING_INSTRUCTION}
-- summarySections_*·riskFactors·historyNarrative·contributionNarrative·holdingPeriodNarrative·outlook에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
-
-// "직전 진단과의 간격"에 따라 어조를 분기 — 진단 빈도가 사용자마다 다르기 때문. 대시보드도
-// dashboard_analysis의 "직전 분석"을 같은 개념으로 취급해 그대로 재사용한다.
-export const PORTFOLIO_FIRST_TONE = `## [직전 진단과의 간격] 첫 포트폴리오 진단
-
-이 포트폴리오의 첫 진단으로, 비교할 과거 데이터가 없습니다. historyNarrative에는 "첫 포트폴리오 진단으로 비교할 과거 데이터가 없다"는 사실을 짧게 한 문장으로만 언급하세요.`;
-
-export const PORTFOLIO_ONE_DAY_TONE = `## [직전 진단과의 간격] 1일 (어제)
-
-직전 진단이 어제 것입니다. historyNarrative에서 "어제 대비"라는 표현을 써서 [직전 진단과의 차이]에 제공된 총수익률 변화를 해석하세요. 보유 종목 구성이 바뀌었으면([직전 진단과의 차이]에 명시됨) 그 사실(추가/제거된 종목)을 반드시 먼저 언급하세요.`;
-
-export const PORTFOLIO_FEW_DAYS_TONE = `## [직전 진단과의 간격] 2~6일
-
-직전 진단이 며칠 전 것입니다. historyNarrative에서 "어제 대비"가 아니라 "N일 전 진단 대비"라는 표현을 쓰고(N은 [직전 진단과의 차이]에 제시된 실제 일수), 그 사이 무엇이 달라졌는지 해석하세요. 보유 종목 구성이 바뀌었으면 그 사실을 반드시 먼저 언급하세요. 간격이 왜 생겼는지 사과할 필요는 없습니다.`;
-
-export const PORTFOLIO_LONG_GAP_TONE = `## [직전 진단과의 간격] 7일 이상
-
-직전 진단이 오래 전(7일 이상) 것입니다. historyNarrative 맨 앞에 "오랜만에 다시 진단받은 포트폴리오"라는 사실을 위트 있게 짧게 한 문장으로 짚으세요(매번 표현을 다르게, 고정 문구 금지). 비꼬거나 깎아내리는 톤 금지, "지금이 기회"·"저평가" 같은 투자 유인성 표현 금지 — 컴플라이언스 원칙이 이 문장에도 동일 적용됩니다. 위트 문장 다음에는 보유 종목 구성 변화(있으면 반드시)와 총수익률 변화로 자연스럽게 이어가세요.`;
+// 2026-09-01(2차): 대시보드 "AI 종합평가"도 포트폴리오분석과 동일한 v2 스키마·프롬프트로 통일 —
+// 옛 뉴스 중심 대시보드 전용 지시문(PORTFOLIO_SUMMARY_INSTRUCTIONS_DASHBOARD)과 "직전 진단 간격"
+// 어조 상수(PORTFOLIO_*_TONE)는 historyNarrative 제거와 함께 삭제했다. 두 화면이 서로 다른
+// 톤으로 갈라지지 않도록 analyzePortfolioSummary는 더 이상 scope로 분기하지 않는다.
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -621,18 +584,13 @@ export async function analyzePortfolioSummary(
   holdingCount: number,
   benchmark: { portfolioProfitRate: number; kospiChangeRate: number } | null,
   portfolioFacts: { lossCount: number; lossWeightPct: number; riskiestLines: string[] },
-  historyComparisonBlock: string,
   contributionFactsLine: string,
   holdingPeriodFactsLine: string,
-  surgeFactsLine: string,
   coMovementFactsLine: string,
   correlationFactsLine: string,
-  // 2026-09-01: 포트폴리오분석(scope='diagnosis') 전용 [포트폴리오 구조 데이터] 블록
-  // (lib/portfolio-structure-facts.ts) — 대시보드는 옛 뉴스 중심 스키마라 무시한다('').
+  // [포트폴리오 구조 데이터] 블록(lib/portfolio-structure-facts.ts) — summarySections_* 서술의 핵심 근거.
   structureFactsBlock: string,
-  gapTone: string,
   marketDayBlock: string,
-  scope: 'diagnosis' | 'dashboard',
   onPartial: (key: string, value: string) => void,
   onField: (key: string, value: unknown) => void,
 ): Promise<PortfolioSummaryResult> {
@@ -659,62 +617,37 @@ export async function analyzePortfolioSummary(
     `- 손실 종목: ${portfolioFacts.lossCount}/${holdingCount}개 (평가금액 기준 ${portfolioFacts.lossWeightPct.toFixed(1)}%)` +
     (portfolioFacts.riskiestLines.length > 0 ? `\n- 변동성 참고: ${portfolioFacts.riskiestLines.join(', ')}` : '');
 
-  // 2026-09-01: 포트폴리오분석은 [포트폴리오 구조 데이터]를 맨 앞에(가장 중요한 근거) 두고,
-  // 제거된 "직전 진단 대비"·"과거 유사 급등락 이력" 섹션은 프롬프트에서도 뺀다(넣어두면
-  // 스키마에 없는 필드에 대해 AI가 엉뚱한 자리에 서술하려 든다). 대시보드는 옛 구성 그대로.
-  const prompt = scope === 'diagnosis'
-    ? `포트폴리오 관찰 데이터 정리 (JSON만 출력)\n\n` +
-      `현재 시각: ${nowKstString()}\n\n` +
-      `## 거래일 상태\n${marketDayBlock}\n\n` +
-      `[종목코드→종목명 매핑] ${mappingTable}\n\n` +
-      `## 포트폴리오 구조 데이터 (서버 계산값 — summarySections_* 서술의 핵심 근거, 수치를 그대로 인용할 것)\n${structureFactsBlock}\n\n` +
-      `## 종목별 개별 관찰 (Stage 1 결과 — 이미 화면에 별도 카드로 표시됨, 반복 금지)\n` +
-      `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개${benchmarkLine}\n` +
-      `${lines}\n${riskFactsLine}\n\n` +
-      `## 오늘 손익 기여도\n${contributionFactsLine}\n\n` +
-      `## 보유 기간 비교\n${holdingPeriodFactsLine}\n\n` +
-      `## 섹터 동조화 관찰 데이터\n${coMovementFactsLine}\n${correlationFactsLine}\n\n` +
-      `위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`
-    : `포트폴리오 관찰 데이터 정리 (JSON만 출력)\n\n` +
-      `현재 시각: ${nowKstString()}\n\n` +
-      `## 거래일 상태\n${marketDayBlock}\n\n` +
-      `[종목코드→종목명 매핑] ${mappingTable}\n\n` +
-      `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개${benchmarkLine}\n` +
-      `${lines}\n${riskFactsLine}\n\n` +
-      `## 직전 진단과의 차이\n${historyComparisonBlock}\n\n` +
-      `## 오늘 손익 기여도\n${contributionFactsLine}\n\n` +
-      `## 보유 기간 비교\n${holdingPeriodFactsLine}\n\n` +
-      `## 포트폴리오 내 과거 유사 급등락 이력\n${surgeFactsLine}\n\n` +
-      `## 섹터 동조화 관찰 데이터\n${coMovementFactsLine}\n${correlationFactsLine}\n\n` +
-      `위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
+  // [포트폴리오 구조 데이터]를 맨 앞에(가장 중요한 근거) 두고, 제거된 "직전 진단 대비"·
+  // "과거 유사 급등락 이력" 섹션은 프롬프트에도 넣지 않는다(넣어두면 스키마에 없는 필드에
+  // 대해 AI가 엉뚱한 자리에 서술하려 든다). 포트폴리오분석·대시보드 공통.
+  const prompt =
+    `포트폴리오 관찰 데이터 정리 (JSON만 출력)\n\n` +
+    `현재 시각: ${nowKstString()}\n\n` +
+    `## 거래일 상태\n${marketDayBlock}\n\n` +
+    `[종목코드→종목명 매핑] ${mappingTable}\n\n` +
+    `## 포트폴리오 구조 데이터 (서버 계산값 — summarySections_* 서술의 핵심 근거, 수치를 그대로 인용할 것)\n${structureFactsBlock}\n\n` +
+    `## 종목별 개별 관찰 (Stage 1 결과 — 이미 화면에 별도 카드로 표시됨, 반복 금지)\n` +
+    `총 수익률: ${totalProfitRate.toFixed(2)}% | 보유종목: ${holdingCount}개${benchmarkLine}\n` +
+    `${lines}\n${riskFactsLine}\n\n` +
+    `## 오늘 손익 기여도\n${contributionFactsLine}\n\n` +
+    `## 보유 기간 비교\n${holdingPeriodFactsLine}\n\n` +
+    `## 섹터 동조화 관찰 데이터\n${coMovementFactsLine}\n${correlationFactsLine}\n\n` +
+    `위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
-  const summaryFieldSpecs = scope === 'dashboard'
-    ? PORTFOLIO_SUMMARY_FIELD_SPECS_DASHBOARD
-    : PORTFOLIO_SUMMARY_FIELD_SPECS;
+  const summaryFieldSpecs = PORTFOLIO_SUMMARY_FIELD_SPECS;
   const parser = new StreamingFieldParser(summaryFieldSpecs);
   let fullText = '';
   const lastPartialEmitAt: Record<string, number> = {};
   const PARTIAL_THROTTLE_MS = 80;
-  const summaryInstructions = scope === 'dashboard'
-    ? PORTFOLIO_SUMMARY_INSTRUCTIONS_DASHBOARD
-    : PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS;
 
   try {
     const claudeStream = claude.messages.stream({
       model:      'claude-sonnet-4-6',
       max_tokens: 4096,
-      // 포트폴리오분석(v2)은 historyNarrative가 스키마에서 빠져 gapTone(직전 진단 간격 어조)
-      // 블록도 넣지 않는다 — 대시보드만 옛 시스템 프롬프트 + gapTone 유지.
-      system: scope === 'diagnosis'
-        ? [
-            { type: 'text', text: PORTFOLIO_SUMMARY_SYSTEM_STRUCTURE },
-            { type: 'text', text: summaryInstructions, cache_control: { type: 'ephemeral' } },
-          ]
-        : [
-            { type: 'text', text: PORTFOLIO_SUMMARY_SYSTEM },
-            { type: 'text', text: summaryInstructions, cache_control: { type: 'ephemeral' } },
-            { type: 'text', text: gapTone, cache_control: { type: 'ephemeral' } },
-          ],
+      system: [
+        { type: 'text', text: PORTFOLIO_SUMMARY_SYSTEM_STRUCTURE },
+        { type: 'text', text: PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS, cache_control: { type: 'ephemeral' } },
+      ],
       messages: [{ role: 'user', content: prompt }],
       // 단일 호출(Stage 2)이 전체 라우트의 지배적 병목(실측 62.7초) — maxRetries:0(SDK
       // 기본 재시도는 타임아웃도 재시도 대상이라 예산 계산 불가) + timeout 75s.

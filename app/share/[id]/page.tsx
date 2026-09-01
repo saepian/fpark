@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import AiSummarySections, { type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { Sparkles, AlertCircle } from 'lucide-react';
@@ -174,11 +175,7 @@ interface PortfolioData {
   // 옛 폴백(문장 2개씩 기계적으로 묶기)만 보여주고 있었음.
   // 2026-09-01: v2(포트폴리오 구조 중심) structure/concentration/pnlStructure 추가 — 메인 페이지와
   // 동일하게 v1 필드가 채워져 있으면 옛 소제목, 아니면 v2 소제목으로 렌더링한다.
-  summarySections?: {
-    structure?: string; concentration?: string; pnlStructure?: string;
-    background?: string; newsInterpretation?: string; historicalComparison?: string;
-    judgment: string;
-  };
+  summarySections?: AiSummarySectionsData;
   sectors: Sector[];
   sectorConcentration?: SectorConcentration | null;
   riskContribution?:    RiskContributionItem[] | null;
@@ -782,27 +779,8 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                 기계적으로 묶는 옛 폴백을 쓴다. 2026-08-31까지는 이 필드 자체를 몰라서
                 새 리포트를 공유해도 항상 폴백만 보여주고 있었다. */}
             {d.summarySections && Object.values(d.summarySections).some(Boolean) ? (
-              <div className="flex flex-col gap-4">
-                {(d.summarySections.background || d.summarySections.newsInterpretation || d.summarySections.historicalComparison
-                  ? [
-                      { label: '구조적 배경',   text: d.summarySections.background },
-                      { label: '뉴스 해석',     text: d.summarySections.newsInterpretation },
-                      { label: '과거 유사 이력', text: d.summarySections.historicalComparison },
-                      { label: '종합 판단',     text: d.summarySections.judgment },
-                    ]
-                  : [
-                      { label: '포트폴리오 구조', text: d.summarySections.structure },
-                      { label: '집중·분산도',     text: d.summarySections.concentration },
-                      { label: '손익 기여 구조',  text: d.summarySections.pnlStructure },
-                      { label: '종합 판단',       text: d.summarySections.judgment },
-                    ]
-                ).filter(b => b.text).map((b) => (
-                  <div key={b.label}>
-                    <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
-                    <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
-                  </div>
-                ))}
-              </div>
+              /* 2026-09-01: 메인·대시보드와 같은 공용 컴포넌트 — 정적 렌더링(revealed 없음) */
+              <AiSummarySections sections={d.summarySections} />
             ) : (
               <div className="flex flex-col gap-3">
                 {d.summary
