@@ -305,9 +305,12 @@ function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: n
   return (
     <div className={`min-w-0 flex flex-col justify-center rounded-xl px-3.5 py-2.5 ${emphasize ? 'bg-slate-800/40 border border-slate-700/40' : 'bg-slate-800/20 border border-transparent opacity-70'}`}>
       <p className="text-[11px] text-slate-500 mb-0.5 truncate">{label}</p>
-      <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>{fmtRate(rate)}</p>
-      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[11px]'}`}>
-        {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
+      <p className={`font-mono ${color} flex items-baseline gap-1.5 whitespace-nowrap`}>
+        <span className={`font-bold ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>{fmtRate(rate)}</span>
+        <span className={`text-slate-600 ${emphasize ? 'text-[12px]' : 'text-[11px]'}`}>·</span>
+        <span className={emphasize ? 'text-[12px]' : 'text-[11px]'}>
+          {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
+        </span>
       </p>
     </div>
   );
@@ -366,9 +369,9 @@ function HistoryCompareCard({ d }: { d: DiagnosisData }) {
       {!isFirst && (
         <div className="mb-2.5">
           {canCompareState ? (
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 mb-2">
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 mb-2">
               <StateBlock label={prevDateLabel ? `직전 진단(${prevDateLabel})` : '직전 진단'} rate={h.prevProfitRate!} amount={h.prevProfitAmount!} emphasize={false} />
-              <span className="self-center text-slate-600 text-[13px]">→</span>
+              <span className="self-center justify-self-center text-slate-600 text-[13px] rotate-90 sm:rotate-0">→</span>
               <StateBlock label="오늘" rate={d.profitRate} amount={d.profitAmount} emphasize />
             </div>
           ) : (

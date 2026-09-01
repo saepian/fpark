@@ -364,16 +364,21 @@ function fmtShortDate(dateStr: string): string {
 // 2026-09-01: 두 블록을 카드 폭을 반씩 나눠 채우는 미니 패널(배당 정보 카드의 미니카드와
 // 같은 bg-slate-800 계열)로 바꿈 — 예전엔 내용만큼만 차지하는 flex라 카드 우측 60%가
 // 빈 공간으로 남았다. 부모가 grid [1fr auto 1fr]로 폭을 배분하므로 여기선 min-w-0만 챙긴다.
+// 2026-09-01(2차): 수익률과 손익금액을 두 줄이 아니라 "−10.34% · −1,440,000원" 한 줄로 합침.
+// 모노 18px 기준 20자 남짓이라 390px 화면에서 두 패널을 가로로 두면(패널 내용폭 ≈116px)
+// 절대 한 줄에 못 들어간다 — 부모 grid를 sm 미만에서는 세로 스택(화살표 ↓)으로 바꿔
+// 패널이 카드 전폭(≈290px)을 쓰게 하고, whitespace-nowrap으로 줄바꿈을 금지한다.
 function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: number; amount: number; emphasize: boolean }) {
   const color = rate >= 0 ? 'text-red-400' : 'text-blue-400';
   return (
     <div className={`min-w-0 flex flex-col justify-center rounded-xl px-3.5 py-2.5 ${emphasize ? 'bg-slate-800/40 border border-slate-700/40' : 'bg-slate-800/20 border border-transparent opacity-70'}`}>
       <p className="text-[11px] text-slate-500 mb-0.5 truncate">{label}</p>
-      <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>
-        {fmtRate(rate)}
-      </p>
-      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[11px]'}`}>
-        {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
+      <p className={`font-mono ${color} flex items-baseline gap-1.5 whitespace-nowrap`}>
+        <span className={`font-bold ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>{fmtRate(rate)}</span>
+        <span className={`text-slate-600 ${emphasize ? 'text-[12px]' : 'text-[11px]'}`}>·</span>
+        <span className={emphasize ? 'text-[12px]' : 'text-[11px]'}>
+          {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
+        </span>
       </p>
     </div>
   );
@@ -437,9 +442,9 @@ function HistoryCompareCard({ result, isGenerating, revealed }: { result: Diagno
       {!isFirst && (
         <div className="mb-2.5">
           {canCompareState ? (
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 mb-2">
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 mb-2">
               <StateBlock label={prevDateLabel ? `직전 진단(${prevDateLabel})` : '직전 진단'} rate={h.prevProfitRate!} amount={h.prevProfitAmount!} emphasize={false} />
-              <span className="self-center text-slate-600 text-[13px]">→</span>
+              <span className="self-center justify-self-center text-slate-600 text-[13px] rotate-90 sm:rotate-0">→</span>
               <StateBlock label="오늘" rate={result.profitRate} amount={result.profitAmount} emphasize />
             </div>
           ) : (
