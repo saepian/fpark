@@ -172,7 +172,13 @@ interface PortfolioData {
   // (그 이전 공유 리포트) summary 문자열 폴백을 그대로 쓴다(메인 페이지와 동일 정책).
   // 2026-08-31 QA 발견: 공유 페이지가 이 필드 자체를 몰라서 새 리포트를 공유해도 항상
   // 옛 폴백(문장 2개씩 기계적으로 묶기)만 보여주고 있었음.
-  summarySections?: { background: string; newsInterpretation: string; historicalComparison: string; judgment: string };
+  // 2026-09-01: v2(포트폴리오 구조 중심) structure/concentration/pnlStructure 추가 — 메인 페이지와
+  // 동일하게 v1 필드가 채워져 있으면 옛 소제목, 아니면 v2 소제목으로 렌더링한다.
+  summarySections?: {
+    structure?: string; concentration?: string; pnlStructure?: string;
+    background?: string; newsInterpretation?: string; historicalComparison?: string;
+    judgment: string;
+  };
   sectors: Sector[];
   sectorConcentration?: SectorConcentration | null;
   riskContribution?:    RiskContributionItem[] | null;
@@ -460,46 +466,9 @@ function FinancialsTrendCard({ rows, narrative }: { rows: AnnualFinancialRow[]; 
   );
 }
 
-// app/portfolio-diagnosis/page.tsx의 PortfolioHistoryCard와 동일 로직 — 손복제 구조라 함께 갱신.
-function PortfolioHistoryCard({ d }: { d: PortfolioData }) {
-  const h = d.history;
-  if (!h) return null;
-  const isFirst = h.daysSince === null;
-  const label = isFirst
-    ? '🔄 첫 포트폴리오 진단'
-    : h.daysSince === 1
-      ? '🔄 어제 대비'
-      : h.daysSince! <= 6
-        ? `🔄 ${h.daysSince}일 전 진단 대비`
-        : '🔄 오랜만에 재조회';
-
-  const rateDelta   = !isFirst && typeof h.prevTotalProfitRate === 'number' ? d.totalProfitRate - h.prevTotalProfitRate : null;
-  const amountDelta = !isFirst && !h.compositionChanged && typeof h.prevTotalProfit === 'number' ? d.totalProfit - h.prevTotalProfit : null;
-
-  return (
-    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
-      <p className="text-[11px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
-      {!isFirst && (
-        <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
-          {rateDelta !== null && (
-            <StatDelta label="총 수익률" value={`${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`} positive={rateDelta >= 0} />
-          )}
-          {amountDelta !== null && (
-            <StatDelta label="총 평가손익" value={`${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`} positive={amountDelta >= 0} />
-          )}
-          {h.compositionChanged && (
-            <span className="text-[11px] text-amber-500/80">
-              보유 종목 변경
-              {h.addedTickers.length > 0 && ` · 추가: ${h.addedTickers.map(t => t.name).join(', ')}`}
-              {h.removedTickers.length > 0 && ` · 제거: ${h.removedTickers.map(t => t.name).join(', ')}`}
-            </span>
-          )}
-        </div>
-      )}
-      <p className="text-[13px] text-slate-300 leading-relaxed">{h.narrative}</p>
-    </div>
-  );
-}
+// 2026-09-01: 포트폴리오 "직전 진단 대비" 카드(PortfolioHistoryCard)는 메인 페이지와 함께 제거 —
+// app/portfolio-diagnosis/page.tsx 상단 주석 참고(구성이 자주 바뀌어 비교가 무의미). 종목 단위
+// HistoryCompareCard(기업분석 공유)는 그대로 유지한다.
 
 function ShareBanner({ message }: { message: string }) {
   return (
@@ -814,12 +783,20 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                 새 리포트를 공유해도 항상 폴백만 보여주고 있었다. */}
             {d.summarySections && Object.values(d.summarySections).some(Boolean) ? (
               <div className="flex flex-col gap-4">
-                {[
-                  { label: '구조적 배경',   text: d.summarySections.background },
-                  { label: '뉴스 해석',     text: d.summarySections.newsInterpretation },
-                  { label: '과거 유사 이력', text: d.summarySections.historicalComparison },
-                  { label: '종합 판단',     text: d.summarySections.judgment },
-                ].filter(b => b.text).map((b) => (
+                {(d.summarySections.background || d.summarySections.newsInterpretation || d.summarySections.historicalComparison
+                  ? [
+                      { label: '구조적 배경',   text: d.summarySections.background },
+                      { label: '뉴스 해석',     text: d.summarySections.newsInterpretation },
+                      { label: '과거 유사 이력', text: d.summarySections.historicalComparison },
+                      { label: '종합 판단',     text: d.summarySections.judgment },
+                    ]
+                  : [
+                      { label: '포트폴리오 구조', text: d.summarySections.structure },
+                      { label: '집중·분산도',     text: d.summarySections.concentration },
+                      { label: '손익 기여 구조',  text: d.summarySections.pnlStructure },
+                      { label: '종합 판단',       text: d.summarySections.judgment },
+                    ]
+                ).filter(b => b.text).map((b) => (
                   <div key={b.label}>
                     <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
                     <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
@@ -845,9 +822,6 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             )}
           </div>
         </div>
-
-        {/* 직전 진단 대비 (신설) */}
-        <PortfolioHistoryCard d={d} />
 
         {/* 기간별 포트폴리오 평가금액 변동 — 메인 페이지(app/portfolio-diagnosis/page.tsx)와
             동일 컴포넌트 재사용. 2026-08-31 QA 발견: 공유 페이지엔 이 카드가 아예 없었음. */}
@@ -1032,8 +1006,10 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         {d.riskContribution && d.riskContribution.length > 0 && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">변동성 기여도</p>
-            <p className="text-[11px] text-slate-600 mb-4">
-              비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
+            <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
+              각 종목의 가격 변동이 포트폴리오 전체의 흔들림(변동성)에 얼마나 기여하는지를 비율로 나타낸 값입니다.
+              보유 비중이 크거나 가격이 많이 출렁이는 종목일수록 높게 나옵니다.
+              종목들이 서로 같이 움직이는 정도(상관관계)는 계산에 넣지 않은 근사치라, 실제 포트폴리오 변동성과는 차이가 있을 수 있습니다.
             </p>
             <div className="flex flex-col gap-3">
               {d.riskContribution.map((r, i) => (

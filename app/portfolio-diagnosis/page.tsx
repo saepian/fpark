@@ -103,8 +103,13 @@ interface PortfolioHistory {
   narrative: string;
 }
 
+// 2026-09-01: 포트폴리오분석 AI 종합평가 재설계 — structure/concentration/pnlStructure(v2, 포트폴리오
+// 구조 중심)가 있으면 그 소제목으로, 없고 background/newsInterpretation/historicalComparison(v1,
+// 2026-09-01 이전 리포트)만 있으면 옛 소제목으로 렌더링한다(둘 다 optional — 어느 쪽이 채워졌는지로 판별).
 interface PortfolioSummarySections {
-  background: string; newsInterpretation: string; historicalComparison: string; judgment: string;
+  structure?: string; concentration?: string; pnlStructure?: string;
+  background?: string; newsInterpretation?: string; historicalComparison?: string;
+  judgment: string;
 }
 
 // 2026-08-04: riskFactors가 {text,category} 객체 배열로 구조화됨 — category 없는 옛 문자열
@@ -217,6 +222,9 @@ function emptyHolding(): HoldingInput {
 // 도착한 값(partial 포함)을 prev.summarySections 객체 안에 merge한다
 // (app/diagnosis/page.tsx의 MAIN_ANALYSIS_SECTION_KEYS와 동일 패턴).
 const SUMMARY_SECTION_KEYS: Record<string, keyof PortfolioSummarySections> = {
+  summarySections_structure: 'structure',
+  summarySections_concentration: 'concentration',
+  summarySections_pnlStructure: 'pnlStructure',
   summarySections_background: 'background',
   summarySections_newsInterpretation: 'newsInterpretation',
   summarySections_historicalComparison: 'historicalComparison',
@@ -245,7 +253,7 @@ function applyPortfolioField(prev: StreamedResult | null, key: string, value: un
     return {
       ...base,
       summarySections: {
-        background: '', newsInterpretation: '', historicalComparison: '', judgment: '',
+        judgment: '',
         ...base.summarySections,
         [sectionKey]: value as string,
       },
@@ -280,15 +288,6 @@ function MetricCard({ label, value, sub, up, highlight }: {
         {value}
       </p>
       {sub && <p className="text-[11px] text-slate-500 mt-0.5">{sub}</p>}
-    </div>
-  );
-}
-
-function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[11px] text-slate-500">{label}</span>
-      <span className={`text-[13px] font-bold font-mono ${positive ? 'text-red-400' : 'text-blue-400'}`}>{value}</span>
     </div>
   );
 }
@@ -338,54 +337,11 @@ function TypingCursor() {
   return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
 }
 
-// "직전 진단 대비" 카드 — components/diagnosis/DiagnosisReport.tsx의 HistoryCompareCard와
-// 동일한 시각 언어 재사용. 델타 수치는 서버가 계산해 넘긴 값을 그대로 표시.
-// history 자체는 meta 이벤트로 즉시 오지만 narrative는 Stage2 스트리밍으로 늦게 채워진다.
-function PortfolioHistoryCard({ result, revealed, stage2Failed }: { result: StreamedResult; revealed: Record<string, RevealedField>; stage2Failed: boolean }) {
-  const h = result.history;
-  if (!h) return null;
-  const isFirst = h.daysSince === null;
-  const label = isFirst
-    ? '🔄 첫 포트폴리오 진단'
-    : h.daysSince === 1
-      ? '🔄 어제 대비'
-      : h.daysSince! <= 6
-        ? `🔄 ${h.daysSince}일 전 진단 대비`
-        : '🔄 오랜만에 재조회';
-
-  const rateDelta   = !isFirst && typeof h.prevTotalProfitRate === 'number' && typeof result.totalProfitRate === 'number' ? result.totalProfitRate - h.prevTotalProfitRate : null;
-  const amountDelta = !isFirst && !h.compositionChanged && typeof h.prevTotalProfit === 'number' && typeof result.totalProfit === 'number' ? result.totalProfit - h.prevTotalProfit : null;
-
-  return (
-    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
-      <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-wide mb-2`}>{label}</p>
-      {!isFirst && (
-        <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
-          {rateDelta !== null && (
-            <StatDelta label="총 수익률" value={`${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`} positive={rateDelta >= 0} />
-          )}
-          {amountDelta !== null && (
-            <StatDelta label="총 평가손익" value={`${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`} positive={amountDelta >= 0} />
-          )}
-          {h.compositionChanged && (
-            <span className="text-[11px] text-amber-500/80">
-              보유 종목 변경
-              {h.addedTickers.length > 0 && ` · 추가: ${h.addedTickers.map(t => t.name).join(', ')}`}
-              {h.removedTickers.length > 0 && ` · 제거: ${h.removedTickers.map(t => t.name).join(', ')}`}
-            </span>
-          )}
-        </div>
-      )}
-      {h.narrative !== undefined ? (
-        <p className="text-xs text-slate-300 leading-relaxed">
-          {revealed.historyNarrative?.text ?? h.narrative}{revealed.historyNarrative?.active && <TypingCursor />}
-        </p>
-      ) : (
-        !stage2Failed && <FieldSkeleton lines={2} />
-      )}
-    </div>
-  );
-}
+// 2026-09-01: "직전 진단 대비" 카드(PortfolioHistoryCard)를 포트폴리오분석에서 제거했다 —
+// 포트폴리오는 매일 진단하지 않고 종목 구성이 자주 바뀌어 직전 진단과의 비교가 무의미한 경우가
+// 많았다(구성이 바뀌면 AI가 "비교 자체가 의미 없다"고 쓰는 상황까지 발생). 시간축 맥락은 바로
+// 아래 "기간별 포트폴리오 평가금액 변동" 카드가 담당한다. 서버는 history 수치를 계속 보내지만
+// (과거 리포트 호환) 화면에서는 쓰지 않는다. 기업분석(종목 단위, 구성 불변)의 델타박스는 그대로.
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
@@ -894,12 +850,22 @@ export default function PortfolioDiagnosisPage() {
                     // 다시 이 객체로 merge — applyPortfolioField 참고)한 덕분에 institutionalFlow와
                     // 동일한 패턴(글자 있으면 표시+커서, 아직 생성 중이면 스켈레톤, 완료 후에도
                     // 비어있으면(선택 필드) 숨김)으로 4블록을 각각 독립적으로 타이핑 렌더링한다.
-                    const blocks = [
-                      { key: 'summarySections_background',          label: '구조적 배경',   text: sections.background },
-                      { key: 'summarySections_newsInterpretation',   label: '뉴스 해석',     text: sections.newsInterpretation },
-                      { key: 'summarySections_historicalComparison', label: '과거 유사 이력', text: sections.historicalComparison },
-                      { key: 'summarySections_judgment',             label: '종합 판단',     text: sections.judgment },
-                    ];
+                    // 2026-09-01: v1(뉴스 중심 — 2026-09-01 이전 리포트) 필드가 채워져 있으면 옛 소제목,
+                    // 아니면 v2(포트폴리오 구조 중심) 소제목. 스트리밍 중엔 v2 키만 도착하므로 v2로 그려진다.
+                    const isLegacy = !!(sections.background || sections.newsInterpretation || sections.historicalComparison);
+                    const blocks = isLegacy
+                      ? [
+                          { key: 'summarySections_background',          label: '구조적 배경',   text: sections.background },
+                          { key: 'summarySections_newsInterpretation',   label: '뉴스 해석',     text: sections.newsInterpretation },
+                          { key: 'summarySections_historicalComparison', label: '과거 유사 이력', text: sections.historicalComparison },
+                          { key: 'summarySections_judgment',             label: '종합 판단',     text: sections.judgment },
+                        ]
+                      : [
+                          { key: 'summarySections_structure',     label: '포트폴리오 구조', text: sections.structure },
+                          { key: 'summarySections_concentration', label: '집중·분산도',     text: sections.concentration },
+                          { key: 'summarySections_pnlStructure',  label: '손익 기여 구조',  text: sections.pnlStructure },
+                          { key: 'summarySections_judgment',      label: '종합 판단',       text: sections.judgment },
+                        ];
                     return (
                       <div className="flex flex-col gap-4">
                         {blocks.map((b) => (
@@ -948,9 +914,6 @@ export default function PortfolioDiagnosisPage() {
               </div>
             </div>
           ))}
-
-          {/* 2-1행: 직전 진단 대비 (신설) */}
-          <PortfolioHistoryCard result={result} revealed={smoothText.revealed} stage2Failed={stage2Failed} />
 
           {/* 2-2행: 기간별 포트폴리오 평가금액 변동 (신설, 종목분석 PriceChangeTable과
               동일 lib 함수 재사용) — AI 텍스트를 기다리지 않고 holdings/totalValue가
@@ -1168,11 +1131,15 @@ export default function PortfolioDiagnosisPage() {
           )}
 
           {/* 3-3행: 변동성 기여도(정량 지표 C-1, 신설) — 비중×변동성 단순 근사치이며
-              종목 간 상관관계는 반영하지 않는다는 점을 라벨에 명시해 과대해석을 방지한다. */}
+              종목 간 상관관계는 반영하지 않는다는 점을 라벨에 명시해 과대해석을 방지한다.
+              2026-09-01 문구 재작성: "비중×변동성 근사치/상관관계 미반영"이라는 용어 나열로는
+              뜻이 전달되지 않는다는 피드백 — 이 숫자가 무엇인지, 왜 근사치인지를 풀어 쓴다. */}
           {result.riskContribution && result.riskContribution.length > 0 && (
             <Card title="변동성 기여도" className="mb-4">
-              <p className="text-[11px] text-slate-600 mb-4">
-                비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
+              <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
+                각 종목의 가격 변동이 포트폴리오 전체의 흔들림(변동성)에 얼마나 기여하는지를 비율로 나타낸 값입니다.
+                보유 비중이 크거나 가격이 많이 출렁이는 종목일수록 높게 나옵니다.
+                종목들이 서로 같이 움직이는 정도(상관관계)는 계산에 넣지 않은 근사치라, 실제 포트폴리오 변동성과는 차이가 있을 수 있습니다.
               </p>
               <div className="flex flex-col gap-3">
                 {result.riskContribution.map((r, i) => (

@@ -266,16 +266,20 @@ export const PORTFOLIO_STOCK_FIELD_SPECS: FieldSpec[] = [
 // string이었으므로 top-level로 끌어올리면 institutionalFlow 등과 동일하게 글자 단위
 // partial(타이핑 효과)을 그대로 받는다. route.ts가 스트림 종료 후 이 4개를
 // summarySections 객체로 재조립해 DB 저장·공유페이지 등 기존 소비처는 그대로 유지한다.
+// 2026-09-01: 포트폴리오분석 AI 종합평가를 "뉴스 해설"에서 "포트폴리오 구조 분석"으로 재설계 —
+// summarySections 4조각이 structure(포트폴리오 구조)/concentration(집중·분산도)/
+// pnlStructure(손익 기여 구조)/judgment(종합 판단)로 바뀌었고, "직전 진단 대비" 카드를
+// 포트폴리오분석에서 제거하면서 historyNarrative도 이 스키마에서 빠졌다(종목 구성이 자주
+// 바뀌어 비교 자체가 무의미한 경우가 많았음). 대시보드(아래 _DASHBOARD)는 옛 구조 그대로.
 export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
-  { key: 'summarySections_background',           type: 'string', emit: true },
-  { key: 'summarySections_newsInterpretation',    type: 'string', emit: true },
-  { key: 'summarySections_historicalComparison',  type: 'string', emit: true },
-  { key: 'summarySections_judgment',              type: 'string', emit: true },
+  { key: 'summarySections_structure',      type: 'string', emit: true },
+  { key: 'summarySections_concentration',  type: 'string', emit: true },
+  { key: 'summarySections_pnlStructure',   type: 'string', emit: true },
+  { key: 'summarySections_judgment',       type: 'string', emit: true },
   // 2026-08-04: {text,category} 객체 배열로 구조화(macro/company 태깅) — riskFactors처럼
   // 중첩 객체 배열은 'json' 타입(partial 미지원, 완결 시에만 노출)
   { key: 'riskFactors', type: 'json', emit: true },
   { key: 'opportunityFactors', type: 'string[]', emit: true },
-  { key: 'historyNarrative', type: 'string', emit: true },
   { key: 'contributionNarrative', type: 'string', emit: true },
   { key: 'holdingPeriodNarrative', type: 'string', emit: true },
   { key: 'coMovementNarrative', type: 'string', emit: true },

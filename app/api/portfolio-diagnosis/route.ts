@@ -35,6 +35,7 @@ import {
   // 대체한다(설계 검토 합의 사항).
   MIN_HOLDINGS_FOR_QUANT_METRICS,
 } from '@/lib/portfolio-analysis-pipeline';
+import { buildPortfolioStructureFacts } from '@/lib/portfolio-structure-facts';
 
 export const dynamic     = 'force-dynamic';
 // 2026-07-13 프로덕션 조사: Stage 2(포트폴리오 종합 분석) 단일 호출만 실측 43~46초
@@ -633,11 +634,24 @@ export async function POST(request: NextRequest) {
           .flatMap(h => h.sectorMacroNews)
           .filter(n => (seenSectorMacroTitles.has(n.title) ? false : (seenSectorMacroTitles.add(n.title), true)));
 
+        // 2026-09-01: AI 종합평가를 "포트폴리오 구조 분석"으로 재설계 — 서버가 이미 계산한
+        // 비중·섹터 집중도·상관계수·변동성 기여도·손익 구조를 한 블록으로 정리해 Stage 2의
+        // 핵심 근거로 넘긴다(lib/portfolio-structure-facts.ts). sectors/sectorConcentration은
+        // Stage 1 완료 직후(바로 위)에야 계산되므로 이 시점에 만든다.
+        const structureFactsBlock = buildPortfolioStructureFacts({
+          holdings: enriched.map(h => ({
+            ticker: h.ticker, name: h.name, value: h.value, invested: h.invested,
+            profit: h.profit, profitRate: h.profitRate, volatility: h.volatility,
+          })),
+          totalValue, totalInvested, totalProfit,
+          sectors, sectorConcentration, riskContribution, correlation,
+        });
+
         const summary = await analyzePortfolioSummary(
           stockResults, nameMap, newsMap, sectorMacroNewsFlat, totalProfitRate, enriched.length, benchmark,
           { lossCount, lossWeightPct, riskiestLines },
           historyComparisonBlock, contributionFactsLine, holdingPeriodFacts.line,
-          surgeFactsLine, coMovementFactsLine, correlationFactsLine, gapTone, portfolioMarketDayBlock, 'diagnosis',
+          surgeFactsLine, coMovementFactsLine, correlationFactsLine, structureFactsBlock, gapTone, portfolioMarketDayBlock, 'diagnosis',
           emitPortfolioPartial, emitPortfolioField,
         );
         // Stage 1은 다 됐는데 Stage 2만 실패/폴백된 경우 — 이미 보여준 종목별 카드는
@@ -708,7 +722,9 @@ export async function POST(request: NextRequest) {
             compositionChanged,
             addedTickers,
             removedTickers,
-            narrative: summary.historyNarrative || (daysSinceLastReport === null ? '이 포트폴리오의 첫 진단입니다.' : ''),
+            // 2026-09-01: "직전 진단 대비" 카드를 포트폴리오분석에서 제거 — 수치(prev*·구성 변화)는
+            // 과거 리포트/공유 스냅샷 호환을 위해 그대로 저장하되 AI 서술은 더 이상 생성하지 않는다.
+            narrative: '',
           },
           // 서버 계산 금액을 그대로 노출 — AI(contributionNarrative)가 숫자를 옮겨 적다 틀릴
           // 여지를 없앤다(2026-07-13 발견: AI 서술에만 의존하면 실제 금액과 어긋날 수 있음).
