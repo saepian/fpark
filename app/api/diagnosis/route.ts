@@ -63,7 +63,7 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
   "foreignFlow": "외국인 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, 동일 기준)",
   "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】단기 관찰 변수, mainAnalysisSections_*에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로 (예: '외국인 자금은 5일째 유출 중인데, 이는 방향 전환 여부를 아직 확인할 수 없다는 점에서 지켜볼 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지",
   "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections_*에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지",
-  "finalVerdict": "【최대 180자, 절대 넘기지 말 것 — 1~2문장, 순수 서술형】이 필드는 앞선 필드들의 개별 판단을 교차 종합하는 자리이므로, 다른 필드에 적용되는 '겹치는 내용 반복 금지' 규칙의 예외입니다 — mainAnalysisSections_valuationNote·sectorNarrative 등에서 이미 내린 '판단'(밸류에이션 부담 여부, 개별·업종 이슈 여부 등)을 명시적으로 다시 끌어와 서로 연결하세요. 오늘의 반응(가격 변동 폭)이 실제 근거(뉴스·실적·수급·밸류에이션) 대비 다음 세 가지 중 어디에 해당하는지 명확히 하나를 선택하고, 그렇게 판단한 근거를 같은 문장 안에 붙이세요: (a) 근거 대비 과도한 반응으로 보인다 (b) 근거에 비춰 타당한/합리적인 반응으로 보인다 (c) 근거가 서로 엇갈리거나 불충분해 판단을 유보하는 것이 맞다 — (c)를 고르더라도 '지켜보자'로 문장을 끝내지 말고 무엇이 확인되면 (a)나 (b)로 판단이 바뀔지까지 구체적으로 밝히세요. 점수·등급·별점·숫자 표기 절대 금지 — 오직 문장으로만 판단을 전달하세요. 매매행위(매수/매도/추격매수/추격매도/진입/청산 등)를 직접 지목하지 말고 관찰·판단 어투로 순화하세요. 목표가·저항선·지지선·가격 방향 예측 절대 금지. 앞선 필드들에서 이미 다룬 개별 '사실'(수치 등)을 다시 나열하지 말고, 그 사실들을 근거로 이미 내린 '판단'들을 종합한 최종 스탠스만 담으세요.",
+  "finalVerdict": "【최대 180자, 절대 넘기지 말 것 — 1~2문장, 순수 서술형】이 필드는 앞선 필드들의 개별 판단을 교차 종합하는 자리이므로, 다른 필드에 적용되는 '겹치는 내용 반복 금지' 규칙의 예외입니다 — mainAnalysisSections_valuationNote·sectorNarrative 등에서 이미 내린 '판단'(밸류에이션 부담 여부, 개별·업종 이슈 여부 등)을 명시적으로 다시 끌어와 서로 연결하세요. 오늘의 반응(가격 변동 폭)이 실제 근거(뉴스·실적·수급·밸류에이션) 대비 다음 세 가지 중 어디에 해당하는지 명확히 하나를 선택하고, 그렇게 판단한 근거를 같은 문장 안에 붙이세요: (a) 근거 대비 과도한 반응으로 보인다 (b) 근거에 비춰 타당한/합리적인 반응으로 보인다 (c) 근거가 서로 엇갈리거나 불충분해 판단을 유보하는 것이 맞다 — (c)를 고르더라도 '지켜보자'로 문장을 끝내지 말고 무엇이 확인되면 (a)나 (b)로 판단이 바뀔지까지 구체적으로 밝히세요. 점수·등급·별점·숫자 표기 절대 금지, (a)/(b)/(c) 같은 선택지 기호도 문장에 쓰지 말 것(기호 없이 서술로만) — 오직 문장으로만 판단을 전달하세요. 매매행위(매수/매도/추격매수/추격매도/진입/청산 등)를 직접 지목하지 말고 관찰·판단 어투로 순화하세요. 목표가·저항선·지지선·가격 방향 예측 절대 금지. 앞선 필드들에서 이미 다룬 개별 '사실'(수치 등)을 다시 나열하지 말고, 그 사실들을 근거로 이미 내린 '판단'들을 종합한 최종 스탠스만 담으세요.",
   "newsIssueClusters": [{"label": "이슈 라벨(8~16자 명사구, 예: 'HBM 신기술 표준 공개')", "articleIndexes": [0, 2]}]
 }
 
@@ -925,6 +925,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
         };
 
         const toStr = (v: unknown): string => typeof v === 'string' ? v : '';
+        const stripChoiceLabels = (t: string): string => t.replace(/\(\s*[abc]\s*\)\s*/g, '').replace(/\s{2,}/g, ' ').trim();
 
         // newsIssueClusters 정규화 — combinedNews 인덱스 범위를 벗어나거나 형식이 어긋난
         // 항목은 버린다. 모델이 일부 기사를 어느 클러스터에도 안 넣었을 수 있는데(전체
@@ -1007,7 +1008,10 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           foreignFlow:        typeof result!.foreignFlow       === 'string' ? result!.foreignFlow       : '',
           shortTermOutlook:   typeof result!.shortTermOutlook  === 'string' ? result!.shortTermOutlook  : undefined,
           midTermOutlook:     typeof result!.midTermOutlook    === 'string' ? result!.midTermOutlook    : undefined,
-          finalVerdict:       typeof result!.finalVerdict      === 'string' ? result!.finalVerdict      : undefined,
+          // 2026-09-01 실측: 프롬프트의 선택지 기호 "(a)/(b)/(c)"가 문장에 그대로 새어 나오고(삼성전자
+          // "(a) 타당한 수준… (a) 과도한 프리미엄"처럼 기호가 뒤섞이기도 함) 사용자에겐 무의미하므로
+          // 저장·재전송 전에 제거한다(스트리밍 중 잠깐 보였더라도 정합성 보정 전송이 덮어씀).
+          finalVerdict:       typeof result!.finalVerdict      === 'string' ? stripChoiceLabels(result!.finalVerdict) : undefined,
           sectorNarrative:     sectorComparison ? (typeof result!.sectorNarrative === 'string' ? result!.sectorNarrative : '') : '',
           financialsNarrative: annualFinancials.length > 0 ? (typeof result!.financialsNarrative === 'string' ? result!.financialsNarrative : '') : '',
           disclosureNarrative: disclosures.length > 0 ? (typeof result!.disclosureNarrative === 'string' ? result!.disclosureNarrative : '') : '',
