@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 // 2026-08-31: fetchStockPrice(라이브) → fetchStockPriceCached — 홈 관심종목 위젯이 유저마다
 // 주기 폴링하는 라우트라 같은 종목을 유저 수만큼 KIS 재조회하던 최상위 병목. 공용 캐시
 // (lib/kis-api.ts, 장중 30초/장외 30분)로 /price·dashboard·검색과 시세를 공유한다.
-import { fetchStockPriceCached } from '../../../lib/kis-api';
+import { fetchStockPricesCached } from '../../../lib/kis-api';
 import { fetchOverseasQuote } from '../../../lib/yahoo-finance';
 import type { Database } from '../../../lib/database.types';
 
@@ -57,7 +57,14 @@ async function fetchInChunks<T, R>(
   return results;
 }
 
-export async function GET() {
+// 2026-09-01: 포트폴리오분석 "워치리스트에서 불러오기"가 느리다는 불편 — 실측(12종목) 콜드
+// 9.0초 / 웜 2.5~3.1초. 원인은 (a) 그 화면은 종목코드·이름만 쓰는데 시세까지 붙여 기다렸고,
+// (b) 시세 부착이 3개 청크 + 250ms 딜레이 + 종목당 캐시 DB 왕복 구조라 캐시 히트여도 1초대가
+// 그대로 쌓였기 때문(트래픽 점검 때 본 "캐시 히트인데 청크 스로틀 잔재로 느림"과 같은 클래스).
+// → ?prices=0 이면 시세 없이 DB 조회만으로 즉시 반환(포트폴리오 폼용), 기본 경로는
+//   fetchStockPricesCached로 캐시를 IN 쿼리 한 번에 읽고 미스만 라이브(전역 게이트가 페이싱).
+//   해외 종목(Yahoo)은 원래 청크 로직을 그대로 유지한다.
+export async function GET(request: NextRequest) {
   const supabase = makeSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -71,30 +78,40 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const items = data ?? [];
+  const withoutPrices = request.nextUrl.searchParams.get('prices') === '0';
+  if (withoutPrices) return NextResponse.json(items);
 
-  const withPrice = await fetchInChunks(
-    items,
+  const krItems = items.filter(i => (i.market ?? 'kr') === 'kr');
+  const { prices: krPrices } = await fetchStockPricesCached(krItems.map(i => i.ticker));
+  const krPriced = new Map(krItems.map(item => {
+    const stock = krPrices.get(item.ticker);
+    return [item.ticker, stock
+      ? { ...item, price: stock.price, changeRate: stock.changeRate, currency: 'KRW' }
+      // 라이브까지 실패 — price: 0으로 반환해 클라이언트가 재시도하게 함(기존 정책)
+      : { ...item, price: 0, changeRate: 0, currency: 'KRW' }];
+  }));
+
+  const overseasItems = items.filter(i => (i.market ?? 'kr') !== 'kr');
+  const overseasPriced = await fetchInChunks(
+    overseasItems,
     async (item) => {
-      const market = item.market ?? 'kr';
       try {
         return await withRetry(async () => {
-          if (market === 'kr') {
-            const stock = await fetchStockPriceCached(item.ticker);
-            return { ...item, price: stock.price, changeRate: stock.changeRate, currency: 'KRW' };
-          } else {
-            const quote = await fetchOverseasQuote(item.ticker);
-            return { ...item, price: quote.price, changeRate: quote.changeRate, currency: quote.currency };
-          }
+          const quote = await fetchOverseasQuote(item.ticker);
+          return { ...item, price: quote.price, changeRate: quote.changeRate, currency: quote.currency };
         });
       } catch {
-        // 재시도 후에도 실패 — price: 0으로 반환해 클라이언트가 재시도하게 함
-        return { ...item, price: 0, changeRate: 0, currency: market === 'kr' ? 'KRW' : 'USD' };
+        return { ...item, price: 0, changeRate: 0, currency: 'USD' };
       }
     },
-    3,   // 3개씩
-    250, // 250ms 간격
+    3, 250,
   );
+  const overseasMap = new Map(overseasPriced.map(o => [o.ticker, o]));
 
+  // 원래 sort_order 순서 유지
+  const withPrice = items.map(item =>
+    (item.market ?? 'kr') === 'kr' ? krPriced.get(item.ticker)! : (overseasMap.get(item.ticker) ?? { ...item, price: 0, changeRate: 0, currency: 'USD' }),
+  );
   return NextResponse.json(withPrice);
 }
 

@@ -189,7 +189,7 @@ type StreamedResult = Omit<Partial<PortfolioResult>, 'holdings' | 'history' | 'h
   holdingPeriod?: StreamedHoldingPeriod;
 };
 
-interface WatchItem { ticker: string; name: string; price: number; changeRate: number }
+interface WatchItem { ticker: string; name: string; price?: number; changeRate?: number } // prices=0 경로에선 시세 없음
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -375,7 +375,9 @@ export default function PortfolioDiagnosisPage() {
         .then(r => r.json())
         .then(d => { setIsPro(d.isPro); setIsBasic(d.isBasic ?? false); setRemaining(d.remaining ?? 0); })
         .catch(() => {});
-      fetch('/api/watchlist')
+      // 2026-09-01: 이 화면은 워치리스트의 종목코드·이름만 쓰므로(시세는 팝오버에 표시하지 않음)
+      // prices=0으로 시세 부착을 건너뛴다 — 실측 12종목 2.5~3초 → 수백 ms.
+      fetch('/api/watchlist?prices=0')
         .then(r => r.json())
         .then(d => { if (Array.isArray(d)) setWatchlist(d.filter(i => !i.market || i.market === 'kr')); })
         .catch(() => {});

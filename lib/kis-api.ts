@@ -763,9 +763,9 @@ function kstMinutesSinceMidnight(d: Date): number {
   return kst.getUTCHours() * 60 + kst.getUTCMinutes();
 }
 
-function isQuoteCacheStaleAcrossClose(cachedUpdatedAt: string): boolean {
+function isQuoteCacheStaleAcrossClose(cachedUpdatedAt: string, now: Date = new Date()): boolean {
   const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedUpdatedAt)) < QUOTE_MARKET_CLOSE_MINUTES_KST;
-  const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= QUOTE_MARKET_CLOSE_MINUTES_KST;
+  const nowIsAfterClose = kstMinutesSinceMidnight(now) >= QUOTE_MARKET_CLOSE_MINUTES_KST;
   return generatedBeforeClose && nowIsAfterClose;
 }
 
@@ -828,6 +828,83 @@ export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock
   const { raw, cachedAt } = await queryPriceCached(ticker, opts);
   const quote = buildStockQuote(ticker, raw.output, raw.name);
   return cachedAt ? { ...quote, isCached: true, cachedAt } : quote;
+}
+
+// ── 여러 종목 일괄 조회 (2026-09-01) ─────────────────────────────────────────────
+// 워치리스트처럼 종목 N개를 한 번에 붙여야 하는 라우트가 fetchStockPriceCached를 종목마다
+// 부르면 캐시가 전부 히트여도 N번의 Supabase 왕복 + (라우트 쪽 청크 스로틀 잔재)가 그대로
+// 지연으로 쌓였다(실측: 12종목 웜 캐시 2.5~3.1초). 캐시는 IN 쿼리 한 번으로 통째로 읽어
+// 신선한 것은 즉시 돌려주고, 미스(없음/만료)만 라이브로 채운다. 라이브 호출은 이미 전역
+// 레이트리미터 게이트(acquireKisRateSlot)가 초당 한도를 지켜 주므로 라우트가 따로 sleep을
+// 끼워 넣을 필요가 없고, 동시성만 작게 제한한다(같은 인스턴스가 게이트 대기열을 독점하지
+// 않도록). 실패한 종목은 throw 대신 failed 목록으로 돌려줘 호출부가 폴백을 정한다.
+const QUOTE_BATCH_LIVE_CONCURRENCY = 3;
+
+// 캐시 행 배열에서 "지금 기준으로 신선한" 행만 골라낸다 — queryPriceCached의 단건 판정과
+// 동일 규칙(TTL + 마감 전 생성분의 마감 후 무효화). 순수 함수라 vitest로 직접 검증한다.
+export function selectFreshQuoteCacheRows<T extends { updatedAt: string }>(
+  rows: T[],
+  now: Date,
+  ttlMs: number,
+): T[] {
+  return rows.filter(r =>
+    now.getTime() - new Date(r.updatedAt).getTime() < ttlMs && !isQuoteCacheStaleAcrossClose(r.updatedAt, now),
+  );
+}
+
+export async function fetchStockPricesCached(
+  tickers: string[],
+  opts?: { waitForLock?: boolean },
+): Promise<{ prices: Map<string, StockPrice>; failed: string[]; cacheHits: number }> {
+  const prices = new Map<string, StockPrice>();
+  const failed: string[] = [];
+  const unique = [...new Set(tickers)];
+  if (unique.length === 0) return { prices, failed, cacheHits: 0 };
+
+  // 1) 캐시 일괄 조회 — 한 번의 IN 쿼리
+  const ttlMs = isKoreanMarketOpen() ? QUOTE_CACHE_TTL_MS_OPEN : QUOTE_CACHE_TTL_MS_CLOSED;
+  const keyToTicker = new Map(unique.map(t => [quoteCacheKey(t), t]));
+  let cachedRows: { ticker: string; raw: CachedQuoteRaw; updatedAt: string }[] = [];
+  try {
+    const { data } = await supabase
+      .from('market_cache')
+      .select('key, data, updated_at')
+      .in('key', [...keyToTicker.keys()]);
+    cachedRows = (data ?? []).flatMap(row => {
+      const ticker = keyToTicker.get(row.key);
+      const raw = row.data as unknown as CachedQuoteRaw | null;
+      return ticker && raw?.output && typeof raw.name === 'string'
+        ? [{ ticker, raw, updatedAt: row.updated_at }]
+        : [];
+    });
+  } catch (e) {
+    console.warn('[fetchStockPricesCached] 캐시 일괄 조회 실패, 전부 라이브로:', e instanceof Error ? e.message : e);
+  }
+  for (const row of selectFreshQuoteCacheRows(cachedRows, new Date(), ttlMs)) {
+    prices.set(row.ticker, { ...buildStockPrice(row.ticker, row.raw.output, row.raw.name), isCached: true, cachedAt: row.updatedAt });
+  }
+  const cacheHits = prices.size;
+
+  // 2) 미스만 라이브 — 작은 동시성 풀, 인위적 sleep 없음(전역 게이트가 페이싱)
+  const misses = unique.filter(t => !prices.has(t));
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < misses.length) {
+      const ticker = misses[cursor++];
+      try {
+        const o = await queryPrice(ticker, false, opts);
+        const name = await resolveStockName(ticker, o);
+        const raw: CachedQuoteRaw = { output: o, name };
+        await saveStockQuoteCache(ticker, raw);
+        prices.set(ticker, buildStockPrice(ticker, raw.output, raw.name));
+      } catch (e) {
+        console.warn(`[fetchStockPricesCached] ${ticker} 라이브 조회 실패:`, e instanceof Error ? e.message : e);
+        failed.push(ticker);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(QUOTE_BATCH_LIVE_CONCURRENCY, misses.length) }, worker));
+  return { prices, failed, cacheHits };
 }
 
 export async function fetchStockInfo(ticker: string): Promise<StockInfo> {
