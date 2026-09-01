@@ -48,7 +48,7 @@ export default function DailyPriceTable({ ticker }: { ticker: string }) {
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4">
       <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 mb-3`}>
         일별 주가 동향
-        <span className="text-[10px] text-slate-500 font-normal ml-2">최근 5거래일</span>
+        <span className="text-[11px] text-slate-500 font-normal ml-2">최근 5거래일</span>
       </h3>
       <div className="overflow-x-auto">
         <table className="min-w-[500px] w-full text-xs">

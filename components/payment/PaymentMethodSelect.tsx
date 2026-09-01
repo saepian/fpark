@@ -76,7 +76,7 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
       >
         {step === 'method' && (
           <>
-            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">결제 수단 선택</p>
+            <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-2">결제 수단 선택</p>
             <h2 className="text-[17px] font-bold text-white mb-1">{planLabel}</h2>
             <p className="text-[22px] font-bold text-white mb-5">
               {amount.toLocaleString()}원
@@ -99,7 +99,7 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
                     <Landmark className="w-4 h-4 text-indigo-400" />
                   </span>
                   <span className="text-[14.5px] font-semibold text-white">계좌이체</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.06] text-slate-500">
+                  <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.06] text-slate-500">
                     {VA_ENABLED ? '국내' : '준비 중'}
                   </span>
                 </div>
@@ -128,7 +128,7 @@ export default function PaymentMethodSelect({ plan, amount, isAnnual, onClose, o
             </div>
 
             {VA_ENABLED && (
-              <p className="mt-5 text-[10px] text-slate-600 text-center leading-relaxed">
+              <p className="mt-5 text-[11px] text-slate-600 text-center leading-relaxed">
                 입금 확인은 영업일 기준 1일 이내 처리됩니다. 언제든지 해지 가능합니다.
               </p>
             )}

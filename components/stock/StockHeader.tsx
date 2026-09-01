@@ -112,7 +112,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-bold px-2 py-0.5 bg-gray-100 dark:bg-[#1c2b3c] text-blue-600 dark:text-blue-400 rounded uppercase tracking-widest">
+            <span className="text-[11px] font-bold px-2 py-0.5 bg-gray-100 dark:bg-[#1c2b3c] text-blue-600 dark:text-blue-400 rounded uppercase tracking-widest">
               KOSPI
             </span>
             <span className="text-gray-400 dark:text-[#8c909f] font-mono text-xs font-bold tracking-wider">
@@ -142,7 +142,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
 
         <div className="hidden lg:grid grid-cols-2 gap-8 border-l border-gray-200 dark:border-[#2d313e] pl-8">
           <div>
-            <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1">
+            <p className="text-[11px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1">
               VOLUME
             </p>
             <p className="font-mono text-lg font-bold text-gray-900 dark:text-[#d4e4fa]">
@@ -150,7 +150,7 @@ export default function StockHeader({ ticker }: StockHeaderProps) {
             </p>
           </div>
           <div>
-            <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1">
+            <p className="text-[11px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1">
               TRANSACTION VALUE
             </p>
             <p className="font-mono text-lg font-bold text-gray-900 dark:text-[#d4e4fa]">

@@ -85,7 +85,7 @@ export default function AboutPage() {
       >
         <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-sky-500" />
         <div className="p-8 md:p-10">
-          <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest mb-4">About Us</p>
+          <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-widest mb-4">About Us</p>
           <p className="text-[15px] text-slate-300 leading-[1.9]">
             Finance Park는 최신 AI 기술을 활용해 공개된 시장 데이터와 뉴스를 종합 분석하는
             <span className="text-white font-semibold"> AI 기반 데이터 분석 플랫폼</span>입니다.
@@ -97,7 +97,7 @@ export default function AboutPage() {
 
       {/* 핵심 기능 카드 */}
       <div className="mb-16">
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-6 text-center">Core Features</p>
+        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-6 text-center">Core Features</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {FEATURES.map(f => (
             <div
@@ -116,7 +116,7 @@ export default function AboutPage() {
 
       {/* 기술 스택 */}
       <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-7 mb-16">
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-5">Tech Stack</p>
+        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-5">Tech Stack</p>
         <div className="flex flex-wrap gap-2.5">
           {TECH_STACK.map(t => (
             <span
@@ -131,7 +131,7 @@ export default function AboutPage() {
 
       {/* 운영 정보 */}
       <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-7 mb-16">
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-5">Company Info</p>
+        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-5">Company Info</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8 text-[13px]">
           {[
             { label: '서비스명', value: 'Finance Park (fpark.com)' },

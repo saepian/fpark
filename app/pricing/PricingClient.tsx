@@ -258,7 +258,7 @@ function CardContent({
           )
         ) : annual ? (
           <div className="mt-2.5 pt-2.5 border-t border-slate-700/40">
-            <p className="text-[10px] text-slate-500 mb-1">연간 총 결제금액</p>
+            <p className="text-[11px] text-slate-500 mb-1">연간 총 결제금액</p>
             <p className="text-[17px] font-bold text-slate-100 leading-none">
               {plan.annualTotal.toLocaleString()}<span className="text-[13px] font-medium text-slate-400 ml-0.5">원</span>
             </p>
@@ -272,7 +272,7 @@ function CardContent({
           </p>
         )}
         {!isFree && (
-          <p className="text-[10px] text-slate-600 mt-1.5 leading-snug">
+          <p className="text-[11px] text-slate-600 mt-1.5 leading-snug">
             결제 시 부가세가 별도로 계산될 수 있습니다. (Taxes may apply and will be calculated at checkout.)
           </p>
         )}
@@ -618,7 +618,7 @@ export default function PricingClient() {
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-[17px] font-bold text-slate-400">1,000<span className="text-[12px] font-medium text-slate-500">원</span></p>
-                  <p className="text-[10px] font-semibold text-slate-600">1회</p>
+                  <p className="text-[11px] font-semibold text-slate-600">1회</p>
                 </div>
               </div>
             </div>
@@ -637,13 +637,13 @@ export default function PricingClient() {
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-[17px] font-bold text-slate-400">1,900<span className="text-[12px] font-medium text-slate-500">원</span></p>
-                  <p className="text-[10px] font-semibold text-slate-600">1회</p>
+                  <p className="text-[11px] font-semibold text-slate-600">1회</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <p className="text-[10px] text-slate-600 mt-4 text-center leading-snug">
+        <p className="text-[11px] text-slate-600 mt-4 text-center leading-snug">
           결제 시 부가세가 별도로 계산될 수 있습니다. (Taxes may apply and will be calculated at checkout.)
         </p>
       </section>

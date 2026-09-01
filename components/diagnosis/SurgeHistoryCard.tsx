@@ -97,7 +97,7 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
               );
             })}
           </div>
-          <p className="text-[10px] text-slate-600 mt-3 leading-relaxed">
+          <p className="text-[11px] text-slate-600 mt-3 leading-relaxed">
             최근 약 5개월 내 오늘과 유사한 규모(등락률 {surgeHistory.threshold}% 이상)의 과거 사례이며, 이후 수익률은 결과를 예측하는 값이 아닌 관측된 기록입니다.
           </p>
         </>
@@ -127,7 +127,7 @@ export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
       </div>
       <div className="flex flex-col items-center py-2">
         <TradingValueGauge multiple={t.multiple} />
-        <p className="text-center text-[10px] text-slate-600 leading-snug mt-2">
+        <p className="text-center text-[11px] text-slate-600 leading-snug mt-2">
           오늘 {fmt(Math.round(t.todayValue / 1e8))}억원 · 최근 20일 평균 {fmt(Math.round(t.avg20d / 1e8))}억원 대비
         </p>
       </div>

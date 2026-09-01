@@ -98,7 +98,7 @@ export default function AiInsightCard() {
               </span>
               <span className="text-xs text-slate-500 font-medium">{isToday ? '오늘의 수급 상위 기업' : '최근 수급 상위 기업'}</span>
             </div>
-            <p className="text-[10px] text-slate-600">전일 대량 자금 유입 또는 5일 연속 자금 유입 기준으로 선정되었습니다</p>
+            <p className="text-[11px] text-slate-600">전일 대량 자금 유입 또는 5일 연속 자금 유입 기준으로 선정되었습니다</p>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-bold border rounded-full px-2 py-0.5 text-indigo-300 bg-indigo-400/10 border-indigo-400/30">

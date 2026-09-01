@@ -79,13 +79,13 @@ export default function NewsCard({ item, onSelectStock }: NewsCardProps) {
               <span
                 key={idx}
                 onClick={(e) => handleTagClick(e, name)}
-                className="font-sans text-[10px] font-bold text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-950/30 px-1.5 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer"
+                className="font-sans text-[11px] font-bold text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-950/30 px-1.5 py-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer"
               >
                 #{name}
               </span>
             ))}
             {item.category && (
-              <span className="font-sans text-[10px] font-bold text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-gray-800/50 px-1.5 py-0.5 rounded">
+              <span className="font-sans text-[11px] font-bold text-gray-500 dark:text-gray-500 bg-gray-100 dark:bg-gray-800/50 px-1.5 py-0.5 rounded">
                 {CATEGORY_LABELS[item.category] ?? item.category}
               </span>
             )}
@@ -99,7 +99,7 @@ export default function NewsCard({ item, onSelectStock }: NewsCardProps) {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-2 text-[10px] font-bold tracking-wider text-gray-400 dark:text-[#8c909f] uppercase">
+        <div className="flex items-center gap-2 mt-2 text-[11px] font-bold tracking-wider text-gray-400 dark:text-[#8c909f] uppercase">
           <span>{item.source}</span>
           <span>•</span>
           <span>{timeAgo(item.published_at)}</span>

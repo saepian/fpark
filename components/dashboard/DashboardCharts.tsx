@@ -108,13 +108,13 @@ export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] })
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
           {active ? (
             <>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
               <p className="text-[13px] font-bold font-mono text-white">{fmtWon(active.value)}</p>
               <p className="text-[11px] text-slate-400 font-mono">{fmtPct(active.pct)}</p>
             </>
           ) : (
             <>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide">평가금액</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wide">평가금액</p>
               <p className="text-[15px] font-bold font-mono text-white">{fmtWon(totalValue)}</p>
             </>
           )}
@@ -197,13 +197,13 @@ export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHoldin
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
           {active ? (
             <>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
               <p className="text-[13px] font-bold font-mono text-white">{fmtWon(active.value)}</p>
               <p className="text-[11px] text-slate-400 font-mono">{fmtPct(active.pct)}</p>
             </>
           ) : (
             <>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wide">업종 수</p>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wide">업종 수</p>
               <p className="text-[15px] font-bold font-mono text-white">{data.length}개</p>
             </>
           )}
@@ -401,7 +401,7 @@ export function MonthlyReturnLineChart({ monthly, daily }: { monthly: MonthlyPoi
           ))}
         </div>
       </div>
-      <p className="text-[10px] text-slate-600 mb-3 mt-1">현재 투자원금 대비 누적 수익률 · 현재 보유 구성을 과거에도 유지했다고 가정</p>
+      <p className="text-[11px] text-slate-600 mb-3 mt-1">현재 투자원금 대비 누적 수익률 · 현재 보유 구성을 과거에도 유지했다고 가정</p>
       {data.length < 2 ? (
         <div className="h-[200px] flex items-center justify-center">
           <p className="text-[11px] text-slate-600">추이 데이터를 불러오는 중...</p>
@@ -410,7 +410,7 @@ export function MonthlyReturnLineChart({ monthly, daily }: { monthly: MonthlyPoi
         <ReturnTrendBody key={mode} data={data} />
       )}
       {last && (
-        <p className="text-[10px] text-slate-600 mt-1 text-right">최근: {last.label} 기준</p>
+        <p className="text-[11px] text-slate-600 mt-1 text-right">최근: {last.label} 기준</p>
       )}
     </div>
   );

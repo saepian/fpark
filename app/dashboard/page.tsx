@@ -109,7 +109,7 @@ function fmtMarketDay(dateStr: string): string {
 
 // 종목카드 내부 통계 라벨(현재가/평가손익/52주 최고·최저/시가총액/5일변동률) — 색상
 // 차이만으로는 다크테마에서 라벨과 값이 잘 구분되지 않아 옅은 배경의 배지 형태로 분리.
-const STAT_LABEL_CLASS = 'inline-block text-[10px] font-semibold text-slate-400 uppercase tracking-wide bg-slate-800/60 rounded px-1.5 py-0.5 mb-1';
+const STAT_LABEL_CLASS = 'inline-block text-[11px] font-semibold text-slate-400 uppercase tracking-wide bg-slate-800/60 rounded px-1.5 py-0.5 mb-1';
 
 // Stage2 'portfolio-field(-partial)' 이벤트 key를 StreamedDashboardResult 형태로 매핑.
 // app/api/dashboard/analysis/route.ts가 portfolio-diagnosis와 동일한 이벤트 shape을 쓰므로
@@ -170,7 +170,7 @@ function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning'
     safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
   }[tone];
   return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
+    <span className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
   );
 }
 
@@ -193,7 +193,7 @@ function IconTip({ label, children }: { label: string; children: React.ReactNode
       {children}
       <span
         className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 z-20 whitespace-nowrap
-          rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] text-slate-200 shadow-lg
+          rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-200 shadow-lg
           opacity-0 scale-95 transition-all duration-150 group-hover/tip:opacity-100 group-hover/tip:scale-100"
       >
         {label}
@@ -344,7 +344,7 @@ function AddHoldingForm({ onAdded, onCancel, showCancel, initial }: {
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <p className="text-[10px] text-slate-500 mb-1">매수가(원)</p>
+          <p className="text-[11px] text-slate-500 mb-1">매수가(원)</p>
           <input
             value={avgPrice}
             onChange={e => setAvgPrice(e.target.value.replace(/[^\d]/g, ''))}
@@ -353,7 +353,7 @@ function AddHoldingForm({ onAdded, onCancel, showCancel, initial }: {
           />
         </div>
         <div>
-          <p className="text-[10px] text-slate-500 mb-1">수량</p>
+          <p className="text-[11px] text-slate-500 mb-1">수량</p>
           <input
             value={quantity}
             onChange={e => setQuantity(e.target.value.replace(/[^\d]/g, ''))}
@@ -362,7 +362,7 @@ function AddHoldingForm({ onAdded, onCancel, showCancel, initial }: {
           />
         </div>
         <div>
-          <p className="text-[10px] text-slate-500 mb-1">매수일 (선택)</p>
+          <p className="text-[11px] text-slate-500 mb-1">매수일 (선택)</p>
           <input
             type="date"
             value={buyDate}
@@ -779,7 +779,7 @@ export default function DashboardPage() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <PageBackground />
         <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-8 max-w-md w-full">
-          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">대시보드</p>
+          <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">대시보드</p>
           <h1 className="text-lg font-bold text-white mb-1">보유 종목을 등록해주세요</h1>
           <p className="text-[12px] text-slate-500 mb-5">등록한 종목의 시세를 추적하고, 장 마감 후 AI 분석을 받아볼 수 있습니다.</p>
           {holdingsError && <p className="text-[12px] text-red-400 mb-3">{holdingsError}</p>}
@@ -800,7 +800,7 @@ export default function DashboardPage() {
       <div className="max-w-[1200px] mx-auto px-4 pt-8">
 
         <div className="mb-6">
-          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">대시보드</p>
+          <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">대시보드</p>
           <h1 className="text-[22px] font-bold text-white">내 보유 종목</h1>
         </div>
 
@@ -838,7 +838,7 @@ export default function DashboardPage() {
               : { background: 'linear-gradient(135deg, rgba(96,165,250,0.14) 0%, #171b28 60%)', border: '1px solid rgba(96,165,250,0.4)' }
           }
         >
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2.5">
+          <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-2.5">
             {marketDay && !marketDay.isTradingDay
               ? `${fmtMarketDay(marketDay.lastTradingDate)} 마감 기준 · 전일 종가 대비`
               : '오늘의 등락 · 전일 종가 대비'}
@@ -892,7 +892,7 @@ export default function DashboardPage() {
         <div className="mb-2 flex items-center gap-2">
           <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>보유 종목 ({holdings.length}/{limit})</p>
           {hiddenHoldings.length > 0 && (
-            <span className="text-[10px] text-slate-600">(숨김 {hiddenHoldings.length}개 포함)</span>
+            <span className="text-[11px] text-slate-600">(숨김 {hiddenHoldings.length}개 포함)</span>
           )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
@@ -915,7 +915,7 @@ export default function DashboardPage() {
                       <Link href={`/stock/${h.ticker}`} className="text-[14px] font-semibold text-white hover:text-indigo-300 transition-colors truncate">
                         {h.name}
                       </Link>
-                      <span className="text-[10px] font-semibold text-slate-500 border border-slate-700 rounded px-1.5 py-0.5 shrink-0">
+                      <span className="text-[11px] font-semibold text-slate-500 border border-slate-700 rounded px-1.5 py-0.5 shrink-0">
                         {h.market === 'kr' ? '국내' : '해외'}
                       </span>
                     </div>
@@ -1117,7 +1117,7 @@ export default function DashboardPage() {
               )}
               {latest && (
                 <div className="bg-amber-500/[0.06] border border-amber-500/20 rounded-xl p-4">
-                  <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wide mb-2.5">최근 배당</p>
+                  <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wide mb-2.5">최근 배당</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2.5 gap-y-3">
                     <div>
                       <span className="text-[9.5px] text-slate-500 block mb-0.5">기준일</span>
@@ -1138,7 +1138,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )}
-              <p className="text-[10px] text-slate-600 mt-3.5 leading-relaxed">
+              <p className="text-[11px] text-slate-600 mt-3.5 leading-relaxed">
                 가장 최근 지급된 배당 기준입니다. 향후 지급을 예측하거나 보장하지 않습니다.
               </p>
             </Modal>
@@ -1196,7 +1196,7 @@ export default function DashboardPage() {
           <>
             <div className="flex items-center justify-between mb-2">
               <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-widest`}>AI 분석 결과</p>
-              {isCached && <span className="text-[10px] text-slate-500">오늘 생성된 분석입니다</span>}
+              {isCached && <span className="text-[11px] text-slate-500">오늘 생성된 분석입니다</span>}
             </div>
 
             <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 mb-4">
@@ -1239,14 +1239,14 @@ export default function DashboardPage() {
                         {blocks.map(b => (
                           b.text ? (
                             <div key={b.label}>
-                              <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
                               <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>
                                 {smoothText.revealed[b.key]?.text ?? b.text}{smoothText.revealed[b.key]?.active && <TypingCursor />}
                               </p>
                             </div>
                           ) : !streamFinished ? (
                             <div key={b.label}>
-                              <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
                               <FieldSkeleton lines={2} />
                             </div>
                           ) : null

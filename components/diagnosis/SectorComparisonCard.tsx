@@ -40,13 +40,13 @@ function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorCompariso
         </ResponsiveContainer>
       </div>
       <div className="flex items-center gap-3 mt-1">
-        <span className="flex items-center gap-1 text-[10px] text-slate-500">
+        <span className="flex items-center gap-1 text-[11px] text-slate-500">
           <span className="w-2 h-0.5 rounded-full bg-indigo-400 inline-block" /> 이 종목
         </span>
-        <span className="flex items-center gap-1 text-[10px] text-slate-500">
+        <span className="flex items-center gap-1 text-[11px] text-slate-500">
           <span className="w-2 h-0.5 rounded-full bg-slate-500 inline-block" /> 업종 평균
         </span>
-        <span className="text-[10px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
+        <span className="text-[11px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
       </div>
     </div>
   );

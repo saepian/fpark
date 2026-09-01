@@ -114,7 +114,7 @@ export function PerformanceSnapshotCard({
           <span className="text-[13px] text-slate-300 font-mono text-right">
             {resistance > 0 ? fmt(resistance) : '-'}
             {resistance > 0 && (
-              <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
+              <span className="block text-[11px] text-slate-500 font-normal mt-0.5">
                 현재가 대비 {resistanceUpRate >= 0 ? '+' : ''}{resistanceUpRate.toFixed(1)}%
               </span>
             )}
@@ -125,7 +125,7 @@ export function PerformanceSnapshotCard({
           <span className="text-[13px] text-slate-300 font-mono text-right">
             {support > 0 ? fmt(support) : '-'}
             {support > 0 && (
-              <span className="block text-[10px] text-slate-500 font-normal mt-0.5">
+              <span className="block text-[11px] text-slate-500 font-normal mt-0.5">
                 현재가 대비 {supportDownRate.toFixed(1)}%
               </span>
             )}
@@ -133,7 +133,7 @@ export function PerformanceSnapshotCard({
         </div>
       </div>
       {benchmark && (
-        <p className="px-5 py-2.5 text-[10px] text-slate-600 border-t border-slate-700/40">
+        <p className="px-5 py-2.5 text-[11px] text-slate-600 border-t border-slate-700/40">
           비교 기간: {benchmark.fromDate} ~ {benchmark.toDate} (매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
         </p>
       )}

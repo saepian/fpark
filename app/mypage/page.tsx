@@ -162,7 +162,7 @@ function GradientCard({
 // ── 섹션 레이블 ────────────────────────────────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500 mb-5">
+    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500 mb-5">
       {children}
     </p>
   );
@@ -628,14 +628,14 @@ export default function MyPage() {
                 {/* 플랜 배지 */}
                 {data.plan === 'pro' ? (
                   <span
-                    className="shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full text-slate-900"
+                    className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full text-slate-900"
                     style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)' }}
                   >
                     🔥 {meta.label}
                   </span>
                 ) : (
                   <span
-                    className="shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-full"
+                    className="shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full"
                     style={{ color: meta.color, background: meta.badgeBg, border: `1px solid ${meta.badgeBorder}` }}
                   >
                     {meta.label}
@@ -746,7 +746,7 @@ export default function MyPage() {
                         예금주명이 등록되어 있지 않아 관리자가 직접 확인합니다 — 아래에서 등록하시면 다음부터 자동 처리돼요
                       </p>
                     )}
-                    <p className="text-[10px] text-slate-500 mt-1.5">
+                    <p className="text-[11px] text-slate-500 mt-1.5">
                       입금 확인 후 최대 30분 이내 자동 승인 · 확인이 어려운 경우 관리자가 직접 처리(영업일 기준 1일 이내)
                     </p>
                   </div>
@@ -816,7 +816,7 @@ export default function MyPage() {
                 gradient="linear-gradient(90deg, #6366f1, #a855f7)"
                 glowColor="rgba(99,102,241,0.5)"
               />
-              <p className="text-[10px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
+              <p className="text-[11px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
             </div>
 
             {/* 종목 분석 */}
@@ -849,7 +849,7 @@ export default function MyPage() {
               />
               {/* 2026-07-15 정정: 종목분석은 무료 등급만 예외적으로 일간 한도라
                   (lib/plan.ts의 isStockAnalysisDaily), 무료는 "오늘" 기준 문구를 쓴다. */}
-              <p className="text-[10px] text-slate-600 mt-2.5">
+              <p className="text-[11px] text-slate-600 mt-2.5">
                 {data.plan === 'free' ? '매일 자정(KST) 초기화' : `결제일 기준 매월 초기화 · ${nextResetLabel}`}
               </p>
             </div>
@@ -884,12 +884,12 @@ export default function MyPage() {
                     gradient="linear-gradient(90deg, #f59e0b, #f97316)"
                     glowColor="rgba(245,158,11,0.4)"
                   />
-                  <p className="text-[10px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
+                  <p className="text-[11px] text-slate-600 mt-2.5">결제일 기준 매월 초기화 · {nextResetLabel}</p>
                 </>
               ) : (
                 <>
                   <div className="h-2.5 rounded-full" style={{ backgroundColor: 'rgba(30,37,55,0.8)' }} />
-                  <p className="text-[10px] text-slate-600 mt-2.5">
+                  <p className="text-[11px] text-slate-600 mt-2.5">
                     BASIC 이상 플랜에서 이용 가능 ·{' '}
                     <Link href="/pricing" className="text-indigo-400 hover:text-indigo-300 underline transition-colors">
                       플랜 보기
@@ -944,7 +944,7 @@ export default function MyPage() {
                         {(p.amount ?? 0).toLocaleString()}원
                       </p>
                       <span
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                        className="text-[11px] font-bold px-2 py-0.5 rounded-full"
                         style={{ color: statusMeta.color, background: statusMeta.bg }}
                       >
                         {statusMeta.label}

@@ -82,7 +82,7 @@ function AgreeTermsForm() {
       <div className="w-full max-w-md">
         <div className="bg-[#1e2130] rounded-2xl p-8">
           <div className="text-center mb-7">
-            <p className="text-[10px] font-bold tracking-[0.3em] text-indigo-400 uppercase mb-2">
+            <p className="text-[11px] font-bold tracking-[0.3em] text-indigo-400 uppercase mb-2">
               Finance Park
             </p>
             <h1 className="text-[22px] font-bold text-white mb-1.5">약관 동의</h1>

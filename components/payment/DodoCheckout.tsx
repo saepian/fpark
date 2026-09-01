@@ -65,7 +65,7 @@ export default function DodoCheckout({ plan, amount, billingCycle, onClose }: Pr
 
         {step === 'idle' && (
           <>
-            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">신용·체크카드</p>
+            <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-2">신용·체크카드</p>
             <h2 className="text-[17px] font-bold text-white mb-1">{planLabel}</h2>
             <p className="text-[22px] font-bold text-white mb-5">
               {amount.toLocaleString()}원
@@ -81,7 +81,7 @@ export default function DodoCheckout({ plan, amount, billingCycle, onClose }: Pr
               결제 진행하기
             </button>
 
-            <p className="mt-5 text-[10px] text-slate-600 text-center leading-relaxed">
+            <p className="mt-5 text-[11px] text-slate-600 text-center leading-relaxed">
               Dodo Payments 결제 페이지로 이동합니다. 구독 시 매 결제 주기마다 자동 결제되며, 언제든지 해지 가능합니다.
             </p>
           </>

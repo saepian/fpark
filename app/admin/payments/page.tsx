@@ -341,7 +341,7 @@ export default function AdminPaymentsPage() {
   function CountBadge({ n }: { n: number }) {
     return (
       <span
-        className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums ${
+        className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[11px] font-bold tabular-nums ${
           n > 0 ? 'bg-violet-500 text-white' : 'bg-slate-700/50 text-slate-500'
         }`}
       >
@@ -428,7 +428,7 @@ export default function AdminPaymentsPage() {
                   <td className="px-3 py-3">
                     <div className="flex flex-col">
                       <span className="text-[13.5px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
-                      <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                      <span className="text-[11px] text-slate-600">{it.depositor_name}</span>
                     </div>
                   </td>
                   <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(it.requested_at)}</td>
@@ -451,10 +451,10 @@ export default function AdminPaymentsPage() {
           {items.map((it) => (
             <div key={it.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
               <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${TYPE_COLOR[it.request_type]}22`, color: TYPE_COLOR[it.request_type] }}>
+                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${TYPE_COLOR[it.request_type]}22`, color: TYPE_COLOR[it.request_type] }}>
                   {TYPE_LABEL[it.request_type]}
                 </span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[it.plan]}22`, color: PLAN_COLOR[it.plan] }}>
+                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[it.plan]}22`, color: PLAN_COLOR[it.plan] }}>
                   {PLAN_LABEL[it.plan]}·{it.is_annual ? '연' : '월'}
                 </span>
                 <span className="text-[12.5px] font-bold text-white ml-auto">{it.amount.toLocaleString()}원</span>
@@ -463,7 +463,7 @@ export default function AdminPaymentsPage() {
               <div className="flex items-center justify-between mb-2.5">
                 <div className="flex flex-col">
                   <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
-                  <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                  <span className="text-[11px] text-slate-600">{it.depositor_name}</span>
                 </div>
                 <span className="text-[10.5px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
               </div>
@@ -526,7 +526,7 @@ export default function AdminPaymentsPage() {
           {items.map((r) => (
             <div key={r.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
               <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
+                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
                   {PLAN_LABEL[r.plan]}
                 </span>
                 <span className="text-[13px] font-bold text-white ml-auto">{r.refund_amount.toLocaleString()}원</span>
@@ -698,7 +698,7 @@ export default function AdminPaymentsPage() {
                 {pagedRefunds.map((r) => (
                   <div key={r.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
                     <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
+                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[r.plan]}22`, color: PLAN_COLOR[r.plan] }}>
                         {PLAN_LABEL[r.plan]}
                       </span>
                       <span className="text-[13px] font-bold text-white ml-auto">{r.refund_amount.toLocaleString()}원</span>
@@ -791,7 +791,7 @@ export default function AdminPaymentsPage() {
                       <td className="px-3 py-3">
                         <div className="flex flex-col">
                           <span className="text-[13.5px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
-                          <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                          <span className="text-[11px] text-slate-600">{it.depositor_name}</span>
                         </div>
                       </td>
                       <td className="px-3 py-3 text-[12.5px] text-slate-400 whitespace-nowrap tabular-nums">{formatDateTime(it.requested_at)}</td>
@@ -822,13 +822,13 @@ export default function AdminPaymentsPage() {
                 >
                   <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                     <span
-                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                      className="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
                       style={{ background: `${TYPE_COLOR[it.request_type]}22`, color: TYPE_COLOR[it.request_type] }}
                     >
                       {TYPE_LABEL[it.request_type]}
                     </span>
                     <span
-                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                      className="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
                       style={{ background: `${PLAN_COLOR[it.plan]}22`, color: PLAN_COLOR[it.plan] }}
                     >
                       {PLAN_LABEL[it.plan]}·{it.is_annual ? '연' : '월'}
@@ -839,7 +839,7 @@ export default function AdminPaymentsPage() {
                   <div className="flex items-center justify-between mb-2.5">
                     <div className="flex flex-col">
                       <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
-                      <span className="text-[10px] text-slate-600">{it.depositor_name}</span>
+                      <span className="text-[11px] text-slate-600">{it.depositor_name}</span>
                     </div>
                     <span className="text-[10.5px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
                   </div>

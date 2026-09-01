@@ -349,7 +349,7 @@ export default function OverseasAiAnalysis({ ticker, market }: { ticker: string;
             )}
             <button
               onClick={showToast}
-              className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[10px] font-bold rounded uppercase tracking-widest hover:border-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
+              className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[11px] font-bold rounded uppercase tracking-widest hover:border-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
             >
               AI 데이터 요약
             </button>
@@ -382,7 +382,7 @@ export default function OverseasAiAnalysis({ ticker, market }: { ticker: string;
               <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingUp className="w-3 h-3 text-red-400" />
-                  <span className="text-[10px] text-red-400/80 font-bold uppercase tracking-wide">52주 최고가</span>
+                  <span className="text-[11px] text-red-400/80 font-bold uppercase tracking-wide">52주 최고가</span>
                 </div>
                 <p className="text-[15px] font-bold font-mono text-red-300">
                   {sym}{data.resistance!.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -398,7 +398,7 @@ export default function OverseasAiAnalysis({ ticker, market }: { ticker: string;
               <div className="bg-blue-950/30 border border-blue-500/30 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingDown className="w-3 h-3 text-blue-400" />
-                  <span className="text-[10px] text-blue-400/80 font-bold uppercase tracking-wide">52주 최저가</span>
+                  <span className="text-[11px] text-blue-400/80 font-bold uppercase tracking-wide">52주 최저가</span>
                 </div>
                 <p className="text-[15px] font-bold font-mono text-blue-400">
                   {sym}{data.support!.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

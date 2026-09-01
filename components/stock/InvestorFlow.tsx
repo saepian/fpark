@@ -78,13 +78,13 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
           <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 uppercase tracking-wider`}>
             주체별 수급 동향
           </h3>
-          <span className="text-[10px] text-slate-500">{data.date} 기준</span>
+          <span className="text-[11px] text-slate-500">{data.date} 기준</span>
         </div>
       </div>
 
       {/* 섹션 1: 외국인/기관/개인 */}
       <div className="px-4 py-3 border-b border-slate-800">
-        <div className="flex justify-between text-[10px] text-slate-600 mb-3">
+        <div className="flex justify-between text-[11px] text-slate-600 mb-3">
           <span>← 자금 유출</span>
           <span>자금 유입 →</span>
         </div>
@@ -104,7 +104,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
                     }`}>
                       {fmtAmt(inv.amount || 0, inv.amountRaw)}원
                     </span>
-                    <span className={`text-[10px] font-mono ml-1 ${
+                    <span className={`text-[11px] font-mono ml-1 ${
                       isUp ? 'text-red-400/60' : 'text-blue-400/60'
                     }`}>
                       ({fmtQty(inv.qty || 0)})
@@ -140,7 +140,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-[10px] text-slate-600 mb-1">외국인</p>
+              <p className="text-[11px] text-slate-600 mb-1">외국인</p>
               <ResponsiveContainer width="100%" height={70}>
                 <BarChart data={data.trend} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
                   <XAxis
@@ -170,7 +170,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
               </ResponsiveContainer>
             </div>
             <div>
-              <p className="text-[10px] text-slate-600 mb-1">기관</p>
+              <p className="text-[11px] text-slate-600 mb-1">기관</p>
               <ResponsiveContainer width="100%" height={70}>
                 <BarChart data={data.trend} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
                   <XAxis
@@ -217,7 +217,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
                 color: data.program.net >= 0 ? 'text-red-400' : 'text-blue-400' },
             ].map(item => (
               <div key={item.label} className="text-center bg-slate-800/50 rounded-lg p-2">
-                <p className="text-[10px] text-slate-500 mb-0.5">{item.label}</p>
+                <p className="text-[11px] text-slate-500 mb-0.5">{item.label}</p>
                 <p className={`text-xs font-bold font-mono ${item.color}`}>
                   {fmtAmt(item.value)}원
                 </p>
@@ -246,7 +246,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
               style={{ width: `${Math.min(data.shortSell.ratio * 5, 100)}%` }}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-slate-600 mt-1">
+          <div className="flex justify-between text-[11px] text-slate-600 mt-1">
             <span>0%</span>
             <span>20%+</span>
           </div>
@@ -271,7 +271,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
               style={{ width: `${Math.min(data.marketShare.ratio * 10, 100)}%` }}
             />
           </div>
-          <p className="text-[10px] text-slate-600 mt-1">
+          <p className="text-[11px] text-slate-600 mt-1">
             거래대금 {fmtAmt(data.marketShare.stockAmount || 0)}원
           </p>
         </div>

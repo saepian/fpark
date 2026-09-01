@@ -349,7 +349,7 @@ export default function AiAnalysis({ ticker, compact = false }: { ticker: string
             )}
             <button
               onClick={showToast}
-              className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[10px] font-bold rounded uppercase tracking-widest hover:border-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
+              className="px-2 py-1 border border-blue-400/30 text-blue-400/70 text-[11px] font-bold rounded uppercase tracking-widest hover:border-blue-400/60 hover:text-blue-400 transition-colors cursor-pointer"
             >
               AI 데이터 요약
             </button>
@@ -384,7 +384,7 @@ export default function AiAnalysis({ ticker, compact = false }: { ticker: string
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingUp className="w-3 h-3 text-slate-400" />
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">52주 최고가</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wide">52주 최고가</span>
                 </div>
                 <p className="text-[16px] font-bold font-mono text-slate-200">
                   ₩{fmtPrice(data.resistance!)}
@@ -400,7 +400,7 @@ export default function AiAnalysis({ ticker, compact = false }: { ticker: string
               <div className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3">
                 <div className="flex items-center gap-1 mb-1">
                   <TrendingDown className="w-3 h-3 text-slate-400" />
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">52주 최저가</span>
+                  <span className="text-[11px] text-slate-400 font-bold uppercase tracking-wide">52주 최저가</span>
                 </div>
                 <p className="text-[16px] font-bold font-mono text-slate-200">
                   ₩{fmtPrice(data.support!)}

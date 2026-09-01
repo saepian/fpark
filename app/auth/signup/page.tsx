@@ -153,7 +153,7 @@ export default function SignupPage() {
 
           {/* 헤더 */}
           <div className="text-center mb-7">
-            <p className="text-[10px] font-bold tracking-[0.3em] text-indigo-400 uppercase mb-2">
+            <p className="text-[11px] font-bold tracking-[0.3em] text-indigo-400 uppercase mb-2">
               Finance Park
             </p>
             <h1 className="text-[24px] font-bold text-white mb-1.5">회원가입</h1>

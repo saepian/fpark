@@ -51,7 +51,7 @@ export default function ContactPage() {
 
       {/* 헤더 */}
       <div className="mb-12 text-center">
-        <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-3">Contact Us</p>
+        <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-3">Contact Us</p>
         <h1 className="text-3xl font-bold text-white mb-3">문의하기</h1>
         <p className="text-slate-400 text-[14px]">궁금한 점이 있으시면 언제든지 연락해주세요</p>
       </div>

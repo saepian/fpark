@@ -303,7 +303,7 @@ function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning'
     safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
   }[tone];
   return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
+    <span className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
   );
 }
 
@@ -785,7 +785,7 @@ export default function PortfolioDiagnosisPage() {
           {/* Header */}
           <div className="flex items-start justify-between mb-6 gap-4">
             <div>
-              <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">
+              <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">
                 AI 포트폴리오 분석 리포트
               </p>
               <h1 className="text-[22px] font-bold text-white">포트폴리오 분석 리포트</h1>
@@ -905,14 +905,14 @@ export default function PortfolioDiagnosisPage() {
                         {blocks.map((b) => (
                           b.text ? (
                             <div key={b.label}>
-                              <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
                               <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>
                                 {smoothText.revealed[b.key]?.text ?? b.text}{smoothText.revealed[b.key]?.active && <TypingCursor />}
                               </p>
                             </div>
                           ) : !streamFinished ? (
                             <div key={b.label}>
-                              <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
                               <FieldSkeleton lines={2} />
                             </div>
                           ) : null
@@ -965,13 +965,13 @@ export default function PortfolioDiagnosisPage() {
             <Card title="벤치마크 비교 (참고용 수치)" className="mb-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[10px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
+                  <p className="text-[11px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
                   <p className={`text-lg font-mono font-bold ${result.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                     {fmtR(result.benchmark.portfolioProfitRate)}
                   </p>
                 </div>
                 <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[10px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
+                  <p className="text-[11px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
                   <p className={`text-lg font-mono font-bold ${result.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                     {fmtR(result.benchmark.kospiChangeRate)}
                   </p>
@@ -1018,7 +1018,7 @@ export default function PortfolioDiagnosisPage() {
                           <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
                           {s.warning && (
                             <span
-                              className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
+                              className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold"
                               style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
                             >
                               과집중
@@ -1080,7 +1080,7 @@ export default function PortfolioDiagnosisPage() {
             <Card title="배당 정보" className="mb-4">
               <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
                 <div className="bg-slate-800/40 rounded-xl p-3 text-center sm:min-w-[140px]">
-                  <p className="text-[10px] text-slate-500 mb-1">합산 배당률</p>
+                  <p className="text-[11px] text-slate-500 mb-1">합산 배당률</p>
                   <p className="text-[17px] font-bold font-mono text-slate-200">
                     {result.dividend.portfolioDividendYield !== null
                       ? `${result.dividend.portfolioDividendYield.toFixed(2)}%`
@@ -1088,7 +1088,7 @@ export default function PortfolioDiagnosisPage() {
                   </p>
                 </div>
                 <div className="sm:text-right">
-                  <p className="text-[10px] text-slate-600 leading-relaxed">
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
                     최근 확정 배당 기준 · 예상 연간 배당금 {result.dividend.expectedAnnualDividend.toLocaleString()}원
                   </p>
                   <p className="text-[10.5px] text-slate-400 leading-relaxed mt-1">
@@ -1100,7 +1100,7 @@ export default function PortfolioDiagnosisPage() {
               </div>
 
               <DividendMatrix rows={result.dividend.matrix} />
-              <p className="text-[10px] text-slate-600 mt-2">
+              <p className="text-[11px] text-slate-600 mt-2">
                 최근 5년 배당 지급 이력 기준 — 칸을 클릭하면 해당 종목·월의 연도별 지급일과 금액을 볼 수 있습니다. 향후 지급을 예측하거나 보장하지 않습니다
               </p>
             </Card>
@@ -1114,7 +1114,7 @@ export default function PortfolioDiagnosisPage() {
                   <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-1`}>
                     오늘 손익 영향이 가장 큰 {topContributors.n}종목
                   </p>
-                  <p className="text-[10px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
+                  <p className="text-[11px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
                   {/* 금액은 서버 계산값을 그대로 표시(AI가 옮겨 적지 않음) — 아래 문장은 해석만 */}
                   <div className="flex flex-col gap-1.5 mb-3">
                     {topContributors.positive.map(c => (
@@ -1228,22 +1228,22 @@ export default function PortfolioDiagnosisPage() {
                         <div className="flex w-full">
                           <div className="flex gap-4 shrink-0 text-right md:text-left">
                             <div>
-                              <p className="text-[10px] text-slate-600 mb-0.5">현재가</p>
+                              <p className="text-[11px] text-slate-600 mb-0.5">현재가</p>
                               <p className="text-[13px] font-mono text-slate-300">{fmt(h.currentPrice)}</p>
                               {h.isCached && (
-                                <p className="flex items-center gap-1 text-[10px] text-amber-500 mt-0.5">
+                                <p className="flex items-center gap-1 text-[11px] text-amber-500 mt-0.5">
                                   <RefreshCw className="w-2.5 h-2.5 animate-spin" /> 최근 거래일 종가
                                 </p>
                               )}
                             </div>
                             <div>
-                              <p className="text-[10px] text-slate-600 mb-0.5">수익률</p>
+                              <p className="text-[11px] text-slate-600 mb-0.5">수익률</p>
                               <p className={`text-[13px] font-mono font-semibold ${hUp ? 'text-red-400' : 'text-blue-400'}`}>
                                 {fmtR(h.profitRate)}
                               </p>
                             </div>
                             <div>
-                              <p className="text-[10px] text-slate-600 mb-0.5">평가금액</p>
+                              <p className="text-[11px] text-slate-600 mb-0.5">평가금액</p>
                               <p className="text-[13px] font-mono text-slate-300">{fmt(h.value)}</p>
                             </div>
                           </div>
@@ -1308,7 +1308,7 @@ export default function PortfolioDiagnosisPage() {
                         const category = typeof item === 'string' ? undefined : item.category;
                         return (
                           <div key={i} className="flex gap-2">
-                            <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                            <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
                             <p className="text-xs text-slate-300 leading-relaxed">
                               {category && (
                                 <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
@@ -1337,7 +1337,7 @@ export default function PortfolioDiagnosisPage() {
                     <div className="flex flex-col gap-2">
                       {result.opportunityFactors.map((line, i) => (
                         <div key={i} className="flex gap-2">
-                          <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                          <span className="text-emerald-500/60 text-[11px] mt-1 shrink-0">▶</span>
                           <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
                         </div>
                       ))}
@@ -1392,13 +1392,13 @@ export default function PortfolioDiagnosisPage() {
             <Card title="보유 기간별 관점" className="mb-4">
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[10px] text-slate-500 mb-1">가장 오래 보유 · {result.holdingPeriod.longest.name} ({result.holdingPeriod.longest.holdDays}일 전 매입)</p>
+                  <p className="text-[11px] text-slate-500 mb-1">가장 오래 보유 · {result.holdingPeriod.longest.name} ({result.holdingPeriod.longest.holdDays}일 전 매입)</p>
                   <p className={`text-lg font-mono font-bold ${result.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                     {fmtR(result.holdingPeriod.longest.profitRate)}
                   </p>
                 </div>
                 <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[10px] text-slate-500 mb-1">가장 최근 편입 · {result.holdingPeriod.mostRecent.name} ({result.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
+                  <p className="text-[11px] text-slate-500 mb-1">가장 최근 편입 · {result.holdingPeriod.mostRecent.name} ({result.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
                   <p className={`text-lg font-mono font-bold ${result.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                     {fmtR(result.holdingPeriod.mostRecent.profitRate)}
                   </p>
@@ -1453,7 +1453,7 @@ export default function PortfolioDiagnosisPage() {
         {/* 헤더 */}
         <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">
+            <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">
               AI Portfolio Analysis · Pro
             </p>
             <h1 className="text-2xl font-bold text-white">포트폴리오 전체 분석</h1>
@@ -1526,7 +1526,7 @@ export default function PortfolioDiagnosisPage() {
                             className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer"
                           />
                           <span className="text-[11px] font-semibold text-slate-400">전체선택</span>
-                          <span className="ml-auto text-[10px] text-slate-600">{selectableItems.length}개</span>
+                          <span className="ml-auto text-[11px] text-slate-600">{selectableItems.length}개</span>
                         </label>
 
                         {/* 종목 목록 */}
@@ -1689,7 +1689,7 @@ function HoldingRow({ h, idx, onSearch, onSelect, onBlurSearch, onChange, onRemo
     <div className="bg-[#0d1117] border border-slate-700/50 rounded-xl p-4">
       {/* 행 번호 + 삭제 */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold text-slate-600">#{String(idx + 1).padStart(2, '0')}</span>
+        <span className="text-[11px] font-bold text-slate-600">#{String(idx + 1).padStart(2, '0')}</span>
         {canRemove && (
           <button
             type="button" onClick={onRemove}
@@ -1722,7 +1722,7 @@ function HoldingRow({ h, idx, onSearch, onSelect, onBlurSearch, onChange, onRemo
                 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all"
             />
             {h.ticker && (
-              <span className="absolute right-2.5 text-[10px] text-indigo-400 font-mono bg-indigo-500/10 px-1.5 py-0.5 rounded">
+              <span className="absolute right-2.5 text-[11px] text-indigo-400 font-mono bg-indigo-500/10 px-1.5 py-0.5 rounded">
                 {h.ticker}
               </span>
             )}

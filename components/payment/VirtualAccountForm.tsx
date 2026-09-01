@@ -120,7 +120,7 @@ export default function VirtualAccountForm({ plan, amount, isAnnual, onClose, on
 
       {step === 'input' && (
         <>
-          <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">계좌이체 — 입금 계좌 발급</p>
+          <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-2">계좌이체 — 입금 계좌 발급</p>
           <h2 className="text-[17px] font-bold text-white mb-1">{planLabel}</h2>
           <p className="text-[22px] font-bold text-white mb-5">
             {amount.toLocaleString()}원
@@ -174,7 +174,7 @@ export default function VirtualAccountForm({ plan, amount, isAnnual, onClose, on
           >
             입금 계좌 발급받기
           </button>
-          <p className="mt-4 text-[10px] text-slate-600 text-center leading-relaxed">
+          <p className="mt-4 text-[11px] text-slate-600 text-center leading-relaxed">
             자동 출금이 아닙니다. 발급된 계좌로 직접 입금하시면 확인 후 구독이 활성화됩니다.<br />
             매달 갱신 시점에는 새 입금 안내를 이메일로 보내드립니다.
           </p>

@@ -455,7 +455,7 @@ export default function AdminUsersPage() {
                           </td>
                           <td className="px-4 py-3 text-[13px] whitespace-nowrap">
                             <span className={`tabular-nums font-medium ${usageColorClass(u.stock_analysis_used, u.stock_analysis_limit)}`}>{u.stock_analysis_used}/{u.stock_analysis_limit}</span>
-                            {u.stock_analysis_daily && <span className="text-[10px] text-slate-600 ml-1">(오늘)</span>}
+                            {u.stock_analysis_daily && <span className="text-[11px] text-slate-600 ml-1">(오늘)</span>}
                           </td>
                           <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.stock_credits}</td>
                           <td className="px-4 py-3 text-[13.5px] text-slate-300 tabular-nums">{u.portfolio_credits}</td>
@@ -508,10 +508,10 @@ export default function AdminUsersPage() {
                 return (
                   <div key={u.id} className="rounded-xl p-3.5" style={{ background: '#12151f', border: '1px solid rgba(51,65,85,0.5)' }}>
                     <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[u.plan] ?? PLAN_COLOR.free}22`, color: PLAN_COLOR[u.plan] ?? PLAN_COLOR.free }}>
+                      <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${PLAN_COLOR[u.plan] ?? PLAN_COLOR.free}22`, color: PLAN_COLOR[u.plan] ?? PLAN_COLOR.free }}>
                         {PLAN_LABEL[u.plan] ?? u.plan}
                       </span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: `${STATUS_COLOR[status]}1f`, color: STATUS_COLOR[status] }}>
+                      <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: `${STATUS_COLOR[status]}1f`, color: STATUS_COLOR[status] }}>
                         {STATUS_LABEL[status]}
                       </span>
                       <span className="text-[10.5px] text-slate-500 ml-auto">가입 {formatDate(u.created_at)}</span>

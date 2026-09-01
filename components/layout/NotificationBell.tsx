@@ -124,7 +124,7 @@ export default function NotificationBell() {
           }`}
         />
         {badgeCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+          <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center leading-none">
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         )}
@@ -158,7 +158,7 @@ export default function NotificationBell() {
             {/* ── Pro: 관심기업 알림 섹션 ── */}
             {(isPro || notifLoading) && (
               <div>
-                <p className="px-4 pt-3 pb-1.5 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">
+                <p className="px-4 pt-3 pb-1.5 text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
                   ⭐ 관심기업 알림
                 </p>
                 {notifLoading ? (
@@ -176,7 +176,7 @@ export default function NotificationBell() {
                 ) : notifications.length === 0 ? (
                   <div className="px-4 pb-4 text-center">
                     <p className="text-slate-500 text-xs">새 알림이 없습니다</p>
-                    <p className="text-slate-600 text-[10px] mt-0.5">
+                    <p className="text-slate-600 text-[11px] mt-0.5">
                       주가·수급 변동 시 알림을 드립니다
                     </p>
                   </div>
@@ -214,7 +214,7 @@ export default function NotificationBell() {
                             <p className={`text-sm leading-snug ${n.is_read ? 'text-slate-400' : 'text-white font-medium'}`}>
                               {n.message}
                             </p>
-                            <p className="text-[10px] text-slate-600 mt-0.5">
+                            <p className="text-[11px] text-slate-600 mt-0.5">
                               {new Date(n.created_at).toLocaleString('ko-KR', {
                                 month: 'numeric',
                                 day: 'numeric',
@@ -245,7 +245,7 @@ export default function NotificationBell() {
                 </p>
                 <button
                   onClick={() => { router.push('/pricing'); setOpen(false); }}
-                  className="mt-1.5 text-[10px] text-indigo-400 hover:text-indigo-200 transition-colors underline underline-offset-2"
+                  className="mt-1.5 text-[11px] text-indigo-400 hover:text-indigo-200 transition-colors underline underline-offset-2"
                 >
                   Pro 플랜 보기 →
                 </button>

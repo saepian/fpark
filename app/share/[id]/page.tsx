@@ -253,7 +253,7 @@ function MainAnalysisBody({ d }: { d: DiagnosisData }) {
     <div className="flex flex-col gap-3.5">
       {blocks.map((b) => (
         <div key={b.label}>
-          <p className="text-[10px] font-bold text-indigo-400/80 uppercase tracking-wide mb-1">{b.label}</p>
+          <p className="text-[11px] font-bold text-indigo-400/80 uppercase tracking-wide mb-1">{b.label}</p>
           <p className="text-[13px] text-slate-300 leading-relaxed">{b.text}</p>
         </div>
       ))}
@@ -271,7 +271,7 @@ function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning'
     safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
   }[tone];
   return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
+    <span className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
   );
 }
 
@@ -304,7 +304,7 @@ function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: n
   const color = rate >= 0 ? 'text-red-400' : 'text-blue-400';
   return (
     <div className={`min-w-0 flex flex-col justify-center rounded-xl px-3.5 py-2.5 ${emphasize ? 'bg-slate-800/40 border border-slate-700/40' : 'bg-slate-800/20 border border-transparent opacity-70'}`}>
-      <p className="text-[10px] text-slate-500 mb-0.5 truncate">{label}</p>
+      <p className="text-[11px] text-slate-500 mb-0.5 truncate">{label}</p>
       <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>{fmtRate(rate)}</p>
       <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[10.5px]'}`}>
         {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
@@ -362,7 +362,7 @@ function HistoryCompareCard({ d }: { d: DiagnosisData }) {
 
   return (
     <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
-      <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
+      <p className="text-[11px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
       {!isFirst && (
         <div className="mb-2.5">
           {canCompareState ? (
@@ -405,7 +405,7 @@ function FinancialsTrendCard({ rows, narrative }: { rows: AnnualFinancialRow[]; 
   return (
     <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5 mb-4">
       <div className="flex items-center gap-2 mb-4">
-        <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">
+        <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[11px] font-bold text-violet-400 uppercase tracking-wider">
           실적 추이 (연간 확정치)
         </span>
       </div>
@@ -414,11 +414,11 @@ function FinancialsTrendCard({ rows, narrative }: { rows: AnnualFinancialRow[]; 
           <div key={r.year}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-bold text-slate-400">{r.year}년</span>
-              {r.roe !== null && <span className="text-[10px] text-slate-500 font-mono">ROE {r.roe}%</span>}
+              {r.roe !== null && <span className="text-[11px] text-slate-500 font-mono">ROE {r.roe}%</span>}
             </div>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-600 w-14 shrink-0">매출</span>
+                <span className="text-[11px] text-slate-600 w-14 shrink-0">매출</span>
                 <div className="flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
                   {r.revenue !== null && (
                     <div className="h-full rounded-full bg-indigo-400/70" style={{ width: `${Math.max(2, (r.revenue / maxRevenue) * 100)}%` }} />
@@ -429,7 +429,7 @@ function FinancialsTrendCard({ rows, narrative }: { rows: AnnualFinancialRow[]; 
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-600 w-14 shrink-0">영업이익</span>
+                <span className="text-[11px] text-slate-600 w-14 shrink-0">영업이익</span>
                 <div className="relative flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
                   <div className="absolute inset-y-0 left-1/2 w-px bg-slate-600/80" />
                   {r.operatingProfit !== null && (
@@ -475,7 +475,7 @@ function PortfolioHistoryCard({ d }: { d: PortfolioData }) {
 
   return (
     <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
-      <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
+      <p className="text-[11px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
       {!isFirst && (
         <div className="flex flex-wrap gap-x-6 gap-y-1.5 mb-2.5">
           {rateDelta !== null && (
@@ -510,7 +510,7 @@ function ShareBanner({ message }: { message: string }) {
 function ShareCTA() {
   return (
     <div className="mt-8 bg-gradient-to-r from-indigo-600/15 to-violet-600/15 border border-indigo-500/30 rounded-2xl p-6 text-center">
-      <p className="text-[10px] font-bold tracking-[0.2em] text-indigo-400 uppercase mb-2">AI 기업 분석 서비스</p>
+      <p className="text-[11px] font-bold tracking-[0.2em] text-indigo-400 uppercase mb-2">AI 기업 분석 서비스</p>
       <p className="text-white font-bold text-lg mb-1">나도 AI 기업 분석 받기</p>
       <p className="text-slate-400 text-[13px] mb-4">월 {PLAN_USAGE_LIMITS.free.diagnosis}회 무료 · AI가 내 기업을 실시간으로 분석해드립니다</p>
       <Link
@@ -537,7 +537,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
 
         {/* Header */}
         <div className="mb-6">
-          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 분석 리포트</p>
+          <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 분석 리포트</p>
           <h1 className="text-[22px] font-bold text-white tracking-wide">
             {d.stockName.toUpperCase()}{' '}
             <span className="text-slate-500 font-mono text-base font-normal">({d.ticker})</span>
@@ -561,13 +561,13 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
                   <Sparkles className="w-4 h-4 text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">오늘의 기업 분석</p>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-widest">오늘의 기업 분석</p>
                 </div>
               </div>
               <MainAnalysisBody d={d} />
               {d.finalVerdict && (
                 <div className="mt-5 pt-5 border-t border-slate-700/50">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
                   <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
                     <p className="text-[13px] text-slate-200 leading-relaxed">{d.finalVerdict}</p>
                   </div>
@@ -596,7 +596,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-5 mb-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">주요 공시 (DART)</span>
+              <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">주요 공시 (DART)</span>
             </div>
             <div className="flex flex-col gap-2 mb-3">
               {d.disclosures!.map((disc, i) => (
@@ -632,19 +632,19 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">기관/외국인 동향</p>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">기관/외국인 동향</p>
             </div>
             {/* components/diagnosis/DiagnosisReport.tsx와 동일 로직(파일 상단 주석대로 손복제) —
                 flowPercentage(오늘 하루 강도)와 institutionalFlow/foreignFlow(최근 5일 캡션)의
                 기간 불일치를 소제목·구분선으로 명시 */}
-            <p className="text-center text-[10px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
+            <p className="text-center text-[11px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
             <div className="flex flex-col items-center py-2">
               <DonutChart percent={d.flowPercentage ?? 50} type={d.flowType ?? 'NEUTRAL'} />
-              <p className="text-center text-[10px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
+              <p className="text-center text-[11px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
             </div>
             <div className="flex items-center gap-2.5 mt-4 mb-3">
               <span className="flex-1 h-px bg-slate-700/40" />
-              <span className="text-[10px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
+              <span className="text-[11px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
               <span className="flex-1 h-px bg-slate-700/40" />
             </div>
             <div className="flex flex-col gap-1.5">
@@ -671,12 +671,12 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
 
           <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-4">
-              <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
+              <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[11px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
             </div>
             <div className="flex flex-col gap-2">
               {(d.riskFactors ?? []).map((line, i) => (
                 <div key={i} className="flex items-start gap-2">
-                  <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                  <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
                   <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
                 </div>
               ))}
@@ -690,7 +690,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             {d.shortTermOutlook && (
               <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[11px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
                 </div>
                 <p className="text-[13px] text-slate-300 leading-relaxed">{d.shortTermOutlook}</p>
               </div>
@@ -698,7 +698,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             {d.midTermOutlook && (
               <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
+                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[11px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
                 </div>
                 <p className="text-[13px] text-slate-300 leading-relaxed">{d.midTermOutlook}</p>
               </div>
@@ -729,14 +729,14 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
         {/* 6행: 참고 기사 (본문에서 이미 해석했으므로 출처 링크만) */}
         {d.news?.length > 0 && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">참고 기사</p>
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">참고 기사</p>
             <div className="flex flex-col divide-y divide-slate-700/40">
               {d.news.map((n, i) => {
                 const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
                 return (
                   <a key={i} href={href} target="_blank" rel="noopener noreferrer"
                     className="py-2.5 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5">
-                    <span className="text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                    <span className="text-[11px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
                     <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">{n.title}</p>
                   </a>
                 );
@@ -774,7 +774,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
 
         {/* Header */}
         <div className="mb-6">
-          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 포트폴리오 분석 리포트</p>
+          <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 포트폴리오 분석 리포트</p>
           <h1 className="text-[22px] font-bold text-white">포트폴리오 분석 리포트</h1>
           <p className="text-[11px] text-slate-500 mt-0.5">리포트 생성: {d.generatedAt}</p>
         </div>
@@ -803,7 +803,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           <div className="px-8 py-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-4 h-4 text-indigo-400" />
-              <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
+              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
             </div>
             {/* 메인 페이지(app/portfolio-diagnosis/page.tsx)와 동일 정책 — 소제목 4분리
                 (summarySections)가 있으면 그걸로, 없으면(옛 공유 리포트) 문장 2개씩
@@ -818,7 +818,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                   { label: '종합 판단',     text: d.summarySections.judgment },
                 ].filter(b => b.text).map((b) => (
                   <div key={b.label}>
-                    <p className="text-[10px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
+                    <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-wide mb-1">{b.label}</p>
                     <p className="text-xs text-slate-300" style={{ lineHeight: 1.8 }}>{b.text}</p>
                   </div>
                 ))}
@@ -861,13 +861,13 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">벤치마크 비교 (참고용 수치)</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[10px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
+                <p className="text-[11px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
                 <p className={`text-lg font-mono font-bold ${d.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                   {fmtRate(d.benchmark.portfolioProfitRate)}
                 </p>
               </div>
               <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[10px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
+                <p className="text-[11px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
                 <p className={`text-lg font-mono font-bold ${d.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                   {fmtRate(d.benchmark.kospiChangeRate)}
                 </p>
@@ -901,7 +901,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                     <span className={`w-2 h-2 rounded-full ${SECTOR_COLORS[i % SECTOR_COLORS.length]}`} />
                     <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
                     {s.warning && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 font-semibold">과집중</span>
+                      <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 font-semibold">과집중</span>
                     )}
                   </div>
                   <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
@@ -922,13 +922,13 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">배당 정보</p>
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
               <div className="bg-slate-800/40 rounded-xl p-3 text-center sm:min-w-[140px]">
-                <p className="text-[10px] text-slate-500 mb-1">합산 배당률</p>
+                <p className="text-[11px] text-slate-500 mb-1">합산 배당률</p>
                 <p className="text-[17px] font-bold font-mono text-slate-200">
                   {d.dividend.portfolioDividendYield !== null ? `${d.dividend.portfolioDividendYield.toFixed(2)}%` : '-'}
                 </p>
               </div>
               <div className="sm:text-right">
-                <p className="text-[10px] text-slate-600 leading-relaxed">
+                <p className="text-[11px] text-slate-600 leading-relaxed">
                   최근 확정 배당 기준 · 예상 연간 배당금 {d.dividend.expectedAnnualDividend.toLocaleString()}원
                 </p>
                 <p className="text-[10.5px] text-slate-400 leading-relaxed mt-1">
@@ -942,7 +942,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             {d.dividend.matrix && d.dividend.matrix.length > 0 ? (
               <>
                 <DividendMatrix rows={d.dividend.matrix} />
-                <p className="text-[10px] text-slate-600 mt-2">
+                <p className="text-[11px] text-slate-600 mt-2">
                   최근 5년 배당 지급 이력 기준 — 칸을 클릭하면 해당 종목·월의 연도별 지급일과 금액을 볼 수 있습니다. 향후 지급을 예측하거나 보장하지 않습니다
                 </p>
               </>
@@ -959,7 +959,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                           : 'bg-slate-800/30 border border-slate-800/40'
                       }`}
                     >
-                      <p className="text-[10px] text-slate-500 mb-1">{c.month}월</p>
+                      <p className="text-[11px] text-slate-500 mb-1">{c.month}월</p>
                       {c.holdings.length > 0 && (
                         <p className="text-[9px] text-indigo-300 font-medium leading-tight break-keep">
                           {c.holdings.slice(0, 2).map(h => h.name).join(', ')}
@@ -969,7 +969,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-slate-600 mt-2">
+                <p className="text-[11px] text-slate-600 mt-2">
                   최근 5년 배당 지급 이력 기준 — 몇 월에 배당이 몰려있는지 관찰한 결과이며 향후 지급을 예측하거나 보장하지 않습니다
                 </p>
               </>
@@ -982,10 +982,10 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           <div className={`grid grid-cols-1 ${(d.coMovementText || d.correlation) ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
             {((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) && (
               <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">
                   오늘 손익 영향이 가장 큰 {d.topContributors!.n}종목
                 </p>
-                <p className="text-[10px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
+                <p className="text-[11px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
                 <div className="flex flex-col gap-1.5 mb-3">
                   {d.topContributors!.positive.map(c => (
                     <div key={c.ticker} className="flex items-center justify-between">
@@ -1008,7 +1008,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             {(d.coMovementText || d.correlation) && (
               <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">섹터 동조화 관찰</p>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">섹터 동조화 관찰</p>
                   {d.correlation && (
                     <GradeBadge
                       label={d.correlation.bucket}
@@ -1060,17 +1060,17 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                     <div className="w-full md:w-40 shrink-0">
                       <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
                       <p className="text-[11px] text-slate-500 font-mono">{h.ticker} · {h.sector}</p>
-                      <Link href={`/stock/${h.ticker}`} className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
+                      <Link href={`/stock/${h.ticker}`} className="text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
                         자세히 보기 →
                       </Link>
                     </div>
                     <div className="flex gap-4 shrink-0">
                       <div>
-                        <p className="text-[10px] text-slate-600 mb-0.5">현재가</p>
+                        <p className="text-[11px] text-slate-600 mb-0.5">현재가</p>
                         <p className="text-[13px] font-mono text-slate-300">{fmt(h.currentPrice)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-slate-600 mb-0.5">수익률</p>
+                        <p className="text-[11px] text-slate-600 mb-0.5">수익률</p>
                         <p className={`text-[13px] font-mono font-semibold ${hUp ? 'text-red-400' : 'text-blue-400'}`}>
                           {fmtRate(h.profitRate)}
                         </p>
@@ -1092,7 +1092,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             {(d.riskFactors?.length ?? 0) > 0 && (
               <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[10px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
+                  <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[11px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
                 </div>
                 <div className="flex flex-col gap-2">
                   {(d.riskFactors ?? []).map((item, i) => {
@@ -1100,7 +1100,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                     const category = typeof item === 'string' ? undefined : item.category;
                     return (
                       <div key={i} className="flex items-start gap-2">
-                        <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                        <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
                         <p className="text-[12px] text-slate-300 leading-relaxed">
                           {category && (
                             <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
@@ -1118,12 +1118,12 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             {(d.opportunityFactors?.length ?? 0) > 0 && (
               <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Opportunity Factors</span>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Opportunity Factors</span>
                 </div>
                 <div className="flex flex-col gap-2">
                   {(d.opportunityFactors ?? []).map((line, i) => (
                     <div key={i} className="flex items-start gap-2">
-                      <span className="text-emerald-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                      <span className="text-emerald-500/60 text-[11px] mt-1 shrink-0">▶</span>
                       <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
                     </div>
                   ))}
@@ -1139,7 +1139,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             {d.shortTermOutlook && (
               <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[10px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[11px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
                 </div>
                 <p className="text-[13px] text-slate-300 leading-relaxed">{d.shortTermOutlook}</p>
               </div>
@@ -1147,7 +1147,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             {d.midTermOutlook && (
               <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[10px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
+                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[11px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
                 </div>
                 <p className="text-[13px] text-slate-300 leading-relaxed">{d.midTermOutlook}</p>
               </div>
@@ -1161,13 +1161,13 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">보유 기간별 관점</p>
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[10px] text-slate-500 mb-1">가장 오래 보유 · {d.holdingPeriod.longest.name} ({d.holdingPeriod.longest.holdDays}일 전 매입)</p>
+                <p className="text-[11px] text-slate-500 mb-1">가장 오래 보유 · {d.holdingPeriod.longest.name} ({d.holdingPeriod.longest.holdDays}일 전 매입)</p>
                 <p className={`text-lg font-mono font-bold ${d.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                   {fmtRate(d.holdingPeriod.longest.profitRate)}
                 </p>
               </div>
               <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[10px] text-slate-500 mb-1">가장 최근 편입 · {d.holdingPeriod.mostRecent.name} ({d.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
+                <p className="text-[11px] text-slate-500 mb-1">가장 최근 편입 · {d.holdingPeriod.mostRecent.name} ({d.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
                 <p className={`text-lg font-mono font-bold ${d.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
                   {fmtRate(d.holdingPeriod.mostRecent.profitRate)}
                 </p>

@@ -45,11 +45,11 @@ export default function DividendMatrix({ rows }: { rows: DividendMatrixRow[] }) 
         <table className="min-w-[620px] w-full text-xs border-separate border-spacing-y-1.5">
           <thead>
             <tr>
-              <th className="sticky left-0 bg-[#1a1f2e] text-left text-[10px] text-slate-500 font-medium pb-1 pr-2 z-10">
+              <th className="sticky left-0 bg-[#1a1f2e] text-left text-[11px] text-slate-500 font-medium pb-1 pr-2 z-10">
                 종목
               </th>
               {MONTH_LABELS.map(label => (
-                <th key={label} className="text-[10px] text-slate-500 font-medium pb-1 text-center w-[44px]">
+                <th key={label} className="text-[11px] text-slate-500 font-medium pb-1 text-center w-[44px]">
                   {label}
                 </th>
               ))}
@@ -71,7 +71,7 @@ export default function DividendMatrix({ rows }: { rows: DividendMatrixRow[] }) 
                           hover:bg-indigo-500/20 transition-colors flex items-center justify-center cursor-pointer"
                         title={`${row.name} · ${i + 1}월 배당 이력 보기`}
                       >
-                        <span className="text-[10px] text-indigo-300 font-mono font-semibold">×{cell.count}</span>
+                        <span className="text-[11px] text-indigo-300 font-mono font-semibold">×{cell.count}</span>
                       </button>
                     ) : (
                       <div className="w-full min-h-[36px] rounded-lg bg-slate-800/30 border border-slate-800/40" />
@@ -114,7 +114,7 @@ export default function DividendMatrix({ rows }: { rows: DividendMatrixRow[] }) 
                         ? `${r.year}년 ${formatPayDate(r.payDate)} 지급`
                         : `${r.year}년 배당기준일 ${r.recordDate}(지급일 미확정)`}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">{r.kindLabel}</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{r.kindLabel}</p>
                   </div>
                   <p className="text-[13px] font-mono font-semibold text-indigo-300 whitespace-nowrap">
                     주당 {r.perShareAmount.toLocaleString()}원
@@ -122,7 +122,7 @@ export default function DividendMatrix({ rows }: { rows: DividendMatrixRow[] }) 
                 </div>
               ))}
             </div>
-            <p className="text-[10px] text-slate-600 mt-4 leading-relaxed">
+            <p className="text-[11px] text-slate-600 mt-4 leading-relaxed">
               최근 5년 실제 지급 이력이며, 지급 정책 변경 등으로 매년 같은 달에 지급되지 않을 수 있습니다.
               향후 지급을 예측하거나 보장하지 않습니다.
             </p>

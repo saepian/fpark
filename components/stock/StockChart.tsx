@@ -202,7 +202,7 @@ export default function StockChart({ ticker }: StockChartProps) {
         <div ref={containerRef} className="w-full" />
       </div>
 
-      <div className="flex items-center gap-4 text-[10px] text-slate-500">
+      <div className="flex items-center gap-4 text-[11px] text-slate-500">
         <span className="flex items-center gap-1">
           <span className="inline-block w-2 h-2 rounded-sm bg-red-500" />
           상승

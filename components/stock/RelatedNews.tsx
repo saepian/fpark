@@ -60,7 +60,7 @@ export default function RelatedNews({ ticker }: RelatedNewsProps) {
               <p className="text-[13px] font-semibold text-slate-200 truncate leading-tight group-hover:text-indigo-300 transition-colors">
                 {item.title}
               </p>
-              <p className="text-[10px] text-slate-600 mt-1">
+              <p className="text-[11px] text-slate-600 mt-1">
                 {item.source} · {timeAgo(item.published_at)}
               </p>
             </a>

@@ -69,25 +69,25 @@ export default function DividendInfo({
             <div className="mb-4">
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-slate-800/40 rounded-xl p-3 text-center">
-                  <p className="text-[10px] text-slate-500 mb-1">배당수익률</p>
+                  <p className="text-[11px] text-slate-500 mb-1">배당수익률</p>
                   <p className="text-[15px] font-bold font-mono text-slate-200">
                     {summary.dividendYield !== null ? `${summary.dividendYield.toFixed(2)}%` : '-'}
                   </p>
                 </div>
                 <div className="bg-slate-800/40 rounded-xl p-3 text-center">
-                  <p className="text-[10px] text-slate-500 mb-1">주당배당금</p>
+                  <p className="text-[11px] text-slate-500 mb-1">주당배당금</p>
                   <p className="text-[15px] font-bold font-mono text-slate-200">
                     {summary.dividendPerShare !== null ? `${summary.dividendPerShare.toLocaleString()}원` : '-'}
                   </p>
                 </div>
                 <div className="bg-slate-800/40 rounded-xl p-3 text-center">
-                  <p className="text-[10px] text-slate-500 mb-1">배당성향</p>
+                  <p className="text-[11px] text-slate-500 mb-1">배당성향</p>
                   <p className="text-[15px] font-bold font-mono text-slate-200">
                     {summary.payoutRatio !== null ? `${summary.payoutRatio.toFixed(1)}%` : '-'}
                   </p>
                 </div>
               </div>
-              <p className="text-[10px] text-slate-600 mt-2">{summary.year}년 사업연도 기준 (DART 사업보고서)</p>
+              <p className="text-[11px] text-slate-600 mt-2">{summary.year}년 사업연도 기준 (DART 사업보고서)</p>
             </div>
           )}
 

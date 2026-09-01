@@ -135,7 +135,7 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
 
       {step === 'confirm' && (
         <>
-          <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">계좌이체 안내</p>
+          <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-2">계좌이체 안내</p>
           <h2 className="text-[17px] font-bold text-white mb-1">{planLabel}</h2>
           <p className="text-[22px] font-bold text-white mb-5">
             {amount.toLocaleString()}원
@@ -189,7 +189,7 @@ export default function ManualBankTransferForm({ plan, amount, isAnnual, onClose
           >
             신청하기
           </button>
-          <p className="mt-4 text-[10px] text-slate-600 text-center leading-relaxed">
+          <p className="mt-4 text-[11px] text-slate-600 text-center leading-relaxed">
             자동 결제가 아닙니다. 입금 확인 후 구독이 활성화되며, 확인이 지연될 경우 관리자가 직접 처리합니다.
           </p>
         </>

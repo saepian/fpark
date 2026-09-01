@@ -198,7 +198,7 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
         {/* 선택 단계 */}
         {step === 'select' && (
           <>
-            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">결제 수단 선택</p>
+            <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-2">결제 수단 선택</p>
             <h2 className="text-[17px] font-bold text-white mb-1">{planLabel}</h2>
             <p className="text-[22px] font-bold text-white mb-5">
               {amount.toLocaleString()}원
@@ -263,7 +263,7 @@ export default function PortoneCheckout({ plan, amount, isAnnual, onClose, onSuc
               <PayMethodButton label="네이버페이"    icon={<NaverIcon />}                      onClick={() => startPayment(NAVER_PROVIDER)} />
             </div>
 
-            <p className="mt-5 text-[10px] text-slate-600 text-center leading-relaxed">
+            <p className="mt-5 text-[11px] text-slate-600 text-center leading-relaxed">
               구독 시 매월 자동 결제됩니다. 언제든지 해지 가능합니다.
             </p>
           </>

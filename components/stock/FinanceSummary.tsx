@@ -64,7 +64,7 @@ export default function FinanceSummary({ ticker }: { ticker: string }) {
       <div className="grid px-4 pt-2.5 pb-1" style={{ gridTemplateColumns: '80px repeat(3, 1fr)' }}>
         <span />
         {rows.map(r => (
-          <span key={r.year} className="text-center text-[10px] font-bold text-slate-500">
+          <span key={r.year} className="text-center text-[11px] font-bold text-slate-500">
             {r.year}
           </span>
         ))}

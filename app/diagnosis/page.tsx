@@ -322,7 +322,7 @@ export default function DiagnosisPage() {
 
         {/* 페이지 제목 */}
         <div className="mb-8">
-          <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">AI Portfolio Analysis</p>
+          <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-2">AI Portfolio Analysis</p>
           <h1 className="text-2xl font-bold text-white">기업 분석</h1>
           <p className="text-[13px] text-slate-500 mt-1">국내 기업만 지원됩니다 · 해외 기업 분석은 준비 중입니다</p>
         </div>

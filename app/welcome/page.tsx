@@ -121,8 +121,8 @@ function PortfolioThumb() {
         ))}
       </div>
       <div className="mt-auto flex items-start gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/[0.06] px-2 py-1.5">
-        <span className="text-amber-400 text-[10px]">⚠</span>
-        <p className="text-[10px] text-amber-200/90 leading-snug">반도체 섹터 비중 73%로 쏠림 관찰</p>
+        <span className="text-amber-400 text-[11px]">⚠</span>
+        <p className="text-[11px] text-amber-200/90 leading-snug">반도체 섹터 비중 73%로 쏠림 관찰</p>
       </div>
     </div>
   );
@@ -135,11 +135,11 @@ function DashboardThumb() {
       <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">대시보드 · 오늘의 등락</p>
       <div className="flex items-baseline gap-2">
         <span className="text-[18px] font-bold text-emerald-400 tabular-nums">+2.4%</span>
-        <span className="text-[10px] text-slate-500">총 손익 +812,000원</span>
+        <span className="text-[11px] text-slate-500">총 손익 +812,000원</span>
       </div>
       <div className="mt-auto flex items-start gap-1.5 rounded-md border border-indigo-500/25 bg-indigo-500/[0.06] px-2 py-1.5">
-        <span className="text-indigo-400 text-[10px]">●</span>
-        <p className="text-[10px] text-indigo-200/90 leading-snug">장마감 후 AI 종합분석 도착</p>
+        <span className="text-indigo-400 text-[11px]">●</span>
+        <p className="text-[11px] text-indigo-200/90 leading-snug">장마감 후 AI 종합분석 도착</p>
       </div>
     </div>
   );

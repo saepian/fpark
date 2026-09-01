@@ -140,12 +140,12 @@ export default function MarketSummary() {
             Market Summary
           </span>
           {isPrevDay && (
-            <span className="text-[10px] text-slate-500">
+            <span className="text-[11px] text-slate-500">
               {prevDateLabel ? `${prevDateLabel} 종가 기준` : '전일 종가 기준'}
             </span>
           )}
           {!isPrevDay && !loading && (
-            <span className="text-[10px] text-emerald-600 dark:text-emerald-500">실시간</span>
+            <span className="text-[11px] text-emerald-600 dark:text-emerald-500">실시간</span>
           )}
         </div>
         <button
@@ -174,7 +174,7 @@ export default function MarketSummary() {
           {/* 지수명 + 등락률 뱃지 */}
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-bold text-slate-200">{item.label}</span>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge}`}>
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${badge}`}>
               {isUp ? '▲' : '▼'} {Math.abs(item.changeRate).toFixed(2)}%
             </span>
           </div>
@@ -200,7 +200,7 @@ export default function MarketSummary() {
           {/* USD/KRW만 KOSPI/KOSDAQ(KIS)와 소스가 달라(Yahoo Finance) 별도 지연 고지 —
               app/market/global/page.tsx 상단 고지와 같은 톤 */}
           {item.label === 'USD/KRW' && (
-            <p className="text-[10px] text-slate-600 -mt-2 mb-3 leading-tight">
+            <p className="text-[11px] text-slate-600 -mt-2 mb-3 leading-tight">
               Yahoo Finance 기준 · 실시간 대비 약 15~20분 지연
             </p>
           )}

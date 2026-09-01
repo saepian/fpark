@@ -52,7 +52,7 @@ const FEATURES = [
         <div className="flex-1 h-1.5 rounded-full bg-[#1E232D] overflow-hidden">
           <div className="h-full rounded-full bg-[#3ECF8E]" style={{ width: '72%' }} />
         </div>
-        <span className="text-[10px] text-[#8B92A8] tabular-nums shrink-0">자금 유입 72</span>
+        <span className="text-[11px] text-[#8B92A8] tabular-nums shrink-0">자금 유입 72</span>
       </div>
     ),
   },
@@ -73,7 +73,7 @@ const FEATURES = [
     mini: (
       <div className="mt-4 flex items-center gap-2">
         <span className="text-[13px] font-bold text-[#3ECF8E] tabular-nums">+2.4%</span>
-        <span className="text-[10px] text-[#8B92A8]">오늘의 등락 · 보유종목 상시 추적</span>
+        <span className="text-[11px] text-[#8B92A8]">오늘의 등락 · 보유종목 상시 추적</span>
       </div>
     ),
   },
@@ -352,7 +352,7 @@ export default function AiPortfolioLandingPage() {
                 }`}
               >
                 {p.highlight && (
-                  <span className="absolute top-5 right-5 text-[10px] font-bold px-2.5 py-1 rounded-full text-[#0B0D12] bg-[#3ECF8E]">
+                  <span className="absolute top-5 right-5 text-[11px] font-bold px-2.5 py-1 rounded-full text-[#0B0D12] bg-[#3ECF8E]">
                     인기
                   </span>
                 )}
@@ -364,7 +364,7 @@ export default function AiPortfolioLandingPage() {
                   <span className="text-3xl font-black tabular-nums">₩{p.price.toLocaleString()}</span>
                   <span className="text-[#8B92A8] text-[13px]"> / 월</span>
                 </p>
-                <p className="text-[10px] text-[#5A6172] mb-5 leading-snug">
+                <p className="text-[11px] text-[#5A6172] mb-5 leading-snug">
                   결제 시 부가세가 별도로 계산될 수 있습니다. (Taxes may apply and will be calculated at checkout.)
                 </p>
                 <ul className="flex flex-col gap-2.5 mb-7">

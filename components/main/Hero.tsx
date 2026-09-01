@@ -363,7 +363,7 @@ export default function Hero() {
                 ) : (
                   <p className="text-xs font-bold leading-tight text-white">{stat.value}</p>
                 )}
-                <p className="text-[10px] text-slate-500 leading-snug">{stat.label}</p>
+                <p className="text-[11px] text-slate-500 leading-snug">{stat.label}</p>
               </div>
             );
           })}

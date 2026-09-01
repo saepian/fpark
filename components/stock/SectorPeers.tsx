@@ -65,7 +65,7 @@ export default function SectorPeers({ ticker }: { ticker: string }) {
                 <p className="text-[13px] font-semibold text-white truncate leading-tight">
                   {peer.name}
                 </p>
-                <p className="text-[10px] text-slate-600 font-mono mt-0.5">{peer.ticker}</p>
+                <p className="text-[11px] text-slate-600 font-mono mt-0.5">{peer.ticker}</p>
               </div>
               <div className="text-right shrink-0 ml-3">
                 <p className={`text-[13px] font-bold font-mono ${color}`}>

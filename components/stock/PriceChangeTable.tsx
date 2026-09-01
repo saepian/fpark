@@ -117,7 +117,7 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
     <div className="rounded-xl bg-[#122131] border border-[#2d313e] p-4">
       <h3 className={`${SECTION_TITLE_CLASS} text-[#d4e4fa] mb-3`}>
         기간별 등락률
-        <span className="text-[10px] text-[#8c909f] font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
+        <span className="text-[11px] text-[#8c909f] font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>
       <div className="overflow-x-auto">
         <table className="min-w-[660px] w-full text-xs">

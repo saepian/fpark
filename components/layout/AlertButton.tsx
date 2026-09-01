@@ -52,7 +52,7 @@ export default function AlertButton() {
           className={`w-5 h-5 text-gray-400 dark:text-[#c2c6d6] ${count > 0 ? 'animate-wiggle' : ''}`}
         />
         {!loading && count > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+          <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center leading-none">
             {count > 99 ? '99+' : count}
           </span>
         )}
@@ -74,7 +74,7 @@ export default function AlertButton() {
             {/* 신고가 */}
             {hasHigh && (
               <div className="p-3">
-                <p className="text-[10px] font-bold text-red-400 mb-2 uppercase tracking-wider">
+                <p className="text-[11px] font-bold text-red-400 mb-2 uppercase tracking-wider">
                   📈 신고가 ({alerts!.highAlerts.length})
                 </p>
                 {alerts!.highAlerts.map((a) => (
@@ -85,7 +85,7 @@ export default function AlertButton() {
                   >
                     <div className="flex items-baseline gap-1.5 min-w-0">
                       <span className="text-sm font-semibold text-white truncate">{a.name}</span>
-                      <span className="text-[10px] text-slate-500 flex-shrink-0">{a.ticker}</span>
+                      <span className="text-[11px] text-slate-500 flex-shrink-0">{a.ticker}</span>
                     </div>
                     <span className="text-sm font-mono text-red-400 flex-shrink-0 ml-2">
                       {a.price.toLocaleString()}원
@@ -98,7 +98,7 @@ export default function AlertButton() {
             {/* 신저가 */}
             {hasLow && (
               <div className={`p-3 ${hasHigh ? 'border-t border-slate-700/60' : ''}`}>
-                <p className="text-[10px] font-bold text-blue-400 mb-2 uppercase tracking-wider">
+                <p className="text-[11px] font-bold text-blue-400 mb-2 uppercase tracking-wider">
                   📉 신저가 ({alerts!.lowAlerts.length})
                 </p>
                 {alerts!.lowAlerts.map((a) => (
@@ -109,7 +109,7 @@ export default function AlertButton() {
                   >
                     <div className="flex items-baseline gap-1.5 min-w-0">
                       <span className="text-sm font-semibold text-white truncate">{a.name}</span>
-                      <span className="text-[10px] text-slate-500 flex-shrink-0">{a.ticker}</span>
+                      <span className="text-[11px] text-slate-500 flex-shrink-0">{a.ticker}</span>
                     </div>
                     <span className="text-sm font-mono text-blue-400 flex-shrink-0 ml-2">
                       {a.price.toLocaleString()}원

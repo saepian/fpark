@@ -123,7 +123,7 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
       )}
       <div id="stock-metrics-row" className="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div className="bg-[#122131] dark:bg-[#122131] border border-gray-200 dark:border-[#2d313e] p-4 flex flex-col justify-between min-h-[96px]">
-        <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
+        <p className="text-[11px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
           52W Range
         </p>
         <div className="space-y-1">
@@ -144,16 +144,16 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
       </div>
 
       <div className="bg-[#122131] dark:bg-[#122131] border border-gray-200 dark:border-[#2d313e] p-4 flex flex-col justify-between min-h-[96px]">
-        <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
+        <p className="text-[11px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
           Market Cap
         </p>
         <p className="font-mono text-lg lg:text-xl font-extrabold text-gray-900 dark:text-[#d4e4fa] leading-none mb-1">
-          {info.marketCap} <span className="text-[10px] font-normal text-gray-400">KRW</span>
+          {info.marketCap} <span className="text-[11px] font-normal text-gray-400">KRW</span>
         </p>
       </div>
 
       <div className="bg-[#122131] dark:bg-[#122131] border border-gray-200 dark:border-[#2d313e] p-4 flex flex-col justify-between min-h-[96px]">
-        <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
+        <p className="text-[11px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
           PER
         </p>
         <p className="font-mono text-lg lg:text-xl font-extrabold text-gray-900 dark:text-[#d4e4fa] leading-none mb-1">
@@ -162,7 +162,7 @@ export default function StockMetrics({ ticker }: StockMetricsProps) {
       </div>
 
       <div className="bg-[#122131] dark:bg-[#122131] border border-gray-200 dark:border-[#2d313e] p-4 flex flex-col justify-between min-h-[96px]">
-        <p className="text-[10px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
+        <p className="text-[11px] font-bold text-gray-400 dark:text-[#8c909f] uppercase mb-1 tracking-wider">
           PBR
         </p>
         <p className="font-mono text-lg lg:text-xl font-extrabold text-gray-900 dark:text-[#d4e4fa] leading-none mb-1">

@@ -226,11 +226,11 @@ function NewsSentimentSparkline({ points }: { points: { date: string; score: num
       </div>
       {first && last && (
         <div className="flex items-center justify-between mt-1">
-          <span className="text-[10px] text-slate-600">{fmtMonthDay(first.date)}</span>
-          <span className="text-[10px] text-slate-600">{fmtMonthDay(last.date)}</span>
+          <span className="text-[11px] text-slate-600">{fmtMonthDay(first.date)}</span>
+          <span className="text-[11px] text-slate-600">{fmtMonthDay(last.date)}</span>
         </div>
       )}
-      <p className="text-[10px] text-slate-600 mt-0.5 text-right">최근 {points.length}거래일 · 데이터 있는 날짜만 연결</p>
+      <p className="text-[11px] text-slate-600 mt-0.5 text-right">최근 {points.length}거래일 · 데이터 있는 날짜만 연결</p>
     </div>
   );
 }
@@ -368,7 +368,7 @@ function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: n
   const color = rate >= 0 ? 'text-red-400' : 'text-blue-400';
   return (
     <div className={`min-w-0 flex flex-col justify-center rounded-xl px-3.5 py-2.5 ${emphasize ? 'bg-slate-800/40 border border-slate-700/40' : 'bg-slate-800/20 border border-transparent opacity-70'}`}>
-      <p className="text-[10px] text-slate-500 mb-0.5 truncate">{label}</p>
+      <p className="text-[11px] text-slate-500 mb-0.5 truncate">{label}</p>
       <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>
         {fmtRate(rate)}
       </p>
@@ -494,12 +494,12 @@ function FinancialsTrendCard({ result, isGenerating, revealed }: { result: Diagn
           <div key={r.year}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px] font-bold text-slate-400">{r.year}년</span>
-              {r.roe !== null && <span className="text-[10px] text-slate-500 font-mono">ROE {r.roe}%</span>}
+              {r.roe !== null && <span className="text-[11px] text-slate-500 font-mono">ROE {r.roe}%</span>}
             </div>
             <div className="flex flex-col gap-1.5">
               {/* 매출 — 순차형(단일 색) 바, 0 기준 좌측 정렬 */}
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-600 w-14 shrink-0">매출</span>
+                <span className="text-[11px] text-slate-600 w-14 shrink-0">매출</span>
                 <div className="flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
                   {r.revenue !== null && (
                     <div className="h-full rounded-full bg-indigo-400/70" style={{ width: `${Math.max(2, (r.revenue / maxRevenue) * 100)}%` }} />
@@ -511,7 +511,7 @@ function FinancialsTrendCard({ result, isGenerating, revealed }: { result: Diagn
               </div>
               {/* 영업이익 — 발산형 바(0 기준선 중심), 흑자=red/적자=blue (페이지 전체 관례) */}
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-600 w-14 shrink-0">영업이익</span>
+                <span className="text-[11px] text-slate-600 w-14 shrink-0">영업이익</span>
                 <div className="relative flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
                   <div className="absolute inset-y-0 left-1/2 w-px bg-slate-600/80" />
                   {r.operatingProfit !== null && (
@@ -587,7 +587,7 @@ export default function DiagnosisReport({
         {/* ── 헤더 ── */}
         <div className="flex justify-between mb-6 gap-4">
           <div>
-            <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 분석 리포트</p>
+            <p className="text-[11px] font-bold tracking-[0.25em] text-indigo-400 uppercase mb-1.5">AI 상세 분석 리포트</p>
             <h1 className="text-[22px] font-bold text-white tracking-wide">
               {stockName.toUpperCase()}{' '}
               <span className="text-slate-500 font-mono text-base font-normal">({ticker})</span>
@@ -638,7 +638,7 @@ export default function DiagnosisReport({
               <MainAnalysisBody result={result} isGenerating={isGenerating} revealed={revealed} />
               {result.finalVerdict && (
                 <div className="mt-5 pt-5 border-t border-slate-700/50">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
                   <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
                     <p className="text-xs text-slate-200 leading-relaxed">
                       {revealed?.finalVerdict?.text ?? result.finalVerdict}{revealed?.finalVerdict?.active && <TypingCursor />}
@@ -723,19 +723,19 @@ export default function DiagnosisReport({
             {/* 도넛 차트 — flowPercentage는 "오늘 하루" 순매매 강도(평소 거래대금 대비 정규화값)라
                 최근 5일 캡션과 기간이 다르다. 소제목·구분선으로 명시해 같은 카드 안에서 서로 다른
                 기간의 수치가 섞여 보이지 않게 한다. */}
-            <p className="text-center text-[10px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
+            <p className="text-center text-[11px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
             <div className="flex flex-col items-center py-2">
               <DonutChart
                 percent={result.flowPercentage ?? 50}
                 type={result.flowType ?? 'NEUTRAL'}
               />
-              <p className="text-center text-[10px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
+              <p className="text-center text-[11px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
             </div>
 
             {/* 구분선 — 도넛(오늘)과 아래 캡션(최근 5일)이 다른 기간의 데이터임을 시각적으로 분리 */}
             <div className="flex items-center gap-2.5 mt-4 mb-3">
               <span className="flex-1 h-px bg-slate-700/40" />
-              <span className="text-[10px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
+              <span className="text-[11px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
               <span className="flex-1 h-px bg-slate-700/40" />
             </div>
 
@@ -787,7 +787,7 @@ export default function DiagnosisReport({
               {result.riskFactors.length > 0 ? (
                 result.riskFactors.map((line, i) => (
                   <div key={i} className="flex gap-2">
-                    <span className="text-red-500/60 text-[10px] mt-1 shrink-0">▶</span>
+                    <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
                     <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
                   </div>
                 ))
@@ -902,11 +902,11 @@ export default function DiagnosisReport({
           <div className="flex items-center gap-2 mb-4">
             <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>참고 기사</p>
             {result.newsBasis === 'news' ? (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
                 📰 뉴스 기반 분석
               </span>
             ) : (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-700/40 text-slate-400 border border-slate-600/40">
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-700/40 text-slate-400 border border-slate-600/40">
                 🔍 수급·기술적 추정
               </span>
             )}
@@ -931,7 +931,7 @@ export default function DiagnosisReport({
                             rel="noopener noreferrer"
                             className="py-2 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
                           >
-                            <span className="text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                            <span className="text-[11px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
                             <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
                               {n.title}
                             </p>
@@ -954,7 +954,7 @@ export default function DiagnosisReport({
                       rel="noopener noreferrer"
                       className="py-2.5 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
                     >
-                      <span className="text-[10px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
+                      <span className="text-[11px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
                       <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
                         {n.title}
                       </p>

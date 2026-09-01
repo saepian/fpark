@@ -177,7 +177,7 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
                   {label}
                 </span>
                 <span
-                  className="text-[10px] font-bold px-2.5 py-1 rounded-full text-white"
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-full text-white"
                   style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}
                 >
                   플랜 보기 →

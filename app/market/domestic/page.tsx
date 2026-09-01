@@ -214,7 +214,7 @@ function PopularList({
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3 pb-2.5 border-b border-slate-800/70">
         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">인기 기업</span>
-        <span className="text-[10px] text-slate-600 font-medium">TOP 5</span>
+        <span className="text-[11px] text-slate-600 font-medium">TOP 5</span>
       </div>
       <div className="divide-y divide-slate-800/40">
         {stocks.slice(0, 5).map((stock, i) => {
@@ -230,7 +230,7 @@ function PopularList({
             >
               {badge ? (
                 <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center
-                  text-[10px] font-bold ${badge}`}>
+                  text-[11px] font-bold ${badge}`}>
                   {rank}
                 </span>
               ) : (
@@ -732,7 +732,7 @@ export default function DomesticMarketPage() {
                         <p className="text-[13px] font-semibold text-white truncate leading-tight">
                           {stock.name}
                         </p>
-                        <p className="text-[10px] text-slate-600 font-mono mt-0.5">{stock.ticker}</p>
+                        <p className="text-[11px] text-slate-600 font-mono mt-0.5">{stock.ticker}</p>
                       </div>
 
                       <p className={`self-center text-right text-[13px] font-bold font-mono ${priceColor}`}>

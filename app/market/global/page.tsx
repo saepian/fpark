@@ -193,7 +193,7 @@ function GlobalMoversSidebar({ stocks, loading }: { stocks: OverseasStock[]; loa
       <div className="px-4 pt-3 pb-0 border-b border-slate-800/70">
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">TOP MOVERS</h2>
-          <span className="text-[10px] text-emerald-500">실시간</span>
+          <span className="text-[11px] text-emerald-500">실시간</span>
         </div>
         <div className="flex gap-0">
           <button
@@ -250,7 +250,7 @@ function GlobalMoversSidebar({ stocks, loading }: { stocks: OverseasStock[]; loa
             return (
               <div key={stock.ticker} className="flex items-center gap-3 px-4 py-3">
                 {badgeMap[rank] ? (
-                  <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${badgeMap[rank]}`}>
+                  <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${badgeMap[rank]}`}>
                     {rank}
                   </span>
                 ) : (
@@ -258,7 +258,7 @@ function GlobalMoversSidebar({ stocks, loading }: { stocks: OverseasStock[]; loa
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-semibold text-white truncate">{stock.name}</p>
-                  <p className="text-[10px] text-slate-600 font-mono">{stock.ticker}</p>
+                  <p className="text-[11px] text-slate-600 font-mono">{stock.ticker}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <p className={`text-[13px] font-bold font-mono ${color}`}>
@@ -344,7 +344,7 @@ function StockTable({
   return (
     <div className="rounded-2xl bg-[#13161f] overflow-hidden">
       <div className="grid grid-cols-[48px_1fr_120px_90px] gap-3 px-4 py-2.5
-        text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800/60">
+        text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800/60">
         <span className="text-center">#</span>
         <span>기업</span>
         <span className="text-right">현재가</span>
@@ -384,7 +384,7 @@ function StockTable({
                 </div>
                 <div className="self-center min-w-0">
                   <p className="text-[13px] font-semibold text-white truncate leading-tight">{stock.name}</p>
-                  <p className="text-[10px] text-slate-600 font-mono mt-0.5">{stock.ticker}</p>
+                  <p className="text-[11px] text-slate-600 font-mono mt-0.5">{stock.ticker}</p>
                 </div>
                 <p className={`self-center text-right text-[13px] font-bold font-mono ${color}`}>
                   {fmtPrice(stock.price, currency)}

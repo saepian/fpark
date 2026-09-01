@@ -184,7 +184,7 @@ function LightweightChart({ ticker, market }: { ticker: string; market: string }
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Price Chart</h2>
-          <span className="text-[10px] text-slate-600">· Yahoo Finance</span>
+          <span className="text-[11px] text-slate-600">· Yahoo Finance</span>
         </div>
         <div className="flex bg-[#0d1117] rounded-lg p-0.5 border border-slate-800/60">
           {CHART_PERIODS.map(p => (
@@ -222,7 +222,7 @@ function LightweightChart({ ticker, market }: { ticker: string; market: string }
         <div ref={containerRef} className="w-full" />
       </div>
 
-      <div className="flex items-center gap-4 text-[10px] text-slate-600">
+      <div className="flex items-center gap-4 text-[11px] text-slate-600">
         <span className="flex items-center gap-1">
           <span className="inline-block w-2 h-2 rounded-sm bg-red-500" />상승
         </span>
@@ -374,7 +374,7 @@ function DailyPriceTable({ ticker, currency }: { ticker: string; currency: strin
       <div className="px-4 pt-4 pb-2.5 border-b border-slate-800">
         <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
           일별 주가 동향
-          <span className="text-[10px] text-slate-500 font-normal ml-2 normal-case">최근 5거래일</span>
+          <span className="text-[11px] text-slate-500 font-normal ml-2 normal-case">최근 5거래일</span>
         </h3>
       </div>
       <div className="overflow-x-auto">
@@ -485,7 +485,7 @@ function SectorCard({ ticker, market }: { ticker: string; market: string }) {
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-slate-800/70">
         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">동일업종 기업</span>
         {data.sector && (
-          <span className="text-[10px] text-indigo-400 bg-indigo-400/10 px-2 py-0.5 rounded-full font-medium">
+          <span className="text-[11px] text-indigo-400 bg-indigo-400/10 px-2 py-0.5 rounded-full font-medium">
             {data.sector}
           </span>
         )}
@@ -501,7 +501,7 @@ function SectorCard({ ticker, market }: { ticker: string; market: string }) {
             >
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold text-white truncate leading-tight">{s.name}</p>
-                <p className="text-[10px] text-slate-600 font-mono mt-0.5">{s.ticker}</p>
+                <p className="text-[11px] text-slate-600 font-mono mt-0.5">{s.ticker}</p>
               </div>
               <div className="shrink-0 text-right ml-3">
                 <p className={`text-[12px] font-bold font-mono ${isUp ? 'text-red-400' : 'text-blue-400'}`}>
@@ -633,7 +633,7 @@ export default function OverseasStockPage({ params }: PageProps) {
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
               {quote.exchange}
             </span>
-            <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">
+            <span className="text-[11px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono">
               {ticker}
             </span>
             {wLoggedIn && (
@@ -679,7 +679,7 @@ export default function OverseasStockPage({ params }: PageProps) {
             : '—' },
         ].map(({ label, value }) => (
           <div key={label} className="bg-[#1a1d27] rounded-xl px-4 py-3 border border-slate-800">
-            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide mb-1">{label}</p>
+            <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide mb-1">{label}</p>
             <p className="text-[13px] font-bold text-white font-mono truncate">{value}</p>
           </div>
         ))}

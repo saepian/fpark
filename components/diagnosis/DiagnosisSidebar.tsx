@@ -140,7 +140,7 @@ function MarketSlide({ items }: { items: MarketItem[] }) {
           {/* 지수명 + 등락률 뱃지 */}
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-bold text-slate-200">{item.label}</span>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badge}`}>
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${badge}`}>
               {isUp ? '▲' : '▼'} {Math.abs(item.changeRate).toFixed(2)}%
             </span>
           </div>
