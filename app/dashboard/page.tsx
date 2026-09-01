@@ -1102,15 +1102,15 @@ export default function DashboardPage() {
               {s && (
                 <div className="grid grid-cols-3 gap-2.5 mb-4">
                   <div className="bg-slate-800/40 rounded-xl p-3 text-center">
-                    <p className="text-[9.5px] text-slate-500 mb-1">배당수익률({s.year})</p>
+                    <p className="text-[11px] text-slate-500 mb-1">배당수익률({s.year})</p>
                     <p className="text-[14px] font-bold font-mono text-slate-200">{s.dividendYield != null ? `${s.dividendYield.toFixed(1)}%` : '-'}</p>
                   </div>
                   <div className="bg-slate-800/40 rounded-xl p-3 text-center">
-                    <p className="text-[9.5px] text-slate-500 mb-1">주당배당금</p>
+                    <p className="text-[11px] text-slate-500 mb-1">주당배당금</p>
                     <p className="text-[14px] font-bold font-mono text-slate-200">{s.dividendPerShare != null ? `${fmt(s.dividendPerShare)}원` : '-'}</p>
                   </div>
                   <div className="bg-slate-800/40 rounded-xl p-3 text-center">
-                    <p className="text-[9.5px] text-slate-500 mb-1">배당성향</p>
+                    <p className="text-[11px] text-slate-500 mb-1">배당성향</p>
                     <p className="text-[14px] font-bold font-mono text-slate-200">{s.payoutRatio != null ? `${s.payoutRatio.toFixed(1)}%` : '-'}</p>
                   </div>
                 </div>
@@ -1120,19 +1120,19 @@ export default function DashboardPage() {
                   <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wide mb-2.5">최근 배당</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2.5 gap-y-3">
                     <div>
-                      <span className="text-[9.5px] text-slate-500 block mb-0.5">기준일</span>
+                      <span className="text-[11px] text-slate-500 block mb-0.5">기준일</span>
                       <p className="text-[12px] font-mono text-slate-200 font-semibold">{fmtDate(latest.recordDate)}</p>
                     </div>
                     <div>
-                      <span className="text-[9.5px] text-slate-500 block mb-0.5">지급일</span>
+                      <span className="text-[11px] text-slate-500 block mb-0.5">지급일</span>
                       <p className="text-[12px] font-mono text-slate-200 font-semibold">{latest.payDate ? fmtDate(latest.payDate) : '미정'}</p>
                     </div>
                     <div>
-                      <span className="text-[9.5px] text-slate-500 block mb-0.5">종류</span>
+                      <span className="text-[11px] text-slate-500 block mb-0.5">종류</span>
                       <p className="text-[12px] font-mono text-slate-200 font-semibold">{latest.kindLabel}</p>
                     </div>
                     <div>
-                      <span className="text-[9.5px] text-slate-500 block mb-0.5">주당금액</span>
+                      <span className="text-[11px] text-slate-500 block mb-0.5">주당금액</span>
                       <p className="text-[12px] font-mono text-slate-200 font-semibold">{fmt(latest.perShareAmount)}원</p>
                     </div>
                   </div>
@@ -1322,7 +1322,7 @@ export default function DashboardPage() {
 
                 {analysisResult.riskContribution && analysisResult.riskContribution.length > 0 && (
                   <Card title="변동성 기여도" className="mb-4">
-                    <p className="text-[10.5px] text-slate-600 mb-4">
+                    <p className="text-[11px] text-slate-600 mb-4">
                       비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
                     </p>
                     <div className="flex flex-col gap-3">

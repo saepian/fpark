@@ -1052,7 +1052,7 @@ export default function PortfolioDiagnosisPage() {
                   <div key={s.sector} className="flex items-center justify-between">
                     <div className="flex flex-col">
                       <span className="text-[13px] text-slate-300 font-medium">{s.sector}</span>
-                      <span className="text-[10.5px] text-slate-600 mt-0.5">
+                      <span className="text-[11px] text-slate-600 mt-0.5">
                         보유 {s.totalCount}종목 중 {s.coveredCount}종목 데이터 반영
                       </span>
                     </div>
@@ -1060,7 +1060,7 @@ export default function PortfolioDiagnosisPage() {
                       <span className="text-[12px] font-semibold text-indigo-300">{s.label}</span>
                       {/* 라벨만으로는 구분이 안 된다는 실사용 피드백(2026-08-21) 대응 —
                           최근 14일 기사 건수를 근거로 함께 노출 */}
-                      <span className="text-[10.5px] text-slate-600 mt-0.5">
+                      <span className="text-[11px] text-slate-600 mt-0.5">
                         호재성 {s.positiveCount}건 · 악재성 {s.negativeCount}건
                       </span>
                     </div>
@@ -1091,7 +1091,7 @@ export default function PortfolioDiagnosisPage() {
                   <p className="text-[11px] text-slate-600 leading-relaxed">
                     최근 확정 배당 기준 · 예상 연간 배당금 {result.dividend.expectedAnnualDividend.toLocaleString()}원
                   </p>
-                  <p className="text-[10.5px] text-slate-400 leading-relaxed mt-1">
+                  <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
                     {result.dividend.totalCount}개 종목 중 {result.dividend.payingCount}개만 배당 이력 있음
                     {excludedDividendNote && ` (${excludedDividendNote} 제외)`}
                     {' '}(미래 지급을 보장하지 않음)
@@ -1171,7 +1171,7 @@ export default function PortfolioDiagnosisPage() {
               종목 간 상관관계는 반영하지 않는다는 점을 라벨에 명시해 과대해석을 방지한다. */}
           {result.riskContribution && result.riskContribution.length > 0 && (
             <Card title="변동성 기여도" className="mb-4">
-              <p className="text-[10.5px] text-slate-600 mb-4">
+              <p className="text-[11px] text-slate-600 mb-4">
                 비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
               </p>
               <div className="flex flex-col gap-3">
@@ -1311,7 +1311,7 @@ export default function PortfolioDiagnosisPage() {
                             <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
                             <p className="text-xs text-slate-300 leading-relaxed">
                               {category && (
-                                <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
+                                <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[11px] font-bold uppercase tracking-wide align-middle">
                                   {category === 'macro' ? '매크로' : '기업'}
                                 </span>
                               )}

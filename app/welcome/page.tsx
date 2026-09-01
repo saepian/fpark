@@ -106,11 +106,11 @@ function PortfolioThumb() {
   ];
   return (
     <div className="p-3.5 flex flex-col gap-2.5 h-full">
-      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">포트폴리오 리스크 체크</p>
+      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">포트폴리오 리스크 체크</p>
       <div className="flex flex-col gap-2">
         {holdings.map(h => (
           <div key={h.name}>
-            <div className="flex justify-between text-[10.5px] text-slate-300 mb-0.5">
+            <div className="flex justify-between text-[11px] text-slate-300 mb-0.5">
               <span>{h.name}</span>
               <span className="font-mono text-slate-400">{h.weight}%</span>
             </div>
@@ -132,7 +132,7 @@ function PortfolioThumb() {
 function DashboardThumb() {
   return (
     <div className="p-3.5 flex flex-col gap-2.5 h-full">
-      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">대시보드 · 오늘의 등락</p>
+      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">대시보드 · 오늘의 등락</p>
       <div className="flex items-baseline gap-2">
         <span className="text-[18px] font-bold text-emerald-400 tabular-nums">+2.4%</span>
         <span className="text-[11px] text-slate-500">총 손익 +812,000원</span>
@@ -154,13 +154,13 @@ function AlertThumb() {
   ];
   return (
     <div className="p-3.5 flex flex-col gap-2 h-full">
-      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">관심기업 알림</p>
+      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">관심기업 알림</p>
       {items.map((it, i) => (
         <div key={i} className="flex items-start gap-2 rounded-md bg-slate-800/40 px-2.5 py-2">
           <span className={`text-[11px] ${it.color} shrink-0`}>{it.icon}</span>
           <div className="min-w-0">
-            <p className="text-[10.5px] text-slate-200 truncate">{it.text}</p>
-            <p className="text-[9.5px] text-slate-500 truncate">{it.sub}</p>
+            <p className="text-[11px] text-slate-200 truncate">{it.text}</p>
+            <p className="text-[11px] text-slate-500 truncate">{it.sub}</p>
           </div>
         </div>
       ))}
@@ -178,16 +178,16 @@ function ClosingReportThumb() {
         <span className="w-1.5 h-1.5 rounded-full bg-red-400/70" />
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70" />
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/70" />
-        <p className="ml-1.5 text-[9px] text-slate-500 truncate">[Finance Park] 일일 리포트</p>
+        <p className="ml-1.5 text-[11px] text-slate-500 truncate">[Finance Park] 일일 리포트</p>
       </div>
       <div className="p-3 flex flex-col gap-2">
-        <div className="flex gap-1.5 text-[9.5px]">
+        <div className="flex gap-1.5 text-[11px]">
           <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 font-semibold">상승 3</span>
           <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-semibold">하락 1</span>
         </div>
         <div className="rounded-md border border-indigo-500/20 bg-indigo-500/[0.05] p-2">
-          <p className="text-[9px] font-bold text-indigo-400 mb-0.5">AI 분석</p>
-          <p className="text-[9.5px] text-slate-400 leading-snug line-clamp-2">
+          <p className="text-[11px] font-bold text-indigo-400 mb-0.5">AI 분석</p>
+          <p className="text-[11px] text-slate-400 leading-snug line-clamp-2">
             오늘 관심종목 중 반도체 관련주에 외국인 자금이 유입되며 상승세를 보였습니다.
           </p>
         </div>
@@ -206,19 +206,19 @@ function MorningBriefingThumb() {
         <span className="w-1.5 h-1.5 rounded-full bg-red-400/70" />
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70" />
         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/70" />
-        <p className="ml-1.5 text-[9px] text-slate-500 truncate">Finance Park · 장 시작 전 브리핑</p>
+        <p className="ml-1.5 text-[11px] text-slate-500 truncate">Finance Park · 장 시작 전 브리핑</p>
       </div>
       <div className="p-3 flex flex-col gap-2">
         <div className="rounded-md border border-indigo-500/20 bg-indigo-500/[0.05] p-2">
-          <p className="text-[9.5px] font-bold text-slate-200 mb-1">
+          <p className="text-[11px] font-bold text-slate-200 mb-1">
             예시전자 <span className="text-slate-500 font-normal">000000</span>
           </p>
-          <p className="text-[8.5px] font-bold text-indigo-400 mb-0.5">AI 분석</p>
-          <p className="text-[9.5px] text-slate-400 leading-snug line-clamp-2">
+          <p className="text-[11px] font-bold text-indigo-400 mb-0.5">AI 분석</p>
+          <p className="text-[11px] text-slate-400 leading-snug line-clamp-2">
             신규 반도체 투자 발표 관련 뉴스가 확인됐습니다. 업황 개선 기대감이 반영된 것으로 보입니다.
           </p>
         </div>
-        <div className="flex items-center gap-1.5 text-[9px] text-indigo-300/70">
+        <div className="flex items-center gap-1.5 text-[11px] text-indigo-300/70">
           <span className="w-1 h-1 rounded-full bg-indigo-400/60 shrink-0" />
           관련 뉴스 원문 2건
         </div>
@@ -233,7 +233,7 @@ function PreviewThumb({ children, isLive }: { children: ReactNode; isLive?: bool
       {children}
       <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-[#0d0f1a] to-transparent pointer-events-none" />
       {!isLive && (
-        <span className="absolute bottom-1.5 right-2 text-[8.5px] font-medium text-slate-600 bg-[#0d0f1a]/80 px-1.5 py-0.5 rounded">
+        <span className="absolute bottom-1.5 right-2 text-[11px] font-medium text-slate-600 bg-[#0d0f1a]/80 px-1.5 py-0.5 rounded">
           예시 화면
         </span>
       )}
@@ -244,7 +244,7 @@ function PreviewThumb({ children, isLive }: { children: ReactNode; isLive?: bool
 function Badge({ type }: { type: 'BASIC' | 'PRO' }) {
   return (
     <span
-      className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+      className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${
         type === 'PRO'
           ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
           : 'bg-violet-500/15 text-violet-400 border-violet-500/30'

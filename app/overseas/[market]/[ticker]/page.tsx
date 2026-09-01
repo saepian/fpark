@@ -260,7 +260,7 @@ function FinanceCard({ quote }: { quote: QuoteData }) {
           </div>
         ))}
       </div>
-      <p className="px-4 pb-2.5 text-[9px] text-slate-600">Yahoo Finance 기준 · 연간 데이터</p>
+      <p className="px-4 pb-2.5 text-[11px] text-slate-600">Yahoo Finance 기준 · 연간 데이터</p>
     </div>
   );
 }
@@ -399,7 +399,7 @@ function DailyPriceTable({ ticker, currency }: { ticker: string; currency: strin
                   <td className="px-4 py-2.5 text-slate-400 whitespace-nowrap">
                     {formatDate(d.date)}
                     {i === 0 && (
-                      <span className="ml-1.5 text-[9px] text-indigo-400 bg-indigo-400/10 px-1.5 py-0.5 rounded-full">
+                      <span className="ml-1.5 text-[11px] text-indigo-400 bg-indigo-400/10 px-1.5 py-0.5 rounded-full">
                         최근
                       </span>
                     )}

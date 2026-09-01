@@ -54,7 +54,7 @@ function TickerChip({ item }: { item: TickerItem }) {
     <span className="inline-flex items-center gap-2 px-5 whitespace-nowrap border-r border-gray-700/40">
       <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
         {item.label}
-        {item.isMock && <span className="ml-1 text-[9px] text-gray-600 font-normal">*</span>}
+        {item.isMock && <span className="ml-1 text-[11px] text-gray-600 font-normal">*</span>}
       </span>
       <span className="font-mono text-[12px] font-semibold text-gray-200">
         {item.value}
@@ -115,7 +115,7 @@ export default function MarketTicker() {
         style={{ background: 'linear-gradient(to left, #080f1e, transparent)' }}
       />
       {items.some((it) => it.isMock) && (
-        <p className="absolute right-3 text-[9px] text-gray-700 pointer-events-none select-none z-10">
+        <p className="absolute right-3 text-[11px] text-gray-700 pointer-events-none select-none z-10">
           *mock
         </p>
       )}

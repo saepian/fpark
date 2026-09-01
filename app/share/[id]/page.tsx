@@ -229,7 +229,7 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
         strokeDasharray={`${filled} ${circ}`} transform="rotate(-90 74 74)"
         style={{ filter: `drop-shadow(0 0 6px ${color}66)` }} />
       <text x="74" y="69" textAnchor="middle" fill={color} fontSize="22" fontWeight="800" fontFamily="monospace">{percent}%</text>
-      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="600" letterSpacing="1">{label}</text>
+      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="11" fontWeight="600" letterSpacing="1">{label}</text>
     </svg>
   );
 }
@@ -306,7 +306,7 @@ function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: n
     <div className={`min-w-0 flex flex-col justify-center rounded-xl px-3.5 py-2.5 ${emphasize ? 'bg-slate-800/40 border border-slate-700/40' : 'bg-slate-800/20 border border-transparent opacity-70'}`}>
       <p className="text-[11px] text-slate-500 mb-0.5 truncate">{label}</p>
       <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>{fmtRate(rate)}</p>
-      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[10.5px]'}`}>
+      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[11px]'}`}>
         {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
       </p>
     </div>
@@ -931,7 +931,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                 <p className="text-[11px] text-slate-600 leading-relaxed">
                   최근 확정 배당 기준 · 예상 연간 배당금 {d.dividend.expectedAnnualDividend.toLocaleString()}원
                 </p>
-                <p className="text-[10.5px] text-slate-400 leading-relaxed mt-1">
+                <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
                   {d.dividend.totalCount}개 종목 중 {d.dividend.payingCount}개만 배당 이력 있음
                   {excludedDividendNote && ` (${excludedDividendNote} 제외)`}
                   {' '}(미래 지급을 보장하지 않음)
@@ -961,7 +961,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                     >
                       <p className="text-[11px] text-slate-500 mb-1">{c.month}월</p>
                       {c.holdings.length > 0 && (
-                        <p className="text-[9px] text-indigo-300 font-medium leading-tight break-keep">
+                        <p className="text-[11px] text-indigo-300 font-medium leading-tight break-keep">
                           {c.holdings.slice(0, 2).map(h => h.name).join(', ')}
                           {c.holdings.length > 2 ? ` 외 ${c.holdings.length - 2}` : ''}
                         </p>
@@ -1029,7 +1029,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         {d.riskContribution && d.riskContribution.length > 0 && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
             <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">변동성 기여도</p>
-            <p className="text-[10.5px] text-slate-600 mb-4">
+            <p className="text-[11px] text-slate-600 mb-4">
               비중×변동성 기준 단순 근사치입니다. 종목 간 상관관계는 반영하지 않아 실제 포트폴리오 변동성과 다를 수 있습니다.
             </p>
             <div className="flex flex-col gap-3">
@@ -1103,7 +1103,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                         <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
                         <p className="text-[12px] text-slate-300 leading-relaxed">
                           {category && (
-                            <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[9px] font-bold uppercase tracking-wide align-middle">
+                            <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[11px] font-bold uppercase tracking-wide align-middle">
                               {category === 'macro' ? '매크로' : '기업'}
                             </span>
                           )}

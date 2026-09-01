@@ -212,7 +212,7 @@ export default function AdminUsersPage() {
     if (history.length === 0) return null;
     return (
       <div className="px-4 py-3 flex flex-col gap-1.5">
-        <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">계좌이체</p>
+        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">계좌이체</p>
         {history.map((h) => (
           <div key={h.id} className="flex items-center gap-2.5 text-[12px] py-1.5 flex-wrap">
             <span className="font-semibold text-slate-300 w-14 shrink-0">
@@ -223,7 +223,7 @@ export default function AdminUsersPage() {
             <span className="text-amber-300 w-20 shrink-0 truncate">{h.depositor_name}</span>
             <span className="text-slate-500 whitespace-nowrap">{formatDateTime(h.requested_at)}</span>
             <span
-              className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ml-auto"
+              className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full ml-auto"
               style={{
                 background: h.status === 'approved' ? 'rgba(52,211,153,0.12)' : h.status === 'rejected' ? 'rgba(248,113,113,0.12)' : h.status === 'expired' ? 'rgba(248,113,113,0.12)' : 'rgba(245,158,11,0.12)',
                 color: h.status === 'approved' ? '#34d399' : h.status === 'rejected' ? '#f87171' : h.status === 'expired' ? '#f87171' : '#fbbf24',
@@ -242,11 +242,11 @@ export default function AdminUsersPage() {
     if (history.length === 0) return null;
     return (
       <div className="px-4 py-3 flex flex-col gap-1.5 border-t border-slate-800/60">
-        <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">카드결제</p>
+        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">카드결제</p>
         {history.map((h) => (
           <div key={h.id} className="flex items-center gap-2.5 text-[12px] py-1.5 flex-wrap">
             <span
-              className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full w-28 shrink-0 text-center"
+              className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full w-28 shrink-0 text-center"
               style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8' }}
             >
               {PAYMENT_METHOD_LABEL[h.payment_method ?? ''] ?? h.payment_method ?? '-'}
@@ -255,7 +255,7 @@ export default function AdminUsersPage() {
             <span className="text-white font-medium w-20 shrink-0">{h.amount.toLocaleString()}원</span>
             <span className="text-slate-500 whitespace-nowrap">{formatDateTime(h.created_at)}</span>
             <span
-              className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ml-auto"
+              className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full ml-auto"
               style={{ background: `${PAYMENT_STATUS_COLOR[h.status] ?? '#94a3b8'}1f`, color: PAYMENT_STATUS_COLOR[h.status] ?? '#94a3b8' }}
             >
               {PAYMENT_STATUS_LABEL[h.status] ?? h.status}
@@ -271,7 +271,7 @@ export default function AdminUsersPage() {
     if (history.length === 0) return null;
     return (
       <div className="px-4 py-3 flex flex-col gap-1.5 border-t border-slate-800/60">
-        <p className="text-[10.5px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">환불 내역</p>
+        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-0.5">환불 내역</p>
         {history.map((h) => (
           <div key={h.id} className="flex items-center gap-2.5 text-[12px] py-1.5 flex-wrap">
             <span className="text-slate-400 w-16 shrink-0">{PLAN_LABEL[h.plan]}</span>
@@ -279,7 +279,7 @@ export default function AdminUsersPage() {
             <span className="text-slate-500 w-20 shrink-0">경과 {h.elapsed_days}일</span>
             <span className="text-slate-500 whitespace-nowrap">{formatDateTime(h.requested_at)}</span>
             <span
-              className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ml-auto whitespace-nowrap"
+              className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full ml-auto whitespace-nowrap"
               style={{ background: `${REFUND_STATUS_COLOR[h.refund_status]}1f`, color: REFUND_STATUS_COLOR[h.refund_status] }}
             >
               {REFUND_STATUS_LABEL[h.refund_status] ?? h.refund_status}
@@ -514,7 +514,7 @@ export default function AdminUsersPage() {
                       <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: `${STATUS_COLOR[status]}1f`, color: STATUS_COLOR[status] }}>
                         {STATUS_LABEL[status]}
                       </span>
-                      <span className="text-[10.5px] text-slate-500 ml-auto">가입 {formatDate(u.created_at)}</span>
+                      <span className="text-[11px] text-slate-500 ml-auto">가입 {formatDate(u.created_at)}</span>
                     </div>
                     <p className="text-[13px] font-semibold text-white truncate mb-1.5">{u.email ?? '-'}</p>
                     <p

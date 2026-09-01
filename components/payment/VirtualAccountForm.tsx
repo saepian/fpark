@@ -219,7 +219,7 @@ export default function VirtualAccountForm({ plan, amount, isAnnual, onClose, on
             </div>
           </div>
 
-          <p className="text-[10.5px] text-slate-600 leading-relaxed">
+          <p className="text-[11px] text-slate-600 leading-relaxed">
             입금 확인까지 시간이 조금 걸릴 수 있습니다. 활성화 여부는 마이페이지에서 확인 가능합니다.
           </p>
 

@@ -50,7 +50,7 @@ export default function WeeklyChart({ ticker }: { ticker: string }) {
               const date = new Date(d);
               return `${date.getMonth() + 1}/${date.getDate()}`;
             }}
-            tick={{ fontSize: 10, fill: '#64748b' }}
+            tick={{ fontSize: 11, fill: '#64748b' }}
             axisLine={false}
             tickLine={false}
           />

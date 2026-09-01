@@ -201,7 +201,7 @@ function CardContent({
             {plan.name}
           </span>
           {isCurrent && (
-            <span className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+            <span className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
               style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>
               <svg width="7" height="6" viewBox="0 0 8 7" fill="none">
                 <path d="M1 3.5l2 2 4-4" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -237,7 +237,7 @@ function CardContent({
             </>
           )}
           {annual && !isFree && !upgrade && (
-            <span className="ml-1.5 mb-[5px] text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+            <span className="ml-1.5 mb-[5px] text-[11px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full whitespace-nowrap">
               {plan.annualSaving.toLocaleString()}원 절약
             </span>
           )}
@@ -246,7 +246,7 @@ function CardContent({
           <p className="text-[11px] text-slate-600 mt-1">영원히 무료</p>
         ) : upgrade ? (
           upgrade.creditAmount <= 0 ? (
-            <p className="text-[10.5px] text-slate-500 mt-1 leading-snug">
+            <p className="text-[11px] text-slate-500 mt-1 leading-snug">
               {upgrade.usageCapped
                 ? '이번 달 이용 실적이 많아 업그레이드 크레딧이 적용되지 않습니다.'
                 : '결제 주기 잔여일이 없어 업그레이드 크레딧이 적용되지 않습니다.'}
@@ -267,7 +267,7 @@ function CardContent({
           <p className="text-[11px] text-slate-600 mt-1">월별 청구</p>
         )}
         {isAnnualBlocked && (
-          <p className="text-[10.5px] text-amber-400/90 mt-1.5 leading-snug">
+          <p className="text-[11px] text-amber-400/90 mt-1.5 leading-snug">
             연간 결제로의 업그레이드는 별도 처리가 필요합니다 — <a href="/contact" className="underline">문의하기</a>로 연락해주세요.
           </p>
         )}
@@ -563,11 +563,11 @@ export default function PricingClient() {
             >
               연간
               {ANNUAL_BILLING_ENABLED ? (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white whitespace-nowrap">
+                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500 text-white whitespace-nowrap">
                   20% 할인 · 일시불
                 </span>
               ) : (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-300 whitespace-nowrap">
+                <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-300 whitespace-nowrap">
                   준비 중
                 </span>
               )}

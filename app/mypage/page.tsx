@@ -738,11 +738,11 @@ export default function MyPage() {
                       <p className="text-[13px] font-bold text-white">{deposit.amount.toLocaleString()}원</p>
                     </div>
                     {deposit.depositorRealName ? (
-                      <p className="text-[10.5px] text-amber-400/80 mt-1">
+                      <p className="text-[11px] text-amber-400/80 mt-1">
                         예금주명 <span className="font-bold text-amber-300">{deposit.depositorRealName}</span>과 일치하면 자동 확인됩니다
                       </p>
                     ) : (
-                      <p className="text-[10.5px] text-amber-400/80 mt-1">
+                      <p className="text-[11px] text-amber-400/80 mt-1">
                         예금주명이 등록되어 있지 않아 관리자가 직접 확인합니다 — 아래에서 등록하시면 다음부터 자동 처리돼요
                       </p>
                     )}
@@ -1178,7 +1178,7 @@ export default function MyPage() {
                   )}
                 </div>
 
-                <p className="text-[10.5px] text-slate-600 mb-4 leading-relaxed">
+                <p className="text-[11px] text-slate-600 mb-4 leading-relaxed">
                   계산 방식 자체가 궁금하시면{' '}
                   <Link href="/pricing#faq-refund-calc" target="_blank" className="text-indigo-400 hover:underline">FAQ</Link>도 참고해주세요.
                 </p>

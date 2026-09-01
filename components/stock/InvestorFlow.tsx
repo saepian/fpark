@@ -145,7 +145,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
                 <BarChart data={data.trend} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 9, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
                     interval="preserveStartEnd"
@@ -175,7 +175,7 @@ export default function InvestorFlow({ ticker }: { ticker: string }) {
                 <BarChart data={data.trend} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 9, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
                     interval="preserveStartEnd"

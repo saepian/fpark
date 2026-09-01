@@ -75,7 +75,7 @@ export default function DailyPriceTable({ ticker }: { ticker: string }) {
                   <td className="py-2.5 text-slate-400">
                     {formatDate(d.date)}
                     {i === 0 && (
-                      <span className="ml-1.5 text-[9px] text-indigo-400 bg-indigo-400/10 px-1.5 py-0.5 rounded-full">
+                      <span className="ml-1.5 text-[11px] text-indigo-400 bg-indigo-400/10 px-1.5 py-0.5 rounded-full">
                         최근
                       </span>
                     )}

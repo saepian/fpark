@@ -49,7 +49,7 @@ export function TradingValueGauge({ multiple }: { multiple: number }) {
       <text x="74" y="69" textAnchor="middle" fill={color} fontSize="20" fontWeight="800" fontFamily="monospace">
         {multiple.toFixed(1)}x
       </text>
-      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="600" letterSpacing="1">
+      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="11" fontWeight="600" letterSpacing="1">
         {label}
       </text>
     </svg>
@@ -106,7 +106,7 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
           <p className="text-[13px] text-slate-400">
             최근 약 5개월 내 등락률 {surgeHistory.threshold}% 이상의 급등/급락 이력 없음
           </p>
-          <p className="text-[10.5px] text-slate-600 mt-2 leading-relaxed">
+          <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
             오늘과 비슷한 규모의 과거 변동이 관측되지 않았습니다 — 이 종목이 상대적으로 완만한 가격 흐름을 보여왔다는 관찰입니다.
           </p>
         </div>

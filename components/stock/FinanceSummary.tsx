@@ -100,7 +100,7 @@ export default function FinanceSummary({ ticker }: { ticker: string }) {
           </div>
         ))}
       </div>
-      <p className="px-4 pb-2.5 text-[9px] text-slate-600">
+      <p className="px-4 pb-2.5 text-[11px] text-slate-600">
         단위: 억원 · 최근 3개 연도 확정 연간 실적 기준(분기·잠정실적은 반영되지 않습니다)
       </p>
     </div>

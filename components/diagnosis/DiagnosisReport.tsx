@@ -134,7 +134,7 @@ function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' |
         {percent}%
       </text>
       {/* 라벨 */}
-      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="600" letterSpacing="1">
+      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="11" fontWeight="600" letterSpacing="1">
         {label}
       </text>
     </svg>
@@ -372,7 +372,7 @@ function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: n
       <p className={`font-mono font-bold ${color} ${emphasize ? 'text-[18px]' : 'text-[13px]'}`}>
         {fmtRate(rate)}
       </p>
-      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[10.5px]'}`}>
+      <p className={`font-mono ${color} ${emphasize ? 'text-[12px]' : 'text-[11px]'}`}>
         {amount >= 0 ? '+' : ''}{fmt(Math.round(amount))}원
       </p>
     </div>

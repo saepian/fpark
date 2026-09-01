@@ -344,7 +344,7 @@ function ReturnTrendBody({ data }: { data: MonthlyPoint[] }) {
         <XAxis
           dataKey="label"
           interval={data.length > 10 ? 'preserveStartEnd' : 0}
-          tick={{ fontSize: 10, fill: '#64748b' }}
+          tick={{ fontSize: 11, fill: '#64748b' }}
           axisLine={{ stroke: '#334155' }}
           tickLine={false}
         />

@@ -165,7 +165,7 @@ function IndexCardView({
           </span>
         </p>
         {disclaimer && (
-          <p className="text-[9.5px] text-slate-600 mt-1 leading-tight">{disclaimer}</p>
+          <p className="text-[11px] text-slate-600 mt-1 leading-tight">{disclaimer}</p>
         )}
       </div>
       {closes.length >= 2 && (

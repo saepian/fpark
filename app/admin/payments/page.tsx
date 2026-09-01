@@ -465,7 +465,7 @@ export default function AdminPaymentsPage() {
                   <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
                   <span className="text-[11px] text-slate-600">{it.depositor_name}</span>
                 </div>
-                <span className="text-[10.5px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
+                <span className="text-[11px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
               </div>
               <ActionButtons it={it} compact />
             </div>
@@ -841,7 +841,7 @@ export default function AdminPaymentsPage() {
                       <span className="text-[15px] font-bold text-amber-300 tabular-nums">{it.depositor_real_name ?? '미입력'}</span>
                       <span className="text-[11px] text-slate-600">{it.depositor_name}</span>
                     </div>
-                    <span className="text-[10.5px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
+                    <span className="text-[11px] text-slate-500 shrink-0">{formatElapsed(it.requested_at)}</span>
                   </div>
                   <ActionButtons it={it} compact />
                 </div>
