@@ -1,13 +1,22 @@
 'use client';
 
-import { Sparkles, ChevronLeft, Printer, AlertCircle } from 'lucide-react';
+import { ChevronLeft, Printer, AlertCircle } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
 import ReferenceNewsList from '@/components/diagnosis/ReferenceNewsList';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
-import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
+import type { SurgeHistory, TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
+import {
+  MainAnalysisCard, InstitutionalFlowCard, RiskFactorsCard, SurgeTradingRow, DisclosuresCard, FxCorrelationCard,
+  LayerHeading, StreamText, FieldSkeleton, TypingCursor, type MainAnalysisSectionsData,
+} from '@/components/diagnosis/DiagnosisCards';
+import HoldingPositionCard from '@/components/diagnosis/HoldingPositionCard';
+import FinancialsTrendCard from '@/components/diagnosis/FinancialsTrendCard';
+import { WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import type { HoldingPosition } from '@/lib/holding-position';
+import type { QuarterlyFinancialRow } from '@/lib/kis-api';
 import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
 import { SectorComparisonCard, type SectorComparison } from '@/components/diagnosis/SectorComparisonCard';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
@@ -51,12 +60,7 @@ export interface DartDisclosure {
   filer: string;
 }
 
-export interface MainAnalysisSections {
-  background: string;    // 오늘의 주가 배경 — 현재상태+뉴스해석
-  flowSummary: string;    // 수급 동향 — 외국인·기관 5일 해석
-  valuationNote: string;  // 밸류에이션(PER/PBR 업종대비) — 데이터 없으면 빈 문자열
-  watchPoint: string;     // 관찰 포인트 — 내부지표/급등이력 포지션 관점
-}
+export type MainAnalysisSections = MainAnalysisSectionsData;
 
 export interface DiagnosisResult {
   mainAnalysis: string; // 현재 상태·밸류에이션·수급·뉴스 해석을 하나로 합친 서술형 본문(mainAnalysisSections를 서버가 이어붙인 값 — 공유페이지 등 과거 소비처 호환용)
@@ -78,6 +82,10 @@ export interface DiagnosisResult {
   surgeHistory?: SurgeHistory | null; // 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 — hasMatches:false(평상시 종목)면 카드 안에 "이력 없음" 빈 상태로 표시(카드 자체는 항상 노출, 2026-08-28), 값 자체가 없으면(계산 실패·과거 레코드) undefined/null이라 카드 생략
   tradingValueMultiple?: TradingValueMultiple | null; // 오늘 거래대금의 최근 20거래일 평균 대비 배수 — valid:false(데이터 부족)면 카드 생략, 과거 레코드는 undefined
   annualFinancials: AnnualFinancialRow[]; // 최근 3개년 확정 연간 실적, 없으면 빈 배열 — 카드 생략
+  quarterlyFinancials?: QuarterlyFinancialRow[]; // 최근 분기 단독 실적(2026-09-01 신설, 과거 레코드는 undefined)
+  financialsYearEndMonth?: string; // 결산월('12' 외면 실적 카드에 "N월 결산" 캡션)
+  holdingPosition?: HoldingPosition | null; // 내 포지션(2026-09-01 신설, 서버 계산 — 과거 레코드는 undefined → 카드 생략)
+  flowInsight?: string; // 수급 해석 1문장(기관/외국인 카드, 2026-09-01 신설 — 1층 '수급 동향' 소제목을 대체)
   financialsNarrative: string; // 실적 추이 해석, 데이터 없으면 빈 문자열
   disclosures: DartDisclosure[]; // DART 최근 14일 주요 공시, 없으면 빈 배열 — 카드 생략
   disclosureNarrative: string; // 공시 해석, 데이터 없으면 빈 문자열
@@ -108,44 +116,6 @@ export interface DiagnosisResult {
 // 크론)는 그대로 유지해 데이터는 계속 쌓인다. 재설계 완료되면 이 플래그만 true로 되돌릴 것.
 const SHOW_NEWS_SENTIMENT_CARD = false;
 
-function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
-  const r = 54;
-  const circ = 2 * Math.PI * r;
-  const filled = circ * (percent / 100);
-  const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
-  const label = type === 'BUY' ? '자금 유입' : type === 'SELL' ? '자금 유출' : '중립';
-
-  return (
-    <svg width="148" height="148" viewBox="0 0 148 148">
-      {/* 배경 링 */}
-      <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
-      {/* 컬러 아크 */}
-      <circle
-        cx="74" cy="74" r={r}
-        fill="none"
-        stroke={color}
-        strokeWidth="14"
-        strokeLinecap="round"
-        strokeDasharray={`${filled} ${circ}`}
-        transform="rotate(-90 74 74)"
-        style={{ filter: `drop-shadow(0 0 6px ${color}66)` }}
-      />
-      {/* 퍼센트 */}
-      <text x="74" y="69" textAnchor="middle" fill={color} fontSize="22" fontWeight="800" fontFamily="monospace">
-        {percent}%
-      </text>
-      {/* 라벨 */}
-      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="11" fontWeight="600" letterSpacing="1">
-        {label}
-      </text>
-    </svg>
-  );
-}
-
-// score(-1~1)를 화면에 그대로 노출하지 않는 원칙(투자 신호처럼 읽히는 걸 피함)을 hover
-// 툴팁에도 동일하게 적용 — lib/news-sentiment.ts의 labelFromAvgScore와 같은 임계값이지만,
-// 이건 "하루치" 값에 적용하는 것이라 서버 함수를 그대로 재사용하지 않고 별도로 둔다
-// (그 함수는 adminClient를 모듈 로드 시 참조해 클라이언트 번들에 들이면 안 됨).
 function sentimentDayLabel(score: number): string {
   if (score > 0.15) return '긍정';
   if (score < -0.15) return '부정';
@@ -243,89 +213,11 @@ function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 // 동일한 시각 언어를 재사용. 아직 도착하지 않은 AI 필드 자리에 스켈레톤을, 지금 문자
 // 단위로 채워지는 중인 필드 끝에는 타이핑 커서를 붙인다. isGenerating이 기본값 false라
 // 이 두 컴포넌트를 쓰지 않는 기존 호출부(app/welcome/page.tsx 등)는 동작이 그대로다.
-function FieldSkeleton({ lines = 2 }: { lines?: number }) {
-  return (
-    <div className="space-y-1.5 animate-pulse">
-      {Array.from({ length: lines }).map((_, i) => (
-        <div
-          key={i}
-          className="h-3 rounded bg-slate-700/40"
-          style={{ width: i === lines - 1 ? '60%' : '100%' }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function TypingCursor() {
-  return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
-}
-
 function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
   return (
     <div className="flex items-center gap-1.5">
       <span className="text-[11px] text-slate-500">{label}</span>
       <span className={`text-[13px] font-bold font-mono ${positive ? 'text-red-400' : 'text-blue-400'}`}>{value}</span>
-    </div>
-  );
-}
-
-// "오늘의 기업 분석" 본문 — mainAnalysisSections가 있으면(신규 리포트) 소제목별로 나눠
-// 렌더링하고, 없으면(과거 레코드/JSON 파싱 실패 fallback) 기존처럼 mainAnalysis 문자열을
-// 그대로 한 문단으로 렌더링한다. 두 경로가 항상 공존해야 과거 저장된 stock_diagnosis
-// 레코드도 계속 정상적으로 보인다.
-// 2026-08-12: mainAnalysisSections를 4개의 독립 string 필드로 스키마 분리(서버가
-// mainAnalysisSections_background 등 4개 top-level 필드를 스트리밍하고, 클라이언트가
-// 다시 이 객체로 merge — app/diagnosis/page.tsx의 applyDiagnosisField 참고)한 덕분에
-// institutionalFlow/sectorNarrative와 동일한 패턴(글자 있으면 표시+커서, 생성 중이면
-// 스켈레톤, 아니면 숨김)으로 4블록을 각각 독립적으로 타이핑 렌더링할 수 있게 됐다.
-const MAIN_ANALYSIS_BLOCKS = [
-  { key: 'mainAnalysisSections_background',    field: 'background',    label: '오늘의 주가 배경' },
-  { key: 'mainAnalysisSections_flowSummary',   field: 'flowSummary',   label: '수급 동향' },
-  { key: 'mainAnalysisSections_valuationNote', field: 'valuationNote', label: '밸류에이션' },
-  { key: 'mainAnalysisSections_watchPoint',    field: 'watchPoint',    label: '관찰 포인트' },
-] as const;
-
-function MainAnalysisBody({ result, isGenerating, revealed }: { result: DiagnosisResult; isGenerating?: boolean; revealed?: Record<string, RevealedField> }) {
-  const s = result.mainAnalysisSections;
-  // 신규 리포트는 스트리밍 도중에도 mainAnalysisSections가 (빈 문자열 포함) 항상 존재하므로
-  // (applyDiagnosisField가 최초 merge 시 4개 필드를 빈 문자열로 채워둠), 과거 레코드(완전
-  // undefined)만 이 분기로 떨어져 기존 mainAnalysis 문자열 폴백을 그대로 사용한다.
-  if (!s) {
-    if (isGenerating && !result.mainAnalysis) {
-      return (
-        <div className="flex flex-col gap-3.5">
-          {MAIN_ANALYSIS_BLOCKS.map(({ label }) => (
-            <div key={label}>
-              <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{label}</p>
-              <FieldSkeleton lines={2} />
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return <p className="text-xs text-slate-300 leading-relaxed">{result.mainAnalysis}</p>;
-  }
-
-  const blocks = MAIN_ANALYSIS_BLOCKS.map((b) => ({ ...b, text: s[b.field] }));
-
-  return (
-    <div className="flex flex-col gap-3.5">
-      {blocks.map((b) => (
-        b.text ? (
-          <div key={b.label}>
-            <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              {revealed?.[b.key]?.text ?? b.text}{revealed?.[b.key]?.active && <TypingCursor />}
-            </p>
-          </div>
-        ) : isGenerating ? (
-          <div key={b.label}>
-            <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
-            <FieldSkeleton lines={2} />
-          </div>
-        ) : null
-      ))}
     </div>
   );
 }
@@ -462,72 +354,6 @@ function HistoryCompareCard({ result, isGenerating, revealed }: { result: Diagno
 // 0 기준선 중심의 발산형 바)을 연도별로 한눈에 비교할 수 있게 표시. 2026-07-13
 // "숫자를 읽어야만 알 수 있다"는 피드백으로, 텍스트 나열에서 막대 시각화로 전환.
 // 색상은 페이지 전체가 이미 쓰고 있는 관례(상승/이익=red, 하락/손실=blue)를 그대로 따름.
-function FinancialsTrendCard({ result, isGenerating, revealed }: { result: DiagnosisResult; isGenerating?: boolean; revealed?: Record<string, RevealedField> }) {
-  const rows = result.annualFinancials;
-  const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue ?? 0));
-  const maxAbsOpProfit = Math.max(1, ...rows.map((r) => Math.abs(r.operatingProfit ?? 0)));
-
-  return (
-    <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5 mb-4">
-      <div className="flex items-center gap-2 mb-4">
-        <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-          실적 추이 (연간 확정치)
-        </span>
-      </div>
-      <div className="flex flex-col gap-3.5 mb-3">
-        {rows.map((r) => (
-          <div key={r.year}>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-bold text-slate-400">{r.year}년</span>
-              {r.roe !== null && <span className="text-[11px] text-slate-500 font-mono">ROE {r.roe}%</span>}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {/* 매출 — 순차형(단일 색) 바, 0 기준 좌측 정렬 */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-600 w-14 shrink-0">매출</span>
-                <div className="flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
-                  {r.revenue !== null && (
-                    <div className="h-full rounded-full bg-indigo-400/70" style={{ width: `${Math.max(2, (r.revenue / maxRevenue) * 100)}%` }} />
-                  )}
-                </div>
-                <span className="text-[11px] font-mono text-slate-300 tabular-nums w-20 text-right shrink-0">
-                  {r.revenue !== null ? `${fmt(r.revenue)}억` : '-'}
-                </span>
-              </div>
-              {/* 영업이익 — 발산형 바(0 기준선 중심), 흑자=red/적자=blue (페이지 전체 관례) */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-600 w-14 shrink-0">영업이익</span>
-                <div className="relative flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
-                  <div className="absolute inset-y-0 left-1/2 w-px bg-slate-600/80" />
-                  {r.operatingProfit !== null && (
-                    r.operatingProfit >= 0 ? (
-                      <div className="absolute inset-y-0 left-1/2 rounded-r-full bg-red-400/80" style={{ width: `${Math.max(2, (r.operatingProfit / maxAbsOpProfit) * 50)}%` }} />
-                    ) : (
-                      <div className="absolute inset-y-0 right-1/2 rounded-l-full bg-blue-400/80" style={{ width: `${Math.max(2, (Math.abs(r.operatingProfit) / maxAbsOpProfit) * 50)}%` }} />
-                    )
-                  )}
-                </div>
-                <span className={`text-[11px] font-mono tabular-nums w-20 text-right shrink-0 ${
-                  r.operatingProfit === null ? 'text-slate-300' : r.operatingProfit >= 0 ? 'text-red-400' : 'text-blue-400'
-                }`}>
-                  {r.operatingProfit !== null ? `${r.operatingProfit >= 0 ? '+' : ''}${fmt(r.operatingProfit)}억` : '-'}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      {result.financialsNarrative ? (
-        <p className="text-xs text-slate-300 leading-relaxed">
-          {revealed?.financialsNarrative?.text ?? result.financialsNarrative}{revealed?.financialsNarrative?.active && <TypingCursor />}
-        </p>
-      ) : isGenerating ? (
-        <FieldSkeleton lines={2} />
-      ) : null}
-    </div>
-  );
-}
-
 interface DiagnosisReportProps {
   result: DiagnosisResult;
   stockName: string;
@@ -604,36 +430,16 @@ export default function DiagnosisReport({
           <p className="text-[12px] text-amber-200/90 leading-relaxed">{INVESTMENT_DISCLAIMER}</p>
         </div>
 
-        {/* ── 1행: 오늘의 기업 분석 (65%) + PERFORMANCE SNAPSHOT (35%) ── */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-4">
-
-          {/* 오늘의 기업 분석 (서술형, 매수/매도/홀딩 의견 아님) */}
-          <div className="rounded-2xl border border-slate-700/50 overflow-hidden" style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
-            <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black bg-indigo-500/10 border border-indigo-500/30">
-                  <Sparkles className="w-4 h-4 text-indigo-400" />
-                </div>
-                <div>
-                  <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>오늘의 기업 분석</p>
-                </div>
-              </div>
-              <MainAnalysisBody result={result} isGenerating={isGenerating} revealed={revealed} />
-              {result.finalVerdict && (
-                <div className="mt-5 pt-5 border-t border-slate-700/50">
-                  <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
-                  <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
-                    <p className="text-xs text-slate-200 leading-relaxed">
-                      {revealed?.finalVerdict?.text ?? result.finalVerdict}{revealed?.finalVerdict?.active && <TypingCursor />}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* PERFORMANCE SNAPSHOT */}
+        {/* ── 1층: 한눈에 — 주가 배경 → 밸류에이션 → AI 종합 진단 (+ 성과 스냅샷) ── */}
+        <LayerHeading no={1} title="한눈에" sub="주가 배경 · 밸류에이션 · AI 종합 진단" />
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-6">
+          <MainAnalysisCard
+            sections={result.mainAnalysisSections}
+            mainAnalysis={result.mainAnalysis}
+            finalVerdict={result.finalVerdict}
+            revealed={revealed}
+            isGenerating={isGenerating}
+          />
           <PerformanceSnapshotCard
             currentPrice={result.currentPrice}
             profitRate={result.profitRate}
@@ -648,145 +454,53 @@ export default function DiagnosisReport({
           />
         </div>
 
-        {/* ── 2행: 직전 기업분석 대비 (신설) ── */}
+        {/* ── 2층: 내 포지션 — 신설 카드(서버 계산) + 관찰 포인트(내 포지션 관점) + 직전 진단 대비 + 기간별 등락률 ── */}
+        <LayerHeading no={2} title="내 포지션" sub="매입가 · 보유기간 기준" />
+        <HoldingPositionCard
+          position={result.holdingPosition}
+          className="mb-4"
+          narrative={(result.mainAnalysisSections?.watchPoint || (isGenerating && result.mainAnalysisSections)) ? (
+            <StreamText value={result.mainAnalysisSections?.watchPoint} k="mainAnalysisSections_watchPoint" revealed={revealed} pending={isGenerating} />
+          ) : null}
+        />
         <HistoryCompareCard result={result} isGenerating={isGenerating} revealed={revealed} />
-
-        {/* ── 2-1행: 주요 공시 (DART, 있을 때만 — 눈에 띄게 강조) ── */}
-        {result.disclosures.length > 0 && (
-          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-5 mb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span className={`${SECTION_TITLE_CLASS} text-amber-400 uppercase tracking-widest`}>주요 공시 (DART)</span>
-            </div>
-            <div className="flex flex-col gap-2 mb-3">
-              {result.disclosures.map((d, i) => (
-                <a
-                  key={i}
-                  href={d.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between gap-3 rounded-lg bg-slate-900/30 px-3 py-2 hover:bg-slate-900/50 transition-colors group"
-                >
-                  <span className="text-[13px] text-amber-100/90 group-hover:text-amber-200 group-hover:underline leading-snug">{d.title}</span>
-                  <span className="text-[11px] text-amber-400/70 font-mono shrink-0">{d.date}</span>
-                </a>
-              ))}
-            </div>
-            {result.disclosureNarrative ? (
-              <p className="text-xs text-slate-300 leading-relaxed">
-                {revealed?.disclosureNarrative?.text ?? result.disclosureNarrative}{revealed?.disclosureNarrative?.active && <TypingCursor />}
-              </p>
-            ) : isGenerating ? (
-              <FieldSkeleton lines={1} />
-            ) : null}
-          </div>
-        )}
-
-        {/* ── 3-1행: 기간별 등락률 (종목분석 페이지와 동일 컴포넌트 재사용) ── */}
         {livePriceTable && (
-          <div className="mb-4">
+          <div className="mb-6">
             <PriceChangeTable ticker={ticker} />
           </div>
         )}
 
-        {/* ── 3-2행: 배당 정보 (DART 최신 사업연도 요약 + KIS 최근 5년 지급이력) ── */}
-        <DividendInfo summary={result.dividendSummary} history={result.dividendHistory} />
-
-        {/* ── 4행: 기관/외국인 동향 도넛 + 업종 대비 + 리스크 요인 ── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-
-          {/* 기관/외국인 동향 — 도넛 차트 (설명 텍스트는 본문에 흡수, 여기는 캡션 한 줄만) */}
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
-                <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>기관/외국인 동향</p>
-            </div>
-
-            {/* 도넛 차트 — flowPercentage는 "오늘 하루" 순매매 강도(평소 거래대금 대비 정규화값)라
-                최근 5일 캡션과 기간이 다르다. 소제목·구분선으로 명시해 같은 카드 안에서 서로 다른
-                기간의 수치가 섞여 보이지 않게 한다. */}
-            <p className="text-center text-[11px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
-            <div className="flex flex-col items-center py-2">
-              <DonutChart
-                percent={result.flowPercentage ?? 50}
-                type={result.flowType ?? 'NEUTRAL'}
-              />
-              <p className="text-center text-[11px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
-            </div>
-
-            {/* 구분선 — 도넛(오늘)과 아래 캡션(최근 5일)이 다른 기간의 데이터임을 시각적으로 분리 */}
-            <div className="flex items-center gap-2.5 mt-4 mb-3">
-              <span className="flex-1 h-px bg-slate-700/40" />
-              <span className="text-[11px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
-              <span className="flex-1 h-px bg-slate-700/40" />
-            </div>
-
-            {/* 캡션 (기관/외국인 각 한 줄) */}
-            <div className="flex flex-col gap-1.5">
-              {result.institutionalFlow ? (
-                <p className="text-center text-xs text-slate-400 leading-relaxed">
-                  {revealed?.institutionalFlow?.text ?? result.institutionalFlow}{revealed?.institutionalFlow?.active && <TypingCursor />}
-                </p>
-              ) : isGenerating ? (
-                <FieldSkeleton lines={1} />
-              ) : null}
-              {result.foreignFlow ? (
-                <p className="text-center text-xs text-slate-400 leading-relaxed">
-                  {revealed?.foreignFlow?.text ?? result.foreignFlow}{revealed?.foreignFlow?.active && <TypingCursor />}
-                </p>
-              ) : isGenerating ? (
-                <FieldSkeleton lines={1} />
-              ) : null}
-            </div>
-          </div>
-
-          {/* 업종 대비 (동종업계 peer 없으면 카드 자체 생략) — 카드 전체가 공유 페이지와
-              공유하는 컴포넌트(SectorComparisonCard, 드리프트 방지). narrative만 이 페이지의
-              스트리밍 타이핑 커서 상태를 반영해 여기서 조립해 넘긴다. */}
+        {/* ── 3층: 종목 구조 — 수급(서술처 1곳) · 업종 대비 · 실적(연간+분기) · 배당 · 급등락/거래대금 · 환율 ── */}
+        <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 배당 · 거래" />
+        <div className={`grid grid-cols-1 ${result.sectorComparison ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+          <InstitutionalFlowCard
+            flowType={result.flowType}
+            flowPercentage={result.flowPercentage}
+            flowInsight={result.flowInsight}
+            institutionalFlow={result.institutionalFlow}
+            foreignFlow={result.foreignFlow}
+            revealed={revealed}
+            isGenerating={isGenerating}
+          />
           {result.sectorComparison && (
             <SectorComparisonCard
               data={result.sectorComparison}
-              narrative={
-                result.sectorNarrative ? (
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    {revealed?.sectorNarrative?.text ?? result.sectorNarrative}{revealed?.sectorNarrative?.active && <TypingCursor />}
-                  </p>
-                ) : isGenerating ? (
-                  <FieldSkeleton lines={2} />
-                ) : null
-              }
+              narrative={<StreamText value={result.sectorNarrative} k="sectorNarrative" revealed={revealed} pending={isGenerating} className="text-xs text-slate-400 leading-relaxed" />}
             />
           )}
-
-          {/* 리스크 요인 */}
-          <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <span className={`px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                Risk Factors
-              </span>
-            </div>
-            <div className="flex flex-col gap-2">
-              {result.riskFactors.length > 0 ? (
-                result.riskFactors.map((line, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
-                    <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
-                  </div>
-                ))
-              ) : isGenerating ? (
-                <FieldSkeleton lines={3} />
-              ) : null}
-            </div>
-          </div>
         </div>
+        <FinancialsTrendCard
+          annual={result.annualFinancials}
+          quarterly={result.quarterlyFinancials ?? []}
+          yearEndMonth={result.financialsYearEndMonth}
+          narrative={<StreamText value={result.financialsNarrative} k="financialsNarrative" revealed={revealed} pending={isGenerating} />}
+          className="mb-4"
+        />
+        <DividendInfo summary={result.dividendSummary} history={result.dividendHistory} />
+        <SurgeTradingRow surgeHistory={result.surgeHistory} tradingValueMultiple={result.tradingValueMultiple} className="mb-4" />
+        <FxCorrelationCard fx={result.fxCorrelation} className="mb-4" />
 
-        {/* ── 4-1행: 최근 뉴스 논조 추이 (2026-08-21 신설) — news_sentiment_daily는
-            CURATED_TICKERS_MKT(대형주 100종목) 한정 크론이라 그 밖의 종목·데이터 부족(5거래일
-            미만)이면 서버가 newsSentiment를 null로 보내며, 그 경우 카드 자체를 생략한다
-            (업종 대비 카드와 동일한 "근거 부족하면 생략" 관례). raw score(-1~1)는 노출하지
-            않고 3단계 텍스트 라벨로만 보여준다 — 매수/매도 신호처럼 읽히는 걸 피하기 위함. ── */}
+        {/* 최근 뉴스 논조 추이(2026-08-21 신설, 현재 플래그로 숨김 — 재설계 완료 시 SHOW_NEWS_SENTIMENT_CARD=true) */}
         {SHOW_NEWS_SENTIMENT_CARD && result.newsSentiment && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
             <div className="flex items-center justify-between mb-3">
@@ -806,82 +520,23 @@ export default function DiagnosisReport({
           </div>
         )}
 
-        {/* ── 5행: 단기/중기 관찰 변수 ── */}
-        {(result.shortTermOutlook || result.midTermOutlook || isGenerating) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {(result.shortTermOutlook || isGenerating) && (
-              <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className={`px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                    단기 관찰 변수
-                  </span>
-                </div>
-                {result.shortTermOutlook ? (
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {revealed?.shortTermOutlook?.text ?? result.shortTermOutlook}{revealed?.shortTermOutlook?.active && <TypingCursor />}
-                  </p>
-                ) : (
-                  <FieldSkeleton lines={2} />
-                )}
-              </div>
-            )}
-            {(result.midTermOutlook || isGenerating) && (
-              <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                    중기 관찰 변수
-                  </span>
-                </div>
-                {result.midTermOutlook ? (
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {revealed?.midTermOutlook?.text ?? result.midTermOutlook}{revealed?.midTermOutlook?.active && <TypingCursor />}
-                  </p>
-                ) : (
-                  <FieldSkeleton lines={2} />
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── 5-0-1행: 환율 상관관계 (최근 1년, |r|<0.3이거나 표본 부족이면 카드 자체 생략) ── */}
-        {result.fxCorrelation && (
-          <div className="bg-[#1a1f2e] border border-cyan-500/20 rounded-2xl p-5 mb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className={`px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                환율 상관관계
-              </span>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              최근 1년간 이 종목은 원/달러 환율과 {result.fxCorrelation.correlation >= 0 ? '+' : ''}{result.fxCorrelation.correlation}의 {result.fxCorrelation.correlation >= 0 ? '양(+)' : '음(-)'}의 상관관계를 보여왔습니다.
-            </p>
-          </div>
-        )}
-
-        {/* ── 5-0-2행: 급등/급락 이력 + 거래대금 배수 (내부 계산 지표 원자료 카드화, 2026-08-27
-            신설). 2026-08-28 수정: 급등이력은 유사 사례가 없는 게 대다수 종목의 기본
-            상태지만, 거래대금 배수(평상시 1배 안팎도 항상 표시)와 시각적 일관성을 맞추려
-            hasMatches:false여도 카드는 그리고 내부에서 "이력 없음" 빈 상태를 보여준다 —
-            surgeHistory 객체 자체가 없을 때(과거 레코드·계산 실패로 null/undefined)만
-            생략한다. 거래대금 배수는 기존과 동일하게 valid일 때만 표시. 둘 다 없으면
-            행 자체가 생략된다. ── */}
-        {((result.surgeHistory != null) || (result.tradingValueMultiple?.valid)) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {result.surgeHistory != null && (
-              <SurgeHistoryCard surgeHistory={result.surgeHistory} />
-            )}
-            {result.tradingValueMultiple?.valid && (
-              <TradingValueMultipleCard t={result.tradingValueMultiple} />
-            )}
-          </div>
-        )}
-
-        {/* ── 5-1행: 실적 추이 (최근 3개년 확정 연간, 데이터 없으면 카드 생략) ── */}
-        {result.annualFinancials.length > 0 && (
-          <FinancialsTrendCard result={result} isGenerating={isGenerating} revealed={revealed} />
-        )}
-
-        {/* ── 6행: 참고 기사 — 공용 ReferenceNewsList(공유 페이지와 동일, 번호는 표시 순서대로) ── */}
+        {/* ── 4층: 참고 자료 — DART 공시 · 종목 고유 리스크 · 확인할 이벤트·지표 · 참고 기사 ── */}
+        <LayerHeading no={4} title="참고 자료" sub="공시 · 종목 고유 리스크 · 확인할 이벤트 · 기사" />
+        <DisclosuresCard
+          disclosures={result.disclosures}
+          narrative={<StreamText value={result.disclosureNarrative} k="disclosureNarrative" revealed={revealed} pending={isGenerating} lines={1} />}
+          className="mb-4"
+        />
+        <RiskFactorsCard riskFactors={result.riskFactors} isGenerating={isGenerating} className="mb-4" />
+        <WatchVariablesCard
+          shortTermOutlook={result.shortTermOutlook}
+          midTermOutlook={result.midTermOutlook}
+          pending={isGenerating}
+          revealed={revealed}
+          title="확인할 이벤트·지표"
+          caption="이 종목 고유의 일정·공시·지표만 — 예측이 아니라 확인 목록입니다."
+          className="mb-4"
+        />
         <ReferenceNewsList news={result.news ?? []} clusters={result.newsIssueClusters} newsBasis={result.newsBasis} className="mb-4" />
 
         {/* 면책 */}

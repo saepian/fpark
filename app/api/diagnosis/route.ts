@@ -4,7 +4,8 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
 import { checkPlan, resolveDiagnosisLimit, getUsageCycleStart } from '@/lib/plan';
-import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchAnnualFinancials, type AnnualFinancialRow, fetchDividendHistory, type DividendHistoryRow } from '@/lib/kis-api';
+import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchFinancialsTrend, type AnnualFinancialRow, type QuarterlyFinancialRow, fetchDividendHistory, type DividendHistoryRow } from '@/lib/kis-api';
+import { computeHoldingPosition, buildHoldingPositionBlock } from '@/lib/holding-position';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -48,40 +49,44 @@ const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 // mainAnalysis 하나의 서술형 본문으로 통합하고, historyNarrative로 "직전 진단 대비"
 // 개념을 신설했다. 매 요청마다 동일한 고정 지침 — 프롬프트 캐싱 대상(system 블록,
 // cache_control 적용). 종목별로 바뀌는 데이터(가격/수급/뉴스/히스토리)는 messages 쪽에 둔다.
+// 2026-09-01 전면 재편 — "카드 단일역할" 원칙. 예전엔 같은 수치(자사주 매입, 등락률, PER, 외국인
+// 유출액…)가 주가 배경·수급 동향·관찰 포인트·리스크·단기/중기·종합진단에 4~7회씩 반복됐다
+// (실측: 삼성전자 33개 고유 수치 중 자사주 5곳, 현대차 91% 4곳). 필드마다 "담당 수치"를 정하고
+// 다른 필드의 수치는 표현을 바꿔도 반복으로 간주한다. 수급 서술처는 flowInsight(기관/외국인 카드)
+// 한 곳으로 줄이고(1층 flowSummary 삭제), 관찰 포인트는 서버가 계산해 주입하는 [내 포지션 데이터]
+// 기준의 "내 위치" 서술로 재정의했다. 키 순서는 lib/streaming-json-fields.ts DIAGNOSIS_FIELD_SPECS와
+// 반드시 일치.
 const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아래 구조 그대로 출력)
 {
-  "mainAnalysisSections_background": "【최대 210자, 절대 넘기지 말 것 — 이 글자수 제한이 아래 내용 요구보다 우선입니다. 서술형으로 이어 쓸 것, 항목 나열 금지】이 필드의 존재 이유는 '해석'입니다 — 공간이 부족하면 사실 서술을 압축하고, 해석 문장은 절대 생략하지 마세요. [1] 사실(공간이 부족하면 1문장 이내로 압축): 현재 상태를 관찰형으로 — 예) '지금 삼성전자는 수익이 충분히 난 상태이며 오늘 급락했다.'(수급 방향·규모의 상세 해석은 mainAnalysisSections_flowSummary가 담당하므로 여기서 반복 금지, 관련 뉴스가 있으면 핵심 사실만 짧게 덧붙이되 기사 문장 15단어 이상 그대로 인용 금지) [2] 해석(필수, 절대 생략 금지): [1]의 사실이 왜 유의미한지 판단 축 1개 이상을 고르고, 그 판단의 결론까지 명시하세요 — 판단 유형만 고르고 결론 없이 끝내지 마세요. 판단 축 예시: 이 종목만의 개별 이슈인지 업종·시장 전체 동반 현상인지(개별 이슈라면 그 크기가 뉴스만으로 설명되는 수준인지 초과분이 남는지까지), 뉴스 논조와 실제 주가 흐름이 일치하는지 괴리가 있는지(괴리가 있다면 그 괴리가 과도한 반응인지 타당한 반응인지까지), 선반영된 것인지 하루짜리 이슈인지(선반영이라면 오늘 가격에 이미 얼마나 반영됐다고 보는지까지). 뉴스가 없으면 '특별한 뉴스 없이 수급·기술적 요인으로 추정된다'도 유효한 판단입니다. 52주 고점·저점 대비 위치는 공간이 남을 때만 관찰 사실로 짧게 추가 가능(숫자로 결론 유도 금지) — 공간이 부족하면 이 부분을 가장 먼저 생략하세요. 금지: 매수/매도/홀딩 지시·권유, 목표가·손절가, 저항선·지지선·매물대, 미래 가격 예측, ①②③ 나열, bullet식 나열",
-  "mainAnalysisSections_flowSummary": "【최대 120자, 절대 넘기지 말 것 — 1문장】외국인·기관 5일 추이 중 방향성이 뚜렷한 쪽 하나를 골라, 그 사실과 다른 데이터 포인트(개인 수급 방향, 오늘 등락률 등) 최소 1개를 연결해서 해석하세요(단순히 유입·유출 금액만 재서술하지 말 것) — 개인과 방향이 실제로 반대일 때는 그 대립이 왜 눈에 띄는지까지(예: 이 정도 규모 매물을 개인이 받아내는 게 흔한 일인지 등), 같으면 다른 연결 지점을 찾으세요. 연결 지을 근거가 부족하면 '아직 명확하지 않다'고 쓰는 것도 정답입니다. 구체적 금액 수치는 최대 1개만 인용, 미래 가격 예측 문구 절대 금지, mainAnalysisSections_background와 겹치는 내용 반복 금지",
-  "mainAnalysisSections_valuationNote": "【최대 90자, 절대 넘기지 말 것 — 1문장, 밸류에이션】PER/PBR 수준과 [금일 등락률] 등 다른 데이터 포인트 최소 1개를 연결해서 해석하세요(단순히 PER가 높다/낮다만 재서술하지 말 것) — 예) 'PER 36.5배로 업종 평균보다 높게 거래돼온 만큼, 오늘 같은 급락은 그 프리미엄이 일부 되돌려지는 압축 과정으로도 해석될 수 있다.' 데이터 없으면 빈 문자열 \\"\\". 연결 지을 근거가 부족하면 '아직 명확하지 않다'고 쓰는 것도 정답입니다. ⚠️ PER/PBR 같은 가치평가 지표 코멘트만 담당합니다 — 동종업계 등락률·수익률 비교는 절대 언급하지 마세요(그건 별도 sectorNarrative 필드의 몫)",
-  "mainAnalysisSections_watchPoint": "【최대 150자, 절대 넘기지 말 것 — 1~2문장, 관찰 포인트】[내부 계산 지표] 중 정확히 1개만 골라 보유 정보(매입가 대비 관점)와 엮어 서술 — **[급등이력]에 hasMatches:true인 사례가 있으면 그것 하나만 사용**(다른 지표와 같이 쓰지 말 것), 사례가 없을 때만 거래대금배수 또는 MDD/변동성 중 1개만 선택. 예) '이 종목은 매입가 대비 10% 수익 구간인데, 오늘 같은 규모의 급락은 최근 5개월 내 한 차례 더 있었고 그때는 이후 5일간 +3% 반등했습니다' 같이 '내 포지션 관점'에서 간결히. 업종 대비·실적 추이는 언급 금지(sectorNarrative/financialsNarrative의 몫)",
+  "mainAnalysisSections_background": "【최대 200자, 절대 넘기지 말 것 — 1~2문장, 서술형】오늘 주가 움직임의 배경. 구조는 [원인 1개] + [판단 1개]입니다. 원인은 뉴스·업종 배경·수급/기술적 요인 중 오늘 움직임을 가장 잘 설명하는 것 하나만 고르세요(둘 이상 나열 금지, 기사 문장 15단어 이상 인용 금지). 판단은 '이 종목만의 개별 이슈인지, 업종·시장 전체가 함께 움직인 것인지'를 반드시 결론까지 명시하세요(예: '...로 업종 전체가 함께 밀린 날이며, 이 종목만의 개별 악재는 확인되지 않는다'). 뉴스가 없으면 '특별한 뉴스 없이 수급·기술적 요인으로 추정된다'도 유효한 판단입니다. 금지: 수급 금액·PER/PBR·52주 위치·거래대금 배수·MDD 같은 수치 나열(등락률은 급등락일 때 1회만 허용), 매수/매도/홀딩 지시·권유, 목표가·손절가·저항선·지지선·매물대, 미래 가격 예측, ①②③·bullet식 나열",
+  "mainAnalysisSections_valuationNote": "【최대 90자, 절대 넘기지 말 것 — 1문장】PER/PBR을 다루는 유일한 자리입니다. PER·PBR 수준을 오늘 움직임 또는 실적 추세와 연결해 해석하세요(단순히 높다/낮다만 재서술 금지). 예) 'PER 36.5배로 업종 평균보다 높게 거래돼온 만큼, 오늘 같은 급락은 그 프리미엄이 일부 되돌려지는 과정으로도 해석될 수 있다.' 데이터 없으면 빈 문자열 \\"\\". 동종업계 등락률·수급·매입가 대비 언급 금지",
+  "mainAnalysisSections_watchPoint": "【최대 150자, 절대 넘기지 말 것 — 1~2문장, 내 포지션 관점】아래 [내 포지션 데이터]의 수치만 사용해 '지금 내 위치'를 서술하세요. 반드시 포함: (1) 매입가 대비 수익/손실 구간 (2) 보유 중 고점 또는 저점 대비 현재 위치. 여기에 ±15% 변동일 수·PER 변화·지수 대비 중 1개를 골라 덧붙여도 됩니다. 예) '매입가 대비 -10% 구간에서, 보유 중 고점(374,500원) 대비 -30%를 되돌린 위치다. 보유기간 중 ±15% 변동일은 없었다.' [내 포지션 데이터]에 없는 수치를 만들지 말 것. 업종 대비·실적·수급·급등락 사례·거래대금·뉴스는 다른 필드의 몫이므로 언급 금지. '회복', '반등', '되찾', '만회' 같은 방향 표현 금지 — 위치만 서술",
   "historyNarrative": "【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로 서술",
-  "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \"\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석. 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' mainAnalysisSections_*·riskFactors와 겹치는 내용 반복 금지, 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중. mainAnalysisSections_valuationNote(PER/PBR)와는 다른 지표(등락률)를 다루므로 내용이 겹치지 않음",
-  "financialsNarrative": "【[실적 추이]에 데이터가 있을 때만 2문장 — 없으면 빈 문자열 \"\"】최근 3개년 매출·영업이익·순이익·ROE 추세와 함의를 짧게. 예) '2023년 적자에서 2024·2025년 연속 흑자 전환했고, 영업이익도 확대되는 흐름입니다. 이 개선 궤도가 이어지는지는 다음 실적 발표에서 확인될 예정입니다.' 숫자를 전부 나열하지 말고 추세(개선/악화/횡보)와 그 의미 위주로, 향후 실적을 예측하지 말고 '다음 실적에서 확인될 예정' 같은 관찰형으로 마무리",
-  "disclosureNarrative": "【[최근 주요 공시]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열 \"\"】공시는 사실관계가 명확하므로 뉴스보다 구체적 수치·날짜를 그대로 인용해도 됨(예: '7월 10일 자기주식 500억원 규모 처분을 공시했다'). 이 공시가 왜 있었는지/무엇을 의미하는지 관찰형으로 해석하되, 나열하지 말고 서술형 문장으로. mainAnalysisSections_*·riskFactors와 겹치는 내용 반복 금지",
-  "riskFactors": ["리스크 요인 1 (25~40자, 수치 포함, mainAnalysisSections_*와 겹치지 않는 내용)", "리스크 요인 2 (25~40자)", "리스크 요인 3 (25~40자)"],
+  "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석. 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중. PER/PBR(valuationNote)·수급(flowInsight)과 겹치지 않음",
+  "financialsNarrative": "【[실적 추이]에 데이터가 있을 때만 2문장 — 없으면 빈 문자열 \\"\\"】연간 추세 1문장 + 최근 분기(전년 동기 대비) 1문장. 숫자를 전부 나열하지 말고 추세(개선/악화/횡보)와 그 의미 위주로, 향후 실적을 예측하지 말고 '다음 분기 실적에서 확인' 같은 관찰형으로 마무리",
+  "disclosureNarrative": "【[최근 주요 공시]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】공시는 사실관계가 명확하므로 구체적 수치·날짜를 그대로 인용해도 됨(예: '7월 10일 자기주식 500억원 규모 처분을 공시했다'). 이 공시가 무엇을 의미하는지 관찰형으로 해석. 공시 수치는 이 필드에서만 인용(background·riskFactors에서 반복 금지)",
+  "riskFactors": ["종목 고유 리스크 1 (25~40자)", "종목 고유 리스크 2 (25~40자)", "종목 고유 리스크 3 (25~40자)"],
+  "flowInsight": "【최대 110자, 절대 넘기지 말 것 — 1문장】수급을 해석하는 유일한 자리(기관/외국인 카드 안). 외국인·기관 5일 추이 중 방향이 뚜렷한 쪽 하나를 골라 개인 수급 방향 또는 오늘 등락률과 연결해 해석하세요(유입·유출 금액 재서술 금지, 금액 수치는 최대 1개). 개인과 방향이 반대라면 그 대립이 왜 눈에 띄는지까지. 근거가 부족하면 '아직 명확하지 않다'도 정답. 미래 가격 예측 금지",
   "institutionalFlow": "기관 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
   "foreignFlow": "외국인 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, 동일 기준)",
-  "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】단기 관찰 변수, mainAnalysisSections_*에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로 (예: '외국인 자금은 5일째 유출 중인데, 이는 방향 전환 여부를 아직 확인할 수 없다는 점에서 지켜볼 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. '주가 방향이 갈릴 수 있다', '~구간이다', '상승/하락 여력' 같이 가격 움직임을 예측하는 표현 절대 금지, 목표가·저항선·지지선 언급 금지",
-  "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 반드시 1문장】중기 관찰 변수, mainAnalysisSections_*에 이미 쓴 내용과 겹치지 않는 새 정보 1개 + 그 사실이 왜 지켜볼 가치가 있는지 1구절, 총 1문장으로, 특정 가격 수준이나 방향은 예측하지 않음 (예: '메모리 공급 부족 전망이 나온 상태인데, 이는 실제 실적으로 이어지는지가 다음 분기에 확인될 변수다.') — '배경 설명 없이 사실만'은 금지, 반드시 의미까지 포함하세요. 가격 방향 예측·목표가·저항선·지지선 언급 절대 금지",
-  "finalVerdict": "【최대 180자, 절대 넘기지 말 것 — 1~2문장, 순수 서술형】이 필드는 앞선 필드들의 개별 판단을 교차 종합하는 자리이므로, 다른 필드에 적용되는 '겹치는 내용 반복 금지' 규칙의 예외입니다 — mainAnalysisSections_valuationNote·sectorNarrative 등에서 이미 내린 '판단'(밸류에이션 부담 여부, 개별·업종 이슈 여부 등)을 명시적으로 다시 끌어와 서로 연결하세요. 오늘의 반응(가격 변동 폭)이 실제 근거(뉴스·실적·수급·밸류에이션) 대비 다음 세 가지 중 어디에 해당하는지 명확히 하나를 선택하고, 그렇게 판단한 근거를 같은 문장 안에 붙이세요: (a) 근거 대비 과도한 반응으로 보인다 (b) 근거에 비춰 타당한/합리적인 반응으로 보인다 (c) 근거가 서로 엇갈리거나 불충분해 판단을 유보하는 것이 맞다 — (c)를 고르더라도 '지켜보자'로 문장을 끝내지 말고 무엇이 확인되면 (a)나 (b)로 판단이 바뀔지까지 구체적으로 밝히세요. 점수·등급·별점·숫자 표기 절대 금지, (a)/(b)/(c) 같은 선택지 기호도 문장에 쓰지 말 것(기호 없이 서술로만) — 오직 문장으로만 판단을 전달하세요. 매매행위(매수/매도/추격매수/추격매도/진입/청산 등)를 직접 지목하지 말고 관찰·판단 어투로 순화하세요. 목표가·저항선·지지선·가격 방향 예측 절대 금지. 앞선 필드들에서 이미 다룬 개별 '사실'(수치 등)을 다시 나열하지 말고, 그 사실들을 근거로 이미 내린 '판단'들을 종합한 최종 스탠스만 담으세요.",
+  "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 1문장】수주 내 확인할 이 종목 고유의 이벤트·지표 1개(실적 발표, 공시, 신제품·수주·규제 결정, 주주환원 집행 등) + 그것이 무엇을 확인시켜 주는지. 금리·환율·지수 같은 매크로 일반론, 수급 추이, '주가 방향이 갈릴 수 있다'·'~구간이다'·'상승/하락 여력' 같은 가격 표현, 목표가·저항선·지지선 금지",
+  "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 1문장】수개월 내 확인할 이 종목 고유의 이벤트·지표 1개 + 그것이 무엇을 확인시켜 주는지. shortTermOutlook과 다른 이벤트. 동일한 금지 규칙(매크로 일반론·수급·가격 방향·목표가·저항선·지지선 금지)",
+  "finalVerdict": "【최대 180자, 절대 넘기지 말 것 — 1~2문장, 순수 서술형】앞선 필드들이 내린 '판단'(개별 이슈인지 업종 동반인지, 밸류에이션 부담 여부, 수급 대립 여부, 실적 추세)만 서로 연결해 종합하는 자리 — 개별 사실·수치(등락률·금액·PER·매입가 대비 등)를 다시 인용하지 마세요. 오늘의 반응(가격 변동 폭)이 실제 근거(뉴스·실적·수급·밸류에이션) 대비 (a) 과도한 반응인지 (b) 타당한 반응인지 (c) 근거가 엇갈려 판단을 유보하는 게 맞는지 하나를 명확히 고르고 그 근거를 같은 문장 안에 붙이세요 — (c)라도 '지켜보자'로 끝내지 말고 무엇이 확인되면 판단이 바뀔지까지 밝힐 것. 점수·등급·별점·숫자 표기 절대 금지, (a)/(b)/(c) 같은 선택지 기호도 문장에 쓰지 말 것. 매매행위(매수/매도/추격매수/진입/청산 등) 직접 지목 금지, 목표가·저항선·지지선·가격 방향 예측 금지",
   "newsIssueClusters": [{"label": "이슈 라벨(8~16자 명사구, 예: 'HBM 신기술 표준 공개')", "articleIndexes": [0, 2]}]
 }
 
-위 JSON 스키마를 반드시 준수하세요. mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 4개 필드는 반드시 포함되어야 합니다(mainAnalysisSections_valuationNote는 데이터 없으면 빈 문자열 허용).
+위 JSON 스키마를 반드시 준수하세요. mainAnalysisSections_background/valuationNote/watchPoint 3개 필드는 반드시 포함되어야 합니다(valuationNote는 데이터 없으면 빈 문자열 허용).
 규칙:
 - ${COMPLIANCE_PRINCIPLE}
 - JSON 키 순서 및 구조 변경 금지
-- riskFactors는 반드시 문자열 배열 (JSON array), 각 항목 25~40자
+- 【수치 반복 금지 — 가장 중요】같은 수치·같은 사실을 두 필드 이상에서 쓰지 마세요. 다른 필드가 이미 인용한 수치는 표현을 바꿔도('약 X%', 'X배 수준', '두 자릿수 하락') 반복으로 간주합니다. 수치는 아래 담당 필드에서만 인용하세요: 오늘 등락률·움직임의 원인 → mainAnalysisSections_background / PER·PBR → mainAnalysisSections_valuationNote / 매입가·보유 중 고점·저점 대비·±15% 변동일·PER 변화·지수 대비 → mainAnalysisSections_watchPoint / 외국인·기관·개인 수급 → flowInsight·institutionalFlow·foreignFlow / 업종 peer 등락률 → sectorNarrative / 매출·영업이익·분기 실적 → financialsNarrative / 공시 수치·날짜 → disclosureNarrative / 직전 진단 대비 변화 → historyNarrative. riskFactors·shortTermOutlook·midTermOutlook·finalVerdict는 어떤 수치도 새로 인용하지 않습니다.
+- riskFactors는 반드시 문자열 배열(JSON array), 각 항목 25~40자, 이 종목 고유 이슈(사업·규제·경쟁·고객사·공급망·소송·실적 변수·자사주 등 주주환원 실행 여부)만. 수급·PER/PBR·거래대금 배수·MDD/변동성·52주 위치·시장 전체 매크로(금리·환율·지수 일반론)는 절대 금지 — 다른 카드가 담당합니다. 고유 이슈가 부족하면 2개만 써도 됩니다(억지로 3개 채우지 말 것)
 - "목표가", "손절가", "매수 추천", "매도 추천", "권고", "정당화", "저항선", "지지선", "매물대", "과매수", "과매도", "지지 시험", "가격 방향", "우위를 점하는지", "상승 여력을 기대", "신호로 해석" 단어·표현을 사용하지 마세요
-- mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 각 필드·shortTermOutlook·midTermOutlook은 사실 서술에 전체 분량의 절반을 넘기지 말고, 나머지 절반은 "그 사실이 왜 유의미한지"에 쓰세요. 단, 그 유의미함이 향후 가격 방향 예측이어선 안 됩니다(가격이 오른다/내린다는 판단 금지, 지표의 성격·신뢰도·희소성에 대한 해석은 허용)
+- mainAnalysisSections_background/valuationNote/watchPoint·flowInsight·shortTermOutlook·midTermOutlook은 사실 서술에 전체 분량의 절반을 넘기지 말고, 나머지 절반은 "그 사실이 왜 유의미한지"에 쓰세요. 단, 그 유의미함이 향후 가격 방향 예측이어선 안 됩니다(가격이 오른다/내린다는 판단 금지, 지표의 성격·신뢰도·희소성에 대한 해석은 허용)
 - 데이터 포인트를 연결해서 해석하라는 지시가 있다고 근거 없이 억지로 연결하지 마세요 — 연결 지을 근거가 부족하면 "아직 명확하지 않다", "뚜렷한 연결고리는 확인되지 않는다"처럼 솔직하게 쓰는 것도 정답입니다
-- 같은 사실(52주 위치, 특정 수급 수치, 특정 뉴스 등)을 mainAnalysisSections_background/flowSummary/valuationNote/watchPoint 서로간·riskFactors·shortTermOutlook·midTermOutlook 여러 곳에서 반복 서술하지 마세요 — 각 필드는 서로 다른 내용을 담아야 합니다
-- 52주 고가/저가·PER/PBR 같은 정적 지표를 mainAnalysisSections_background의 핵심 근거 문장으로 쓰지 마세요 (스치듯 한 번 언급하는 것은 허용하되 그 숫자로 결론을 이끌어내지 말 것)
-- financialsNarrative: [실적 추이]는 확정된 연간 실적이며 잠정치가 아닙니다 — "향후 실적이 개선될 것" 같은 전망이 아니라 "최근 N개년 추세가 이러하다"는 관찰로만 서술하세요
+- financialsNarrative: [실적 추이]의 연간은 확정 실적, 분기는 단독 분기 실적(회계연도 누적 차감)입니다 — "향후 실적이 개선될 것" 같은 전망이 아니라 추세 관찰로만 서술하세요
 - sectorNarrative: [업종 대비]는 "판단이 아닌 수치 비교"입니다 — 시장(KOSPI) 대비 비교와 같은 어투로, 우열을 평가하는 뉘앙스 없이 사실만 전달하세요
-- sectorNarrative와 mainAnalysisSections_valuationNote는 서로 다른 지표(등락률 vs PER/PBR)를 다루는 별개 필드입니다 — 절대 같은 지표를 양쪽에서 중복 언급하지 마세요
-- sectorNarrative·financialsNarrative·disclosureNarrative는 mainAnalysisSections_background/flowSummary/valuationNote/watchPoint·riskFactors·shortTermOutlook·midTermOutlook과 내용이 겹치면 안 됩니다 — 업종/실적/공시 이야기는 각각 그 필드에서만
-- finalVerdict는 점수·등급·별점·숫자를 절대 포함하지 말고 순수 문장으로만 최종 판단을 전달하세요. "추격매수", "매수 타이밍" 같은 매매행위 직접 지목은 금지하되, 판단 자체(과도한 반응인지/타당한 반응인지/판단 유보가 맞는지)는 흐리지 말고 명확히 밝히세요 — "관찰이 필요하다", "지켜볼 필요가 있다", "추가 확인이 필요하다" 류의 문장으로 판단을 얼버무리며 끝내지 마세요. 판단을 유보할 때조차 무엇이 확인되면 판단이 바뀌는지까지 구체적으로 밝혀야 유효한 유보입니다.
+- finalVerdict는 점수·등급·별점·숫자를 절대 포함하지 말고 순수 문장으로만 최종 판단을 전달하세요. "관찰이 필요하다", "지켜볼 필요가 있다", "추가 확인이 필요하다" 류의 문장으로 판단을 얼버무리며 끝내지 마세요. 판단을 유보할 때조차 무엇이 확인되면 판단이 바뀌는지까지 구체적으로 밝혀야 유효한 유보입니다.
 - newsIssueClusters: [뉴스 이슈 클러스터링용 전체 목록]의 기사가 2건 이상이고 서로 다른 사건(이슈)을 대표할 때만 채우세요(3~4개 이하 클러스터). label은 8~16자 명사구로 간결하게(문장형·완결된 문장 금지). 기사가 1건뿐이거나 사실상 하나의 사건만 다루고 있으면 억지로 나누지 말고 빈 배열 []을 반환하세요. 각 인덱스는 최대 하나의 클러스터에만 넣으세요(중복 금지)
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
 - ${MARKET_DAY_GROUNDING_INSTRUCTION}
@@ -337,7 +342,7 @@ export async function POST(request: NextRequest) {
           // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
           fetchDailyChart(ticker, '1Y'),
           fetchSectorPeers(ticker),
-          fetchAnnualFinancials(ticker),
+          fetchFinancialsTrend(ticker), // 연간 3개년 + 분기 6개(단독값·전년동기비), 2026-09-01
           fetchRecentDisclosures(ticker),
           fetchDividendSummary(ticker),
           fetchDividendHistory(ticker),
@@ -386,7 +391,10 @@ export async function POST(request: NextRequest) {
         if (!marketDayContext.isTradingDay) {
           console.log(`[DIAGNOSIS] ${ticker} 휴장일 감지(${marketDayContext.reason}) — 마지막 거래일 ${marketDayContext.lastTradingDate} 기준으로 서술 지시`);
         }
-        const annualFinancials: AnnualFinancialRow[] = financialsResult.status === 'fulfilled' ? financialsResult.value : [];
+        const financialsTrend = financialsResult.status === 'fulfilled' ? financialsResult.value : { annual: [] as AnnualFinancialRow[], quarterly: [] as QuarterlyFinancialRow[], yearEndMonth: '12' };
+        const annualFinancials: AnnualFinancialRow[] = financialsTrend.annual;
+        const quarterlyFinancials: QuarterlyFinancialRow[] = financialsTrend.quarterly;
+        const financialsYearEndMonth = financialsTrend.yearEndMonth;
         const disclosures: DartDisclosure[] = disclosuresResult.status === 'fulfilled' ? disclosuresResult.value : [];
         const dividendSummary: DartDividendSummary | null = dividendSummaryResult.status === 'fulfilled' ? dividendSummaryResult.value : null;
         const dividendHistory: DividendHistoryRow[] = dividendHistoryResult.status === 'fulfilled' ? dividendHistoryResult.value : [];
@@ -545,6 +553,21 @@ export async function POST(request: NextRequest) {
         const tradingValueBlock    = buildTradingValueBlock(tradingValueMultiple);
         const riskMetricsBlock     = buildRiskMetricsBlock(riskMetrics);
 
+        // ── 내 포지션 (2026-09-01 신설, lib/holding-position.ts 순수 계산) — 매입가 대비·보유 중
+        // 고점/저점·최대/최저 평가손익·±15% 변동일·PER 변화(현재 EPS 동일 가정)·보유기간 지수 대비.
+        // 결과는 DB(result.holdingPosition)에 저장되고 [내 포지션 데이터] 블록으로 프롬프트에 주입된다
+        // (watchPoint는 이 수치만 인용). buyDate가 없으면 최근 1년 폴백이며 basis에 명시된다.
+        const holdingPosition = computeHoldingPosition({
+          avgPrice: Number(avgPrice),
+          quantity: Number(quantity),
+          currentPrice,
+          buyDate: buyDate ? String(buyDate).slice(0, 10) : null,
+          chart: chartData.map((d) => ({ date: d.date, close: d.close })),
+          eps: analysisData?.eps && analysisData.eps > 0 ? analysisData.eps : null,
+          benchmark,
+        });
+        const holdingPositionBlock = buildHoldingPositionBlock(holdingPosition);
+
         // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
         // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —
         // sectorNameForMacro(KIS bstp_kor_isnm, 이미 위에서 계산됨)와 sectorPeers(이미 fetch됨)를
@@ -578,7 +601,16 @@ export async function POST(request: NextRequest) {
               if (r.roe !== null)             parts.push(`ROE ${r.roe}%`);
               return `- ${r.year}년: ${parts.join(', ') || '데이터 없음'}`;
             }).join('\n')
-          : '실적 데이터 없음';
+          : '연간 실적 데이터 없음';
+        // 분기 단독 실적(회계연도 누적 차감, lib/kis-api.ts deriveQuarterlyRows) + 전년 동기 대비
+        const quarterlyBlock = quarterlyFinancials.length
+          ? quarterlyFinancials.map((q) => {
+              const parts: string[] = [];
+              if (q.revenue !== null) parts.push(`매출액 ${q.revenue.toLocaleString()}억원${q.revenueYoy !== null ? `(전년동기비 ${q.revenueYoy >= 0 ? '+' : ''}${q.revenueYoy}%)` : ''}`);
+              if (q.operatingProfit !== null) parts.push(`영업이익 ${q.operatingProfit.toLocaleString()}억원${q.operatingProfitYoy !== null ? `(전년동기비 ${q.operatingProfitYoy >= 0 ? '+' : ''}${q.operatingProfitYoy}%)` : q.operatingProfitTurn ? `(${q.operatingProfitTurn})` : ''}`);
+              return `- ${q.label}: ${parts.join(', ') || '데이터 없음'}`;
+            }).join('\n') + (financialsYearEndMonth !== '12' ? `\n(${Number(financialsYearEndMonth)}월 결산 기업 — 분기 순번은 회계연도 기준)` : '')
+          : '분기 실적 데이터 없음';
 
         // ── DART 주요 공시 (최근 14일, 임원 지분보고 등 관행적 공시는 이미 필터링됨) ─────
         const disclosureBlock = disclosures.length
@@ -673,8 +705,14 @@ ${investorBlock}
 ## 업종 대비
 ${sectorBlock}
 
-## 실적 추이 (최근 3개년, 확정 연간 실적 — 잠정치 아님)
+## 실적 추이
+[연간 — 최근 3개년 확정 실적, 잠정치 아님]
 ${financialsBlock}
+[분기 — 최근 분기 단독 실적(누적 차감), 전년 동기 대비]
+${quarterlyBlock}
+
+## 내 포지션 데이터 (서버 계산값 — mainAnalysisSections_watchPoint는 이 수치만 사용, 다른 필드에서 인용 금지)
+${holdingPositionBlock}
 
 ## 관련 뉴스 (${hasRelevantNews ? '관련도 높은 기사만 선별' : '매칭 결과'}, ${buildNewsFreshnessLine(relevantNews)})
 ${newsBlockStr}
@@ -699,16 +737,16 @@ ${disclosureBlock}
 - 리스크 지표: ${riskMetricsBlock}
 
 분석 포인트:
-1. 52주 레인지 내 현재 위치(고점/저점 대비 몇 % 위치인지)와 PER/PBR 수준을 사실로만 한 번 언급 — mainAnalysisSections_background에서 52주 위치는 스치듯, mainAnalysisSections_valuationNote에서 PER/PBR은 별도로, 둘 다 핵심 근거로 쓰지 말 것
-2. 외국인·기관 5일 수급 추이 관찰 — mainAnalysisSections_flowSummary에서 방향·규모 해석
+1. PER/PBR 수준은 mainAnalysisSections_valuationNote에서만 1회 해석 — 다른 필드에서 반복 금지. 52주 위치는 어느 필드에서도 핵심 근거로 쓰지 말 것
+2. 외국인·기관 5일 수급 추이 관찰 — flowInsight에서만 방향·의미 해석(background에서 수급 금액 반복 금지)
 3. ${isBigMove ? `금일 ${changeRate >= 0 ? '급등' : '급락'}(${changeRate.toFixed(2)}%)의 배경을 위 뉴스 섹션 지침에 따라 mainAnalysisSections_background에서 명확히 서술 (뉴스 근거 vs 수급/기술적 추정 구분)` : '실적·뉴스와 결합하여 업황 및 촉매 요인을 mainAnalysisSections_background에서 관찰'}
-4. 보유 기간·수익률과 함께 관찰된 특징 정리 (매매 전략을 지시하지 말 것)
-5. 수급 동향에서 외국인·기관과 개인의 매매 방향이 서로 반대인지 확인 (반대인 경우에만 그 대립 구도를 mainAnalysisSections_flowSummary에 명시)
+4. [내 포지션 데이터]를 mainAnalysisSections_watchPoint에서 '지금 내 위치'로 정리 (매매 전략을 지시하지 말 것, 회복·반등 표현 금지)
+5. 수급 동향에서 외국인·기관과 개인의 매매 방향이 서로 반대인지 확인 (반대인 경우에만 그 대립 구도를 flowInsight에 명시)
 6. 뉴스 섹션의 논조(긍정/부정)와 실제 주가 흐름(금일 등락률·수익률)이 서로 반대 방향인지 확인 (괴리가 있는 경우에만 mainAnalysisSections_background에서 그 점을 강조)
 7. [직전 기업분석과의 차이]를 [직전 진단과의 간격] 지시에 따라 historyNarrative로 해석
-8. [내부 계산 지표] 중 최소 1개(급등이력 사례가 있으면 그것을 우선)를 mainAnalysisSections_watchPoint에서 반드시 활용 — 보유 정보(매입가 대비 관점)와 엮어서, 종목 리포트와는 다른 문장으로 서술
+8. [내부 계산 지표](급등이력·거래대금 배수·MDD)는 화면에 원자료 카드로 별도 표시되므로 어떤 서술 필드에서도 그 수치를 인용하지 말 것 — riskFactors에 넣는 것도 금지
 9. [업종 대비]에 peer 데이터가 있으면 sectorNarrative를, [실적 추이]에 데이터가 있으면 financialsNarrative를, [최근 주요 공시]에 사례가 있으면 disclosureNarrative를 채우세요 — 데이터가 없으면 해당 필드는 빈 문자열로 두고 mainAnalysisSections_* 등 다른 필드에서 억지로 대신 언급하지 마세요. mainAnalysisSections_valuationNote(PER/PBR)와 sectorNarrative(등락률)는 서로 다른 지표이므로 데이터가 있어도 서로 겹치지 않게
-${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 판단 없이 사실 비교로만 1회 언급하세요 (예: "같은 기간 ${benchmark.indexName}는 ${benchmark.indexChangeRate}%로, 이 종목이 시장 대비 ${(benchmark.stockProfitRate - benchmark.indexChangeRate) >= 0 ? '+' : ''}${(benchmark.stockProfitRate - benchmark.indexChangeRate).toFixed(2)}%p ${benchmark.stockProfitRate >= benchmark.indexChangeRate ? '더 상승' : '더 하락'}한 셈임" 정도의 사실 서술은 가능하나 "그래서 ~해야 한다"는 연결 금지)` : ''}
+${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치는 mainAnalysisSections_watchPoint에서만, 판단 없이 사실 비교로 1회 언급 가능 — background 등 다른 필드에서 인용 금지, "그래서 ~해야 한다"는 연결 금지` : ''}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
@@ -783,6 +821,9 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           surgeHistory,        // 서버 계산 — 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 (hasMatches:false면 프론트가 '이력 없음' 빈 상태로 표시, 2026-08-28)
           tradingValueMultiple, // 서버 계산 — 오늘 거래대금의 최근 20거래일 평균 대비 배수 (valid:false면 카드 생략)
           annualFinancials,
+          quarterlyFinancials,      // 서버 계산 — 최근 분기 단독 실적(2026-09-01)
+          financialsYearEndMonth,   // 결산월('12' 외면 실적 카드가 "N월 결산" 캡션 표시)
+          holdingPosition,          // 서버 계산 — 내 포지션 카드(2026-09-01)
           disclosures,
           dividendSummary,
           dividendHistory,
@@ -794,6 +835,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           mainAnalysis: '',
           mainAnalysisSections: undefined,
           riskFactors: [] as string[],
+          flowInsight: '',
           institutionalFlow: '',
           foreignFlow: '',
           sectorNarrative: '',
@@ -823,6 +865,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
         const rawTextRef = { current: '' };
         const emitFallbackFields = (errReason: string) => {
           emitIfChanged('mainAnalysis', rawTextRef.current.slice(0, 600).trim() || 'AI 분석 결과를 가져오는 중 형식 오류가 발생했습니다.');
+          emitIfChanged('flowInsight', '');
           emitIfChanged('institutionalFlow', '응답 형식 오류로 분석 불가');
           emitIfChanged('foreignFlow', '응답 형식 오류로 분석 불가');
           emitIfChanged('riskFactors', ['응답 형식 오류로 리스크 요인 제공 불가']);
@@ -953,20 +996,19 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
         // mainAnalysis(단일 문자열) 소비처(공유페이지 DiagnosisView, ShareDropdown의
         // description 슬라이스)와 DB 저장 포맷을 그대로 유지한다(토큰 절약을 위해
         // AI에게 flat 문자열을 별도로 다시 쓰게 하지 않고 서버가 4개 조각을 이어붙임).
+        // 2026-09-01: flowSummary(수급 소제목) 삭제 — 수급 해석은 flowInsight(기관/외국인 카드) 1곳.
         const rawBackground    = result!.mainAnalysisSections_background;
-        const rawFlowSummary   = result!.mainAnalysisSections_flowSummary;
         const rawValuationNote = result!.mainAnalysisSections_valuationNote;
         const rawWatchPoint    = result!.mainAnalysisSections_watchPoint;
-        const mainAnalysisSections = (rawBackground !== undefined || rawFlowSummary !== undefined || rawValuationNote !== undefined || rawWatchPoint !== undefined)
+        const mainAnalysisSections = (rawBackground !== undefined || rawValuationNote !== undefined || rawWatchPoint !== undefined)
           ? {
               background:    toStr(rawBackground),
-              flowSummary:   toStr(rawFlowSummary),
               valuationNote: toStr(rawValuationNote),
               watchPoint:    toStr(rawWatchPoint),
             }
           : null;
         const mainAnalysis = mainAnalysisSections
-          ? [mainAnalysisSections.background, mainAnalysisSections.flowSummary, mainAnalysisSections.valuationNote, mainAnalysisSections.watchPoint]
+          ? [mainAnalysisSections.background, mainAnalysisSections.valuationNote, mainAnalysisSections.watchPoint]
               .filter(Boolean).join(' ')
           : toStr(result!.mainAnalysis); // 구 스키마 응답 대비 폴백
 
@@ -997,6 +1039,9 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           surgeHistory,        // 서버 계산 — 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 (hasMatches:false면 프론트가 '이력 없음' 빈 상태로 표시, 2026-08-28)
           tradingValueMultiple, // 서버 계산 — 오늘 거래대금의 최근 20거래일 평균 대비 배수 (valid:false면 카드 생략)
           annualFinancials,   // 서버 계산 — 최근 3개년 확정 연간 실적 (없으면 빈 배열)
+          quarterlyFinancials, // 서버 계산 — 최근 분기 단독 실적(누적 차감)·전년동기비 (없으면 빈 배열, 2026-09-01)
+          financialsYearEndMonth, // 결산월
+          holdingPosition,    // 서버 계산 — 내 포지션(lib/holding-position.ts, 2026-09-01)
           disclosures,        // 서버 계산 — DART 최근 14일 주요 공시 (없으면 빈 배열, UI는 있을 때만 강조 카드)
           dividendSummary,    // 서버 계산 — DART 최신 사업연도 배당 요약 (무배당이면 null)
           dividendHistory,    // 서버 계산 — KIS 최근 5년 배당 지급 이력 (없으면 빈 배열)
@@ -1004,6 +1049,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           mainAnalysis:         mainAnalysis,             // 4개 섹션을 이어붙인 값(과거 소비처 호환) — 신 스키마 응답이면 항상 이 값
           mainAnalysisSections: mainAnalysisSections ?? undefined, // 있으면 프론트가 소제목 렌더링, 없으면(과거 레코드/폴백) mainAnalysis 문자열로 폴백
           riskFactors:        toArr(result!.riskFactors),
+          flowInsight:        typeof result!.flowInsight       === 'string' ? result!.flowInsight       : '',
           institutionalFlow:  typeof result!.institutionalFlow === 'string' ? result!.institutionalFlow : '',
           foreignFlow:        typeof result!.foreignFlow       === 'string' ? result!.foreignFlow       : '',
           shortTermOutlook:   typeof result!.shortTermOutlook  === 'string' ? result!.shortTermOutlook  : undefined,
@@ -1013,7 +1059,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           // 저장·재전송 전에 제거한다(스트리밍 중 잠깐 보였더라도 정합성 보정 전송이 덮어씀).
           finalVerdict:       typeof result!.finalVerdict      === 'string' ? stripChoiceLabels(result!.finalVerdict) : undefined,
           sectorNarrative:     sectorComparison ? (typeof result!.sectorNarrative === 'string' ? result!.sectorNarrative : '') : '',
-          financialsNarrative: annualFinancials.length > 0 ? (typeof result!.financialsNarrative === 'string' ? result!.financialsNarrative : '') : '',
+          financialsNarrative: (annualFinancials.length > 0 || quarterlyFinancials.length > 0) ? (typeof result!.financialsNarrative === 'string' ? result!.financialsNarrative : '') : '',
           disclosureNarrative: disclosures.length > 0 ? (typeof result!.disclosureNarrative === 'string' ? result!.disclosureNarrative : '') : '',
         };
 
@@ -1026,7 +1072,6 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
         // 4개의 flat 키로 도는 루프이므로 여기서도 4개로 다시 풀어서 넣어야 한다.
         const reconcileValues: Record<string, unknown> = {
           mainAnalysisSections_background:    finalResult.mainAnalysisSections?.background,
-          mainAnalysisSections_flowSummary:   finalResult.mainAnalysisSections?.flowSummary,
           mainAnalysisSections_valuationNote: finalResult.mainAnalysisSections?.valuationNote,
           mainAnalysisSections_watchPoint:    finalResult.mainAnalysisSections?.watchPoint,
           historyNarrative:     finalResult.history.narrative,
@@ -1034,6 +1079,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
           financialsNarrative:  finalResult.financialsNarrative,
           disclosureNarrative:  finalResult.disclosureNarrative,
           riskFactors:          finalResult.riskFactors,
+          flowInsight:          finalResult.flowInsight,
           institutionalFlow:    finalResult.institutionalFlow,
           foreignFlow:          finalResult.foreignFlow,
           shortTermOutlook:     finalResult.shortTermOutlook,
@@ -1048,7 +1094,7 @@ ${benchmark ? `\n벤치마크 수치는 mainAnalysisSections_background에서 �
         // 시간적 사실관계 사후 검증 — 이 라우트는 실패 시 fallback으로 이미 복구 경로가
         // 얽혀 있어 자동 재생성은 붙이지 않고(비용/복잡도 판단), 불일치만 로그로 남겨 모니터링한다.
         const diagnosisReportText = [
-          finalResult.mainAnalysis, ...finalResult.riskFactors, finalResult.history.narrative,
+          finalResult.mainAnalysis, ...finalResult.riskFactors, finalResult.history.narrative, finalResult.flowInsight,
           finalResult.shortTermOutlook, finalResult.midTermOutlook, finalResult.finalVerdict,
           finalResult.sectorNarrative, finalResult.financialsNarrative, finalResult.disclosureNarrative,
         ].filter(Boolean).join(' ');

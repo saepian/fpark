@@ -119,7 +119,9 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
 // 동향 도넛과 같은 시각 언어(TradingValueGauge)로 노출. 배수 자체는 평상시에도 항상
 // 존재하는 값(1배 안팎이 오히려 정상)이라 급등이력 카드와 달리 값 유무로 생략하지 않고,
 // 계산에 필요한 데이터(최근 20거래일)가 부족할 때만(valid:false) 생략한다.
-export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
+// 2026-09-01: 급등/급락 이력이 없을 때(hasMatches:false) 빈 카드를 따로 그리지 않고 이 카드 안에
+// 한 줄(surgeEmptyNote)로 접는다 — components/diagnosis/DiagnosisCards.tsx SurgeTradingRow 참고.
+export function TradingValueMultipleCard({ t, surgeEmptyNote = null }: { t: TradingValueMultiple; surgeEmptyNote?: { threshold: number } | null }) {
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -131,6 +133,11 @@ export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
           오늘 {fmt(Math.round(t.todayValue / 1e8))}억원 · 최근 20일 평균 {fmt(Math.round(t.avg20d / 1e8))}억원 대비
         </p>
       </div>
+      {surgeEmptyNote && (
+        <p className="text-[11px] text-slate-500 text-center leading-relaxed mt-2 pt-2 border-t border-slate-700/40">
+          최근 약 5개월 내 등락률 {surgeEmptyNote.threshold}% 이상의 급등/급락 이력 없음
+        </p>
+      )}
     </div>
   );
 }

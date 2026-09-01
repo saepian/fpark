@@ -1653,11 +1653,11 @@ export type AnnualFinancialRow = {
   roe:             number | null;
 };
 
-async function fetchFinanceApi(token: string, trId: string, endpoint: string, ticker: string) {
+async function fetchFinanceApi(token: string, trId: string, endpoint: string, ticker: string, divCls: '0' | '1' = '0') {
   const params = new URLSearchParams({
     FID_COND_MRKT_DIV_CODE: 'J',
     FID_INPUT_ISCD: ticker,
-    FID_DIV_CLS_CODE: '0', // 연간
+    FID_DIV_CLS_CODE: divCls, // '0' 연간(+진행 중 부분연도), '1' 분기(회계연도 누적치)
   });
   const res = await fetch(`${KIS_BASE}/uapi/domestic-stock/v1/finance/${endpoint}?${params}`, {
     headers: headers(token, trId),
@@ -1669,6 +1669,117 @@ async function fetchFinanceApi(token: string, trId: string, endpoint: string, ti
   return (d.output ?? []) as Record<string, string>[];
 }
 
+// FID_DIV_CLS_CODE='0'은 연간 + 진행 중인 부분연도 행을 함께 준다.
+// 연간 행은 12개월 간격이므로, 가장 흔한 "연말 월"을 찾아 그 행들만 채택한다.
+export function detectYearEndMonth(ratioRows: { stac_yymm?: string }[]): string {
+  const months = ratioRows.slice(1).map((r) => (r.stac_yymm ?? '').slice(4));
+  const monthCount: Record<string, number> = {};
+  for (const m of months) monthCount[m] = (monthCount[m] ?? 0) + 1;
+  return Object.entries(monthCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '12';
+}
+
+// 2026-09-01 실측(005930·033780, FID_DIV_CLS_CODE='1'): 분기 행의 sale_account/bsop_prti/
+// thtr_ntin은 "그 분기 단독"이 아니라 회계연도 시작부터의 누적치다(삼성전자 202503
+// 791,405억 → 202506 1,537,068억 → 202512 3,336,059억 = 연간과 일치). 그래서 단독 분기값은
+// 같은 회계연도 직전 분기 누적을 빼서 만든다 — 직전 분기 행이 없으면(첫 행 등) null.
+// 11월 결산(현대약품 등)은 회계연도 시작월이 12월이므로 yearEndMonth로 분기 순번을 계산한다.
+export type QuarterlyFinancialRow = {
+  yymm:            string;        // 'YYYYMM' 분기 말
+  label:           string;        // '2026년 2Q' (분기 순번은 결산월 기준 회계분기)
+  revenue:         number | null; // 단독 분기, 억원
+  operatingProfit: number | null;
+  netIncome:       number | null;
+  revenueYoy:      number | null; // 전년 동기(단독) 대비 %, 전년 값이 없거나 0 이하면 null
+  operatingProfitYoy: number | null; // 전년·당기 모두 흑자일 때만 %, 그 외 null
+  operatingProfitTurn: '흑자전환' | '적자전환' | '적자지속' | null; // 흑자↔적자 전환/지속 라벨
+};
+
+function parseFinanceNumber(raw: string | undefined): number | null {
+  const v = parseFloat(raw ?? '');
+  return isNaN(v) || v === 99.99 ? null : v;
+}
+
+// 순수 변환(테스트 대상) — ratioRows는 KIS 원본(최신순), 반환은 최신 분기 우선 최대 limit개.
+export function deriveQuarterlyRows(ratioRows: Record<string, string>[], yearEndMonth: string, limit = 6): QuarterlyFinancialRow[] {
+  const fyStartMonth = (parseInt(yearEndMonth, 10) % 12) + 1;
+  const rows = ratioRows
+    .filter((r) => /^\d{6}$/.test(r.stac_yymm ?? ''))
+    .map((r) => ({ yymm: r.stac_yymm, revenue: parseFinanceNumber(r.sale_account), op: parseFinanceNumber(r.bsop_prti), ni: parseFinanceNumber(r.thtr_ntin) }))
+    .sort((a, b) => (a.yymm < b.yymm ? 1 : a.yymm > b.yymm ? -1 : 0));
+  const byYymm = new Map(rows.map((r) => [r.yymm, r]));
+  const shift = (yymm: string, months: number) => {
+    const y = parseInt(yymm.slice(0, 4), 10), m = parseInt(yymm.slice(4), 10);
+    const total = y * 12 + (m - 1) + months;
+    return `${Math.floor(total / 12)}${String((total % 12) + 1).padStart(2, '0')}`;
+  };
+  const quarterIndex = (yymm: string) => Math.floor((((parseInt(yymm.slice(4), 10) - fyStartMonth) + 12) % 12) / 3) + 1;
+
+  const standalone = (yymm: string) => {
+    const cur = byYymm.get(yymm);
+    if (!cur) return null;
+    const q = quarterIndex(yymm);
+    const pick = (field: 'revenue' | 'op' | 'ni'): number | null => {
+      const c = cur[field];
+      if (c === null) return null;
+      if (q === 1) return c;
+      const prev = byYymm.get(shift(yymm, -3));
+      if (!prev || prev[field] === null) return null;
+      return c - prev[field]!;
+    };
+    const revenue = pick('revenue');
+    const revenueMissing = revenue === null || revenue === 0 || (cur.revenue === 0);
+    const op = pick('op');
+    const ni = pick('ni');
+    return {
+      revenue: revenueMissing ? null : Math.round(revenue),
+      op: op === null || (revenueMissing && op === 0) ? null : Math.round(op),
+      ni: ni === null || (revenueMissing && ni === 0) ? null : Math.round(ni),
+    };
+  };
+
+  const pct = (cur: number, prev: number) => parseFloat((((cur - prev) / Math.abs(prev)) * 100).toFixed(1));
+  const out: QuarterlyFinancialRow[] = [];
+  for (const r of rows) {
+    if (out.length >= limit) break;
+    const cur = standalone(r.yymm);
+    if (!cur || (cur.revenue === null && cur.op === null && cur.ni === null)) continue;
+    const prev = standalone(shift(r.yymm, -12));
+    const revenueYoy = cur.revenue !== null && prev?.revenue != null && prev.revenue > 0 ? pct(cur.revenue, prev.revenue) : null;
+    let operatingProfitYoy: number | null = null;
+    let operatingProfitTurn: QuarterlyFinancialRow['operatingProfitTurn'] = null;
+    if (cur.op !== null && prev?.op != null) {
+      if (prev.op > 0 && cur.op >= 0) operatingProfitYoy = pct(cur.op, prev.op);
+      else if (prev.op < 0 && cur.op >= 0) operatingProfitTurn = '흑자전환';
+      else if (prev.op >= 0 && cur.op < 0) operatingProfitTurn = '적자전환';
+      else operatingProfitTurn = '적자지속';
+    }
+    out.push({
+      yymm: r.yymm,
+      label: `${r.yymm.slice(0, 4)}년 ${quarterIndex(r.yymm)}Q`,
+      revenue: cur.revenue, operatingProfit: cur.op, netIncome: cur.ni,
+      revenueYoy, operatingProfitYoy, operatingProfitTurn,
+    });
+  }
+  return out;
+}
+
+// 연간(최근 3개년) + 분기(최근 6분기 단독값·전년동기비)를 한 번에 — 결산월(yearEndMonth)을
+// 연간 행에서 한 번만 판정해 분기 순번 계산에도 그대로 쓴다. KIS 호출 3회 병렬.
+export async function fetchFinancialsTrend(ticker: string): Promise<{ annual: AnnualFinancialRow[]; quarterly: QuarterlyFinancialRow[]; yearEndMonth: string }> {
+  const token = await getAccessToken();
+  const [ratioRows, bsRows, quarterlyRows] = await Promise.all([
+    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker, '0'),
+    fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker, '0'),
+    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker, '1').catch((e) => { console.warn('[KIS] 분기 실적 조회 실패:', e instanceof Error ? e.message : e); return [] as Record<string, string>[]; }),
+  ]);
+  const yearEndMonth = detectYearEndMonth(ratioRows);
+  return {
+    annual: buildAnnualRows(ratioRows, bsRows, yearEndMonth),
+    quarterly: deriveQuarterlyRows(quarterlyRows, yearEndMonth),
+    yearEndMonth,
+  };
+}
+
 export async function fetchAnnualFinancials(ticker: string): Promise<AnnualFinancialRow[]> {
   const token = await getAccessToken();
 
@@ -1676,20 +1787,16 @@ export async function fetchAnnualFinancials(ticker: string): Promise<AnnualFinan
     fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker),
     fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker),
   ]);
+  return buildAnnualRows(ratioRows, bsRows, detectYearEndMonth(ratioRows));
+}
 
+function buildAnnualRows(ratioRows: Record<string, string>[], bsRows: Record<string, string>[], yearEndMonth: string): AnnualFinancialRow[] {
   // ROE 값을 stac_yymm 기준으로 매핑
   const roeMap = new Map<string, number>();
   for (const r of bsRows) {
     const v = parseFloat(r.roe_val);
     if (!isNaN(v) && v !== 99.99) roeMap.set(r.stac_yymm, v);
   }
-
-  // FID_DIV_CLS_CODE='0'은 연간 + 진행 중인 부분연도 행을 함께 준다.
-  // 연간 행은 12개월 간격이므로, 가장 흔한 "연말 월"을 찾아 그 행들만 채택한다.
-  const months = ratioRows.slice(1).map((r) => r.stac_yymm.slice(4));
-  const monthCount: Record<string, number> = {};
-  for (const m of months) monthCount[m] = (monthCount[m] ?? 0) + 1;
-  const yearEndMonth = Object.entries(monthCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '12';
 
   const annualRows = ratioRows
     .filter((r) => r.stac_yymm.slice(4) === yearEndMonth)

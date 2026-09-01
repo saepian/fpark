@@ -36,7 +36,6 @@ function ResultCard({ title, children, className = '' }: { title?: string; child
 // prev.mainAnalysisSections 객체 안에 merge한다.
 const MAIN_ANALYSIS_SECTION_KEYS: Record<string, keyof NonNullable<DiagnosisResult['mainAnalysisSections']>> = {
   mainAnalysisSections_background: 'background',
-  mainAnalysisSections_flowSummary: 'flowSummary',
   mainAnalysisSections_valuationNote: 'valuationNote',
   mainAnalysisSections_watchPoint: 'watchPoint',
 };
@@ -54,11 +53,11 @@ function applyDiagnosisField(prev: DiagnosisResult, key: string, value: unknown)
   const sectionKey = MAIN_ANALYSIS_SECTION_KEYS[key];
   if (sectionKey) {
     const sections = {
-      background: '', flowSummary: '', valuationNote: '', watchPoint: '',
+      background: '', valuationNote: '', watchPoint: '',
       ...prev.mainAnalysisSections,
       [sectionKey]: value as string,
     };
-    const mainAnalysis = [sections.background, sections.flowSummary, sections.valuationNote, sections.watchPoint]
+    const mainAnalysis = [sections.background, sections.valuationNote, sections.watchPoint]
       .filter(Boolean).join(' ');
     return { ...prev, mainAnalysisSections: sections, mainAnalysis };
   }

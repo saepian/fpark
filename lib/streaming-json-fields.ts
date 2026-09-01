@@ -300,9 +300,11 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
 // institutionalFlow 등과 동일하게 글자 단위 partial(타이핑 효과)을 그대로 받는다.
 // route.ts가 스트림 종료 후 이 4개를 mainAnalysisSections 객체로 재조립해 DB
 // 저장·공유페이지 등 기존 소비처는 그대로 유지한다.
+// 2026-09-01 기업분석 리포트 재편: mainAnalysisSections_flowSummary(1층 "수급 동향" 소제목) 삭제 →
+// 수급 해석은 3층 기관/외국인 카드의 flowInsight 1문장으로 이동(수급 서술처 1곳). watchPoint는
+// "내 포지션 관점"으로 재정의돼 2층 내 포지션 카드 안에 표시된다.
 export const DIAGNOSIS_FIELD_SPECS: FieldSpec[] = [
   { key: 'mainAnalysisSections_background',    type: 'string', emit: true },
-  { key: 'mainAnalysisSections_flowSummary',   type: 'string', emit: true },
   { key: 'mainAnalysisSections_valuationNote', type: 'string', emit: true },
   { key: 'mainAnalysisSections_watchPoint',    type: 'string', emit: true },
   { key: 'historyNarrative',     type: 'string',   emit: true },
@@ -310,6 +312,7 @@ export const DIAGNOSIS_FIELD_SPECS: FieldSpec[] = [
   { key: 'financialsNarrative',  type: 'string',   emit: true },
   { key: 'disclosureNarrative',  type: 'string',   emit: true },
   { key: 'riskFactors',          type: 'string[]', emit: true },
+  { key: 'flowInsight',          type: 'string',   emit: true },
   { key: 'institutionalFlow',    type: 'string',   emit: true },
   { key: 'foreignFlow',          type: 'string',   emit: true },
   { key: 'shortTermOutlook',     type: 'string',   emit: true },

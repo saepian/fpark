@@ -13,7 +13,15 @@ import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
-import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
+import type { SurgeHistory, TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
+import {
+  MainAnalysisCard, InstitutionalFlowCard, RiskFactorsCard, SurgeTradingRow, DisclosuresCard, FxCorrelationCard, LayerHeading,
+  type MainAnalysisSectionsData,
+} from '@/components/diagnosis/DiagnosisCards';
+import HoldingPositionCard from '@/components/diagnosis/HoldingPositionCard';
+import FinancialsTrendCard from '@/components/diagnosis/FinancialsTrendCard';
+import type { HoldingPosition } from '@/lib/holding-position';
+import type { QuarterlyFinancialRow } from '@/lib/kis-api';
 import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
 import { SectorComparisonCard, type SectorComparison as SectorComparisonData } from '@/components/diagnosis/SectorComparisonCard';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
@@ -51,12 +59,7 @@ interface DartDisclosure {
   filer: string;
 }
 
-interface MainAnalysisSections {
-  background: string;
-  flowSummary: string;
-  valuationNote: string;
-  watchPoint: string;
-}
+type MainAnalysisSections = MainAnalysisSectionsData;
 
 interface DiagnosisData {
   stockName: string;
@@ -100,6 +103,10 @@ interface DiagnosisData {
   sectorComparison?: SectorComparisonData | null;
   sectorNarrative?: string;
   annualFinancials?: AnnualFinancialRow[];
+  quarterlyFinancials?: QuarterlyFinancialRow[]; // 2026-09-01 신설(옛 공유 리포트엔 없음)
+  financialsYearEndMonth?: string;
+  holdingPosition?: HoldingPosition | null;     // 2026-09-01 신설 — 없으면 내 포지션 카드 생략
+  flowInsight?: string;                          // 2026-09-01 신설 — 기관/외국인 카드 해석 1문장
   financialsNarrative?: string;
   disclosures?: DartDisclosure[];
   disclosureNarrative?: string;
@@ -224,73 +231,6 @@ interface PortfolioData {
 function fmt(n: number) { return n.toLocaleString(); }
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
-function DonutChart({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
-  const r = 54;
-  const circ = 2 * Math.PI * r;
-  const filled = circ * (percent / 100);
-  const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
-  const label = type === 'BUY' ? '자금 유입' : type === 'SELL' ? '자금 유출' : '중립';
-  return (
-    <svg width="148" height="148" viewBox="0 0 148 148">
-      <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
-      <circle cx="74" cy="74" r={r} fill="none" stroke={color} strokeWidth="14" strokeLinecap="round"
-        strokeDasharray={`${filled} ${circ}`} transform="rotate(-90 74 74)"
-        style={{ filter: `drop-shadow(0 0 6px ${color}66)` }} />
-      <text x="74" y="69" textAnchor="middle" fill={color} fontSize="22" fontWeight="800" fontFamily="monospace">{percent}%</text>
-      <text x="74" y="88" textAnchor="middle" fill="#64748b" fontSize="11" fontWeight="600" letterSpacing="1">{label}</text>
-    </svg>
-  );
-}
-
-// components/diagnosis/DiagnosisReport.tsx의 MainAnalysisBody와 동일한 로직 —
-// 이 페이지는 그 파일과 손복제돼 있어(파일 상단 주석) 함께 갱신해야 한다.
-function MainAnalysisBody({ d }: { d: DiagnosisData }) {
-  const s = d.mainAnalysisSections;
-  if (!s) {
-    return <p className="text-[13px] text-slate-300 leading-relaxed">{d.mainAnalysis}</p>;
-  }
-
-  const blocks = [
-    { label: '오늘의 주가 배경', text: s.background },
-    { label: '수급 동향',       text: s.flowSummary },
-    { label: '밸류에이션',       text: s.valuationNote },
-    { label: '관찰 포인트',      text: s.watchPoint },
-  ].filter((b) => b.text);
-
-  return (
-    <div className="flex flex-col gap-3.5">
-      {blocks.map((b) => (
-        <div key={b.label}>
-          <p className="text-[11px] font-bold text-indigo-400/80 uppercase tracking-wide mb-1">{b.label}</p>
-          <p className="text-[13px] text-slate-300 leading-relaxed">{b.text}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// 정량 지표 3종 공용 배지/캡션 — app/portfolio-diagnosis/page.tsx의 GradeBadge·
-// QuantMetricsCaption과 동일(손복제, 공유페이지는 서버 컴포넌트라 별도 파일 분리보다
-// 기존 파일 내 다른 컴포넌트들과 같은 패턴 유지가 낫다고 판단).
-function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning' | 'safe' }) {
-  const styles = {
-    danger:  { background: 'rgba(239,68,68,0.15)',  border: '1px solid rgba(239,68,68,0.3)',  color: '#f87171' },
-    warning: { background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' },
-    safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
-  }[tone];
-  return (
-    <span className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
-  );
-}
-
-function QuantMetricsCaption() {
-  return (
-    <p className="text-[11px] text-slate-600 bg-slate-800/30 border border-slate-700/40 rounded-xl px-4 py-3 mb-4">
-      종목 수가 적어 섹터 집중도·상관관계·리스크 기여도는 계산하지 않습니다(2종목 이상부터 계산).
-    </p>
-  );
-}
-
 function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -407,71 +347,6 @@ function HistoryCompareCard({ d }: { d: DiagnosisData }) {
   );
 }
 
-// components/diagnosis/DiagnosisReport.tsx의 FinancialsTrendCard와 동일 로직 —
-// 이 파일은 그 컴포넌트를 재사용하지 않고 손복제된 구조라 함께 갱신해야 한다.
-function FinancialsTrendCard({ rows, narrative }: { rows: AnnualFinancialRow[]; narrative?: string }) {
-  const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue ?? 0));
-  const maxAbsOpProfit = Math.max(1, ...rows.map((r) => Math.abs(r.operatingProfit ?? 0)));
-
-  return (
-    <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5 mb-4">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[11px] font-bold text-violet-400 uppercase tracking-wider">
-          실적 추이 (연간 확정치)
-        </span>
-      </div>
-      <div className="flex flex-col gap-3.5 mb-3">
-        {rows.map((r) => (
-          <div key={r.year}>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] font-bold text-slate-400">{r.year}년</span>
-              {r.roe !== null && <span className="text-[11px] text-slate-500 font-mono">ROE {r.roe}%</span>}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-600 w-14 shrink-0">매출</span>
-                <div className="flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
-                  {r.revenue !== null && (
-                    <div className="h-full rounded-full bg-indigo-400/70" style={{ width: `${Math.max(2, (r.revenue / maxRevenue) * 100)}%` }} />
-                  )}
-                </div>
-                <span className="text-[11px] font-mono text-slate-300 tabular-nums w-20 text-right shrink-0">
-                  {r.revenue !== null ? `${fmt(r.revenue)}억` : '-'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-600 w-14 shrink-0">영업이익</span>
-                <div className="relative flex-1 h-2 rounded-full bg-slate-800/60 overflow-hidden">
-                  <div className="absolute inset-y-0 left-1/2 w-px bg-slate-600/80" />
-                  {r.operatingProfit !== null && (
-                    r.operatingProfit >= 0 ? (
-                      <div className="absolute inset-y-0 left-1/2 rounded-r-full bg-red-400/80" style={{ width: `${Math.max(2, (r.operatingProfit / maxAbsOpProfit) * 50)}%` }} />
-                    ) : (
-                      <div className="absolute inset-y-0 right-1/2 rounded-l-full bg-blue-400/80" style={{ width: `${Math.max(2, (Math.abs(r.operatingProfit) / maxAbsOpProfit) * 50)}%` }} />
-                    )
-                  )}
-                </div>
-                <span className={`text-[11px] font-mono tabular-nums w-20 text-right shrink-0 ${
-                  r.operatingProfit === null ? 'text-slate-300' : r.operatingProfit >= 0 ? 'text-red-400' : 'text-blue-400'
-                }`}>
-                  {r.operatingProfit !== null ? `${r.operatingProfit >= 0 ? '+' : ''}${fmt(r.operatingProfit)}억` : '-'}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      {narrative && (
-        <p className="text-[13px] text-slate-300 leading-relaxed">{narrative}</p>
-      )}
-    </div>
-  );
-}
-
-// 2026-09-01: 포트폴리오 "직전 진단 대비" 카드(PortfolioHistoryCard)는 메인 페이지와 함께 제거 —
-// app/portfolio-diagnosis/page.tsx 상단 주석 참고(구성이 자주 바뀌어 비교가 무의미). 종목 단위
-// HistoryCompareCard(기업분석 공유)는 그대로 유지한다.
-
 function ShareBanner({ message }: { message: string }) {
   return (
     <div className="bg-gradient-to-r from-indigo-600/20 to-violet-600/20 border border-indigo-500/30 rounded-2xl px-5 py-3 mb-6 flex items-center gap-3">
@@ -525,31 +400,12 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           <p className="text-[12px] text-amber-200/90 leading-relaxed">{INVESTMENT_DISCLAIMER}</p>
         </div>
 
-        {/* 1행: 오늘의 기업 분석 + Performance Snapshot */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-4">
-          <div className="rounded-2xl border border-slate-700/50 overflow-hidden" style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
-            <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black bg-indigo-500/10 border border-indigo-500/30">
-                  <Sparkles className="w-4 h-4 text-indigo-400" />
-                </div>
-                <div>
-                  <p className="text-[11px] text-slate-500 uppercase tracking-widest">오늘의 기업 분석</p>
-                </div>
-              </div>
-              <MainAnalysisBody d={d} />
-              {d.finalVerdict && (
-                <div className="mt-5 pt-5 border-t border-slate-700/50">
-                  <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
-                  <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
-                    <p className="text-[13px] text-slate-200 leading-relaxed">{d.finalVerdict}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
+        {/* 2026-09-01 4층 재배치 — components/diagnosis/DiagnosisReport.tsx와 같은 공용 카드
+            (DiagnosisCards.tsx 등)로 조립. 스트리밍 상태만 없을 뿐 카드 순서·구성은 메인과 동일. */}
+        {/* 1층: 한눈에 */}
+        <LayerHeading no={1} title="한눈에" sub="주가 배경 · 밸류에이션 · AI 종합 진단" />
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-6">
+          <MainAnalysisCard sections={d.mainAnalysisSections} mainAnalysis={d.mainAnalysis} finalVerdict={d.finalVerdict} />
           <PerformanceSnapshotCard
             currentPrice={d.currentPrice}
             profitRate={d.profitRate}
@@ -562,157 +418,61 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           />
         </div>
 
-        {/* 2행: 직전 기업분석 대비 (신설) */}
+        {/* 2층: 내 포지션 */}
+        <LayerHeading no={2} title="내 포지션" sub="매입가 · 보유기간 기준" />
+        <HoldingPositionCard
+          position={d.holdingPosition}
+          className="mb-4"
+          narrative={d.mainAnalysisSections?.watchPoint ? <p className="text-xs text-slate-300 leading-relaxed">{d.mainAnalysisSections.watchPoint}</p> : null}
+        />
         <HistoryCompareCard d={d} />
-
-        {/* 2-1행: 주요 공시 (DART, 있을 때만 — 눈에 띄게 강조) */}
-        {(d.disclosures?.length ?? 0) > 0 && (
-          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-5 mb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span className="text-[11px] font-bold text-amber-400 uppercase tracking-widest">주요 공시 (DART)</span>
-            </div>
-            <div className="flex flex-col gap-2 mb-3">
-              {d.disclosures!.map((disc, i) => (
-                <a
-                  key={i}
-                  href={disc.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between gap-3 rounded-lg bg-slate-900/30 px-3 py-2 hover:bg-slate-900/50 transition-colors group"
-                >
-                  <span className="text-[13px] text-amber-100/90 group-hover:text-amber-200 group-hover:underline leading-snug">{disc.title}</span>
-                  <span className="text-[11px] text-amber-400/70 font-mono shrink-0">{disc.date}</span>
-                </a>
-              ))}
-            </div>
-            {d.disclosureNarrative && (
-              <p className="text-[13px] text-slate-300 leading-relaxed">{d.disclosureNarrative}</p>
-            )}
-          </div>
-        )}
-
-        {/* 3-1행: 기간별 등락률 — 메인 페이지(DiagnosisReport.tsx)와 동일 컴포넌트 재사용.
-            2026-08-31 QA 발견: 공유 페이지엔 이 카드가 아예 없었음. */}
-        <div className="mb-4">
+        <div className="mb-6">
           <PriceChangeTable ticker={d.ticker} />
         </div>
 
-        {/* 3-2행: 배당 정보 — 메인 페이지와 동일 컴포넌트 재사용. 2026-08-31 QA 발견:
-            공유 페이지엔 이 카드가 아예 없었음. */}
-        <DividendInfo summary={d.dividendSummary ?? null} history={d.dividendHistory ?? []} />
-
-        {/* 4행: 기관/외국인 동향 도넛 + 업종 대비 + 리스크 요인 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">기관/외국인 동향</p>
-            </div>
-            {/* components/diagnosis/DiagnosisReport.tsx와 동일 로직(파일 상단 주석대로 손복제) —
-                flowPercentage(오늘 하루 강도)와 institutionalFlow/foreignFlow(최근 5일 캡션)의
-                기간 불일치를 소제목·구분선으로 명시 */}
-            <p className="text-center text-[11px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
-            <div className="flex flex-col items-center py-2">
-              <DonutChart percent={d.flowPercentage ?? 50} type={d.flowType ?? 'NEUTRAL'} />
-              <p className="text-center text-[11px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
-            </div>
-            <div className="flex items-center gap-2.5 mt-4 mb-3">
-              <span className="flex-1 h-px bg-slate-700/40" />
-              <span className="text-[11px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
-              <span className="flex-1 h-px bg-slate-700/40" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              {d.institutionalFlow && (
-                <p className="text-center text-[12px] text-slate-400 leading-relaxed">{d.institutionalFlow}</p>
-              )}
-              {d.foreignFlow && (
-                <p className="text-center text-[12px] text-slate-400 leading-relaxed">{d.foreignFlow}</p>
-              )}
-            </div>
-          </div>
-
-          {/* 메인 페이지(DiagnosisReport.tsx)와 완전히 같은 컴포넌트 — 2026-08-31 QA에서
-              여기가 손복제 상태로 남아 sectorName/peerNames 캡션과 스파크라인 차트가
-              누락돼있던 드리프트를 발견해 공유 컴포넌트로 교체(SectorComparisonCard.tsx). */}
+        {/* 3층: 종목 구조 */}
+        <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 배당 · 거래" />
+        <div className={`grid grid-cols-1 ${d.sectorComparison ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+          <InstitutionalFlowCard
+            flowType={d.flowType}
+            flowPercentage={d.flowPercentage}
+            flowInsight={d.flowInsight}
+            institutionalFlow={d.institutionalFlow}
+            foreignFlow={d.foreignFlow}
+          />
           {d.sectorComparison && (
             <SectorComparisonCard
               data={d.sectorComparison}
-              narrative={d.sectorNarrative ? (
-                <p className="text-[12px] text-slate-400 leading-relaxed">{d.sectorNarrative}</p>
-              ) : null}
+              narrative={d.sectorNarrative ? <p className="text-[12px] text-slate-400 leading-relaxed">{d.sectorNarrative}</p> : null}
             />
           )}
-
-          <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[11px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
-            </div>
-            <div className="flex flex-col gap-2">
-              {(d.riskFactors ?? []).map((line, i) => (
-                <div key={i} className="flex items-start gap-2">
-                  <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
-                  <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
+        <FinancialsTrendCard
+          annual={d.annualFinancials ?? []}
+          quarterly={d.quarterlyFinancials ?? []}
+          yearEndMonth={d.financialsYearEndMonth}
+          narrative={d.financialsNarrative ? <p className="text-xs text-slate-300 leading-relaxed">{d.financialsNarrative}</p> : null}
+          className="mb-4"
+        />
+        <DividendInfo summary={d.dividendSummary ?? null} history={d.dividendHistory ?? []} />
+        <SurgeTradingRow surgeHistory={d.surgeHistory} tradingValueMultiple={d.tradingValueMultiple} className="mb-4" />
+        <FxCorrelationCard fx={d.fxCorrelation} className="mb-4" />
 
-        {/* 5행: 단기/중기 전망 */}
-        {(d.shortTermOutlook || d.midTermOutlook) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {d.shortTermOutlook && (
-              <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[11px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
-                </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{d.shortTermOutlook}</p>
-              </div>
-            )}
-            {d.midTermOutlook && (
-              <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[11px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
-                </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{d.midTermOutlook}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 5-0-1행: 환율 상관관계 — 메인(DiagnosisReport.tsx)과 동일 조건(|r|<0.3·표본 부족이면 서버가 null) */}
-        {d.fxCorrelation && (
-          <div className="bg-[#1a1f2e] border border-cyan-500/20 rounded-2xl p-5 mb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-bold text-cyan-400 uppercase tracking-wider">환율 상관관계</span>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              최근 1년간 이 종목은 원/달러 환율과 {d.fxCorrelation.correlation >= 0 ? '+' : ''}{d.fxCorrelation.correlation}의 {d.fxCorrelation.correlation >= 0 ? '양(+)' : '음(-)'}의 상관관계를 보여왔습니다.
-            </p>
-          </div>
-        )}
-
-        {/* 5-0행: 급등/급락 이력 + 거래대금 배수 (components/diagnosis/DiagnosisReport.tsx와
-            공용 컴포넌트 — 2026-08-28 공유 페이지에 이식). surgeHistory는 hasMatches:false여도
-            항상 노출(카드 내부에서 빈 상태 처리), tradingValueMultiple은 valid:false(데이터
-            부족)일 때만 생략 — 메인 페이지와 동일한 게이트 조건. */}
-        {((d.surgeHistory != null) || (d.tradingValueMultiple?.valid)) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {d.surgeHistory != null && (
-              <SurgeHistoryCard surgeHistory={d.surgeHistory} />
-            )}
-            {d.tradingValueMultiple?.valid && (
-              <TradingValueMultipleCard t={d.tradingValueMultiple} />
-            )}
-          </div>
-        )}
-
-        {/* 5-1행: 실적 추이 (최근 3개년 확정 연간, 데이터 없으면 카드 생략) */}
-        {d.annualFinancials && d.annualFinancials.length > 0 && (
-          <FinancialsTrendCard rows={d.annualFinancials} narrative={d.financialsNarrative} />
-        )}
-
-        {/* 6행: 참고 기사 — 메인(DiagnosisReport.tsx)과 같은 공용 컴포넌트(2026-09-01: 이슈 묶음·번호 드리프트 해소) */}
+        {/* 4층: 참고 자료 */}
+        <LayerHeading no={4} title="참고 자료" sub="공시 · 종목 고유 리스크 · 확인할 이벤트 · 기사" />
+        <DisclosuresCard
+          disclosures={d.disclosures ?? []}
+          narrative={d.disclosureNarrative ? <p className="text-xs text-slate-300 leading-relaxed">{d.disclosureNarrative}</p> : null}
+          className="mb-4"
+        />
+        <RiskFactorsCard riskFactors={d.riskFactors ?? []} className="mb-4" />
+        <WatchVariablesCard
+          shortTermOutlook={d.shortTermOutlook}
+          midTermOutlook={d.midTermOutlook}
+          title="확인할 이벤트·지표"
+          caption="이 종목 고유의 일정·공시·지표만 — 예측이 아니라 확인 목록입니다."
+          className="mb-4"
+        />
         {d.news?.length > 0 && (
           <ReferenceNewsList news={d.news} clusters={d.newsIssueClusters} newsBasis={d.newsBasis} className="mb-4" />
         )}
