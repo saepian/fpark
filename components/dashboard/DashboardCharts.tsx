@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, LabelList,
+  Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, LabelList,
   CartesianGrid, ReferenceLine, AreaChart, Area,
 } from 'recharts';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { useChartEntranceAnimation } from '@/lib/chart-animation';
+import { SLICE_COLORS, OTHER_COLOR, MAX_DIRECT_SLICES, sliceColorCycled } from '@/lib/chart-palette';
+import DonutChart from '@/components/portfolio/DonutChart';
 
 interface ChartHolding {
   ticker: string;
@@ -31,22 +32,7 @@ export interface MonthlyPoint {
   returnRate: number;
 }
 
-// dataviz 스킬 카테고리 팔레트(dark, adjacent-pair 검증 통과 순서). 산업군별 비중처럼
-// 카테고리 수가 자연히 적은(KRX 대분류 ~20개 중 실제 보유 업종 수) 차트는 8개 넘으면
-// "기타"로 접지만, 종목별 투자비중은 전부 개별 슬라이스로 보여달라는 요구가 있어
-// sliceColorCycled()로 8색을 순환시키고(등록 한도 15개까지 최대 2바퀴) 반복될 때마다
-// 살짝 옅게 만들어 구분을 돕는다 — 정확한 구분은 어차피 범례 텍스트가 담당.
-const SLICE_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
-const OTHER_COLOR = '#64748b';
-const MAX_DIRECT_SLICES = 7;
-
-function sliceColorCycled(i: number): string {
-  const base = SLICE_COLORS[i % SLICE_COLORS.length];
-  const cycle = Math.floor(i / SLICE_COLORS.length);
-  if (cycle === 0) return base;
-  const alphaHex = Math.round(Math.max(0.55, 1 - cycle * 0.25) * 255).toString(16).padStart(2, '0');
-  return `${base}${alphaHex}`;
-}
+// 팔레트·순환 규칙은 lib/chart-palette.ts(2026-09-01 분리 — 포트폴리오분석 도넛과 공유).
 
 const TOOLTIP_STYLE = {
   backgroundColor: '#1a1f2e',
@@ -58,77 +44,19 @@ const TOOLTIP_STYLE = {
 function fmtWon(n: number) { return `${Math.round(n).toLocaleString()}원`; }
 function fmtPct(n: number) { return `${n.toFixed(1)}%`; }
 
+// 2026-09-01: 도넛 렌더링(중앙 고정 표시·호버·범례)은 components/portfolio/DonutChart로 공용화 —
+// 포트폴리오분석 "섹터 편중도/변동성 기여도"와 같은 컴포넌트를 쓴다. 여기선 데이터 준비만.
 export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] }) {
-  const anim = useChartEntranceAnimation();
-  // 2026-08-14 recharts 기본 Tooltip은 마우스 위치를 따라다니는 플로팅 박스라, 도넛
-  // 아래쪽 슬라이스에 마우스를 올리면 차트 바로 밑의 범례 텍스트와 겹치는 문제가 있었다
-  // (겹쳐도 z-index상 툴팁이 항상 위에 그려지지만 시각적으로 범례와 뒤섞여 읽기 힘듦).
-  // 마우스 위치를 따라가는 대신 도넛 중앙(항상 비어있는 고정 위치)에 값을 표시하도록
-  // 바꿔서 겹침 자체가 구조적으로 불가능하게 한다 — Tooltip 컴포넌트는 제거.
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-
   const data = holdings
     .map(h => ({ name: h.name, value: h.currentPrice * h.quantity }))
     .filter(d => d.value > 0)
     .sort((a, b) => b.value - a.value);
-
   const totalValue = data.reduce((s, d) => s + d.value, 0);
-
-  const colored = data.map((d, i) => ({
-    ...d,
-    color: sliceColorCycled(i),
-    pct: totalValue > 0 ? (d.value / totalValue) * 100 : 0,
-  }));
-
-  const active = activeIndex != null ? colored[activeIndex] : null;
-
+  const slices = data.map((d, i) => ({ key: `${d.name}-${i}`, name: d.name, value: d.value, detail: fmtWon(d.value), color: sliceColorCycled(i) }));
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
       <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>종목별 투자비중</p>
-      <div className="relative">
-        <ResponsiveContainer width="100%" height={200}>
-          <PieChart>
-            <Pie
-              data={colored}
-              dataKey="value"
-              nameKey="name"
-              innerRadius={62}
-              outerRadius={90}
-              paddingAngle={2}
-              cornerRadius={3}
-              stroke="none"
-              onMouseEnter={(_, i) => setActiveIndex(i)}
-              onMouseLeave={() => setActiveIndex(null)}
-              {...anim}
-            >
-              {colored.map((d, i) => <Cell key={i} fill={d.color} />)}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
-          {active ? (
-            <>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
-              <p className="text-[13px] font-bold font-mono text-white">{fmtWon(active.value)}</p>
-              <p className="text-[11px] text-slate-400 font-mono">{fmtPct(active.pct)}</p>
-            </>
-          ) : (
-            <>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide">평가금액</p>
-              <p className="text-[15px] font-bold font-mono text-white">{fmtWon(totalValue)}</p>
-            </>
-          )}
-        </div>
-      </div>
-      <div className={`flex flex-wrap ${colored.length > 8 ? 'gap-x-2.5' : 'gap-x-4'} gap-y-1.5 mt-3 justify-center`}>
-        {colored.map((d, i) => (
-          <div key={i} className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-            <span className="text-[11px] text-slate-400">{d.name}</span>
-            <span className="text-[11px] text-slate-500 font-mono">{fmtPct(d.pct)}</span>
-          </div>
-        ))}
-      </div>
+      <DonutChart slices={slices} centerLabel="평가금액" centerValue={fmtWon(totalValue)} />
     </div>
   );
 }
@@ -138,10 +66,6 @@ export function AllocationDonutChart({ holdings }: { holdings: ChartHolding[] })
 // (~20개) 수준이라, Tech/Finance 같은 영문 GICS로 재매핑하면 오히려 근거 없는 오분류
 // 위험만 생긴다. 값이 비어있으면(조회 실패 등) "기타"로 폴백.
 export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHolding[] }) {
-  const anim = useChartEntranceAnimation();
-  // AllocationDonutChart와 동일한 이유로 마우스 추적 툴팁 대신 중앙 고정 표시를 쓴다.
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-
   const bySector = new Map<string, number>();
   for (const h of holdings) {
     const key = h.sector?.trim() || '기타';
@@ -149,75 +73,15 @@ export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHoldin
     if (value <= 0) continue;
     bySector.set(key, (bySector.get(key) ?? 0) + value);
   }
-
-  const withValue = [...bySector.entries()]
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-
-  const totalValue = withValue.reduce((s, d) => s + d.value, 0);
-
+  const withValue = [...bySector.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   const data = withValue.length > MAX_DIRECT_SLICES
-    ? [
-        ...withValue.slice(0, MAX_DIRECT_SLICES),
-        { name: '기타', value: withValue.slice(MAX_DIRECT_SLICES).reduce((s, d) => s + d.value, 0) },
-      ]
+    ? [...withValue.slice(0, MAX_DIRECT_SLICES), { name: '기타', value: withValue.slice(MAX_DIRECT_SLICES).reduce((s, d) => s + d.value, 0) }]
     : withValue;
-
-  const colored = data.map((d, i) => ({
-    ...d,
-    color: d.name === '기타' ? OTHER_COLOR : SLICE_COLORS[i % MAX_DIRECT_SLICES],
-    pct: totalValue > 0 ? (d.value / totalValue) * 100 : 0,
-  }));
-
-  const active = activeIndex != null ? colored[activeIndex] : null;
-
+  const slices = data.map((d, i) => ({ key: d.name, name: d.name, value: d.value, detail: fmtWon(d.value), color: d.name === '기타' ? OTHER_COLOR : SLICE_COLORS[i % MAX_DIRECT_SLICES] }));
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
       <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>산업군별 비중</p>
-      <div className="relative">
-        <ResponsiveContainer width="100%" height={200}>
-          <PieChart>
-            <Pie
-              data={colored}
-              dataKey="value"
-              nameKey="name"
-              innerRadius={62}
-              outerRadius={90}
-              paddingAngle={2}
-              cornerRadius={3}
-              stroke="none"
-              onMouseEnter={(_, i) => setActiveIndex(i)}
-              onMouseLeave={() => setActiveIndex(null)}
-              {...anim}
-            >
-              {colored.map((d, i) => <Cell key={i} fill={d.color} />)}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center">
-          {active ? (
-            <>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide truncate max-w-full">{active.name}</p>
-              <p className="text-[13px] font-bold font-mono text-white">{fmtWon(active.value)}</p>
-              <p className="text-[11px] text-slate-400 font-mono">{fmtPct(active.pct)}</p>
-            </>
-          ) : (
-            <>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide">업종 수</p>
-              <p className="text-[15px] font-bold font-mono text-white">{data.length}개</p>
-            </>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center">
-        {colored.map((d, i) => (
-          <div key={i} className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-            <span className="text-[11px] text-slate-400">{d.name}</span>
-            <span className="text-[11px] text-slate-500 font-mono">{fmtPct(d.pct)}</span>
-          </div>
-        ))}
-      </div>
+      <DonutChart slices={slices} centerLabel="업종 수" centerValue={`${data.length}개`} />
     </div>
   );
 }

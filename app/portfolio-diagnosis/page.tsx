@@ -20,6 +20,7 @@ import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import AiSummarySections, { SUMMARY_SECTION_KEYS, hasAnySummarySection, type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
 import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
+import { StructureChartsRow } from '@/components/portfolio/StructureCharts';
 import HoldingPositionLine from '@/components/portfolio/HoldingPositionLine';
 import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
 import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, type WeightDriftRow } from '@/lib/portfolio-position';
@@ -198,11 +199,6 @@ interface WatchItem { ticker: string; name: string; price?: number; changeRate?:
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SECTOR_HEX = [
-  '#6366f1', '#8b5cf6', '#0ea5e9', '#10b981',
-  '#f59e0b', '#ec4899', '#14b8a6', '#f97316',
-];
-
 function fmt(n: number)  { return n.toLocaleString(); }
 function fmtR(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 function uid()           { return Math.random().toString(36).slice(2, 9); }
@@ -274,20 +270,6 @@ function MetricCard({ label, value, sub, up, highlight }: {
       </p>
       {sub && <p className="text-[11px] text-slate-500 mt-0.5">{sub}</p>}
     </div>
-  );
-}
-
-// 정량 지표 3종 공용 배지 — 등급 문구를 색으로도 구분해 숫자를 못 읽어도 위험도가
-// 직관적으로 전달되게 한다(색맹 접근성까지는 아니지만 문구가 항상 함께 있어 텍스트만으로도
-// 판단 가능). 종목 수 부족 시엔 이 배지 대신 QuantMetricsCaption으로 통일해서 보여준다.
-function GradeBadge({ label, tone }: { label: string; tone: 'danger' | 'warning' | 'safe' }) {
-  const styles = {
-    danger:  { background: 'rgba(239,68,68,0.15)',  border: '1px solid rgba(239,68,68,0.3)',  color: '#f87171' },
-    warning: { background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' },
-    safe:    { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34d399' },
-  }[tone];
-  return (
-    <span className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={styles}>{label}</span>
   );
 }
 
@@ -874,92 +856,17 @@ export default function PortfolioDiagnosisPage() {
           {/* 2층 · 구조 — 매입 비중 vs 현재 비중 드리프트(2026-09-01 신설, 공용 컴포넌트) */}
           {driftRows.length >= 2 && <WeightDriftCard rows={driftRows} className="mb-4" />}
 
-          {/* 2층 · 구조 — 섹터 편중도 — Stage 1 완료 직후 서버 계산값으로 도착(부분 표시 없음) */}
-          {sortedSectors === null ? (
-            !stage2Failed && (
-              <Card title="섹터 편중도 분석" className="mb-4">
-                <FieldSkeleton lines={4} />
-              </Card>
-            )
-          ) : (
-            <Card title="섹터 편중도 분석" className="mb-4">
-              {/* 정량 지표 A(섹터 실효분산업종수) — HHI(비중 제곱합)의 역수로, "종목은
-                  여러 개여도 사실상 몇 개 업종에 분산된 효과인지"를 직관적인 개수로
-                  보여준다. 종목 수 부족 시엔 캡션으로 대체(quantMetricsSuppressed). */}
-              {quantMetricsSuppressed ? (
-                <QuantMetricsCaption />
-              ) : result.sectorConcentration ? (
-                <div className="flex items-center gap-2 mb-4">
-                  <GradeBadge
-                    label={`섹터 집중도: ${result.sectorConcentration.grade}`}
-                    tone={result.sectorConcentration.grade === '고집중' ? 'danger' : result.sectorConcentration.grade === '보통' ? 'warning' : 'safe'}
-                  />
-                  <span className="text-[11px] text-slate-500">실효 {result.sectorConcentration.effectiveCount}개 업종</span>
-                </div>
-              ) : null}
-              <div className="flex flex-col gap-3">
-                {sortedSectors.map((s, i) => {
-                  const hex = SECTOR_HEX[i % SECTOR_HEX.length];
-                  const barColor = s.warning ? '#ef4444' : hex;
-                  return (
-                    <div key={s.name}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: hex }} />
-                          <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
-                          {s.warning && (
-                            <span
-                              className="text-[11px] px-1.5 py-0.5 rounded-md font-semibold"
-                              style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
-                            >
-                              과집중
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
-                      </div>
-                      <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{ width: `${s.weight}%`, backgroundColor: barColor }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          )}
-
-          {/* 2층 · 구조 — 변동성 기여도(정량 지표 C-1, 신설) — 비중×변동성 단순 근사치이며
-              종목 간 상관관계는 반영하지 않는다는 점을 라벨에 명시해 과대해석을 방지한다.
-              2026-09-01 문구 재작성: "비중×변동성 근사치/상관관계 미반영"이라는 용어 나열로는
-              뜻이 전달되지 않는다는 피드백 — 이 숫자가 무엇인지, 왜 근사치인지를 풀어 쓴다. */}
-          {result.riskContribution && result.riskContribution.length > 0 && (
-            <Card title="변동성 기여도" className="mb-4">
-              <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
-                각 종목의 가격 변동이 포트폴리오 전체의 흔들림(변동성)에 얼마나 기여하는지를 비율로 나타낸 값입니다.
-                보유 비중이 크거나 가격이 많이 출렁이는 종목일수록 높게 나옵니다.
-                종목들이 서로 같이 움직이는 정도(상관관계)는 계산에 넣지 않은 근사치라, 실제 포트폴리오 변동성과는 차이가 있을 수 있습니다.
-              </p>
-              <div className="flex flex-col gap-3">
-                {result.riskContribution.map((r, i) => (
-                  <div key={r.ticker}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[13px] text-slate-300 font-medium">{r.name}</span>
-                      <span className="text-[13px] font-mono text-slate-400">{r.pct}%</span>
-                    </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1e293b' }}>
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${r.pct}%`, backgroundColor: SECTOR_HEX[i % SECTOR_HEX.length] }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+          {/* 2층 · 구조 — 섹터 편중도 + 변동성 기여도 (2026-09-01 도넛 전환, 공용 StructureChartsRow —
+              데스크톱 2열/모바일 세로 스택. 섹터는 Stage 1 완료 직후 서버 계산값으로 도착하므로
+              그 전엔 스켈레톤, 종목 수 부족(1종목)이면 캡션 표시) */}
+          <StructureChartsRow
+            sectors={sortedSectors}
+            concentration={result.sectorConcentration}
+            riskContribution={result.riskContribution}
+            suppressed={quantMetricsSuppressed}
+            pending={sortedSectors === null && !stage2Failed}
+            className="mb-4"
+          />
 
           {/* 2층 · 구조 — 기간별 포트폴리오 평가금액 변동 (신설, 종목분석 PriceChangeTable과
               동일 lib 함수 재사용) — AI 텍스트를 기다리지 않고 holdings/totalValue가

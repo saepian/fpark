@@ -1,6 +1,7 @@
 import { Metadata } from 'next';
 import AiSummarySections, { type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
 import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
+import { StructureChartsRow } from '@/components/portfolio/StructureCharts';
 import HoldingPositionLine from '@/components/portfolio/HoldingPositionLine';
 import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
 import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, type WeightDriftRow } from '@/lib/portfolio-position';
@@ -215,11 +216,6 @@ interface PortfolioData {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
-
-const SECTOR_COLORS = [
-  'bg-indigo-500', 'bg-violet-500', 'bg-sky-500', 'bg-emerald-500',
-  'bg-amber-500',  'bg-pink-500',   'bg-teal-500', 'bg-orange-500',
-];
 
 function fmt(n: number) { return n.toLocaleString(); }
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
@@ -809,66 +805,14 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         {/* 2층 · 구조 — 매입 비중 vs 현재 비중(2026-09-01 신설, 공용 컴포넌트; 옛 스냅샷은 holdings로 폴백 계산) */}
         {(() => { const rows = d.weightDrift ?? computeWeightDrift(d.holdings ?? []); return rows.length >= 2 ? <WeightDriftCard rows={rows} className="mb-4" /> : null; })()}
 
-        {/* 섹터 편중도 */}
-        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">섹터 편중도 분석</p>
-          {quantMetricsSuppressed ? (
-            <QuantMetricsCaption />
-          ) : d.sectorConcentration ? (
-            <div className="flex items-center gap-2 mb-4">
-              <GradeBadge
-                label={`섹터 집중도: ${d.sectorConcentration.grade}`}
-                tone={d.sectorConcentration.grade === '고집중' ? 'danger' : d.sectorConcentration.grade === '보통' ? 'warning' : 'safe'}
-              />
-              <span className="text-[11px] text-slate-500">실효 {d.sectorConcentration.effectiveCount}개 업종</span>
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-3">
-            {sortedSectors.map((s, i) => (
-              <div key={s.name}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${SECTOR_COLORS[i % SECTOR_COLORS.length]}`} />
-                    <span className="text-[13px] text-slate-300 font-medium">{s.name}</span>
-                    {s.warning && (
-                      <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 font-semibold">과집중</span>
-                    )}
-                  </div>
-                  <span className="text-[13px] font-mono text-slate-400">{s.weight}%</span>
-                </div>
-                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${s.warning ? 'bg-red-500' : SECTOR_COLORS[i % SECTOR_COLORS.length]}`}
-                    style={{ width: `${s.weight}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 변동성 기여도(정량 지표 C-1, 신설) */}
-        {d.riskContribution && d.riskContribution.length > 0 && (
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">변동성 기여도</p>
-            <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
-              각 종목의 가격 변동이 포트폴리오 전체의 흔들림(변동성)에 얼마나 기여하는지를 비율로 나타낸 값입니다.
-              보유 비중이 크거나 가격이 많이 출렁이는 종목일수록 높게 나옵니다.
-              종목들이 서로 같이 움직이는 정도(상관관계)는 계산에 넣지 않은 근사치라, 실제 포트폴리오 변동성과는 차이가 있을 수 있습니다.
-            </p>
-            <div className="flex flex-col gap-3">
-              {d.riskContribution.map((r, i) => (
-                <div key={r.ticker}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[13px] text-slate-300 font-medium">{r.name}</span>
-                    <span className="text-[13px] font-mono text-slate-400">{r.pct}%</span>
-                  </div>
-                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${SECTOR_COLORS[i % SECTOR_COLORS.length]}`} style={{ width: `${r.pct}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* 섹터 편중도 + 변동성 기여도 — 2026-09-01 도넛 전환(메인·대시보드와 같은 StructureChartsRow) */}
+        <StructureChartsRow
+          sectors={sortedSectors}
+          concentration={d.sectorConcentration}
+          riskContribution={d.riskContribution}
+          suppressed={quantMetricsSuppressed}
+          className="mb-4"
+        />
 
         {/* 기간별 포트폴리오 평가금액 변동 — 메인 페이지(app/portfolio-diagnosis/page.tsx)와
             동일 컴포넌트 재사용. 2026-08-31 QA 발견: 공유 페이지엔 이 카드가 아예 없었음. */}
