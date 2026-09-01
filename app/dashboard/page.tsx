@@ -4,18 +4,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
-import { Plus, Trash2, Search, Sparkles, RefreshCw, Lock, EyeOff, Eye, Coins, Pencil } from 'lucide-react';
+import { Plus, Trash2, Search, Sparkles, EyeOff, Eye, Coins, Pencil } from 'lucide-react';
 import PageBackground from '@/components/layout/PageBackground';
 import AiLoadingOverlay from '@/components/common/AiLoadingOverlay';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { isKoreanMarketOpen, isKoreanMarketPreOpen } from '@/lib/market-utils';
-import AiSummarySections, { SUMMARY_SECTION_KEYS, type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
-import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
-import { StructureChartsRow } from '@/components/portfolio/StructureCharts';
-import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
-import { computeWeightDrift, type WeightDriftRow } from '@/lib/portfolio-position';
-import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import { useCountUp } from '@/lib/use-count-up';
 import AiAnalysis from '@/components/stock/AiAnalysis';
 import OverseasAiAnalysis from '@/components/stock/OverseasAiAnalysis';
@@ -43,25 +37,6 @@ interface DividendInfo {
   latestDividend: { recordDate: string; payDate: string | null; kind: '분기' | '결산'; kindLabel: string; perShareAmount: number } | null;
 }
 
-interface DashboardHoldingResult {
-  ticker: string; name: string; currentPrice: number; avgPrice: number; quantity: number;
-  value: number; invested: number; profit: number; profitRate: number;
-  newsBasis?: 'news' | 'estimated';
-  news?: { title: string; summary?: string; url?: string }[];
-  todayContribution?: number | null;
-  reason?: string; sector?: string;
-}
-
-interface DashboardHistory {
-  daysSince: number | null; prevDate?: string;
-  compositionChanged?: boolean;
-  addedTickers?: { ticker: string; name: string }[];
-  removedTickers?: { ticker: string; name: string }[];
-  narrative?: string;
-}
-
-interface HoldingPeriodEntry { ticker: string; name: string; holdDays: number; profitRate: number }
-
 // /api/dashboard/monthly-returns가 lib/market-day-context.ts(getDomesticMarketDayContext)로
 // 계산해 내려주는 결과 그대로의 shape(서버가 이미 조회해둔 차트 데이터 재사용, 새 KIS 호출
 // 없음) — "오늘의 등락" 위젯이 비거래일(주말·공휴일)에 마지막 거래일 데이터를 "오늘"인
@@ -73,29 +48,6 @@ interface MarketDayInfo {
   reason: 'weekend' | 'holiday' | null;
 }
 
-
-// 정량 지표 3종(2026-08-28 신설) — app/portfolio-diagnosis/page.tsx와 동일 shape(손복제).
-interface DashboardSector { name: string; tickers: string[]; weight: number; warning: boolean }
-interface SectorConcentration { hhi: number; effectiveCount: number; grade: '고집중' | '보통' | '분산' }
-interface RiskContributionItem { ticker: string; name: string; pct: number }
-interface PortfolioCorrelation { correlation: number; sampleSize: number; bucket: '강한 동조화' | '보통 동조화' | '약한 동조화' }
-
-interface StreamedDashboardResult {
-  totalInvested?: number; totalValue?: number; totalProfit?: number; totalProfitRate?: number;
-  holdings?: DashboardHoldingResult[];
-  history?: DashboardHistory;
-  holdingPeriod?: { longest: HoldingPeriodEntry | null; mostRecent: HoldingPeriodEntry | null; narrative?: string };
-  summarySections?: AiSummarySectionsData;
-  sectors?: DashboardSector[];
-  sectorConcentration?: SectorConcentration | null;
-  riskContribution?:    RiskContributionItem[] | null;
-  correlation?:         PortfolioCorrelation | null;
-  weightDrift?:         WeightDriftRow[] | null;
-  riskFactors?: ({ text: string; category?: 'macro' | 'company' } | string)[];
-  opportunityFactors?: string[];
-  shortTermOutlook?: string; midTermOutlook?: string;
-  coMovementText?: string | null; coMovementNarrative?: string;
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -114,48 +66,6 @@ function fmtMarketDay(dateStr: string): string {
 // 종목카드 내부 통계 라벨(현재가/평가손익/52주 최고·최저/시가총액/5일변동률) — 색상
 // 차이만으로는 다크테마에서 라벨과 값이 잘 구분되지 않아 옅은 배경의 배지 형태로 분리.
 const STAT_LABEL_CLASS = 'inline-block text-[11px] font-semibold text-slate-400 uppercase tracking-wide bg-slate-800/60 rounded px-1.5 py-0.5 mb-1';
-
-// Stage2 'portfolio-field(-partial)' 이벤트 key를 StreamedDashboardResult 형태로 매핑.
-// app/api/dashboard/analysis/route.ts가 portfolio-diagnosis와 동일한 이벤트 shape을 쓰므로
-// app/portfolio-diagnosis/page.tsx의 applyPortfolioField와 동일한 원칙을 그대로 재사용.
-function applyPortfolioField(prev: StreamedDashboardResult | null, key: string, value: unknown): StreamedDashboardResult {
-  const base = prev ?? {};
-  if (key === 'historyNarrative') {
-    return { ...base, history: { ...(base.history ?? { daysSince: null }), narrative: value as string } };
-  }
-  if (key === 'holdingPeriodNarrative') {
-    return { ...base, holdingPeriod: { ...(base.holdingPeriod ?? { longest: null, mostRecent: null }), narrative: value as string } };
-  }
-  const sectionKey = SUMMARY_SECTION_KEYS[key];
-  if (sectionKey) {
-    return {
-      ...base,
-      summarySections: {
-        ...base.summarySections,
-        [sectionKey]: value as string,
-      },
-    };
-  }
-  return { ...base, [key]: value };
-}
-
-function FieldSkeleton({ lines = 2 }: { lines?: number }) {
-  return (
-    <div className="space-y-1.5 animate-pulse">
-      {Array.from({ length: lines }).map((_, i) => (
-        <div key={i} className="h-3 rounded bg-slate-700/40" style={{ width: i === lines - 1 ? '60%' : '100%' }} />
-      ))}
-    </div>
-  );
-}
-
-function QuantMetricsCaption() {
-  return (
-    <p className="text-[11px] text-slate-600 bg-slate-800/30 border border-slate-700/40 rounded-xl px-4 py-3 mb-4">
-      종목 수가 적어 섹터 집중도·상관관계·리스크 기여도는 계산하지 않습니다(2종목 이상부터 계산).
-    </p>
-  );
-}
 
 // 종목카드 아이콘 버튼(배당·AI분석·숨기기·삭제) 호버 툴팁 — 브라우저 기본 title
 // 툴팁은 지연이 크고 다크테마와 안 어울려서, group-hover만으로 동작하는 순수 CSS
@@ -411,15 +321,6 @@ export default function DashboardPage() {
   const hidingSeqRef   = useRef<Record<string, number>>({});
 
   // AI 분석
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [analysisLabel,   setAnalysisLabel]   = useState('');
-  const [analysisError,   setAnalysisError]   = useState('');
-  const [analysisResult,  setAnalysisResult]  = useState<StreamedDashboardResult | null>(null);
-  const [isCached,        setIsCached]        = useState(false);
-  const [stage1Complete,  setStage1Complete]  = useState(false);
-  const [stage2Failed,    setStage2Failed]    = useState(false);
-  const [streamFinished,  setStreamFinished]  = useState(false);
-  const smoothText = useSmoothTypingText();
   // 종목별 AI 분석 모달 — 카드 내부 펼침 대신 모달로 띄운다(카드 그리드가 한 카드만
   // 확장되며 레이아웃이 깨지는 걸 방지).
   const [analysisModal, setAnalysisModal] = useState<{ ticker: string; name: string; market: string } | null>(null);
@@ -587,113 +488,6 @@ export default function DashboardPage() {
     loadMonthly();
   };
 
-  // ── AI 분석 ───────────────────────────────────────────────────────────────
-
-  const runAnalysis = async () => {
-    setAnalysisError('');
-    setAnalysisLoading(true);
-    setAnalysisLabel('분석 준비 중...');
-    setAnalysisResult(null);
-    setIsCached(false);
-    setStage1Complete(false);
-    setStage2Failed(false);
-    setStreamFinished(false);
-    smoothText.reset();
-
-    let sawStage1Complete = false;
-
-    try {
-      const res = await fetch('/api/dashboard/analysis', { method: 'POST' });
-      if (!res.ok) {
-        const data = await res.json();
-        setAnalysisError(data.error || '분석 실패');
-        return;
-      }
-
-      const reader  = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let   buffer  = '';
-      let   receivedTerminalEvent = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-
-            if (event.type === 'progress') {
-              setAnalysisLabel(event.label);
-            } else if (event.type === 'meta') {
-              const { type: _t, ...metaFields } = event;
-              setAnalysisResult(prev => ({ ...prev, ...metaFields }));
-            } else if (event.type === 'holding-meta') {
-              setAnalysisResult(prev => ({ ...(prev ?? {}), holdings: event.holdings }));
-            } else if (event.type === 'holding-field-partial') {
-              const { ticker, key, value: v } = event;
-              setAnalysisResult(prev => {
-                if (!prev?.holdings) return prev;
-                return { ...prev, holdings: prev.holdings.map(h => h.ticker === ticker ? { ...h, [key]: v } : h) };
-              });
-              smoothText.feed(`holding:${ticker}:${key}`, v);
-            } else if (event.type === 'holding-field') {
-              const { ticker, key, value: v } = event;
-              setAnalysisResult(prev => {
-                if (!prev?.holdings) return prev;
-                return { ...prev, holdings: prev.holdings.map(h => h.ticker === ticker ? { ...h, [key]: v } : h) };
-              });
-              if (typeof v === 'string') smoothText.snap(`holding:${ticker}:${key}`, v);
-            } else if (event.type === 'stage1-done') {
-              sawStage1Complete = true;
-              setStage1Complete(true);
-              setAnalysisResult(prev => ({ ...(prev ?? {}), coMovementText: event.coMovementText }));
-            } else if (event.type === 'portfolio-field-partial') {
-              const { key, value: v } = event;
-              setAnalysisResult(prev => applyPortfolioField(prev, key, v));
-              smoothText.feed(key, v);
-            } else if (event.type === 'portfolio-field') {
-              const { key, value: v } = event;
-              setAnalysisResult(prev => applyPortfolioField(prev, key, v));
-              if (typeof v === 'string') smoothText.snap(key, v);
-            } else if (event.type === 'stage2-error') {
-              setStage2Failed(true);
-              setStreamFinished(true);
-              smoothText.snapAll();
-            } else if (event.type === 'done') {
-              receivedTerminalEvent = true;
-              setIsCached(!!event.isCached);
-              setStage1Complete(true);
-              setStreamFinished(true);
-              smoothText.snapAll();
-            } else if (event.type === 'error') {
-              receivedTerminalEvent = true;
-              setAnalysisError(event.message || '분석 실패');
-              smoothText.snapAll();
-            }
-          } catch { /* malformed SSE line 무시 */ }
-        }
-      }
-
-      if (!receivedTerminalEvent) {
-        if (sawStage1Complete) { setStage2Failed(true); setStreamFinished(true); }
-        else setAnalysisError('분석 중 연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.');
-        smoothText.snapAll();
-      }
-    } catch {
-      if (sawStage1Complete) { setStage2Failed(true); setStreamFinished(true); }
-      else setAnalysisError('네트워크 오류가 발생했습니다.');
-      smoothText.snapAll();
-    } finally {
-      setAnalysisLoading(false);
-      smoothText.snapAll();
-    }
-  };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -766,8 +560,6 @@ export default function DashboardPage() {
 
   const isUp = totalProfitRateRaw >= 0;
   const atLimit = holdings.length >= limit;
-
-  const reportReady = streamFinished && !stage2Failed;
 
   return (
     <div className="pb-8">
@@ -1119,137 +911,6 @@ export default function DashboardPage() {
             </Modal>
           );
         })()}
-
-        {/* AI 분석 버튼 — 장중에는 숨김(장마감 후·거래일에만 노출). 종목별 카드 버튼(8/31
-            수정)과 동일하게 "장마감~자정"만 활성 구간으로 좁힌다 — marketOpen만 보면
-            자정 이후~다음 장 시작 전까지도 계속 활성 상태로 남아, 이 시간대에 클릭하면
-            아직 오늘 거래 데이터가 없는데도 "오늘의 AI 분석"이라는 라벨로 생성을 시도하게
-            된다(서버의 getDomesticMarketDayContext도 개장 전 새벽엔 보수적으로 거래일로
-            간주해 이 케이스를 막아주지 못함 — lib/market-day-context.ts 상단 주석 참고). */}
-        {!marketOpen && !analysisResult && (
-          <Card className="mb-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-                <div>
-                  <p className="text-[13px] font-semibold text-white">오늘의 AI 분석</p>
-                  <p className="text-[11px] text-slate-500">
-                    {afterMidnight
-                      ? '자정 이후엔 다음 장 마감 후 다시 이용 가능합니다'
-                      : '보유 종목의 오늘 뉴스·이슈·시세를 종합 해석합니다 (하루 1회 생성)'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={runAnalysis}
-                disabled={analysisLoading || afterMidnight}
-                className="shrink-0 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[13px] font-semibold
-                  bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500
-                  disabled:opacity-50 disabled:cursor-not-allowed text-white transition-all cursor-pointer"
-              >
-                {analysisLoading ? (
-                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> {analysisLabel || '분석 중...'}</>
-                ) : (
-                  <><Sparkles className="w-3.5 h-3.5" /> AI 분석 보기</>
-                )}
-              </button>
-            </div>
-            {analysisError && <p className="text-[12px] text-red-400 mt-3">{analysisError}</p>}
-          </Card>
-        )}
-        {marketOpen && !analysisResult && (
-          <Card className="mb-4">
-            <div className="flex items-center gap-2.5 text-slate-500">
-              <Lock className="w-4 h-4" />
-              <p className="text-[12px]">AI 분석은 장 마감 후(15:30 이후) 이용할 수 있습니다.</p>
-            </div>
-          </Card>
-        )}
-
-        {/* AI 분석 결과 */}
-        {analysisResult && (
-          <>
-            <div className="flex items-center justify-between mb-2">
-              <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-widest`}>AI 분석 결과</p>
-              {isCached && <span className="text-[11px] text-slate-500">오늘 생성된 분석입니다</span>}
-            </div>
-
-            <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 mb-4">
-              <span className="text-amber-400 text-sm mt-0.5 shrink-0">ⓘ</span>
-              <p className="text-[12px] text-amber-200/90 leading-relaxed">
-                본 분석은 투자 판단에 참고할 수 있는 정보를 제공할 뿐, 투자자문이나 매매 권유가 아닙니다.
-              </p>
-            </div>
-
-            {stage2Failed ? (
-              <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-6 py-5 mb-4">
-                <p className="text-[13px] text-amber-200/90 leading-relaxed">AI 종합 평가를 불러오지 못했습니다. 종목별 분석은 위에서 확인하실 수 있습니다.</p>
-                <button
-                  onClick={runAnalysis}
-                  disabled={afterMidnight}
-                  title={afterMidnight ? '자정 이후엔 다음 장 마감 후 다시 이용 가능합니다' : undefined}
-                  className="flex items-center gap-1.5 shrink-0 px-4 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[12px] font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" /> 다시 시도
-                </button>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-indigo-500/25 overflow-hidden mb-4" style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
-                <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
-                <div className="px-6 py-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    <p className={`${SECTION_TITLE_CLASS} text-indigo-400/70 uppercase tracking-widest`}>AI 종합 평가</p>
-                  </div>
-                  {/* 2026-09-01: 포트폴리오분석·공유 페이지와 같은 공용 컴포넌트 — 소제목/스키마 판별 로직 단일화 */}
-                  {analysisResult.summarySections
-                    ? <AiSummarySections sections={analysisResult.summarySections} revealed={smoothText.revealed} streamFinished={streamFinished} />
-                    : <FieldSkeleton lines={3} />}
-                </div>
-              </div>
-            )}
-
-            {/* 정량 지표 3종(2026-08-28 신설) — app/portfolio-diagnosis/page.tsx와 동일
-                원칙. 대시보드는 원래 섹터 비중 카드 자체가 없었지만, sectors가 이제
-                서버 계산값(실제 평가금액 기준)이라 여기서도 그대로 보여줄 근거가 있다. */}
-            {(holdings?.length ?? 0) > 0 && (holdings?.length ?? 0) < 2 ? (
-              <QuantMetricsCaption />
-            ) : (
-              <>
-                {(() => { const rows = analysisResult.weightDrift ?? computeWeightDrift(analysisResult.holdings ?? []); return rows.length >= 2 ? <WeightDriftCard rows={rows} className="mb-4" /> : null; })()}
-
-                {/* 섹터 편중도 + 변동성 기여도 — 2026-09-01 도넛 전환(포트폴리오분석·공유와 같은 StructureChartsRow) */}
-                <StructureChartsRow
-                  sectors={analysisResult.sectors}
-                  concentration={analysisResult.sectorConcentration}
-                  riskContribution={analysisResult.riskContribution}
-                  className="mb-4"
-                />
-              </>
-            )}
-
-            {/* 2026-09-01 3차: 포트폴리오분석·공유와 같은 보조 카드(공용 컴포넌트) */}
-            {!stage2Failed && (
-              <>
-                <IssueFactorsCard riskFactors={analysisResult.riskFactors} opportunityFactors={analysisResult.opportunityFactors} pending={!streamFinished} className="mb-4" />
-                <WatchVariablesCard shortTermOutlook={analysisResult.shortTermOutlook} midTermOutlook={analysisResult.midTermOutlook} pending={!streamFinished} revealed={smoothText.revealed} className="mb-4" />
-              </>
-            )}
-
-            {reportReady && (
-              <button
-                onClick={runAnalysis}
-                disabled={afterMidnight}
-                title={afterMidnight ? '자정 이후엔 다음 장 마감 후 다시 이용 가능합니다' : undefined}
-                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] font-semibold
-                  bg-slate-800/60 hover:bg-slate-800 text-slate-400 border border-slate-700 transition-colors cursor-pointer
-                  disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> 다시 불러오기 (당일 캐시)
-              </button>
-            )}
-          </>
-        )}
       </div>
     </div>
   );
