@@ -5,6 +5,7 @@ import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import ShareDropdown from '@/components/ShareDropdown';
 import PageBackground from '@/components/layout/PageBackground';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
+import ReferenceNewsList from '@/components/diagnosis/ReferenceNewsList';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
 import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
@@ -258,27 +259,6 @@ function FieldSkeleton({ lines = 2 }: { lines?: number }) {
 
 function TypingCursor() {
   return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
-}
-
-// newsIssueClusters(뉴스 인덱스 기준 이슈 묶음)를 "참고 기사" 렌더링용 그룹으로 변환.
-// 클러스터가 없으면(뉴스가 적어 나눌 게 없는 경우 등) null을 반환해 호출부가 기존
-// flat 목록 렌더링으로 폴백하게 한다. 모델이 일부 기사를 어느 클러스터에도 안 넣었을
-// 수 있어(전체 커버를 강제하지 않음), 남은 인덱스는 "기타" 묶음으로 자동 보완한다.
-function buildNewsGroups(
-  news: { title: string; description: string; url?: string }[],
-  clusters?: { label: string; articleIndexes: number[] }[],
-): { label: string; indexes: number[] }[] | null {
-  if (!clusters || clusters.length === 0) return null;
-  const covered = new Set<number>();
-  const groups = clusters.map((c) => {
-    const indexes = c.articleIndexes.filter((i) => i >= 0 && i < news.length);
-    indexes.forEach((i) => covered.add(i));
-    return { label: c.label, indexes };
-  }).filter((g) => g.indexes.length > 0);
-  if (groups.length === 0) return null;
-  const leftover = news.map((_, i) => i).filter((i) => !covered.has(i));
-  if (leftover.length > 0) groups.push({ label: '기타', indexes: leftover });
-  return groups;
 }
 
 function StatDelta({ label, value, positive }: { label: string; value: string; positive: boolean }) {
@@ -582,7 +562,6 @@ export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
   isGenerating = false, revealed, livePriceTable = true,
 }: DiagnosisReportProps) {
-  const newsGroups = buildNewsGroups(result.news, result.newsIssueClusters);
 
   return (
     <div className="pb-8">
@@ -902,78 +881,8 @@ export default function DiagnosisReport({
           <FinancialsTrendCard result={result} isGenerating={isGenerating} revealed={revealed} />
         )}
 
-        {/* ── 6행: 참고 기사 (본문에서 이미 해석했으므로 출처 링크만) ── */}
-        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <div className="flex items-center gap-2 mb-4">
-            <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>참고 기사</p>
-            {result.newsBasis === 'news' ? (
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                📰 뉴스 기반 분석
-              </span>
-            ) : (
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-700/40 text-slate-400 border border-slate-600/40">
-                🔍 수급·기술적 추정
-              </span>
-            )}
-          </div>
-          {result.news?.length > 0 ? (
-            newsGroups ? (
-              <div className="flex flex-col gap-4">
-                {newsGroups.map((g, gi) => (
-                  <div key={gi}>
-                    <p className="text-[11px] font-bold text-indigo-300/90 mb-1.5">
-                      {g.label !== '기타' && '🔖 '}{g.label}
-                    </p>
-                    <div className="flex flex-col divide-y divide-slate-700/40">
-                      {g.indexes.map((i) => {
-                        const n = result.news[i];
-                        const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
-                        return (
-                          <a
-                            key={i}
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="py-2 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
-                          >
-                            <span className="text-[11px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                            <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
-                              {n.title}
-                            </p>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col divide-y divide-slate-700/40">
-                {result.news.map((n, i) => {
-                  const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
-                  return (
-                    <a
-                      key={i}
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="py-2.5 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5"
-                    >
-                      <span className="text-[11px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                      <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">
-                        {n.title}
-                      </p>
-                    </a>
-                  );
-                })}
-              </div>
-            )
-          ) : (
-            <p className="text-xs text-slate-500 leading-relaxed">
-              관련도 높은 뉴스가 확인되지 않아, 수급·기술적 지표를 근거로 분석했습니다.
-            </p>
-          )}
-        </div>
+        {/* ── 6행: 참고 기사 — 공용 ReferenceNewsList(공유 페이지와 동일, 번호는 표시 순서대로) ── */}
+        <ReferenceNewsList news={result.news ?? []} clusters={result.newsIssueClusters} newsBasis={result.newsBasis} className="mb-4" />
 
         {/* 면책 */}
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6 px-4">

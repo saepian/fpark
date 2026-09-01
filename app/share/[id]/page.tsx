@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import AiSummarySections, { type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
+import ReferenceNewsList from '@/components/diagnosis/ReferenceNewsList';
 import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
 import { StructureChartsRow } from '@/components/portfolio/StructureCharts';
 import HoldingPositionLine from '@/components/portfolio/HoldingPositionLine';
@@ -91,6 +92,9 @@ interface DiagnosisData {
   midTermOutlook?: string;
   finalVerdict?: string; // 2026-08-05 신설 — 이전에 저장된 공유 리포트에는 없어 optional
   news: { title: string; description: string; url?: string }[];
+  newsBasis?: 'news' | 'estimated';
+  newsIssueClusters?: { label: string; articleIndexes: number[] }[];
+  fxCorrelation?: { correlation: number; sampleSize: number } | null; // 2026-09-01 공유 페이지 드리프트 해소
   history: DiagnosisHistory;
   // 2026-07-13 신설 — 이전에 저장된 공유 리포트에는 없을 수 있어 optional로 둠
   sectorComparison?: SectorComparisonData | null;
@@ -676,6 +680,18 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           </div>
         )}
 
+        {/* 5-0-1행: 환율 상관관계 — 메인(DiagnosisReport.tsx)과 동일 조건(|r|<0.3·표본 부족이면 서버가 null) */}
+        {d.fxCorrelation && (
+          <div className="bg-[#1a1f2e] border border-cyan-500/20 rounded-2xl p-5 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-bold text-cyan-400 uppercase tracking-wider">환율 상관관계</span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              최근 1년간 이 종목은 원/달러 환율과 {d.fxCorrelation.correlation >= 0 ? '+' : ''}{d.fxCorrelation.correlation}의 {d.fxCorrelation.correlation >= 0 ? '양(+)' : '음(-)'}의 상관관계를 보여왔습니다.
+            </p>
+          </div>
+        )}
+
         {/* 5-0행: 급등/급락 이력 + 거래대금 배수 (components/diagnosis/DiagnosisReport.tsx와
             공용 컴포넌트 — 2026-08-28 공유 페이지에 이식). surgeHistory는 hasMatches:false여도
             항상 노출(카드 내부에서 빈 상태 처리), tradingValueMultiple은 valid:false(데이터
@@ -696,23 +712,9 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           <FinancialsTrendCard rows={d.annualFinancials} narrative={d.financialsNarrative} />
         )}
 
-        {/* 6행: 참고 기사 (본문에서 이미 해석했으므로 출처 링크만) */}
+        {/* 6행: 참고 기사 — 메인(DiagnosisReport.tsx)과 같은 공용 컴포넌트(2026-09-01: 이슈 묶음·번호 드리프트 해소) */}
         {d.news?.length > 0 && (
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">참고 기사</p>
-            <div className="flex flex-col divide-y divide-slate-700/40">
-              {d.news.map((n, i) => {
-                const href = n.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(n.title)}`;
-                return (
-                  <a key={i} href={href} target="_blank" rel="noopener noreferrer"
-                    className="py-2.5 first:pt-0 last:pb-0 group cursor-pointer flex items-center gap-2.5">
-                    <span className="text-[11px] font-bold text-slate-600 shrink-0 w-4">{i + 1}</span>
-                    <p className="text-[13px] text-slate-300 leading-snug group-hover:text-indigo-300 group-hover:underline transition-colors">{n.title}</p>
-                  </a>
-                );
-              })}
-            </div>
-          </div>
+          <ReferenceNewsList news={d.news} clusters={d.newsIssueClusters} newsBasis={d.newsBasis} className="mb-4" />
         )}
 
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-4 px-4">
