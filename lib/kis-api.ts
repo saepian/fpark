@@ -838,7 +838,10 @@ export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock
 // 레이트리미터 게이트(acquireKisRateSlot)가 초당 한도를 지켜 주므로 라우트가 따로 sleep을
 // 끼워 넣을 필요가 없고, 동시성만 작게 제한한다(같은 인스턴스가 게이트 대기열을 독점하지
 // 않도록). 실패한 종목은 throw 대신 failed 목록으로 돌려줘 호출부가 폴백을 정한다.
-const QUOTE_BATCH_LIVE_CONCURRENCY = 3;
+// 2026-09-01 실측: 동시성 3으로 12종목 전부 미스일 때 6.9초(콜드 KIS 호출 1건이 토큰·게이트·
+// 이름 해석·캐시 저장까지 ~1초라 4라운드) — 게이트가 초당 15건을 허용하고 워치리스트는 최대
+// 15종목이라 6으로 올려도 한도 안. 더 올리면 다른 인스턴스(크론 등)의 게이트 대기가 길어진다.
+const QUOTE_BATCH_LIVE_CONCURRENCY = 6;
 
 // 캐시 행 배열에서 "지금 기준으로 신선한" 행만 골라낸다 — queryPriceCached의 단건 판정과
 // 동일 규칙(TTL + 마감 전 생성분의 마감 후 무효화). 순수 함수라 vitest로 직접 검증한다.
