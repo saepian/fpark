@@ -256,9 +256,7 @@ describe("StreamingFieldParser 'json' 타입 (포트폴리오분석 riskFactors)
       { text: '손실 종목 비중 30%', category: 'company', relatedTickers: ['185750'] },
     ],
     opportunityFactors: ['저PER 종목 다수 포함'],
-    contributionNarrative: '오늘 손익 변화는 대부분 삼성전자에서 발생했다.',
     holdingPeriodNarrative: '',
-    coMovementNarrative: '',
     shortTermOutlook: '이 포트폴리오는 반도체 업황 뉴스에 민감하게 반응할 수 있다.',
     midTermOutlook: '중기적으로는 실적 발표 시즌이 핵심 변수다.',
   };

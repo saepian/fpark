@@ -280,9 +280,9 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   // 중첩 객체 배열은 'json' 타입(partial 미지원, 완결 시에만 노출)
   { key: 'riskFactors', type: 'json', emit: true },
   { key: 'opportunityFactors', type: 'string[]', emit: true },
-  { key: 'contributionNarrative', type: 'string', emit: true },
+  // 2026-09-01(3차): contributionNarrative(오늘 손익 기여)·coMovementNarrative(섹터 동조화)는 카드
+  // 제거와 함께 스키마에서 삭제 — 키 순서는 PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS와 동일해야 한다.
   { key: 'holdingPeriodNarrative', type: 'string', emit: true },
-  { key: 'coMovementNarrative', type: 'string', emit: true },
   { key: 'shortTermOutlook', type: 'string', emit: true },
   { key: 'midTermOutlook', type: 'string', emit: true },
 ];

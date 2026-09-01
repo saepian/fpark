@@ -19,6 +19,10 @@ import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import AiSummarySections, { SUMMARY_SECTION_KEYS, hasAnySummarySection, type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
+import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
+import HoldingPositionLine from '@/components/portfolio/HoldingPositionLine';
+import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, type WeightDriftRow } from '@/lib/portfolio-position';
 import { useSmoothTypingText, type RevealedField } from '@/lib/useSmoothTypingText';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -138,6 +142,7 @@ interface PortfolioResult {
   sectorConcentration?: SectorConcentration | null;
   riskContribution?:    RiskContributionItem[] | null;
   correlation?:         PortfolioCorrelation | null;
+  weightDrift?:         WeightDriftRow[] | null; // 2026-09-01 매입 비중 vs 현재 비중(서버 계산, 없으면 클라이언트 폴백 계산)
   sectorSentiment?: SectorSentimentEntry[];
   holdings:         HoldingResult[];
   riskFactors?:        RiskFactorEntry[];
@@ -192,11 +197,6 @@ type StreamedResult = Omit<Partial<PortfolioResult>, 'holdings' | 'history' | 'h
 interface WatchItem { ticker: string; name: string; price?: number; changeRate?: number } // prices=0 경로에선 시세 없음
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const SECTOR_COLORS = [
-  'bg-indigo-500', 'bg-violet-500', 'bg-sky-500', 'bg-emerald-500',
-  'bg-amber-500',  'bg-pink-500',   'bg-teal-500', 'bg-orange-500',
-];
 
 const SECTOR_HEX = [
   '#6366f1', '#8b5cf6', '#0ea5e9', '#10b981',
@@ -707,7 +707,14 @@ export default function PortfolioDiagnosisPage() {
     const totalProfit     = result.totalProfit ?? 0;
     const totalProfitRate = result.totalProfitRate ?? 0;
     const holdingsList    = result.holdings ?? [];
-    const topContributors = result.topContributors ?? { n: 0, positive: [], negative: [] };
+    // 2026-09-01 3차: "오늘 손익 영향" 카드 제거(topContributors는 서버 저장값으로만 남음). 대신 종목별
+    // "내 포트폴리오에서의 위치" 한 줄과 비중 드리프트 카드를 위한 공통 컨텍스트를 여기서 한 번 계산.
+    const positionCtx = {
+      totalValue: result.totalValue ?? 0,
+      pnl: computePnlSums(holdingsList),
+      riskByTicker: new Map((result.riskContribution ?? []).map(r => [r.ticker, r.pct])),
+    };
+    const driftRows = result.weightDrift ?? computeWeightDrift(holdingsList);
     const isUp = totalProfitRate >= 0;
     // sectors는 Stage 1 완료 직후 서버 계산값으로 도착(2026-08-28 — 예전엔 AI Stage2
     // 완료를 기다려야 했던 것보다 빨라짐). 그 전엔 undefined.
@@ -864,38 +871,10 @@ export default function PortfolioDiagnosisPage() {
             </div>
           ))}
 
-          {/* 2-2행: 기간별 포트폴리오 평가금액 변동 (신설, 종목분석 PriceChangeTable과
-              동일 lib 함수 재사용) — AI 텍스트를 기다리지 않고 holdings/totalValue가
-              도착하는 즉시 독립적으로 로딩된다 */}
-          <PortfolioPeriodChangeTable
-            holdings={(result.holdings ?? []).map(h => ({ ticker: h.ticker, name: h.name, quantity: h.quantity }))}
-            currentTotalValue={result.totalValue ?? 0}
-          />
+          {/* 2층 · 구조 — 매입 비중 vs 현재 비중 드리프트(2026-09-01 신설, 공용 컴포넌트) */}
+          {driftRows.length >= 2 && <WeightDriftCard rows={driftRows} className="mb-4" />}
 
-          {/* 3행: 벤치마크 비교 (사실 수치만, 판단 없음) */}
-          {result.benchmark && (
-            <Card title="벤치마크 비교 (참고용 수치)" className="mb-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[11px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
-                  <p className={`text-lg font-mono font-bold ${result.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                    {fmtR(result.benchmark.portfolioProfitRate)}
-                  </p>
-                </div>
-                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[11px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
-                  <p className={`text-lg font-mono font-bold ${result.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                    {fmtR(result.benchmark.kospiChangeRate)}
-                  </p>
-                </div>
-              </div>
-              <p className="text-[11px] text-slate-600 mt-3">
-                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (편입 기업 평균 매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
-              </p>
-            </Card>
-          )}
-
-          {/* 3행: 섹터 편중도 — Stage 1 완료 직후 서버 계산값으로 도착(부분 표시 없음) */}
+          {/* 2층 · 구조 — 섹터 편중도 — Stage 1 완료 직후 서버 계산값으로 도착(부분 표시 없음) */}
           {sortedSectors === null ? (
             !stage2Failed && (
               <Card title="섹터 편중도 분석" className="mb-4">
@@ -952,134 +931,7 @@ export default function PortfolioDiagnosisPage() {
             </Card>
           )}
 
-          {/* 3-0-1행: 섹터별 최근 뉴스 논조(2026-08-21 신설) — news_sentiment_daily가
-              CURATED_TICKERS_MKT(대형주 100종목) 한정이라 보유종목 전체가 아니라 일부만
-              반영될 수 있어 "섹터 편중도 분석"과 카드를 분리했다(그 카드 바 색상이 이미
-              "과집중" 경고로 쓰이고 있어 같은 카드에 얹으면 혼동 위험). 데이터 있는 섹터가
-              하나도 없으면 카드 자체를 생략한다. */}
-          {SHOW_SECTOR_SENTIMENT_CARD && result.sectorSentiment && result.sectorSentiment.length > 0 && (
-            <Card title="섹터별 최근 뉴스 논조" className="mb-4">
-              <div className="flex flex-col gap-3">
-                {result.sectorSentiment.map((s) => (
-                  <div key={s.sector} className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-[13px] text-slate-300 font-medium">{s.sector}</span>
-                      <span className="text-[11px] text-slate-600 mt-0.5">
-                        보유 {s.totalCount}종목 중 {s.coveredCount}종목 데이터 반영
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-end shrink-0 ml-3">
-                      <span className="text-[12px] font-semibold text-indigo-300">{s.label}</span>
-                      {/* 라벨만으로는 구분이 안 된다는 실사용 피드백(2026-08-21) 대응 —
-                          최근 14일 기사 건수를 근거로 함께 노출 */}
-                      <span className="text-[11px] text-slate-600 mt-0.5">
-                        호재성 {s.positiveCount}건 · 악재성 {s.negativeCount}건
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[11px] text-slate-600 mt-4">
-                보유 종목이 속한 섹터의 최근 뉴스 논조 참고 수치이며, 비중 조정을 권유하는 지표가 아닙니다.
-              </p>
-            </Card>
-          )}
-
-          {/* 3-1행: 배당 정보(합산 배당률 + 월별 캘린더, 2026-08-04 신설) — meta 이벤트로
-              즉시 도착하는 서버 계산값(AI 아님), 전체 무배당이면 result.dividend가 null이라
-              섹션 자체를 렌더링하지 않는다. */}
-          {result.dividend && (
-            <Card title="배당 정보" className="mb-4">
-              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
-                <div className="bg-slate-800/40 rounded-xl p-3 text-center sm:min-w-[140px]">
-                  <p className="text-[11px] text-slate-500 mb-1">합산 배당률</p>
-                  <p className="text-[17px] font-bold font-mono text-slate-200">
-                    {result.dividend.portfolioDividendYield !== null
-                      ? `${result.dividend.portfolioDividendYield.toFixed(2)}%`
-                      : '-'}
-                  </p>
-                </div>
-                <div className="sm:text-right">
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    최근 확정 배당 기준 · 예상 연간 배당금 {result.dividend.expectedAnnualDividend.toLocaleString()}원
-                  </p>
-                  <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
-                    {result.dividend.totalCount}개 종목 중 {result.dividend.payingCount}개만 배당 이력 있음
-                    {excludedDividendNote && ` (${excludedDividendNote} 제외)`}
-                    {' '}(미래 지급을 보장하지 않음)
-                  </p>
-                </div>
-              </div>
-
-              <DividendMatrix rows={result.dividend.matrix} />
-              <p className="text-[11px] text-slate-600 mt-2">
-                최근 5년 배당 지급 이력 기준 — 칸을 클릭하면 해당 종목·월의 연도별 지급일과 금액을 볼 수 있습니다. 향후 지급을 예측하거나 보장하지 않습니다
-              </p>
-            </Card>
-          )}
-
-          {/* 3-2행: 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
-          {((topContributors.positive.length ?? 0) > 0 || (topContributors.negative.length ?? 0) > 0 || result.coMovementText || result.correlation) && (
-            <div className={`grid grid-cols-1 ${(result.coMovementText || result.correlation) ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
-              {(topContributors.positive.length > 0 || topContributors.negative.length > 0) && (
-                <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                  <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-1`}>
-                    오늘 손익 영향이 가장 큰 {topContributors.n}종목
-                  </p>
-                  <p className="text-[11px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
-                  {/* 금액은 서버 계산값을 그대로 표시(AI가 옮겨 적지 않음) — 아래 문장은 해석만 */}
-                  <div className="flex flex-col gap-1.5 mb-3">
-                    {topContributors.positive.map(c => (
-                      <div key={c.ticker} className="flex items-center justify-between">
-                        <span className="text-[12px] text-slate-400">{c.name}</span>
-                        <span className="text-[13px] font-bold font-mono text-red-400">{c.amount >= 0 ? '+' : ''}{fmt(c.amount)}원</span>
-                      </div>
-                    ))}
-                    {topContributors.negative.map(c => (
-                      <div key={c.ticker} className="flex items-center justify-between">
-                        <span className="text-[12px] text-slate-400">{c.name}</span>
-                        <span className="text-[13px] font-bold font-mono text-blue-400">{fmt(c.amount)}원</span>
-                      </div>
-                    ))}
-                  </div>
-                  {result.contributionNarrative !== undefined ? (
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      {smoothText.revealed.contributionNarrative?.text ?? result.contributionNarrative}{smoothText.revealed.contributionNarrative?.active && <TypingCursor />}
-                    </p>
-                  ) : (
-                    !stage2Failed && <FieldSkeleton lines={1} />
-                  )}
-                </div>
-              )}
-              {(result.coMovementText || result.correlation) && (
-                <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>섹터 동조화 관찰</p>
-                    {/* 정량 지표 B(종목간 상관관계) — 원시 상관계수는 화면에 그대로
-                        노출하지 않고(전문용어 그대로는 신뢰를 오히려 깎을 수 있다는
-                        설계 검토 판단) "강함/보통/약함" 배지로만 보여준다. 실제 상관계수
-                        수치는 AI 프롬프트(coMovementNarrative 생성용 사실)에만 전달된다. */}
-                    {result.correlation && (
-                      <GradeBadge
-                        label={result.correlation.bucket}
-                        tone={result.correlation.bucket === '강한 동조화' ? 'danger' : result.correlation.bucket === '보통 동조화' ? 'warning' : 'safe'}
-                      />
-                    )}
-                  </div>
-                  {result.coMovementText && <p className="text-[11px] text-slate-500 mb-2">{result.coMovementText}</p>}
-                  {result.coMovementNarrative !== undefined ? (
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      {smoothText.revealed.coMovementNarrative?.text ?? result.coMovementNarrative}{smoothText.revealed.coMovementNarrative?.active && <TypingCursor />}
-                    </p>
-                  ) : (
-                    !stage2Failed && <FieldSkeleton lines={1} />
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 3-3행: 변동성 기여도(정량 지표 C-1, 신설) — 비중×변동성 단순 근사치이며
+          {/* 2층 · 구조 — 변동성 기여도(정량 지표 C-1, 신설) — 비중×변동성 단순 근사치이며
               종목 간 상관관계는 반영하지 않는다는 점을 라벨에 명시해 과대해석을 방지한다.
               2026-09-01 문구 재작성: "비중×변동성 근사치/상관관계 미반영"이라는 용어 나열로는
               뜻이 전달되지 않는다는 피드백 — 이 숫자가 무엇인지, 왜 근사치인지를 풀어 쓴다. */}
@@ -1109,7 +961,71 @@ export default function PortfolioDiagnosisPage() {
             </Card>
           )}
 
-          {/* 4행: 기업별 관찰 지표 — 카드 위치는 입력 순서 고정, 내용(섹터/사유)은 완료되는 대로 채움 */}
+          {/* 2층 · 구조 — 기간별 포트폴리오 평가금액 변동 (신설, 종목분석 PriceChangeTable과
+              동일 lib 함수 재사용) — AI 텍스트를 기다리지 않고 holdings/totalValue가
+              도착하는 즉시 독립적으로 로딩된다 */}
+          <PortfolioPeriodChangeTable
+            holdings={(result.holdings ?? []).map(h => ({ ticker: h.ticker, name: h.name, quantity: h.quantity }))}
+            currentTotalValue={result.totalValue ?? 0}
+          />
+
+          {/* 2층 · 참고 — 벤치마크 비교 (사실 수치만, 판단 없음) */}
+          {result.benchmark && (
+            <Card title="벤치마크 비교 (참고용 수치)" className="mb-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[11px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
+                  <p className={`text-lg font-mono font-bold ${result.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.benchmark.portfolioProfitRate)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[11px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
+                  <p className={`text-lg font-mono font-bold ${result.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.benchmark.kospiChangeRate)}
+                  </p>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-3">
+                비교 기간: {result.benchmark.fromDate} ~ {result.benchmark.toDate} (편입 기업 평균 매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
+              </p>
+            </Card>
+          )}
+
+          {/* 2층 · 참고 — 보유 기간별 관점 (신설, 매입일 데이터로 비교 가능할 때만) */}
+          {(result.holdingPeriod?.longest && result.holdingPeriod?.mostRecent) && (
+            <Card title="보유 기간별 관점" className="mb-4">
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[11px] text-slate-500 mb-1">가장 오래 보유 · {result.holdingPeriod.longest.name} ({result.holdingPeriod.longest.holdDays}일 전 매입)</p>
+                  <p className={`text-lg font-mono font-bold ${result.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.holdingPeriod.longest.profitRate)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                  <p className="text-[11px] text-slate-500 mb-1">가장 최근 편입 · {result.holdingPeriod.mostRecent.name} ({result.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
+                  <p className={`text-lg font-mono font-bold ${result.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                    {fmtR(result.holdingPeriod.mostRecent.profitRate)}
+                  </p>
+                </div>
+              </div>
+              {result.holdingPeriod.narrative !== undefined ? (
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {smoothText.revealed.holdingPeriodNarrative?.text ?? result.holdingPeriod.narrative}{smoothText.revealed.holdingPeriodNarrative?.active && <TypingCursor />}
+                </p>
+              ) : (
+                !stage2Failed && <FieldSkeleton lines={2} />
+              )}
+            </Card>
+          )}
+
+          {/* 2층 · 보조 — 종목별 개별 이슈(리스크/긍정) + 앞으로 확인할 이벤트·지표 — 공용 컴포넌트.
+              2026-09-01 3차: 예전 Risk/Opportunity Factors·단기/중기 관찰 변수 4카드가 종합평가 수치를
+              반복하던 문제 → 프롬프트에서 역할을 갈랐고(종목 고유 이슈 / 확인할 이벤트) 카드도 2개로 통합. */}
+          <IssueFactorsCard riskFactors={result.riskFactors} opportunityFactors={result.opportunityFactors} pending={!stage2Failed} className="mb-4" />
+          <WatchVariablesCard shortTermOutlook={result.shortTermOutlook} midTermOutlook={result.midTermOutlook} pending={!stage2Failed} revealed={smoothText.revealed} className="mb-4" />
+
+          {/* 3층 · 종목별 — 기업별 관찰 지표 — 카드 위치는 입력 순서 고정, 내용(섹터/사유)은 완료되는 대로 채움 */}
           <Card title={stage1Complete ? '기업별 관찰 지표' : '기업별 관찰 지표 (분석 중...)'} className="mb-4">
             <div className="flex flex-col divide-y divide-slate-700/40">
               {holdingsList.map(h => {
@@ -1173,6 +1089,8 @@ export default function PortfolioDiagnosisPage() {
                           )}
                           </div>
                       
+                      {/* 2026-09-01: 이 종목이 내 포트폴리오에서 차지하는 위치(비중·손익 기여·변동성 기여) — 뉴스 서술보다 먼저 */}
+                      <HoldingPositionLine s={buildHoldingPositionSummary(h, positionCtx)} className="mt-2" />
                       {h.reason !== undefined ? (
                         h.reason && (
                           <div className="mt-2 pl-0 w-full">
@@ -1202,131 +1120,69 @@ export default function PortfolioDiagnosisPage() {
             </div>
           </Card>
 
-          {/* 4-1행: 포트폴리오 Risk Factors + Opportunity Factors (대칭 구조) — 둘 다
-              Stage2 필드라 도착 전엔 undefined. 미도착(pending)이면 스켈레톤으로 자리를
-              잡아두고, 도착했는데 빈 배열이면(진짜로 없음) 그 카드만 조용히 생략한다 —
-              배당정보처럼 "확정된 부재"로 취급(2026-08-11). */}
-          {(result.riskFactors !== undefined || result.opportunityFactors !== undefined || !stage2Failed) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              {(result.riskFactors === undefined ? !stage2Failed : result.riskFactors.length > 0) && (
-                <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className={`px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                      Risk Factors
-                    </span>
-                  </div>
-                  {result.riskFactors === undefined ? (
-                    <FieldSkeleton lines={3} />
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {result.riskFactors.map((item, i) => {
-                        const text = typeof item === 'string' ? item : item.text;
-                        const category = typeof item === 'string' ? undefined : item.category;
-                        return (
-                          <div key={i} className="flex gap-2">
-                            <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              {category && (
-                                <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[11px] font-bold uppercase tracking-wide align-middle">
-                                  {category === 'macro' ? '매크로' : '기업'}
-                                </span>
-                              )}
-                              {text}
-                            </p>
-                          </div>
-                        );
-                      })}
+          {/* 3층 · 종목별 — 섹터별 최근 뉴스 논조(2026-08-21 신설) — news_sentiment_daily가
+              CURATED_TICKERS_MKT(대형주 100종목) 한정이라 보유종목 전체가 아니라 일부만
+              반영될 수 있어 "섹터 편중도 분석"과 카드를 분리했다(그 카드 바 색상이 이미
+              "과집중" 경고로 쓰이고 있어 같은 카드에 얹으면 혼동 위험). 데이터 있는 섹터가
+              하나도 없으면 카드 자체를 생략한다. */}
+          {SHOW_SECTOR_SENTIMENT_CARD && result.sectorSentiment && result.sectorSentiment.length > 0 && (
+            <Card title="섹터별 최근 뉴스 논조" className="mb-4">
+              <div className="flex flex-col gap-3">
+                {result.sectorSentiment.map((s) => (
+                  <div key={s.sector} className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-[13px] text-slate-300 font-medium">{s.sector}</span>
+                      <span className="text-[11px] text-slate-600 mt-0.5">
+                        보유 {s.totalCount}종목 중 {s.coveredCount}종목 데이터 반영
+                      </span>
                     </div>
-                  )}
-                </div>
-              )}
-              {(result.opportunityFactors === undefined ? !stage2Failed : result.opportunityFactors.length > 0) && (
-                <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className={`px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                      Opportunity Factors
-                    </span>
-                  </div>
-                  {result.opportunityFactors === undefined ? (
-                    <FieldSkeleton lines={3} />
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {result.opportunityFactors.map((line, i) => (
-                        <div key={i} className="flex gap-2">
-                          <span className="text-emerald-500/60 text-[11px] mt-1 shrink-0">▶</span>
-                          <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
-                        </div>
-                      ))}
+                    <div className="flex flex-col items-end shrink-0 ml-3">
+                      <span className="text-[12px] font-semibold text-indigo-300">{s.label}</span>
+                      {/* 라벨만으로는 구분이 안 된다는 실사용 피드백(2026-08-21) 대응 —
+                          최근 14일 기사 건수를 근거로 함께 노출 */}
+                      <span className="text-[11px] text-slate-600 mt-0.5">
+                        호재성 {s.positiveCount}건 · 악재성 {s.negativeCount}건
+                      </span>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-600 mt-4">
+                보유 종목이 속한 섹터의 최근 뉴스 논조 참고 수치이며, 비중 조정을 권유하는 지표가 아닙니다.
+              </p>
+            </Card>
           )}
 
-          {/* 4-2행: 포트폴리오 단기/중기 전망 — Risk/Opportunity와 동일한 3분기 패턴
-              (미도착=스켈레톤, 도착+내용있음=텍스트, 도착+빈 문자열=조용히 생략). */}
-          {(result.shortTermOutlook !== undefined || result.midTermOutlook !== undefined || !stage2Failed) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              {(result.shortTermOutlook === undefined ? !stage2Failed : !!result.shortTermOutlook) && (
-                <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className={`px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                      단기 관찰 변수
-                    </span>
-                  </div>
-                  {result.shortTermOutlook === undefined ? (
-                    <FieldSkeleton lines={2} />
-                  ) : (
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      {smoothText.revealed.shortTermOutlook?.text ?? result.shortTermOutlook}{smoothText.revealed.shortTermOutlook?.active && <TypingCursor />}
-                    </p>
-                  )}
-                </div>
-              )}
-              {(result.midTermOutlook === undefined ? !stage2Failed : !!result.midTermOutlook) && (
-                <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
-                      중기 관찰 변수
-                    </span>
-                  </div>
-                  {result.midTermOutlook === undefined ? (
-                    <FieldSkeleton lines={2} />
-                  ) : (
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      {smoothText.revealed.midTermOutlook?.text ?? result.midTermOutlook}{smoothText.revealed.midTermOutlook?.active && <TypingCursor />}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 5행: 보유 기간별 관점 (신설, 매입일 데이터로 비교 가능할 때만) */}
-          {(result.holdingPeriod?.longest && result.holdingPeriod?.mostRecent) && (
-            <Card title="보유 기간별 관점" className="mb-4">
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[11px] text-slate-500 mb-1">가장 오래 보유 · {result.holdingPeriod.longest.name} ({result.holdingPeriod.longest.holdDays}일 전 매입)</p>
-                  <p className={`text-lg font-mono font-bold ${result.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                    {fmtR(result.holdingPeriod.longest.profitRate)}
+          {/* 3층 · 종목별 — 배당 정보(합산 배당률 + 월별 캘린더, 2026-08-04 신설) — meta 이벤트로
+              즉시 도착하는 서버 계산값(AI 아님), 전체 무배당이면 result.dividend가 null이라
+              섹션 자체를 렌더링하지 않는다. */}
+          {result.dividend && (
+            <Card title="배당 정보" className="mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
+                <div className="bg-slate-800/40 rounded-xl p-3 text-center sm:min-w-[140px]">
+                  <p className="text-[11px] text-slate-500 mb-1">합산 배당률</p>
+                  <p className="text-[17px] font-bold font-mono text-slate-200">
+                    {result.dividend.portfolioDividendYield !== null
+                      ? `${result.dividend.portfolioDividendYield.toFixed(2)}%`
+                      : '-'}
                   </p>
                 </div>
-                <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                  <p className="text-[11px] text-slate-500 mb-1">가장 최근 편입 · {result.holdingPeriod.mostRecent.name} ({result.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
-                  <p className={`text-lg font-mono font-bold ${result.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                    {fmtR(result.holdingPeriod.mostRecent.profitRate)}
+                <div className="sm:text-right">
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    최근 확정 배당 기준 · 예상 연간 배당금 {result.dividend.expectedAnnualDividend.toLocaleString()}원
+                  </p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
+                    {result.dividend.totalCount}개 종목 중 {result.dividend.payingCount}개만 배당 이력 있음
+                    {excludedDividendNote && ` (${excludedDividendNote} 제외)`}
+                    {' '}(미래 지급을 보장하지 않음)
                   </p>
                 </div>
               </div>
-              {result.holdingPeriod.narrative !== undefined ? (
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {smoothText.revealed.holdingPeriodNarrative?.text ?? result.holdingPeriod.narrative}{smoothText.revealed.holdingPeriodNarrative?.active && <TypingCursor />}
-                </p>
-              ) : (
-                !stage2Failed && <FieldSkeleton lines={2} />
-              )}
+
+              <DividendMatrix rows={result.dividend.matrix} />
+              <p className="text-[11px] text-slate-600 mt-2">
+                최근 5년 배당 지급 이력 기준 — 칸을 클릭하면 해당 종목·월의 연도별 지급일과 금액을 볼 수 있습니다. 향후 지급을 예측하거나 보장하지 않습니다
+              </p>
             </Card>
           )}
 

@@ -20,8 +20,11 @@ export interface StructureFactsHolding {
   volatility: number | null;   // 최근 3개월 일별 변동성(%), 없으면 null
 }
 
+import type { WeightDriftRow } from './portfolio-position';
+
 export interface StructureFactsInput {
   holdings: StructureFactsHolding[];
+  weightDrift?: WeightDriftRow[]; // 매입 시점 비중 → 현재 비중(computeWeightDrift) — 있으면 드리프트 라인 추가
   totalValue: number;
   totalInvested: number;
   totalProfit: number;
@@ -44,7 +47,7 @@ function shareLine(items: { name: string; amount: number }[], groupSum: number):
 }
 
 export function buildPortfolioStructureFacts(input: StructureFactsInput): string {
-  const { holdings, totalValue, totalInvested, totalProfit, sectors, sectorConcentration, riskContribution, correlation } = input;
+  const { holdings, totalValue, totalInvested, totalProfit, sectors, sectorConcentration, riskContribution, correlation, weightDrift } = input;
   if (holdings.length === 0) return '데이터 없음';
 
   const tickerToSector = new Map<string, string>();
@@ -67,6 +70,16 @@ export function buildPortfolioStructureFacts(input: StructureFactsInput): string
       `  · ${h.name}${sector ? `(${sector})` : ''}: 비중 ${pct(weightOf(h))} | 매입가 대비 ${signedPct(h.profitRate)} (${won(h.profit)})` +
       (risk !== undefined ? ` | 변동성 기여도 ${pct(risk)}` : ''),
     );
+  }
+
+  // 매입 시점 비중 → 현재 비중 드리프트(2026-09-01 3차) — 손익 방향이 배분을 저절로 바꿔 놓은 사실
+  if (weightDrift && weightDrift.length >= 2) {
+    const parts = weightDrift.map(d => `${d.name} ${pct(d.buyWeight)} → ${pct(d.currentWeight)} (${d.deltaPp >= 0 ? '+' : ''}${d.deltaPp.toFixed(1)}%p)`);
+    const lossRows = weightDrift.filter(d => (d.profitRate ?? 0) < 0);
+    const lossBuy = lossRows.reduce((s, d) => s + d.buyWeight, 0);
+    const lossNow = lossRows.reduce((s, d) => s + d.currentWeight, 0);
+    lines.push(`- 매입 시점 비중 → 현재 비중(드리프트): ${parts.join(' / ')}`);
+    if (lossRows.length > 0) lines.push(`  · 손실 종목 합산 비중: 매입 시점 ${pct(lossBuy)} → 현재 ${pct(lossNow)} (${lossNow - lossBuy >= 0 ? '+' : ''}${(lossNow - lossBuy).toFixed(1)}%p — 손익 방향이 배분을 바꿔 놓은 결과, 추가 매매 없이 생긴 이동)`);
   }
 
   // 섹터 비중 + 집중도

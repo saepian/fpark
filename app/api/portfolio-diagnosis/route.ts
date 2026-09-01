@@ -35,6 +35,7 @@ import {
   MIN_HOLDINGS_FOR_QUANT_METRICS,
 } from '@/lib/portfolio-analysis-pipeline';
 import { buildPortfolioStructureFacts } from '@/lib/portfolio-structure-facts';
+import { computeWeightDrift } from '@/lib/portfolio-position';
 
 export const dynamic     = 'force-dynamic';
 // 2026-07-13 프로덕션 조사: Stage 2(포트폴리오 종합 분석) 단일 호출만 실측 43~46초
@@ -390,6 +391,8 @@ export async function POST(request: NextRequest) {
         const riskContribution = hasEnoughHoldingsForQuant
           ? computeRiskContribution(enriched, totalValue)
           : null;
+        // 2026-09-01: 매입 시점 비중 → 현재 비중 드리프트(순수 사실) — 카드 + 프롬프트 사실 블록 양쪽에 사용
+        const weightDrift = computeWeightDrift(enriched.map(h => ({ ticker: h.ticker, name: h.name, invested: h.invested, value: h.value, profitRate: h.profitRate })));
         const correlation = hasEnoughHoldingsForQuant
           ? computePortfolioCorrelation(enriched.map((h, i) => {
               const cr = chartResults[i];
@@ -510,6 +513,7 @@ export async function POST(request: NextRequest) {
           dividend: dividendSummary,
           riskContribution,
           correlation,
+          weightDrift,
         });
         send(controller, {
           type: 'holding-meta',
@@ -632,7 +636,7 @@ export async function POST(request: NextRequest) {
             profit: h.profit, profitRate: h.profitRate, volatility: h.volatility,
           })),
           totalValue, totalInvested, totalProfit,
-          sectors, sectorConcentration, riskContribution, correlation,
+          sectors, sectorConcentration, riskContribution, correlation, weightDrift,
         });
 
         const summary = await analyzePortfolioSummary(
@@ -695,6 +699,7 @@ export async function POST(request: NextRequest) {
           sectorConcentration,
           riskContribution,
           correlation,
+          weightDrift,
           sectorSentiment,
           holdings:           mergedHoldings,
           riskFactors:        summary.riskFactors        ?? [],
@@ -725,9 +730,9 @@ export async function POST(request: NextRequest) {
             positive: topPositive.map(h => ({ ticker: h.ticker, name: h.name, amount: Math.round(h.todayContribution as number) })),
             negative: topNegative.map(h => ({ ticker: h.ticker, name: h.name, amount: Math.round(h.todayContribution as number) })),
           },
-          contributionNarrative: summary.contributionNarrative || '',
+          contributionNarrative: '', // 2026-09-01 3차: 카드 제거로 AI 서술 중단(수치 topContributors는 유지)
           coMovementText,
-          coMovementNarrative: summary.coMovementNarrative || '',
+          coMovementNarrative: '',   // 2026-09-01 3차: 카드 제거(coMovementText 계산값은 유지)
           holdingPeriod: {
             longest:    holdingPeriodFacts.longest,
             mostRecent: holdingPeriodFacts.mostRecent,

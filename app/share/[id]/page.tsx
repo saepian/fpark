@@ -1,5 +1,9 @@
 import { Metadata } from 'next';
 import AiSummarySections, { type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
+import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
+import HoldingPositionLine from '@/components/portfolio/HoldingPositionLine';
+import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, type WeightDriftRow } from '@/lib/portfolio-position';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { Sparkles, AlertCircle } from 'lucide-react';
@@ -180,6 +184,7 @@ interface PortfolioData {
   sectorConcentration?: SectorConcentration | null;
   riskContribution?:    RiskContributionItem[] | null;
   correlation?:         PortfolioCorrelation | null;
+  weightDrift?:         WeightDriftRow[] | null;
   holdings: HoldingResult[];
   riskFactors?: RiskFactorEntry[];
   opportunityFactors?: string[];
@@ -801,38 +806,8 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           </div>
         </div>
 
-        {/* 기간별 포트폴리오 평가금액 변동 — 메인 페이지(app/portfolio-diagnosis/page.tsx)와
-            동일 컴포넌트 재사용. 2026-08-31 QA 발견: 공유 페이지엔 이 카드가 아예 없었음. */}
-        <div className="mb-4">
-          <PortfolioPeriodChangeTable
-            holdings={(d.holdings ?? []).map(h => ({ ticker: h.ticker, name: h.name, quantity: h.quantity }))}
-            currentTotalValue={d.totalValue ?? 0}
-          />
-        </div>
-
-        {/* 벤치마크 비교 (사실 수치만, 판단 없음) */}
-        {d.benchmark && (
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">벤치마크 비교 (참고용 수치)</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[11px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
-                <p className={`text-lg font-mono font-bold ${d.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                  {fmtRate(d.benchmark.portfolioProfitRate)}
-                </p>
-              </div>
-              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[11px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
-                <p className={`text-lg font-mono font-bold ${d.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                  {fmtRate(d.benchmark.kospiChangeRate)}
-                </p>
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-600 mt-3">
-              비교 기간: {d.benchmark.fromDate} ~ {d.benchmark.toDate} (편입 기업 평균 매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
-            </p>
-          </div>
-        )}
+        {/* 2층 · 구조 — 매입 비중 vs 현재 비중(2026-09-01 신설, 공용 컴포넌트; 옛 스냅샷은 holdings로 폴백 계산) */}
+        {(() => { const rows = d.weightDrift ?? computeWeightDrift(d.holdings ?? []); return rows.length >= 2 ? <WeightDriftCard rows={rows} className="mb-4" /> : null; })()}
 
         {/* 섹터 편중도 */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
@@ -867,6 +842,134 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* 변동성 기여도(정량 지표 C-1, 신설) */}
+        {d.riskContribution && d.riskContribution.length > 0 && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">변동성 기여도</p>
+            <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
+              각 종목의 가격 변동이 포트폴리오 전체의 흔들림(변동성)에 얼마나 기여하는지를 비율로 나타낸 값입니다.
+              보유 비중이 크거나 가격이 많이 출렁이는 종목일수록 높게 나옵니다.
+              종목들이 서로 같이 움직이는 정도(상관관계)는 계산에 넣지 않은 근사치라, 실제 포트폴리오 변동성과는 차이가 있을 수 있습니다.
+            </p>
+            <div className="flex flex-col gap-3">
+              {d.riskContribution.map((r, i) => (
+                <div key={r.ticker}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[13px] text-slate-300 font-medium">{r.name}</span>
+                    <span className="text-[13px] font-mono text-slate-400">{r.pct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${SECTOR_COLORS[i % SECTOR_COLORS.length]}`} style={{ width: `${r.pct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 기간별 포트폴리오 평가금액 변동 — 메인 페이지(app/portfolio-diagnosis/page.tsx)와
+            동일 컴포넌트 재사용. 2026-08-31 QA 발견: 공유 페이지엔 이 카드가 아예 없었음. */}
+        <div className="mb-4">
+          <PortfolioPeriodChangeTable
+            holdings={(d.holdings ?? []).map(h => ({ ticker: h.ticker, name: h.name, quantity: h.quantity }))}
+            currentTotalValue={d.totalValue ?? 0}
+          />
+        </div>
+
+        {/* 벤치마크 비교 (사실 수치만, 판단 없음) */}
+        {d.benchmark && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">벤치마크 비교 (참고용 수치)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[11px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
+                <p className={`text-lg font-mono font-bold ${d.benchmark.portfolioProfitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.benchmark.portfolioProfitRate)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[11px] text-slate-500 mb-1">같은 기간 KOSPI 등락률</p>
+                <p className={`text-lg font-mono font-bold ${d.benchmark.kospiChangeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.benchmark.kospiChangeRate)}
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-600 mt-3">
+              비교 기간: {d.benchmark.fromDate} ~ {d.benchmark.toDate} (편입 기업 평균 매입일 기준) · 판단이 아닌 수치 비교 정보입니다.
+            </p>
+          </div>
+        )}
+
+        {/* 보유 기간별 관점 (신설, 매입일 데이터로 비교 가능할 때만) */}
+        {(d.holdingPeriod?.longest && d.holdingPeriod?.mostRecent) && (
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">보유 기간별 관점</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[11px] text-slate-500 mb-1">가장 오래 보유 · {d.holdingPeriod.longest.name} ({d.holdingPeriod.longest.holdDays}일 전 매입)</p>
+                <p className={`text-lg font-mono font-bold ${d.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.holdingPeriod.longest.profitRate)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
+                <p className="text-[11px] text-slate-500 mb-1">가장 최근 편입 · {d.holdingPeriod.mostRecent.name} ({d.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
+                <p className={`text-lg font-mono font-bold ${d.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+                  {fmtRate(d.holdingPeriod.mostRecent.profitRate)}
+                </p>
+              </div>
+            </div>
+            {d.holdingPeriod.narrative && (
+              <p className="text-[13px] text-slate-300 leading-relaxed">{d.holdingPeriod.narrative}</p>
+            )}
+          </div>
+        )}
+
+        {/* 2층 · 보조 — 종목별 개별 이슈 + 앞으로 확인할 이벤트·지표(공용 컴포넌트, 정적) */}
+        <IssueFactorsCard riskFactors={d.riskFactors} opportunityFactors={d.opportunityFactors} className="mb-4" />
+        <WatchVariablesCard shortTermOutlook={d.shortTermOutlook} midTermOutlook={d.midTermOutlook} className="mb-4" />
+
+        {/* 종목별 관찰 지표 (절대 금액 제외) */}
+        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">기업별 관찰 지표</p>
+          <div className="flex flex-col divide-y divide-slate-700/40">
+            {(d.holdings ?? []).map(h => {
+              const hUp = h.profitRate >= 0;
+              return (
+                <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
+                  <div className="flex items-start gap-3 flex-wrap md:flex-nowrap">
+                    <div className="w-full md:w-40 shrink-0">
+                      <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
+                      <p className="text-[11px] text-slate-500 font-mono">{h.ticker} · {h.sector}</p>
+                      <Link href={`/stock/${h.ticker}`} className="text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
+                        자세히 보기 →
+                      </Link>
+                    </div>
+                    <div className="flex gap-4 shrink-0">
+                      <div>
+                        <p className="text-[11px] text-slate-600 mb-0.5">현재가</p>
+                        <p className="text-[13px] font-mono text-slate-300">{fmt(h.currentPrice)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-slate-600 mb-0.5">수익률</p>
+                        <p className={`text-[13px] font-mono font-semibold ${hUp ? 'text-red-400' : 'text-blue-400'}`}>
+                          {fmtRate(h.profitRate)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <HoldingPositionLine
+                    s={buildHoldingPositionSummary(h, { totalValue: d.totalValue, pnl: computePnlSums(d.holdings ?? []), riskByTicker: new Map((d.riskContribution ?? []).map(r => [r.ticker, r.pct])) })}
+                    className="mt-2 pl-0 md:pl-44"
+                  />
+                  {h.reason && (
+                    <p className="mt-2 text-[12px] text-slate-500 leading-relaxed pl-0 md:pl-44">{h.reason}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -928,210 +1031,6 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                   최근 5년 배당 지급 이력 기준 — 몇 월에 배당이 몰려있는지 관찰한 결과이며 향후 지급을 예측하거나 보장하지 않습니다
                 </p>
               </>
-            )}
-          </div>
-        )}
-
-        {/* 오늘 손익 기여도 + 섹터 co-movement (신설, 데이터 있을 때만) */}
-        {(((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) || d.coMovementText || d.correlation) && (
-          <div className={`grid grid-cols-1 ${(d.coMovementText || d.correlation) ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
-            {((d.topContributors?.positive.length ?? 0) > 0 || (d.topContributors?.negative.length ?? 0) > 0) && (
-              <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                  오늘 손익 영향이 가장 큰 {d.topContributors!.n}종목
-                </p>
-                <p className="text-[11px] text-slate-600 mb-3">전체 종목의 누적 수익률은 아래 &quot;기업별 관찰 지표&quot;를 참고하세요 — 여기는 오늘 하루 변화만 다룹니다</p>
-                <div className="flex flex-col gap-1.5 mb-3">
-                  {d.topContributors!.positive.map(c => (
-                    <div key={c.ticker} className="flex items-center justify-between">
-                      <span className="text-[12px] text-slate-400">{c.name}</span>
-                      <span className="text-[13px] font-bold font-mono text-red-400">{c.amount >= 0 ? '+' : ''}{fmt(c.amount)}원</span>
-                    </div>
-                  ))}
-                  {d.topContributors!.negative.map(c => (
-                    <div key={c.ticker} className="flex items-center justify-between">
-                      <span className="text-[12px] text-slate-400">{c.name}</span>
-                      <span className="text-[13px] font-bold font-mono text-blue-400">{fmt(c.amount)}원</span>
-                    </div>
-                  ))}
-                </div>
-                {d.contributionNarrative && (
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{d.contributionNarrative}</p>
-                )}
-              </div>
-            )}
-            {(d.coMovementText || d.correlation) && (
-              <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">섹터 동조화 관찰</p>
-                  {d.correlation && (
-                    <GradeBadge
-                      label={d.correlation.bucket}
-                      tone={d.correlation.bucket === '강한 동조화' ? 'danger' : d.correlation.bucket === '보통 동조화' ? 'warning' : 'safe'}
-                    />
-                  )}
-                </div>
-                {d.coMovementText && <p className="text-[11px] text-slate-500 mb-2">{d.coMovementText}</p>}
-                {d.coMovementNarrative && (
-                  <p className="text-[13px] text-slate-300 leading-relaxed">{d.coMovementNarrative}</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 변동성 기여도(정량 지표 C-1, 신설) */}
-        {d.riskContribution && d.riskContribution.length > 0 && (
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">변동성 기여도</p>
-            <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
-              각 종목의 가격 변동이 포트폴리오 전체의 흔들림(변동성)에 얼마나 기여하는지를 비율로 나타낸 값입니다.
-              보유 비중이 크거나 가격이 많이 출렁이는 종목일수록 높게 나옵니다.
-              종목들이 서로 같이 움직이는 정도(상관관계)는 계산에 넣지 않은 근사치라, 실제 포트폴리오 변동성과는 차이가 있을 수 있습니다.
-            </p>
-            <div className="flex flex-col gap-3">
-              {d.riskContribution.map((r, i) => (
-                <div key={r.ticker}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[13px] text-slate-300 font-medium">{r.name}</span>
-                    <span className="text-[13px] font-mono text-slate-400">{r.pct}%</span>
-                  </div>
-                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${SECTOR_COLORS[i % SECTOR_COLORS.length]}`} style={{ width: `${r.pct}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 종목별 관찰 지표 (절대 금액 제외) */}
-        <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">기업별 관찰 지표</p>
-          <div className="flex flex-col divide-y divide-slate-700/40">
-            {(d.holdings ?? []).map(h => {
-              const hUp = h.profitRate >= 0;
-              return (
-                <div key={h.ticker} className="py-4 first:pt-0 last:pb-0">
-                  <div className="flex items-start gap-3 flex-wrap md:flex-nowrap">
-                    <div className="w-full md:w-40 shrink-0">
-                      <p className="text-[14px] font-semibold text-white leading-tight">{h.name}</p>
-                      <p className="text-[11px] text-slate-500 font-mono">{h.ticker} · {h.sector}</p>
-                      <Link href={`/stock/${h.ticker}`} className="text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline mt-0.5 inline-block">
-                        자세히 보기 →
-                      </Link>
-                    </div>
-                    <div className="flex gap-4 shrink-0">
-                      <div>
-                        <p className="text-[11px] text-slate-600 mb-0.5">현재가</p>
-                        <p className="text-[13px] font-mono text-slate-300">{fmt(h.currentPrice)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] text-slate-600 mb-0.5">수익률</p>
-                        <p className={`text-[13px] font-mono font-semibold ${hUp ? 'text-red-400' : 'text-blue-400'}`}>
-                          {fmtRate(h.profitRate)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  {h.reason && (
-                    <p className="mt-2 text-[12px] text-slate-500 leading-relaxed pl-0 md:pl-44">{h.reason}</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Risk Factors + Opportunity Factors (대칭 구조) */}
-        {((d.riskFactors?.length ?? 0) > 0 || (d.opportunityFactors?.length ?? 0) > 0) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {(d.riskFactors?.length ?? 0) > 0 && (
-              <div className="bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-[11px] font-bold text-red-400 uppercase tracking-wider">Risk Factors</span>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {(d.riskFactors ?? []).map((item, i) => {
-                    const text = typeof item === 'string' ? item : item.text;
-                    const category = typeof item === 'string' ? undefined : item.category;
-                    return (
-                      <div key={i} className="flex items-start gap-2">
-                        <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
-                        <p className="text-[12px] text-slate-300 leading-relaxed">
-                          {category && (
-                            <span className="mr-1.5 inline-block px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 text-[11px] font-bold uppercase tracking-wide align-middle">
-                              {category === 'macro' ? '매크로' : '기업'}
-                            </span>
-                          )}
-                          {text}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {(d.opportunityFactors?.length ?? 0) > 0 && (
-              <div className="bg-[#1a1f2e] border border-emerald-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Opportunity Factors</span>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {(d.opportunityFactors ?? []).map((line, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <span className="text-emerald-500/60 text-[11px] mt-1 shrink-0">▶</span>
-                      <p className="text-[12px] text-slate-300 leading-relaxed">{line}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 단기/중기 전망 */}
-        {(d.shortTermOutlook || d.midTermOutlook) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            {d.shortTermOutlook && (
-              <div className="bg-[#1a1f2e] border border-indigo-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[11px] font-bold text-indigo-400 uppercase tracking-wider">단기 관찰 변수</span>
-                </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{d.shortTermOutlook}</p>
-              </div>
-            )}
-            {d.midTermOutlook && (
-              <div className="bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-[11px] font-bold text-violet-400 uppercase tracking-wider">중기 관찰 변수</span>
-                </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed">{d.midTermOutlook}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* 보유 기간별 관점 (신설, 매입일 데이터로 비교 가능할 때만) */}
-        {(d.holdingPeriod?.longest && d.holdingPeriod?.mostRecent) && (
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">보유 기간별 관점</p>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[11px] text-slate-500 mb-1">가장 오래 보유 · {d.holdingPeriod.longest.name} ({d.holdingPeriod.longest.holdDays}일 전 매입)</p>
-                <p className={`text-lg font-mono font-bold ${d.holdingPeriod.longest.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                  {fmtRate(d.holdingPeriod.longest.profitRate)}
-                </p>
-              </div>
-              <div className="rounded-xl bg-slate-800/40 px-4 py-3">
-                <p className="text-[11px] text-slate-500 mb-1">가장 최근 편입 · {d.holdingPeriod.mostRecent.name} ({d.holdingPeriod.mostRecent.holdDays}일 전 매입)</p>
-                <p className={`text-lg font-mono font-bold ${d.holdingPeriod.mostRecent.profitRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                  {fmtRate(d.holdingPeriod.mostRecent.profitRate)}
-                </p>
-              </div>
-            </div>
-            {d.holdingPeriod.narrative && (
-              <p className="text-[13px] text-slate-300 leading-relaxed">{d.holdingPeriod.narrative}</p>
             )}
           </div>
         )}

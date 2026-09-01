@@ -21,6 +21,7 @@ import {
   type PortfolioSummarySections,
 } from '@/lib/portfolio-analysis-pipeline';
 import { buildPortfolioStructureFacts } from '@/lib/portfolio-structure-facts';
+import { computeWeightDrift, type WeightDriftRow } from '@/lib/portfolio-position';
 
 export const dynamic     = 'force-dynamic';
 export const maxDuration = 120; // portfolio-diagnosis와 동일한 Stage1/Stage2 파이프라인이라 같은 여유 필요
@@ -70,6 +71,7 @@ interface DashboardAnalysisResult {
   sectorConcentration: SectorConcentrationResult | null;
   riskContribution: RiskContributionItem[] | null;
   correlation: PortfolioCorrelationResult | null;
+  weightDrift?: WeightDriftRow[];
   riskFactors: unknown[]; opportunityFactors: string[];
   shortTermOutlook: string; midTermOutlook: string;
   coMovementText: string | null; coMovementNarrative: string;
@@ -134,6 +136,7 @@ export async function POST() {
           // 프론트는 null을 "종목 수 부족/계산 불가"와 동일하게 취급해 캡션으로 대체한다.
           riskContribution: cached.riskContribution ?? null,
           correlation: cached.correlation ?? null,
+          weightDrift: cached.weightDrift ?? null,
         });
         send(controller, {
           type: 'holding-meta',
@@ -291,6 +294,7 @@ export async function POST() {
         const riskContribution = hasEnoughHoldingsForQuant
           ? computeRiskContribution(enriched, totalValue)
           : null;
+        const weightDrift = computeWeightDrift(enriched.map(h => ({ ticker: h.ticker, name: h.name, invested: h.invested, value: h.value, profitRate: h.profitRate })));
         const correlation = hasEnoughHoldingsForQuant
           ? computePortfolioCorrelation(enriched.map((h, i) => {
               const cr = chartResults[i];
@@ -328,6 +332,7 @@ export async function POST() {
           holdingPeriod: { longest: holdingPeriodFacts.longest, mostRecent: holdingPeriodFacts.mostRecent },
           riskContribution,
           correlation,
+          weightDrift,
         });
         send(controller, {
           type: 'holding-meta',
@@ -389,7 +394,7 @@ export async function POST() {
             profit: h.profit, profitRate: h.profitRate, volatility: h.volatility,
           })),
           totalValue, totalInvested, totalProfit,
-          sectors, sectorConcentration, riskContribution, correlation,
+          sectors, sectorConcentration, riskContribution, correlation, weightDrift,
         });
 
         const summary = await analyzePortfolioSummary(
@@ -426,13 +431,14 @@ export async function POST() {
           sectorConcentration,
           riskContribution,
           correlation,
+          weightDrift,
           holdings: mergedHoldings,
           riskFactors: summary.riskFactors ?? [],
           opportunityFactors: summary.opportunityFactors ?? [],
           shortTermOutlook: summary.shortTermOutlook || '',
           midTermOutlook: summary.midTermOutlook || '',
           coMovementText,
-          coMovementNarrative: summary.coMovementNarrative || '',
+          coMovementNarrative: '',
           holdingPeriod: {
             longest: holdingPeriodFacts.longest, mostRecent: holdingPeriodFacts.mostRecent,
             narrative: summary.holdingPeriodNarrative || '',

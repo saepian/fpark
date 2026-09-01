@@ -11,6 +11,9 @@ import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { isKoreanMarketOpen, isKoreanMarketPreOpen } from '@/lib/market-utils';
 import AiSummarySections, { SUMMARY_SECTION_KEYS, type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
+import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
+import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import { computeWeightDrift, type WeightDriftRow } from '@/lib/portfolio-position';
 import { useSmoothTypingText } from '@/lib/useSmoothTypingText';
 import { useCountUp } from '@/lib/use-count-up';
 import AiAnalysis from '@/components/stock/AiAnalysis';
@@ -86,8 +89,10 @@ interface StreamedDashboardResult {
   sectorConcentration?: SectorConcentration | null;
   riskContribution?:    RiskContributionItem[] | null;
   correlation?:         PortfolioCorrelation | null;
+  weightDrift?:         WeightDriftRow[] | null;
   riskFactors?: ({ text: string; category?: 'macro' | 'company' } | string)[];
   opportunityFactors?: string[];
+  shortTermOutlook?: string; midTermOutlook?: string;
   coMovementText?: string | null; coMovementNarrative?: string;
 }
 
@@ -131,10 +136,6 @@ function applyPortfolioField(prev: StreamedDashboardResult | null, key: string, 
     };
   }
   return { ...base, [key]: value };
-}
-
-function TypingCursor() {
-  return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
 }
 
 function FieldSkeleton({ lines = 2 }: { lines?: number }) {
@@ -1231,6 +1232,8 @@ export default function DashboardPage() {
               <QuantMetricsCaption />
             ) : (
               <>
+                {(() => { const rows = analysisResult.weightDrift ?? computeWeightDrift(analysisResult.holdings ?? []); return rows.length >= 2 ? <WeightDriftCard rows={rows} className="mb-4" /> : null; })()}
+
                 {analysisResult.sectors && analysisResult.sectors.length > 0 && (
                   <Card title="섹터 편중도 분석" className="mb-4">
                     {analysisResult.sectorConcentration && (
@@ -1265,26 +1268,7 @@ export default function DashboardPage() {
                   </Card>
                 )}
 
-                {(analysisResult.coMovementText || analysisResult.correlation) && (
-                  <Card className="mb-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>섹터 동조화 관찰</p>
-                      {analysisResult.correlation && (
-                        <GradeBadge
-                          label={analysisResult.correlation.bucket}
-                          tone={analysisResult.correlation.bucket === '강한 동조화' ? 'danger' : analysisResult.correlation.bucket === '보통 동조화' ? 'warning' : 'safe'}
-                        />
-                      )}
-                    </div>
-                    {analysisResult.coMovementText && <p className="text-[11px] text-slate-500 mb-2">{analysisResult.coMovementText}</p>}
-                    {analysisResult.coMovementNarrative !== undefined ? (
-                      <p className="text-xs text-slate-300 leading-relaxed">
-                        {smoothText.revealed.coMovementNarrative?.text ?? analysisResult.coMovementNarrative}
-                        {smoothText.revealed.coMovementNarrative?.active && <TypingCursor />}
-                      </p>
-                    ) : !stage2Failed && <FieldSkeleton lines={1} />}
-                  </Card>
-                )}
+                {/* 2026-09-01 3차: "섹터 동조화 관찰" 카드 제거 — 상관계수는 AI 종합 평가 집중·분산도가 서술 */}
 
                 {analysisResult.riskContribution && analysisResult.riskContribution.length > 0 && (
                   <Card title="변동성 기여도" className="mb-4">
@@ -1306,6 +1290,14 @@ export default function DashboardPage() {
                     </div>
                   </Card>
                 )}
+              </>
+            )}
+
+            {/* 2026-09-01 3차: 포트폴리오분석·공유와 같은 보조 카드(공용 컴포넌트) */}
+            {!stage2Failed && (
+              <>
+                <IssueFactorsCard riskFactors={analysisResult.riskFactors} opportunityFactors={analysisResult.opportunityFactors} pending={!streamFinished} className="mb-4" />
+                <WatchVariablesCard shortTermOutlook={analysisResult.shortTermOutlook} midTermOutlook={analysisResult.midTermOutlook} pending={!streamFinished} revealed={smoothText.revealed} className="mb-4" />
               </>
             )}
 
