@@ -249,7 +249,7 @@ export function ReturnBarChart({ holdings }: { holdings: ChartHolding[] }) {
   // 다 들어가게 한다 — 이름 축약 길이도 같이 줄여 겹침을 막는다.
   const dense = holdings.length > 8;
   const nameLen = dense ? 3 : 4;
-  const tickFontSize = dense ? 9 : 10;
+  const tickFontSize = 11;
   const maxBarSize = Math.max(14, Math.min(40, Math.floor(320 / holdings.length)));
 
   const data = holdings.map(h => ({
