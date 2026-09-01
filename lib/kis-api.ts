@@ -1695,18 +1695,25 @@ export async function fetchAnnualFinancials(ticker: string): Promise<AnnualFinan
     .filter((r) => r.stac_yymm.slice(4) === yearEndMonth)
     .slice(0, 3);
 
-  return annualRows.map((r) => {
-    const revenue = parseFloat(r.sale_account);
-    const opProfit = parseFloat(r.bsop_prti);
-    const netIncome = parseFloat(r.thtr_ntin);
-    return {
-      year:            r.stac_yymm.slice(0, 4),
-      revenue:         isNaN(revenue) || revenue === 99.99 ? null : Math.round(revenue),
-      operatingProfit: isNaN(opProfit) || opProfit === 99.99 ? null : Math.round(opProfit),
-      netIncome:       isNaN(netIncome) || netIncome === 99.99 ? null : Math.round(netIncome),
-      roe:             roeMap.get(r.stac_yymm) ?? null,
-    };
-  });
+  // 2026-09-01 실측(현대약품 004310, 11월 결산): KIS가 연간·분기 모두 sale_account/bsop_prti/
+  // thtr_ntin을 전부 '0.00'으로 돌려주는 종목이 있다 — 그대로 두면 기업분석 "실적 추이" 카드가
+  // 3개년 "매출 0억 / 영업이익 +0억 / ROE 0%"를 실제 값처럼 그린다. 상장사 매출 0은 불가능하므로
+  // 매출 0은 결측으로 취급하고, 세 값이 전부 결측인 행은 버린다(전부 버려지면 카드 자체 생략).
+  return annualRows
+    .map((r) => {
+      const revenue = parseFloat(r.sale_account);
+      const opProfit = parseFloat(r.bsop_prti);
+      const netIncome = parseFloat(r.thtr_ntin);
+      const revenueMissing = isNaN(revenue) || revenue === 99.99 || revenue === 0;
+      return {
+        year:            r.stac_yymm.slice(0, 4),
+        revenue:         revenueMissing ? null : Math.round(revenue),
+        operatingProfit: isNaN(opProfit) || opProfit === 99.99 || (revenueMissing && opProfit === 0) ? null : Math.round(opProfit),
+        netIncome:       isNaN(netIncome) || netIncome === 99.99 || (revenueMissing && netIncome === 0) ? null : Math.round(netIncome),
+        roe:             roeMap.get(r.stac_yymm) ?? null,
+      };
+    })
+    .filter((row) => row.revenue !== null || row.operatingProfit !== null || row.netIncome !== null);
 }
 
 // ── 배당 지급 이력 (기업분석 "배당 정보" 섹션) ──────────────────────────────
