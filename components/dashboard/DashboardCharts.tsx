@@ -226,7 +226,7 @@ export function SectorAllocationDonutChart({ holdings }: { holdings: ChartHoldin
 // position="top"은 막대 사각형의 위쪽 변에 붙이는데, 음수 막대는 사각형 위쪽 변이
 // 기준선(=x축 종목명 근처)에 있어서 라벨이 종목명과 겹치는 문제가 있었다. 양수는
 // 막대 끝(맨 위) 위에, 음수는 막대 끝(맨 아래) 아래에 붙여 항상 기준선 반대쪽에 오게 한다.
-function renderBarValueLabel(props: unknown, fontSize = 10) {
+function renderBarValueLabel(props: unknown, fontSize = 11) {
   const { x, y, width, height, value } = props as { x?: number; y?: number; width?: number; height?: number; value?: number };
   if (x == null || y == null || width == null || height == null || value == null) return null;
   // recharts가 음수 막대에서 height를 음수로 보고할 때가 있어(y=막대 끝, y+height=기준선)
@@ -294,7 +294,7 @@ export function ReturnBarChart({ holdings }: { holdings: ChartHolding[] }) {
           />
           <Bar dataKey="profitRate" radius={[3, 3, 0, 0]} maxBarSize={maxBarSize} {...anim}>
             {data.map((d, i) => <Cell key={i} fill={d.profitRate >= 0 ? '#ef4444' : '#3b82f6'} />)}
-            <LabelList dataKey="profitRate" content={(p) => renderBarValueLabel(p, dense ? 9 : 10)} />
+            <LabelList dataKey="profitRate" content={(p) => renderBarValueLabel(p, 11)} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>
