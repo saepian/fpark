@@ -120,7 +120,8 @@ function TypingCursor() {
   return <span className="ml-0.5 text-indigo-300 animate-pulse font-light">▌</span>;
 }
 
-const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$', JPY: '¥', HKD: 'HK$', CNY: '¥' };
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — JPY/HKD/CNY는 더 이상 나올 수 없다.
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$' };
 
 type StreamedData = Partial<OverseasAnalysisResult>;
 

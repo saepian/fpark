@@ -20,9 +20,8 @@ interface WatchItem {
   currency?: string;
 }
 
-const MARKET_FLAG: Record<string, string> = {
-  us: '🇺🇸', jp: '🇯🇵', hk: '🇭🇰', cn: '🇨🇳',
-};
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정.
+const MARKET_FLAG: Record<string, string> = { us: '🇺🇸' };
 
 function WatchlistList({ onClose }: { onClose: () => void }) {
   const router = useRouter();

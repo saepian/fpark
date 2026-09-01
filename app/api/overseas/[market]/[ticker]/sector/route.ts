@@ -25,7 +25,8 @@ export async function GET(
 ) {
   const { market, ticker } = await params;
 
-  // 미국 이외 시장은 하드코딩 맵 없음
+  // 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 미국 외 시장은 빈 응답으로 조용히
+  // 처리한다(프론트는 애초에 market='us'가 아니면 이 API 자체를 호출하지 않음).
   if (market !== 'us') {
     return NextResponse.json({ sector: '', industry: '', stocks: [] });
   }

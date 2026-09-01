@@ -24,40 +24,9 @@ const STOCK_NAMES: Record<string, string> = {
   MRK:   'Merck',
   COST:  'Costco',
   ORCL:  'Oracle',
-  // 일본
-  '7203.T': 'Toyota',
-  '6758.T': 'Sony',
-  '9984.T': 'SoftBank',
-  '6861.T': 'Keyence',
-  '6954.T': 'Fanuc',
-  '6501.T': 'Hitachi',
-  '9432.T': 'NTT',
-  '8306.T': 'Mitsubishi UFJ',
-  '4063.T': 'Shin-Etsu Chemical',
-  '6367.T': 'Daikin',
-  // 홍콩
-  '0700.HK': 'Tencent',
-  '9988.HK': 'Alibaba',
-  '3690.HK': 'Meituan',
-  '1211.HK': 'BYD',
-  '0005.HK': 'HSBC',
-  '0941.HK': 'China Mobile',
-  '1299.HK': 'AIA Group',
-  '2318.HK': 'Ping An Insurance',
-  '0388.HK': 'HKEX',
-  '2020.HK': 'ANTA Sports',
-  // 중국
-  '600519.SS': '귀주모태주',
-  '300750.SZ': 'CATL',
-  '601318.SS': '중국평안보험',
-  '601166.SS': '흥업은행',
-  '000858.SZ': '오량액',
-  '601988.SS': '중국은행',
-  '600036.SS': '초상은행',
-  '000333.SZ': '메이디그룹',
-  '002594.SZ': 'BYD',
-  '600900.SS': '장강전력',
 };
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 일본(.T)/홍콩(.HK)/중국(.SS,.SZ) 종목명
+// 매핑 제거.
 
 // S&P 500 시가총액 기준 순위 (2025년 기준, 정기 업데이트)
 const US_MARKET_CAP_RANK: Record<string, number> = {

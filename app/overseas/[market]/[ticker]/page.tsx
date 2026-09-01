@@ -44,9 +44,8 @@ interface QuoteData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: '$', JPY: '¥', HKD: 'HK$', CNY: '¥',
-};
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — JPY/HKD/CNY는 더 이상 나올 수 없다.
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$' };
 
 function fmtPrice(val: number, currency: string): string {
   const sym = CURRENCY_SYMBOLS[currency] ?? currency;
@@ -82,8 +81,8 @@ function LightweightChart({ ticker, market }: { ticker: string; market: string }
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
-  const isJPY = market === 'jp';
-
+  // 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 이 컴포넌트는 market='us'일 때만
+  // 렌더링되므로(위 페이지 가드 참고) 항상 소수점 2자리 통화 포맷을 쓴다.
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -120,9 +119,7 @@ function LightweightChart({ ticker, market }: { ticker: string; market: string }
       borderDownColor: '#3b82f6',
       wickUpColor:   '#ef4444',
       wickDownColor: '#3b82f6',
-      priceFormat: isJPY
-        ? { type: 'price', precision: 0, minMove: 1 }
-        : { type: 'price', precision: 2, minMove: 0.01 },
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
 
     const volume = chart.addSeries(HistogramSeries, {
@@ -143,7 +140,7 @@ function LightweightChart({ ticker, market }: { ticker: string; market: string }
     ro.observe(containerRef.current);
 
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
-  }, [isJPY]);
+  }, []);
 
   const loadData = useCallback(async (p: ChartPeriod, signal: AbortSignal) => {
     if (!candleRef.current || !volumeRef.current) return;
@@ -521,9 +518,7 @@ function SectorCard({ ticker, market }: { ticker: string; market: string }) {
 
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 
-const MARKET_LABELS: Record<string, string> = {
-  us: '🇺🇸 미국', jp: '🇯🇵 일본', hk: '🇭🇰 홍콩', cn: '🇨🇳 중국',
-};
+const MARKET_LABELS: Record<string, string> = { us: '🇺🇸 미국' };
 
 interface PageProps {
   params: Promise<{ market: string; ticker: string }>;
@@ -555,6 +550,10 @@ export default function OverseasStockPage({ params }: PageProps) {
   }, [ticker]);
 
   useEffect(() => {
+    // 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 과거 링크·즐겨찾기·직접 URL 접근으로
+    // market이 jp/hk/cn 등으로 들어오면 quote API 호출 없이 바로 안내 상태로 빠진다(새 검색
+    // 결과는 애초에 market='us'만 만들어지므로 정상 플로우에서는 이 분기를 타지 않는다).
+    if (market !== 'us') { setLoading(false); return; }
     fetch(`/api/stock/overseas/${ticker}/quote`)
       .then(r => r.json())
       .then(d => {
@@ -563,7 +562,7 @@ export default function OverseasStockPage({ params }: PageProps) {
       })
       .catch(e => setError(e.message ?? '조회 실패'))
       .finally(() => setLoading(false));
-  }, [ticker]);
+  }, [ticker, market]);
 
   if (loading) {
     return (
@@ -580,6 +579,19 @@ export default function OverseasStockPage({ params }: PageProps) {
             </div>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (market !== 'us') {
+    return (
+      <div className="max-w-7xl mx-auto px-4 md:px-8 py-16 text-center">
+        <p className="text-slate-300 text-base mb-2">현재 미국 증시만 지원합니다.</p>
+        <p className="text-slate-500 text-sm mb-6">일본·홍콩·중국 등 다른 해외증시는 더 이상 지원하지 않습니다.</p>
+        <button onClick={() => router.push('/market/global')}
+          className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 text-sm font-semibold cursor-pointer">
+          <ChevronLeft className="w-4 h-4" />해외증시로 돌아가기
+        </button>
       </div>
     );
   }

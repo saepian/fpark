@@ -172,12 +172,10 @@ async function fetchLive(): Promise<MarketResponse> {
   }, 8000);
 
   try {
+    // 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 일본/홍콩/중국 지수·환율 조회 제거.
     const [
       kospiResult, kosdaqResult, usdKrwResult,
       nasdaqResult, sp500Result, dowResult,
-      nikkeiResult, hangsengResult, shanghaiResult,
-      shenzhenResult, usdJpyResult, eurJpyResult,
-      usdHkdResult, cnyHkdResult, usdCnyResult,
       bond3yResult,
       // KIS 실패 시 야후 폴백 (장외 시간 대비)
       kospiYahooResult, kosdaqYahooResult,
@@ -188,15 +186,6 @@ async function fetchLive(): Promise<MarketResponse> {
       fetchYahooIndex('^IXIC'),
       fetchYahooIndex('^GSPC'),
       fetchYahooIndex('^DJI'),
-      fetchYahooIndex('^N225'),
-      fetchYahooIndex('^HSI'),
-      fetchYahooIndex('000001.SS'),
-      fetchYahooIndex('399001.SZ'),
-      fetchYahooFX('JPY=X'),
-      fetchYahooFX('EURJPY=X'),
-      fetchYahooFX('HKD=X'),
-      fetchYahooFX('CNYHKD=X'),
-      fetchYahooFX('CNY=X'),
       fetchBond3Y(),
       fetchYahooIndex('^KS11'),   // KOSPI 야후 폴백
       fetchYahooIndex('^KQ11'),   // KOSDAQ 야후 폴백
@@ -222,15 +211,6 @@ async function fetchLive(): Promise<MarketResponse> {
       NASDAQ:   nasdaqResult.status  === 'fulfilled' ? nasdaqResult.value  : null,
       SP500:    sp500Result.status   === 'fulfilled' ? sp500Result.value   : null,
       DOW:      dowResult.status     === 'fulfilled' ? dowResult.value     : null,
-      NIKKEI:   nikkeiResult.status   === 'fulfilled' ? nikkeiResult.value   : null,
-      HANGSENG: hangsengResult.status === 'fulfilled' ? hangsengResult.value  : null,
-      SHANGHAI: shanghaiResult.status === 'fulfilled' ? shanghaiResult.value  : null,
-      SHENZHEN: shenzhenResult.status === 'fulfilled' ? shenzhenResult.value  : null,
-      USDJPY:   usdJpyResult.status   === 'fulfilled' ? usdJpyResult.value   : null,
-      EURJPY:   eurJpyResult.status   === 'fulfilled' ? eurJpyResult.value   : null,
-      USDHKD:   usdHkdResult.status   === 'fulfilled' ? usdHkdResult.value   : null,
-      CNYHKD:   cnyHkdResult.status   === 'fulfilled' ? cnyHkdResult.value   : null,
-      USDCNY:   usdCnyResult.status   === 'fulfilled' ? usdCnyResult.value   : null,
       BOND_3Y:  bond3yResult.status   === 'fulfilled' ? bond3yResult.value   : null,
     };
   } finally {
@@ -357,7 +337,7 @@ export async function GET() {
 
   try {
     const live = await fetchLive();
-    const hasAnyData = live.KOSPI || live.SP500 || live.NASDAQ || live.DOW || live.NIKKEI;
+    const hasAnyData = live.KOSPI || live.SP500 || live.NASDAQ || live.DOW;
     if (!hasAnyData) throw new Error('모든 지수 조회 실패');
 
     // await 없이 던지면 응답 직후 실행 컨텍스트가 얼어붙어 저장이 중간에 끊길 수 있어
@@ -373,15 +353,6 @@ export async function GET() {
           NASDAQ:   live.NASDAQ,
           SP500:    live.SP500,
           DOW:      live.DOW,
-          NIKKEI:   live.NIKKEI,
-          HANGSENG: live.HANGSENG,
-          SHANGHAI: live.SHANGHAI,
-          SHENZHEN: live.SHENZHEN,
-          USDJPY:   live.USDJPY,
-          EURJPY:   live.EURJPY,
-          USDHKD:   live.USDHKD,
-          CNYHKD:   live.CNYHKD,
-          USDCNY:   live.USDCNY,
           BOND_3Y:  live.BOND_3Y,
         },
         updated_at: new Date().toISOString(),

@@ -96,8 +96,9 @@ function mapRowToResult(row: HistoryRow): Omit<OverseasAnalysisResult, 'isCached
   };
 }
 
-const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$', JPY: '¥', HKD: 'HK$', CNY: '¥' };
-const CURRENCY_UNIT_WORDS: Record<string, string> = { USD: '달러', JPY: '엔', HKD: '홍콩달러', CNY: '위안' };
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — JPY/HKD/CNY는 더 이상 나올 수 없다.
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$' };
+const CURRENCY_UNIT_WORDS: Record<string, string> = { USD: '달러' };
 
 const COMMON_INSTRUCTIONS = `## 출력 형식 (JSON만)
 {
@@ -244,12 +245,8 @@ function buildYesterdayComparisonBlock(
   return lines.join('\n');
 }
 
-const MARKET_NAMES: Record<string, string> = {
-  us: '미국 NASDAQ/NYSE',
-  jp: '일본 도쿄증권거래소(TSE)',
-  hk: '홍콩 증권거래소(HKEX)',
-  cn: '중국 상하이/심천 증권거래소',
-};
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정.
+const MARKET_NAMES: Record<string, string> = { us: '미국 NASDAQ/NYSE' };
 
 interface QuoteSnapshot {
   name: string;
@@ -457,6 +454,15 @@ export async function GET(
 
   const { price, currency, week52High: hi52, week52Low: lo52 } = quote;
 
+  // 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 프론트는 market='us'가 아니면 이 API를
+  // 호출하지 않지만(app/overseas/[market]/[ticker]/page.tsx), 직접 호출로 우회해 일본·홍콩·
+  // 중국 등 다른 시장 종목의 유료 Claude 리포트를 생성하는 경로를 여기서 조기 차단한다.
+  // market 쿼리 파라미터(사용자 입력, 신뢰 불가)가 아니라 Yahoo가 실측으로 돌려준 통화
+  // (currency)로 판정 — 티커 자체가 실제로 미국 상장물인지의 진실源이다.
+  if (currency !== 'USD') {
+    return NextResponse.json({ error: '현재 미국 증시만 지원합니다.' }, { status: 400 });
+  }
+
   // 2. 당일 캐시 확인 — 신규 생성과 동일한 SSE 프로토콜로 응답한다(국내물과 동일 이유:
   // 프론트가 응답 형태를 캐시/신규로 분기하지 않아도 되고, 이미 다 있는 값이라 사실상
   // 한 번에 전부 쏟아붓는다).
@@ -590,7 +596,7 @@ export async function GET(
 
   // 4. Claude 분석
   const symbol = CURRENCY_SYMBOLS[currency] ?? currency;
-  const fmtPrice = (n: number) => `${symbol}${n.toLocaleString('en-US', { minimumFractionDigits: currency === 'JPY' ? 0 : 2, maximumFractionDigits: currency === 'JPY' ? 0 : 2 })}`;
+  const fmtPrice = (n: number) => `${symbol}${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtAmount = (n: number | null): string => {
     if (n == null) return 'N/A';
     if (Math.abs(n) >= 1e12) return `${(n / 1e12).toFixed(2)}T ${currency}`;

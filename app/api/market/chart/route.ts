@@ -88,24 +88,16 @@ async function fetchYahooFXChart(yahooSymbol: string): Promise<number[]> {
   return closes.filter((v): v is number => v != null && isFinite(v));
 }
 
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 일본/홍콩/중국 지수·환율 제거.
 const YAHOO_SYMBOL_MAP: Record<string, string> = {
   SP500:    '^GSPC',
   NASDAQ:   '^IXIC',
   DOW:      '^DJI',
-  NIKKEI:   '^N225',
-  HANGSENG: '^HSI',
-  SHANGHAI: '000001.SS',
-  SHENZHEN: '399001.SZ',
   BOND_3Y:  'KR3YT=RR', // Reuters RIC format
 };
 
 const YAHOO_FX_MAP: Record<string, string> = {
   USD_KRW: 'KRW=X',
-  USDJPY:  'JPY=X',
-  EURJPY:  'EURJPY=X',
-  USDHKD:  'HKD=X',
-  CNYHKD:  'CNYHKD=X',
-  USDCNY:  'CNY=X',
 };
 
 export async function GET(request: Request) {

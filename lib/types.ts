@@ -60,6 +60,8 @@ export interface MarketIndexData {
   sparkline?: number[];
 }
 
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 일본(NIKKEI)·홍콩(HANGSENG)·
+// 중국(SHANGHAI/SHENZHEN) 지수와 그 환율(USDJPY/EURJPY/USDHKD/CNYHKD/USDCNY) 필드를 제거.
 export interface MarketResponse {
   KOSPI: MarketIndexData | null;
   KOSDAQ: MarketIndexData | null;
@@ -67,15 +69,6 @@ export interface MarketResponse {
   NASDAQ: MarketIndexData | null;
   SP500: MarketIndexData | null;
   DOW: MarketIndexData | null;
-  NIKKEI: MarketIndexData | null;
-  HANGSENG: MarketIndexData | null;
-  SHANGHAI: MarketIndexData | null;
-  SHENZHEN: MarketIndexData | null;
-  USDJPY: MarketIndexData | null;
-  EURJPY: MarketIndexData | null;
-  USDHKD: MarketIndexData | null;
-  CNYHKD: MarketIndexData | null;
-  USDCNY: MarketIndexData | null;
   BOND_3Y?: MarketIndexData | null;
   isCached?: boolean;
   cachedAt?: string | null;

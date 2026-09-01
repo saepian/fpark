@@ -32,52 +32,17 @@ interface NewsItem {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const COUNTRY_TABS = [
-  { id: 'us', label: '🇺🇸 미국' },
-  { id: 'jp', label: '🇯🇵 일본' },
-  { id: 'hk', label: '🇭🇰 홍콩' },
-  { id: 'cn', label: '🇨🇳 중국' },
-] as const;
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 국가 탭(일본/홍콩/중국)과 그 지수·환율을
+// 제거하고 미국 단일 뷰로 단순화한다.
+const US_TICKERS = 'AAPL,MSFT,NVDA,GOOGL,AMZN,META,TSLA,AVGO,JPM,V,UNH,XOM,LLY,JNJ,MA,PG,HD,MRK,COST,ORCL';
+const US_CURRENCY = '$';
 
-type CountryTab = typeof COUNTRY_TABS[number]['id'];
-
-const TAB_TICKERS: Record<CountryTab, string> = {
-  us: 'AAPL,MSFT,NVDA,GOOGL,AMZN,META,TSLA,AVGO,JPM,V,UNH,XOM,LLY,JNJ,MA,PG,HD,MRK,COST,ORCL',
-  jp: '7203.T,6758.T,9984.T,6861.T,6954.T,6501.T,9432.T,8306.T,4063.T,6367.T',
-  hk: '0700.HK,9988.HK,3690.HK,1211.HK,0005.HK,0941.HK,1299.HK,2318.HK,0388.HK,2020.HK',
-  cn: '600519.SS,300750.SZ,601318.SS,601166.SS,000858.SZ,601988.SS,600036.SS,000333.SZ,002594.SZ,600900.SS',
-};
-
-const TAB_CURRENCY: Record<CountryTab, string> = {
-  us: '$',
-  jp: '¥',
-  hk: 'HK$',
-  cn: '¥',
-};
-
-const TAB_INDEX_CARDS: Record<CountryTab, { label: string; key: string; isFx?: boolean }[]> = {
-  us: [
-    { label: 'S&P 500',  key: 'SP500' },
-    { label: '나스닥',   key: 'NASDAQ' },
-    { label: '다우존스', key: 'DOW' },
-    { label: 'USD/KRW',  key: 'USD_KRW', isFx: true },
-  ],
-  jp: [
-    { label: '닛케이 225', key: 'NIKKEI' },
-    { label: 'USD/JPY',   key: 'USDJPY', isFx: true },
-    { label: 'EUR/JPY',   key: 'EURJPY', isFx: true },
-  ],
-  hk: [
-    { label: '항셍',    key: 'HANGSENG' },
-    { label: 'USD/HKD', key: 'USDHKD', isFx: true },
-    { label: 'CNY/HKD', key: 'CNYHKD', isFx: true },
-  ],
-  cn: [
-    { label: '상해종합', key: 'SHANGHAI' },
-    { label: '심천종합', key: 'SHENZHEN' },
-    { label: 'USD/CNY', key: 'USDCNY', isFx: true },
-  ],
-};
+const US_INDEX_CARDS: { label: string; key: string; isFx?: boolean }[] = [
+  { label: 'S&P 500',  key: 'SP500' },
+  { label: '나스닥',   key: 'NASDAQ' },
+  { label: '다우존스', key: 'DOW' },
+  { label: 'USD/KRW',  key: 'USD_KRW', isFx: true },
+];
 
 const RANK_BADGE: Record<number, string> = {
   1: 'bg-amber-400/20 text-amber-300 border border-amber-400/30',
@@ -403,7 +368,7 @@ function StockTable({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-const CHART_SYMBOLS = ['USD_KRW', 'USDJPY', 'EURJPY', 'USDHKD', 'CNYHKD', 'USDCNY'];
+const CHART_SYMBOLS = ['USD_KRW'];
 
 const COLORS = [
   { r: 99,  g: 102, b: 241 },
@@ -415,14 +380,11 @@ const COLORS = [
 
 export default function GlobalMarketPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab]       = useState<CountryTab>('us');
-  const [indices, setIndices]           = useState<Record<string, IndexData | null>>({});
-  const [chartData, setChartData]       = useState<Record<string, number[]>>({});
-  const [stocksByTab, setStocksByTab]   = useState<Partial<Record<CountryTab, OverseasStock[]>>>({});
-  const [loadingByTab, setLoadingByTab] = useState<Record<CountryTab, boolean>>(
-    { us: true, jp: true, hk: true, cn: true }
-  );
-  const [news, setNews]                 = useState<NewsItem[]>([]);
+  const [indices, setIndices]     = useState<Record<string, IndexData | null>>({});
+  const [chartData, setChartData] = useState<Record<string, number[]>>({});
+  const [stocks, setStocks]       = useState<OverseasStock[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [news, setNews]           = useState<NewsItem[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -430,19 +392,10 @@ export default function GlobalMarketPage() {
       .then(r => r.json())
       .then(d => {
         setIndices({
-          USD_KRW:  d.USD_KRW  ?? null,
-          SP500:    d.SP500    ?? null,
-          NASDAQ:   d.NASDAQ   ?? null,
-          DOW:      d.DOW      ?? null,
-          NIKKEI:   d.NIKKEI   ?? null,
-          HANGSENG: d.HANGSENG ?? null,
-          SHANGHAI: d.SHANGHAI ?? null,
-          SHENZHEN: d.SHENZHEN ?? null,
-          USDJPY:   d.USDJPY   ?? null,
-          EURJPY:   d.EURJPY   ?? null,
-          USDHKD:   d.USDHKD   ?? null,
-          CNYHKD:   d.CNYHKD   ?? null,
-          USDCNY:   d.USDCNY   ?? null,
+          USD_KRW: d.USD_KRW ?? null,
+          SP500:   d.SP500   ?? null,
+          NASDAQ:  d.NASDAQ  ?? null,
+          DOW:     d.DOW     ?? null,
         });
       })
       .catch(() => {});
@@ -457,19 +410,11 @@ export default function GlobalMarketPage() {
       setChartData(map);
     });
 
-    (Object.entries(TAB_TICKERS) as [CountryTab, string][]).forEach(([tabId, tickers]) => {
-      fetch(`/api/market/overseas?tickers=${tickers}${tabId === 'us' ? '&country=us' : ''}`)
-        .then(r => r.json())
-        .then(d => {
-          setStocksByTab(prev => ({ ...prev, [tabId]: Array.isArray(d) ? d : [] }));
-        })
-        .catch(() => {
-          setStocksByTab(prev => ({ ...prev, [tabId]: [] }));
-        })
-        .finally(() => {
-          setLoadingByTab(prev => ({ ...prev, [tabId]: false }));
-        });
-    });
+    fetch(`/api/market/overseas?tickers=${US_TICKERS}&country=us`)
+      .then(r => r.json())
+      .then(d => setStocks(Array.isArray(d) ? d : []))
+      .catch(() => setStocks([]))
+      .finally(() => setLoading(false));
 
     // 해외 뉴스
     fetch('/api/news?limit=5&category=global')
@@ -639,65 +584,38 @@ export default function GlobalMarketPage() {
           Yahoo Finance 기반 해외 증시 정보 · 실시간 대비 약 15분 지연 · 환율 포함 주요 지수와 기업을 확인하세요
         </p>
 
-        {/* 국가 탭 */}
-        <div className="flex items-center gap-1.5 mb-6">
-          {COUNTRY_TABS.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={[
-                'px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer',
-                activeTab === tab.id
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-[#1e2130] text-slate-400 hover:text-slate-200',
-              ].join(' ')}
-            >
-              {tab.label}
-            </button>
+        {/* 지수 카드 — 전체 너비, 모바일 2x2 그리드 / md 이상 기존 가로 배치 */}
+        <div className="grid grid-cols-2 gap-3 mb-7 md:flex">
+          {US_INDEX_CARDS.map(({ label, key, isFx }) => (
+            <IndexCard
+              key={key}
+              label={label}
+              data={indices[key]}
+              closes={indices[key]?.sparkline ?? chartData[key] ?? []}
+              uid={key}
+              isFx={isFx}
+            />
           ))}
         </div>
-
-        {/* 지수 카드 — 전체 너비, 모바일 2x2 그리드 / md 이상 기존 가로 배치 */}
-        {COUNTRY_TABS.map(tab => activeTab === tab.id && (
-          <div key={tab.id} className="grid grid-cols-2 gap-3 mb-7 md:flex">
-            {TAB_INDEX_CARDS[tab.id].map(({ label, key, isFx }) => (
-              <IndexCard
-                key={key}
-                label={label}
-                data={indices[key]}
-                closes={indices[key]?.sparkline ?? chartData[key] ?? []}
-                uid={key}
-                isFx={isFx}
-              />
-            ))}
-          </div>
-        ))}
 
         {/* 2컬럼: 주요 종목 + 사이드바 */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
 
           {/* 좌측: 종목 테이블 */}
           <div className="min-w-0">
-            {COUNTRY_TABS.map(tab => activeTab === tab.id && (
-              <div key={tab.id}>
-                <h2 className="text-[14px] font-bold text-white mb-3">주요 기업</h2>
-                <StockTable
-                  stocks={stocksByTab[tab.id] ?? []}
-                  loading={loadingByTab[tab.id]}
-                  currency={TAB_CURRENCY[tab.id]}
-                  rows={tab.id === 'us' ? 20 : 10}
-                  onRowClick={(ticker) => router.push(`/overseas/${tab.id}/${ticker}`)}
-                />
-              </div>
-            ))}
+            <h2 className="text-[14px] font-bold text-white mb-3">주요 기업</h2>
+            <StockTable
+              stocks={stocks}
+              loading={loading}
+              currency={US_CURRENCY}
+              rows={20}
+              onRowClick={(ticker) => router.push(`/overseas/us/${ticker}`)}
+            />
           </div>
 
           {/* 우측 사이드바 */}
           <div className="flex flex-col gap-4">
-            <GlobalMoversSidebar
-              stocks={stocksByTab['us'] ?? []}
-              loading={loadingByTab['us']}
-            />
+            <GlobalMoversSidebar stocks={stocks} loading={loading} />
             <GlobalNewsFeed news={news} />
           </div>
 

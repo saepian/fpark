@@ -13,7 +13,10 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ market: string; ticker: string }> },
 ) {
-  const { ticker } = await params;
+  const { market, ticker } = await params;
+  // 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 프론트(app/overseas/[market]/[ticker]/
+  // page.tsx)가 market='us'가 아니면 이 API를 호출하지 않지만, 직접 호출도 동일하게 막는다.
+  if (market !== 'us') return NextResponse.json({ error: '지원하지 않는 시장입니다.' }, { status: 400 });
   const period = req.nextUrl.searchParams.get('period') ?? '3M';
   const range  = RANGE_MAP[period] ?? '3mo';
 

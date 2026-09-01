@@ -36,25 +36,15 @@ async function getStockList(): Promise<StockEntry[]> {
   return items;
 }
 
-const ALLOWED_EXCHANGES = new Set([
-  'NMS', 'NYQ', 'NYSEArca', 'NGM', 'PCX', 'ASE', // 미국
-  'JPX', 'TYO',                                    // 일본
-  'HKG',                                           // 홍콩
-  'SHH', 'SHZ',                                    // 중국
-]);
+// 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 일본(JPX/TYO)·홍콩(HKG)·
+// 중국(SHH/SHZ) 거래소를 검색 결과에서 제외한다(해외증시 미국 외 국가 삭제).
+const ALLOWED_EXCHANGES = new Set(['NMS', 'NYQ', 'NYSEArca', 'NGM', 'PCX', 'ASE']); // 미국
 
-function getMarket(exchange: string): string {
-  if (['NMS', 'NYQ', 'NYSEArca', 'PCX', 'NGM', 'ASE'].includes(exchange)) return 'us';
-  if (['JPX', 'TYO'].includes(exchange)) return 'jp';
-  if (['HKG'].includes(exchange)) return 'hk';
-  if (['SHH', 'SHZ'].includes(exchange)) return 'cn';
+function getMarket(_exchange: string): string {
   return 'us';
 }
 
-function getCurrency(exchange: string): string {
-  if (['JPX', 'TYO'].includes(exchange)) return '¥';
-  if (['HKG'].includes(exchange)) return 'HK$';
-  if (['SHH', 'SHZ'].includes(exchange)) return '¥';
+function getCurrency(_exchange: string): string {
   return '$';
 }
 
