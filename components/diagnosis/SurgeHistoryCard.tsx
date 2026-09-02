@@ -9,6 +9,7 @@
 // components/diagnosis/SectorComparisonCard.tsx가 이미 같은 방식(recharts + 'use client')으로
 // 서버 컴포넌트인 공유 페이지에 문제없이 렌더링되는 걸 확인한 선례를 그대로 따른다(Next.js
 // App Router는 서버 컴포넌트가 클라이언트 컴포넌트를 자식으로 렌더링하는 걸 지원).
+import { useEffect, useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell, Tooltip, XAxis } from 'recharts';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
@@ -210,9 +211,24 @@ function TradingValueTooltip({ active, payload, label }: {
   );
 }
 
+// 2026-09-02(6차): 툴팁이 마우스 호버 전용이라 터치 기기에선 원천적으로 볼 방법이 없었다는
+// 지적 — (pointer: coarse) 미디어쿼리로 터치 기기를 판정해서, 그럴 때만 막대 탭을 눌러
+// 툴팁을 켜고 끄는 컨트롤드 모드로 전환한다. 데스크톱(마우스)은 이 상태를 아예 안 만드니
+// recharts의 기본 호버 동작이 그대로 유지된다 — 같은 <Tooltip>에 active/payload/coordinate를
+// 조건부로만 넘겨서 두 기기를 갈라놓았다(항상 넘기면 desktop 호버까지 컨트롤드로 바뀌어 버림).
+function useIsTouchDevice(): boolean {
+  const [isTouch, setIsTouch] = useState(false);
+  useEffect(() => {
+    setIsTouch(window.matchMedia('(pointer: coarse)').matches);
+  }, []);
+  return isTouch;
+}
+
 export function TradingValueMultipleCard({ t, compact = false }: { t: TradingValueMultiple; compact?: boolean }) {
   const barColor = tradingValueBarColor(t.multiple);
   const hasSeries = t.recentSeries.length > 0;
+  const isTouch = useIsTouchDevice();
+  const [tapActive, setTapActive] = useState<{ label: string; payload: TradingValueMultiple['recentSeries'][number]; coordinate: { x: number; y: number } } | null>(null);
   // 2026-09-02(5차): 급등/급락 이력이 0~1건이면 옆 카드가 짧아지는데 이 카드는 항상 같은
   // 막대그래프 높이라 그때만 빈 공간이 남는다는 지적 — compact(SurgeTradingRow가 판정)일 때
   // 그래프 높이를 줄인다. 게이지·수치·툴팁 기능은 그대로 유지(정보 손실 없음, 높이만 축소).
@@ -229,9 +245,33 @@ export function TradingValueMultipleCard({ t, compact = false }: { t: TradingVal
         <div className="mt-2">
           <div style={{ height: chartHeight }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={t.recentSeries} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
+              <BarChart
+                data={t.recentSeries}
+                margin={{ top: 4, right: 2, bottom: 2, left: 2 }}
+                onClick={(state) => {
+                  // recharts v3 MouseHandlerDataParam엔 activePayload가 없어(v2와 차이) activeIndex로
+                  // 직접 t.recentSeries에서 찾는다 — 데이터가 이미 스코프에 있어 별도 조회 불필요.
+                  if (!isTouch) return;
+                  const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined;
+                  const label = typeof state?.activeLabel === 'string' ? state.activeLabel : undefined;
+                  const point = idx !== undefined ? t.recentSeries[idx] : undefined;
+                  if (!label || !point || !state?.activeCoordinate) { setTapActive(null); return; }
+                  setTapActive((prev) => (prev?.label === label ? null : { label, payload: point, coordinate: state.activeCoordinate! }));
+                }}
+              >
                 <XAxis dataKey="date" hide />
-                <Tooltip content={<TradingValueTooltip />} cursor={{ fill: '#334155', fillOpacity: 0.3 }} />
+                <Tooltip
+                  content={<TradingValueTooltip />}
+                  cursor={{ fill: '#334155', fillOpacity: 0.3 }}
+                  {...(isTouch
+                    ? {
+                        active: tapActive !== null,
+                        payload: tapActive ? [{ payload: tapActive.payload }] : [],
+                        coordinate: tapActive?.coordinate,
+                        label: tapActive?.label,
+                      }
+                    : {})}
+                />
                 <ReferenceLine y={t.avg20d} stroke="#64748b" strokeDasharray="3 3" />
                 <Bar dataKey="value" radius={[1.5, 1.5, 0, 0]} isAnimationActive={false}>
                   {t.recentSeries.map((d, i) => (
@@ -242,7 +282,7 @@ export function TradingValueMultipleCard({ t, compact = false }: { t: TradingVal
             </ResponsiveContainer>
           </div>
           <div className="flex items-center justify-between mt-1">
-            <span className="text-[11px] text-slate-600">최근 {t.recentSeries.length}거래일</span>
+            <span className="text-[11px] text-slate-600">최근 {t.recentSeries.length}거래일{isTouch ? ' · 막대를 탭하면 상세 표시' : ''}</span>
             <span className="text-[11px] text-slate-600">점선: 20일 평균</span>
           </div>
         </div>
