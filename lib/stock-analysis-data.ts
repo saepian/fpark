@@ -649,27 +649,37 @@ export interface TradingValueMultipleResult {
   todayValue: number;
   avg20d: number;
   multiple: number;
+  // 2026-09-02: "거래대금 배수" 카드가 게이지+숫자 두 줄뿐이라 옆 "급등/급락 이력" 카드보다
+  // 휑하다는 지적 — 최근 21거래일(20일 평균 계산에 쓴 것과 같은 구간 + 오늘) 일별 거래대금을
+  // 막대그래프로 보여주기 위한 원자료. chart에 이미 있는 tradingValue를 그대로 슬라이스만
+  // 하므로 추가 조회 없음. valid:false면 빈 배열.
+  recentSeries: { date: string; value: number }[];
 }
+
+const TRADING_VALUE_WINDOW = 20;
 
 // 일별 차트(오늘 포함 마지막 행) → 오늘 거래대금이 최근 20거래일 평균 대비 몇 배인지 — 순수 계산
 export function computeTradingValueMultiple(chart: ChartDataPoint[]): TradingValueMultipleResult | null {
-  if (chart.length < 21) return { valid: false, todayValue: 0, avg20d: 0, multiple: 0 };
+  const empty = { valid: false, todayValue: 0, avg20d: 0, multiple: 0, recentSeries: [] };
+  if (chart.length < TRADING_VALUE_WINDOW + 1) return empty;
 
-  const todayValue = chart[chart.length - 1].tradingValue;
-  const prior20 = chart.slice(chart.length - 21, chart.length - 1)
+  const recentWindow = chart.slice(-(TRADING_VALUE_WINDOW + 1));
+  const todayValue = recentWindow[recentWindow.length - 1].tradingValue;
+  const prior20 = recentWindow.slice(0, -1)
     .map((d) => d.tradingValue)
     .filter((v): v is number => typeof v === 'number' && v > 0);
 
-  if (!todayValue || prior20.length < 20) return { valid: false, todayValue: 0, avg20d: 0, multiple: 0 };
+  if (!todayValue || prior20.length < TRADING_VALUE_WINDOW) return empty;
 
   const avg20d = prior20.reduce((s, v) => s + v, 0) / prior20.length;
-  if (avg20d <= 0) return { valid: false, todayValue: 0, avg20d: 0, multiple: 0 };
+  if (avg20d <= 0) return empty;
 
   return {
     valid: true,
     todayValue,
     avg20d: Math.round(avg20d),
     multiple: parseFloat((todayValue / avg20d).toFixed(2)),
+    recentSeries: recentWindow.map((d) => ({ date: d.date, value: d.tradingValue ?? 0 })),
   };
 }
 

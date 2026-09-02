@@ -1,9 +1,15 @@
+'use client';
+
 // "급등/급락 이력" + "거래대금 배수" 카드 — lib/stock-analysis-data.ts의
 // computeSurgeHistory/computeTradingValueMultiple 원자료를 그대로 노출한다.
-// 순수 프레젠테이션 컴포넌트(훅·브라우저 API 미사용)라 diagnosis 메인 페이지
-// (컴포넌트: DiagnosisReport.tsx, 클라이언트)와 공유 페이지(app/share/[id]/page.tsx,
-// 서버 컴포넌트) 양쪽에서 그대로 import해 쓴다 — 2026-08-28까지는 이 두 파일에
-// 손복제돼 있어 한쪽만 고치면 드리프트가 나던 걸 여기로 뽑아 근본적으로 방지.
+// diagnosis 메인 페이지(컴포넌트: DiagnosisReport.tsx, 클라이언트)와 공유 페이지
+// (app/share/[id]/page.tsx, 서버 컴포넌트) 양쪽에서 그대로 import해 쓴다 — 2026-08-28까지는
+// 이 두 파일에 손복제돼 있어 한쪽만 고치면 드리프트가 나던 걸 여기로 뽑아 근본적으로 방지.
+// 2026-09-02: 거래대금 배수 카드에 막대그래프(recharts)를 추가하며 'use client' 전환 —
+// components/diagnosis/SectorComparisonCard.tsx가 이미 같은 방식(recharts + 'use client')으로
+// 서버 컴포넌트인 공유 페이지에 문제없이 렌더링되는 걸 확인한 선례를 그대로 따른다(Next.js
+// App Router는 서버 컴포넌트가 클라이언트 컴포넌트를 자식으로 렌더링하는 걸 지원).
+import { ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from 'recharts';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
 export interface SurgeHistory {
@@ -21,6 +27,7 @@ export interface TradingValueMultiple {
   todayValue: number; // 원
   avg20d: number;      // 원
   multiple: number;
+  recentSeries: { date: string; value: number }[]; // 최근 20거래일 + 오늘, 막대그래프용
 }
 
 function fmt(n: number) { return n.toLocaleString(); }
@@ -111,7 +118,7 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
               <details className="group pb-1.5">
                 <summary className="cursor-pointer select-none list-none text-[11px] text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1 [&::-webkit-details-marker]:hidden [&::marker]:content-none">
                   <span className="inline-block transition-transform group-open:rotate-90">▶</span>
-                  이전 이력 더보기 ({older.length}건)
+                  이전 이력 더보기 (총 {surgeHistory.matches.length}건)
                 </summary>
                 <div className="flex flex-col divide-y divide-slate-700/40 mt-1">
                   {older.map((m, i) => <SurgeMatchRow key={`${m.date}-${i}`} m={m} />)}
@@ -143,18 +150,52 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
 // 존재하는 값(1배 안팎이 오히려 정상)이라 급등이력 카드와 달리 값 유무로 생략하지 않고,
 // 계산에 필요한 데이터(최근 20거래일)가 부족할 때만(valid:false) 생략한다.
 // 2026-09-02: 급등/급락 이력 카드는 이력이 없어도 항상 옆에 유지(SurgeTradingRow) — 여기서 접지 않는다.
+// 2026-09-02(2차): 게이지 하나만 있어 옆 급등/급락 이력 카드보다 정보량이 부실하다는 지적 —
+// 최근 21거래일(20일 평균 계산 구간 + 오늘) 거래대금 막대그래프를 게이지 옆에 추가한다.
+// 오늘 막대만 배수 구간별 색(게이지와 동일 색 규칙)으로 강조하고 나머지는 회색, 점선은
+// 20일 평균선 — SectorComparisonCard의 스파크라인·SurgeHistoryCard 자체와 같은 "축 없는
+// 미니 차트" 톤을 그대로 따른다. 게이지는 폭을 줄여(size=92) 계속 유지 — "오늘이 몇 배인지"
+// 한눈에 보이는 숫자는 막대그래프보다 게이지가 더 즉각적이라 대체가 아니라 보완으로 배치.
+function tradingValueBarColor(multiple: number): string {
+  return multiple >= 3 ? '#f87171' : multiple >= 1.5 ? '#fbbf24' : '#818cf8';
+}
+
 export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
+  const barColor = tradingValueBarColor(t.multiple);
+  const hasSeries = t.recentSeries.length > 0;
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4">
       <div className="flex items-center gap-2 mb-3">
         <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>거래대금 배수</p>
       </div>
-      <div className="flex flex-col items-center py-1">
-        <TradingValueGauge multiple={t.multiple} />
-        <p className="text-center text-[11px] text-slate-600 leading-snug mt-1.5">
-          오늘 {fmt(Math.round(t.todayValue / 1e8))}억원 · 최근 20일 평균 {fmt(Math.round(t.avg20d / 1e8))}억원 대비
-        </p>
+      <div className={`flex items-center ${hasSeries ? 'gap-3' : 'flex-col'}`}>
+        <div className={hasSeries ? 'shrink-0' : ''}>
+          <TradingValueGauge multiple={t.multiple} size={hasSeries ? 92 : 120} />
+        </div>
+        {hasSeries && (
+          <div className="min-w-0 flex-1">
+            <div style={{ height: 72 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={t.recentSeries} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
+                  <ReferenceLine y={t.avg20d} stroke="#64748b" strokeDasharray="3 3" />
+                  <Bar dataKey="value" radius={[1.5, 1.5, 0, 0]} isAnimationActive={false}>
+                    {t.recentSeries.map((d, i) => (
+                      <Cell key={d.date} fill={i === t.recentSeries.length - 1 ? barColor : '#334155'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[11px] text-slate-600">최근 {t.recentSeries.length}거래일</span>
+              <span className="text-[11px] text-slate-600">점선: 20일 평균</span>
+            </div>
+          </div>
+        )}
       </div>
+      <p className="text-center text-[11px] text-slate-600 leading-snug mt-1.5">
+        오늘 {fmt(Math.round(t.todayValue / 1e8))}억원 · 최근 20일 평균 {fmt(Math.round(t.avg20d / 1e8))}억원 대비
+      </p>
     </div>
   );
 }

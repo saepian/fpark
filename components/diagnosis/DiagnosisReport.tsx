@@ -359,9 +359,10 @@ interface DiagnosisReportProps {
 // 실제 종목진단 페이지와 랜딩페이지(ai-portfolio) 예시 카드가 이 컴포넌트를 공유하므로
 // 리포트 UI가 바뀌면 두 곳 모두 자동으로 최신 상태를 유지한다.
 // (app/share/[id]/page.tsx의 DiagnosisView는 별도로 손복제돼 있어 이 파일과 함께 갱신할 것 —
-// 단, SurgeHistoryCard/TradingValueMultipleCard/PerformanceSnapshotCard처럼 훅·브라우저 API를
-// 안 쓰는 순수 카드는 components/diagnosis/ 아래 공용 컴포넌트로 뽑아 두 곳에서 재사용 중이니,
-// 그런 카드를 고칠 땐 손복제가 아니라 그 공용 파일을 고치면 된다.)
+// 단, SurgeHistoryCard/TradingValueMultipleCard/PerformanceSnapshotCard/SectorComparisonCard처럼
+// 순수 프레젠테이션 카드는 components/diagnosis/ 아래 공용 컴포넌트로 뽑아 두 곳에서 재사용
+// 중이니, 그런 카드를 고칠 땐 손복제가 아니라 그 공용 파일을 고치면 된다 — 'use client'가
+// 붙어 있어도(recharts 사용 등) 서버 컴포넌트인 공유 페이지에서 자식으로 문제없이 렌더링된다.)
 export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
   isGenerating = false, revealed, livePriceTable = true,

@@ -303,25 +303,29 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
 // 2026-09-01 기업분석 리포트 재편: mainAnalysisSections_flowSummary(1층 "수급 동향" 소제목) 삭제 →
 // 수급 해석은 3층 기관/외국인 카드의 flowInsight 1문장으로 이동(수급 서술처 1곳). watchPoint는
 // "내 포지션 관점"으로 재정의돼 2층 내 포지션 카드 안에 표시된다.
+// 2026-09-02: finalVerdict("AI 종합 진단")가 실측상 전체 생성의 96% 지점(마지막)에야 도착해
+// 스트리밍 UX상 가장 오래 기다리는 필드였다 — finalVerdict는 background/valuationNote/
+// flowInsight/financialsNarrative 4개에만 의존하고 나머지 9개 필드는 참고조차 금지되어 있어
+// (route.ts DIAGNOSIS_OUTPUT_INSTRUCTIONS 주석 참고), 그 4개 바로 뒤로 순서를 앞당겼다.
 export const DIAGNOSIS_FIELD_SPECS: FieldSpec[] = [
   { key: 'mainAnalysisSections_background',    type: 'string', emit: true },
   { key: 'mainAnalysisSections_valuationNote', type: 'string', emit: true },
   { key: 'mainAnalysisSections_watchPoint',    type: 'string', emit: true },
+  { key: 'financialsNarrative',  type: 'string',   emit: true },
+  { key: 'flowInsight',          type: 'string',   emit: true },
+  { key: 'institutionalFlow',    type: 'string',   emit: true },
+  { key: 'foreignFlow',          type: 'string',   emit: true },
+  { key: 'finalVerdict',         type: 'string',   emit: true },
   { key: 'historyNarrative',     type: 'string',   emit: true },
   { key: 'sectorNarrative',      type: 'string',   emit: true },
   // 2026-09-02: 업종 대비 카드의 TOP3 스파크라인 추가와 짝 — sectorNarrative(오늘 vs 업종평균)와
   // 역할을 갈라 최근 21거래일 누적 등락률 기준 TOP3 peer 대비 위치만 담당한다.
   { key: 'sectorTopPeersNarrative', type: 'string', emit: true },
-  { key: 'financialsNarrative',  type: 'string',   emit: true },
   { key: 'disclosureNarrative',  type: 'string',   emit: true },
   { key: 'riskFactors',          type: 'string[]', emit: true },
   // 2026-09-02: 포트폴리오분석 FactorCards(리스크/긍정 양쪽) 패턴을 기업분석에도 도입.
   { key: 'opportunityFactors',   type: 'string[]', emit: true },
-  { key: 'flowInsight',          type: 'string',   emit: true },
-  { key: 'institutionalFlow',    type: 'string',   emit: true },
-  { key: 'foreignFlow',          type: 'string',   emit: true },
   { key: 'shortTermOutlook',     type: 'string',   emit: true },
   { key: 'midTermOutlook',       type: 'string',   emit: true },
-  { key: 'finalVerdict',         type: 'string',   emit: true },
   { key: 'newsIssueClusters',    type: 'json',      emit: true },
 ];
