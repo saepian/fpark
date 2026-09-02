@@ -245,20 +245,7 @@ export function TradingValueMultipleCard({ t, compact = false }: { t: TradingVal
         <div className="mt-2">
           <div style={{ height: chartHeight }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={t.recentSeries}
-                margin={{ top: 4, right: 2, bottom: 2, left: 2 }}
-                onClick={(state) => {
-                  // recharts v3 MouseHandlerDataParam엔 activePayload가 없어(v2와 차이) activeIndex로
-                  // 직접 t.recentSeries에서 찾는다 — 데이터가 이미 스코프에 있어 별도 조회 불필요.
-                  if (!isTouch) return;
-                  const idx = typeof state?.activeIndex === 'number' ? state.activeIndex : undefined;
-                  const label = typeof state?.activeLabel === 'string' ? state.activeLabel : undefined;
-                  const point = idx !== undefined ? t.recentSeries[idx] : undefined;
-                  if (!label || !point || !state?.activeCoordinate) { setTapActive(null); return; }
-                  setTapActive((prev) => (prev?.label === label ? null : { label, payload: point, coordinate: state.activeCoordinate! }));
-                }}
-              >
+              <BarChart data={t.recentSeries} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
                 <XAxis dataKey="date" hide />
                 <Tooltip
                   content={<TradingValueTooltip />}
@@ -273,7 +260,21 @@ export function TradingValueMultipleCard({ t, compact = false }: { t: TradingVal
                     : {})}
                 />
                 <ReferenceLine y={t.avg20d} stroke="#64748b" strokeDasharray="3 3" />
-                <Bar dataKey="value" radius={[1.5, 1.5, 0, 0]} isAnimationActive={false}>
+                <Bar
+                  dataKey="value"
+                  radius={[1.5, 1.5, 0, 0]}
+                  isAnimationActive={false}
+                  onClick={(data) => {
+                    // BarChart 레벨 onClick의 activeIndex는 touchmove로 누적된 호버 상태에
+                    // 의존하는데(탭은 touchstart+touchend뿐이라 touchmove가 안 남) 항상 null로
+                    // 옴 — 대신 Bar 자체의 onClick(막대 하나하나에 직접 붙는 클릭 핸들러)을 쓰면
+                    // 탭 즉시 해당 막대의 data.payload/tooltipPosition을 그대로 받을 수 있다.
+                    if (!isTouch) return;
+                    const point = data.payload as TradingValueMultiple['recentSeries'][number] | undefined;
+                    if (!point) { setTapActive(null); return; }
+                    setTapActive((prev) => (prev?.label === point.date ? null : { label: point.date, payload: point, coordinate: data.tooltipPosition }));
+                  }}
+                >
                   {t.recentSeries.map((d, i) => (
                     <Cell key={d.date} fill={i === t.recentSeries.length - 1 ? barColor : '#334155'} />
                   ))}
