@@ -18,6 +18,7 @@ import {
   buildSurgeHistoryBlock,
   buildTradingValueBlock,
   buildRiskMetricsBlock,
+  fetchInvestorTrend,
 } from '@/lib/stock-analysis-data';
 import { fetchSectorPeers, computeSectorRelativeChange, computeSectorRelativeChangeFromCloses, shouldUsePrevCloseSectorBasis, type SectorBasis } from '@/lib/sector-peers';
 import { stripFlowSubject } from '@/lib/flow-caption';
@@ -351,7 +352,7 @@ export async function POST(request: NextRequest) {
         // 한다 — 아래에서 peerChartsPromise와 함께 끌어올려 await한다.
         const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
 
-        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult, chart6mResult] = await Promise.allSettled([
+        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult, chart6mResult, investorTrend21Result] = await Promise.allSettled([
           priceDataPromise,
           analysisDataPromise,
           newsSelectionPromise,
@@ -372,6 +373,13 @@ export async function POST(request: NextRequest) {
           // 캡 때문에 실제로는 약 5개월치라 "오늘 기준 6개월"에 못 미쳤다. 기간별 등락률 표의 6개월 칸이
           // 이미 쓰는 연쇄 백필 + 1일 캐시(lib/chart-near-cache.ts)를 그대로 재사용(캐시 적중 시 추가 호출 없음).
           getCachedChartNear(ticker, 6),
+          // 거래대금 배수 카드 막대그래프 툴팁용(2026-09-02) — 기존 analysisDataPromise가
+          // 쓰는 5일 수급 데이터(buildInvestorBlock, "## 수급 동향 (최근 5영업일)" 프롬프트
+          // 블록)를 그대로 21일로 늘리면 프롬프트에 21행짜리 표가 그대로 들어가 버려서
+          // (buildInvestorBlock이 investorTrend 전체를 순회) 별도로 21일치를 다시 조회한다.
+          // 같은 KIS 엔드포인트(inquire-investor)가 날짜 파라미터 없이도 최근 30일치를
+          // 돌려주는 걸 확인해(실측 30건), days=21만 넘기면 추가 엔드포인트 없이 가능.
+          fetchInvestorTrend(ticker, 21),
         ]);
 
         console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
@@ -578,6 +586,16 @@ export async function POST(request: NextRequest) {
         const surgeHistoryBlock    = buildSurgeHistoryBlock(surgeHistory);
         const tradingValueBlock    = buildTradingValueBlock(tradingValueMultiple);
         const riskMetricsBlock     = buildRiskMetricsBlock(riskMetrics);
+
+        // 거래대금 배수 막대그래프 툴팁용 21일 수급 병합(2026-09-02) — 날짜 기준으로 매칭,
+        // 실패했거나 해당 날짜 데이터가 없으면 그냥 undefined로 남겨(툴팁이 거래대금만 표시).
+        if (tradingValueMultiple?.valid && investorTrend21Result.status === 'fulfilled') {
+          const byDate = new Map(investorTrend21Result.value.trend.map((d) => [d.date, d]));
+          tradingValueMultiple.recentSeries = tradingValueMultiple.recentSeries.map((pt) => {
+            const inv = byDate.get(pt.date);
+            return inv ? { ...pt, foreignNet: inv.foreign, institutionNet: inv.institution, individualNet: inv.individual } : pt;
+          });
+        }
 
         // ── 내 포지션 (2026-09-01 신설, lib/holding-position.ts 순수 계산) — 매입가 대비·보유 중
         // 고점/저점·최대/최저 평가손익·±15% 변동일·PER 변화(현재 EPS 동일 가정)·보유기간 지수 대비.

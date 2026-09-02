@@ -194,10 +194,14 @@ export function SurgeTradingRow({ surgeHistory, tradingValueMultiple, className 
   const showSurge = !!surgeHistory;
   const showTrading = !!tradingValueMultiple?.valid;
   if (!showSurge && !showTrading) return null;
+  // 2026-09-02: 급등/급락 이력이 0~1건이면 왼쪽 카드가 짧아지는데, 오른쪽 거래대금 배수
+  // 카드는 항상 같은 막대그래프 높이라 그때만 공간이 남아 보인다는 지적 — 이력이 짧을 때는
+  // 거래대금 카드도 축소 모드로 맞춘다(막대그래프 높이만 줄이고 게이지·수치는 그대로).
+  const isSurgeShort = !surgeHistory?.hasMatches || surgeHistory.matches.length <= 1;
   return (
     <div className={`grid grid-cols-1 ${showSurge && showTrading ? 'md:grid-cols-2' : ''} gap-3 ${className}`}>
       {showSurge && <SurgeHistoryCard surgeHistory={surgeHistory!} />}
-      {showTrading && <TradingValueMultipleCard t={tradingValueMultiple!} />}
+      {showTrading && <TradingValueMultipleCard t={tradingValueMultiple!} compact={isSurgeShort} />}
     </div>
   );
 }
@@ -245,11 +249,14 @@ export function FxCorrelationCard({ fx, className = '' }: { fx?: { correlation: 
 }
 
 // 층 구분 헤더 — 4층 구조(한눈에 / 내 포지션 / 종목 구조 / 참고자료)를 시각적으로 나눈다.
+// 2026-09-02: 층 타이틀이 카드 제목(SECTION_TITLE_CLASS = text-xs = 12px)과 같은 크기라
+// 상위(층) 구분이 눈에 안 들어온다는 피드백 — title을 한 단계 키워(12px→15px) 위계를
+// 명확히 하되, no/sub는 보조 정보라 과하게 키우지 않고 그대로 둔다.
 export function LayerHeading({ no, title, sub }: { no: number; title: string; sub?: string }) {
   return (
     <div className="flex items-baseline gap-2.5 mb-2.5">
       <span className="text-[11px] font-mono text-indigo-400/70">{String(no).padStart(2, '0')}</span>
-      <span className="text-[12px] font-bold text-slate-300 tracking-wide">{title}</span>
+      <span className="text-[15px] font-bold text-slate-300 tracking-wide">{title}</span>
       {sub && <span className="text-[11px] text-slate-600">{sub}</span>}
     </div>
   );

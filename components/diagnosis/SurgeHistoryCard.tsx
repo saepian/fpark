@@ -9,7 +9,7 @@
 // components/diagnosis/SectorComparisonCard.tsx가 이미 같은 방식(recharts + 'use client')으로
 // 서버 컴포넌트인 공유 페이지에 문제없이 렌더링되는 걸 확인한 선례를 그대로 따른다(Next.js
 // App Router는 서버 컴포넌트가 클라이언트 컴포넌트를 자식으로 렌더링하는 걸 지원).
-import { ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, ReferenceLine, Cell, Tooltip, XAxis } from 'recharts';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 
 export interface SurgeHistory {
@@ -27,7 +27,10 @@ export interface TradingValueMultiple {
   todayValue: number; // 원
   avg20d: number;      // 원
   multiple: number;
-  recentSeries: { date: string; value: number }[]; // 최근 20거래일 + 오늘, 막대그래프용
+  // 최근 20거래일 + 오늘, 막대그래프용. foreignNet/institutionNet/individualNet(2026-09-02,
+  // 2차)은 그날 수급 순매수(+)/순매도(-), 억원 단위 — route.ts가 21일 수급 조회를 병합해줄
+  // 때만 존재(옛 레코드·조회 실패 시 undefined, 툴팁이 거래대금만 표시).
+  recentSeries: { date: string; value: number; foreignNet?: number; institutionNet?: number; individualNet?: number }[];
 }
 
 function fmt(n: number) { return n.toLocaleString(); }
@@ -164,9 +167,56 @@ function tradingValueBarColor(multiple: number): string {
   return multiple >= 3 ? '#f87171' : multiple >= 1.5 ? '#fbbf24' : '#818cf8';
 }
 
-export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
+function fmtMonthDay(d: string): string {
+  const p = d.split('-');
+  return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : d;
+}
+
+function fmtAuk(v: number): string {
+  return `${v >= 0 ? '+' : ''}${v.toLocaleString()}억원`;
+}
+
+// 2026-09-02(4차): "막대만 있고 호버해도 정보가 없어 그냥 이미지 같다"는 피드백 — 거래대금
+// 수치 + (있으면) 그날 기관·외국인·개인 순매수를 툴팁으로 보여준다. 순매수 조사 결과: KIS
+// inquire-investor는 매수/매도 총 거래대금이 아니라 "순매수 금액"만 주므로(세 값을 더하면
+// 대략 0에 수렴 — zero-sum), 막대 자체를 기관/외국인/개인 구간으로 쪼개 보여줄 수는 없다.
+// 대신 막대(총 거래대금)와 별개로 그날 수급 방향을 보조 정보로 함께 노출한다.
+function TradingValueTooltip({ active, payload, label }: {
+  active?: boolean;
+  label?: string;
+  payload?: { payload: TradingValueMultiple['recentSeries'][number] }[];
+}) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  const hasFlow = d.foreignNet !== undefined || d.institutionNet !== undefined || d.individualNet !== undefined;
+  return (
+    <div className="rounded-md border border-slate-700 bg-[#1a1f2e] px-2.5 py-2 text-[11px] shadow-lg">
+      <p className="text-slate-400 mb-1">{fmtMonthDay(label ?? d.date)}</p>
+      <p className="text-indigo-200 font-mono">거래대금 {(d.value / 1e8).toLocaleString()}억원</p>
+      {hasFlow && (
+        <div className="mt-1.5 pt-1.5 border-t border-slate-700/60 flex flex-col gap-0.5">
+          {d.institutionNet !== undefined && (
+            <span className={d.institutionNet >= 0 ? 'text-red-400' : 'text-blue-400'}>기관 {fmtAuk(d.institutionNet)}</span>
+          )}
+          {d.foreignNet !== undefined && (
+            <span className={d.foreignNet >= 0 ? 'text-red-400' : 'text-blue-400'}>외국인 {fmtAuk(d.foreignNet)}</span>
+          )}
+          {d.individualNet !== undefined && (
+            <span className={d.individualNet >= 0 ? 'text-red-400' : 'text-blue-400'}>개인 {fmtAuk(d.individualNet)}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function TradingValueMultipleCard({ t, compact = false }: { t: TradingValueMultiple; compact?: boolean }) {
   const barColor = tradingValueBarColor(t.multiple);
   const hasSeries = t.recentSeries.length > 0;
+  // 2026-09-02(5차): 급등/급락 이력이 0~1건이면 옆 카드가 짧아지는데 이 카드는 항상 같은
+  // 막대그래프 높이라 그때만 빈 공간이 남는다는 지적 — compact(SurgeTradingRow가 판정)일 때
+  // 그래프 높이를 줄인다. 게이지·수치·툴팁 기능은 그대로 유지(정보 손실 없음, 높이만 축소).
+  const chartHeight = compact ? 56 : 110;
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -177,9 +227,11 @@ export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
       </div>
       {hasSeries && (
         <div className="mt-2">
-          <div style={{ height: 110 }}>
+          <div style={{ height: chartHeight }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={t.recentSeries} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
+                <XAxis dataKey="date" hide />
+                <Tooltip content={<TradingValueTooltip />} cursor={{ fill: '#334155', fillOpacity: 0.3 }} />
                 <ReferenceLine y={t.avg20d} stroke="#64748b" strokeDasharray="3 3" />
                 <Bar dataKey="value" radius={[1.5, 1.5, 0, 0]} isAnimationActive={false}>
                   {t.recentSeries.map((d, i) => (

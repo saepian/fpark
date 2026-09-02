@@ -653,7 +653,11 @@ export interface TradingValueMultipleResult {
   // 휑하다는 지적 — 최근 21거래일(20일 평균 계산에 쓴 것과 같은 구간 + 오늘) 일별 거래대금을
   // 막대그래프로 보여주기 위한 원자료. chart에 이미 있는 tradingValue를 그대로 슬라이스만
   // 하므로 추가 조회 없음. valid:false면 빈 배열.
-  recentSeries: { date: string; value: number }[];
+  // foreignNet/institutionNet/individualNet(2026-09-02, 2차): 막대그래프 툴팁에 그날 수급
+  // 방향도 같이 보여달라는 요청 — route.ts가 별도로 21일치 fetchInvestorTrend를 조회해
+  // 날짜 기준으로 병합해준다(이 lib 함수 자체는 순수하게 chart만 받으므로 여기선 항상 undefined,
+  // route.ts에서 채워짐). 억원 단위, 순매수(+)/순매도(-).
+  recentSeries: { date: string; value: number; foreignNet?: number; institutionNet?: number; individualNet?: number }[];
 }
 
 const TRADING_VALUE_WINDOW = 20;
