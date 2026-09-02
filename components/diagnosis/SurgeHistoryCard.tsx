@@ -151,11 +151,15 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
 // 계산에 필요한 데이터(최근 20거래일)가 부족할 때만(valid:false) 생략한다.
 // 2026-09-02: 급등/급락 이력 카드는 이력이 없어도 항상 옆에 유지(SurgeTradingRow) — 여기서 접지 않는다.
 // 2026-09-02(2차): 게이지 하나만 있어 옆 급등/급락 이력 카드보다 정보량이 부실하다는 지적 —
-// 최근 21거래일(20일 평균 계산 구간 + 오늘) 거래대금 막대그래프를 게이지 옆에 추가한다.
+// 최근 21거래일(20일 평균 계산 구간 + 오늘) 거래대금 막대그래프를 게이지 아래에 추가한다.
 // 오늘 막대만 배수 구간별 색(게이지와 동일 색 규칙)으로 강조하고 나머지는 회색, 점선은
 // 20일 평균선 — SectorComparisonCard의 스파크라인·SurgeHistoryCard 자체와 같은 "축 없는
-// 미니 차트" 톤을 그대로 따른다. 게이지는 폭을 줄여(size=92) 계속 유지 — "오늘이 몇 배인지"
-// 한눈에 보이는 숫자는 막대그래프보다 게이지가 더 즉각적이라 대체가 아니라 보완으로 배치.
+// 미니 차트" 톤을 그대로 따른다.
+// 2026-09-02(3차) 실측: 게이지 옆에 나란히(가로) 배치했더니 게이지를 줄인 만큼 카드가 오히려
+// 더 짧아져(211px→176px, 모바일) 목표(급등락이력 카드와 밀도 비슷하게)와 반대로 갔다 —
+// 막대그래프가 가로로 좁아 세로 공간을 못 늘렸기 때문. 게이지는 그대로 두고 아래에 전폭으로
+// 쌓아 막대그래프가 카드 너비를 다 쓰게(가독성도 좋아짐) 바꿔 카드가 자연스럽게 급등락이력
+// 카드 쪽으로 높이가 붙게 했다(재실측: 아래 함수 설명 참고 — 최종 실측치는 커밋 코멘트 확인).
 function tradingValueBarColor(multiple: number): string {
   return multiple >= 3 ? '#f87171' : multiple >= 1.5 ? '#fbbf24' : '#818cf8';
 }
@@ -168,31 +172,29 @@ export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
       <div className="flex items-center gap-2 mb-3">
         <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>거래대금 배수</p>
       </div>
-      <div className={`flex items-center ${hasSeries ? 'gap-3' : 'flex-col'}`}>
-        <div className={hasSeries ? 'shrink-0' : ''}>
-          <TradingValueGauge multiple={t.multiple} size={hasSeries ? 92 : 120} />
-        </div>
-        {hasSeries && (
-          <div className="min-w-0 flex-1">
-            <div style={{ height: 72 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={t.recentSeries} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
-                  <ReferenceLine y={t.avg20d} stroke="#64748b" strokeDasharray="3 3" />
-                  <Bar dataKey="value" radius={[1.5, 1.5, 0, 0]} isAnimationActive={false}>
-                    {t.recentSeries.map((d, i) => (
-                      <Cell key={d.date} fill={i === t.recentSeries.length - 1 ? barColor : '#334155'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-[11px] text-slate-600">최근 {t.recentSeries.length}거래일</span>
-              <span className="text-[11px] text-slate-600">점선: 20일 평균</span>
-            </div>
-          </div>
-        )}
+      <div className="flex flex-col items-center py-1">
+        <TradingValueGauge multiple={t.multiple} />
       </div>
+      {hasSeries && (
+        <div className="mt-2">
+          <div style={{ height: 110 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={t.recentSeries} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
+                <ReferenceLine y={t.avg20d} stroke="#64748b" strokeDasharray="3 3" />
+                <Bar dataKey="value" radius={[1.5, 1.5, 0, 0]} isAnimationActive={false}>
+                  {t.recentSeries.map((d, i) => (
+                    <Cell key={d.date} fill={i === t.recentSeries.length - 1 ? barColor : '#334155'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-[11px] text-slate-600">최근 {t.recentSeries.length}거래일</span>
+            <span className="text-[11px] text-slate-600">점선: 20일 평균</span>
+          </div>
+        </div>
+      )}
       <p className="text-center text-[11px] text-slate-600 leading-snug mt-1.5">
         오늘 {fmt(Math.round(t.todayValue / 1e8))}억원 · 최근 20일 평균 {fmt(Math.round(t.avg20d / 1e8))}억원 대비
       </p>
