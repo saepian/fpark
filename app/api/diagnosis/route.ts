@@ -5,7 +5,8 @@ import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
 import { checkPlan, resolveDiagnosisLimit, getUsageCycleStart } from '@/lib/plan';
 import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchFinancialsTrend, type AnnualFinancialRow, type QuarterlyFinancialRow, fetchDividendHistory, type DividendHistoryRow } from '@/lib/kis-api';
-import { computeHoldingPosition, buildHoldingPositionBlock } from '@/lib/holding-position';
+import { computeHoldingPosition, buildHoldingPositionBlock, holdingPriceBasisLabel } from '@/lib/holding-position';
+import { getCachedChartNear } from '@/lib/chart-near-cache';
 import {
   collectStockAnalysisData,
   buildTechnicalBlock,
@@ -336,7 +337,7 @@ export async function POST(request: NextRequest) {
         // 한다 — 아래에서 peerChartsPromise와 함께 끌어올려 await한다.
         const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
 
-        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult] = await Promise.allSettled([
+        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult, chart6mResult] = await Promise.allSettled([
           priceDataPromise,
           analysisDataPromise,
           newsSelectionPromise,
@@ -353,6 +354,10 @@ export async function POST(request: NextRequest) {
           // (대형주 100종목) 한정 크론이라 그 밖의 종목은 null이 정상. fetchNewsSentimentTrend
           // 내부에서 이미 5거래일 미만이면 null을 반환하므로 여기선 그대로 통과시키면 됨.
           fetchNewsSentimentTrend(ticker),
+          // 내 포지션 관찰 구간용 최근 6개월 일별 시세(2026-09-02) — fetchDailyChart('1Y')는 KIS 100거래일
+          // 캡 때문에 실제로는 약 5개월치라 "오늘 기준 6개월"에 못 미쳤다. 기간별 등락률 표의 6개월 칸이
+          // 이미 쓰는 연쇄 백필 + 1일 캐시(lib/chart-near-cache.ts)를 그대로 재사용(캐시 적중 시 추가 호출 없음).
+          getCachedChartNear(ticker, 6),
         ]);
 
         console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
@@ -559,12 +564,23 @@ export async function POST(request: NextRequest) {
         // 고점/저점·최대/최저 평가손익·±15% 변동일·PER 변화(현재 EPS 동일 가정)·보유기간 지수 대비.
         // 결과는 DB(result.holdingPosition)에 저장되고 [내 포지션 데이터] 블록으로 프롬프트에 주입된다
         // (watchPoint는 이 수치만 인용). buyDate가 없으면 최근 1년 폴백이며 basis에 명시된다.
+        // 6개월 백필 차트(1일 캐시라 오늘 행이 없거나 장중 스냅샷일 수 있음)에 chartData(1Y, 5분 TTL)의
+        // 행을 날짜 기준으로 덮어써 최신 행을 보장한다. 백필이 실패하면 chartData만으로 폴백(≈5개월).
+        const chart6m = chart6mResult.status === 'fulfilled' ? chart6mResult.value : [];
+        const holdingChart = ((): typeof chartData => {
+          if (chart6m.length === 0) return chartData;
+          const merged = new Map<string, (typeof chartData)[number]>();
+          for (const d of chart6m) merged.set(d.date, d);
+          for (const d of chartData) merged.set(d.date, d);
+          return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+        })();
+        if (chart6m.length === 0) console.warn(`[DIAGNOSIS] ${ticker} 6개월 차트 백필 실패 — 내 포지션은 1Y 차트(${chartData.length}행)로 폴백`);
         const holdingPosition = computeHoldingPosition({
           avgPrice: Number(avgPrice),
           quantity: Number(quantity),
           currentPrice,
           buyDate: buyDate ? String(buyDate).slice(0, 10) : null,
-          chart: chartData.map((d) => ({ date: d.date, close: d.close })),
+          chart: holdingChart.map((d) => ({ date: d.date, close: d.close, high: d.high, low: d.low })),
           eps: analysisData?.eps && analysisData.eps > 0 ? analysisData.eps : null,
           benchmark,
         });
@@ -744,7 +760,7 @@ ${financialsBlock}
 [분기 — 최근 분기 단독 실적(누적 차감), 전년 동기 대비]
 ${quarterlyBlock}
 
-## 내 포지션 데이터 (서버 계산값 — mainAnalysisSections_watchPoint는 이 수치만 사용, 다른 필드에서 인용 금지)
+## 내 포지션 데이터 (서버 계산값 — mainAnalysisSections_watchPoint는 이 수치만 사용, 다른 필드에서 인용 금지. 고점/저점은 ${holdingPosition ? holdingPriceBasisLabel(holdingPosition) : '종가 기준'})
 ${holdingPositionBlock}
 
 ## 관련 뉴스 (${hasRelevantNews ? '관련도 높은 기사만 선별' : '매칭 결과'}, ${buildNewsFreshnessLine(relevantNews)})

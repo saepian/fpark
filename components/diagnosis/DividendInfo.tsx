@@ -27,9 +27,11 @@ export interface DividendHistoryRow {
 export default function DividendInfo({
   summary,
   history,
+  className = '',
 }: {
   summary: DartDividendSummary | null;
   history: DividendHistoryRow[];
+  className?: string;
 }) {
   const isEmpty = !summary && history.length === 0;
   const hasBoth = !!summary && history.length > 0;
@@ -39,8 +41,8 @@ export default function DividendInfo({
   const showHistory = history.length > 0 && (!hasBoth || tab === 'history');
 
   return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-      <div className="flex items-center justify-between gap-2 mb-4">
+    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4 ${className}`}>
+      <div className="flex items-center justify-between gap-2 mb-3">
         <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>배당 정보</p>
         {hasBoth && (
           <div className="flex items-center gap-1">
@@ -66,8 +68,8 @@ export default function DividendInfo({
       ) : (
         <>
           {showSummary && summary && (
-            <div className="mb-4">
-              <div className="grid grid-cols-3 gap-3">
+            <div className="mb-3">
+              <div className="grid grid-cols-3 gap-2.5">
                 <div className="bg-slate-800/40 rounded-xl p-3 text-center">
                   <p className="text-[11px] text-slate-500 mb-1">배당수익률</p>
                   <p className="text-[15px] font-bold font-mono text-slate-200">

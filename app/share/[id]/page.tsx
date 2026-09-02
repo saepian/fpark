@@ -290,7 +290,7 @@ function HistoryCompareCard({ d }: { d: DiagnosisData }) {
   const prevDateLabel = h.prevDate ? fmtShortDate(h.prevDate) : null;
 
   return (
-    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
+    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl p-4">
       <p className="text-[11px] text-indigo-400 font-bold uppercase tracking-wide mb-2">{label}</p>
       {!isFirst && (
         <div className="mb-2.5">
@@ -382,8 +382,11 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             (DiagnosisCards.tsx 등)로 조립. 스트리밍 상태만 없을 뿐 카드 순서·구성은 메인과 동일. */}
         {/* 1층: 한눈에 */}
         <LayerHeading no={1} title="한눈에" sub="주가 배경 · 밸류에이션 · AI 종합 진단" />
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-6">
-          <MainAnalysisCard sections={d.mainAnalysisSections} mainAnalysis={d.mainAnalysis} finalVerdict={d.finalVerdict} />
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] md:items-start gap-3 mb-5">
+          <div className="flex flex-col gap-3 min-w-0">
+            <MainAnalysisCard sections={d.mainAnalysisSections} mainAnalysis={d.mainAnalysis} finalVerdict={d.finalVerdict} />
+            <HistoryCompareCard d={d} />
+          </div>
           <PerformanceSnapshotCard
             currentPrice={d.currentPrice}
             profitRate={d.profitRate}
@@ -400,17 +403,16 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
         <LayerHeading no={2} title="내 포지션" sub="매입가 · 보유기간 기준" />
         <HoldingPositionCard
           position={d.holdingPosition}
-          className="mb-4"
+          className="mb-3"
           narrative={d.mainAnalysisSections?.watchPoint ? <p className="text-xs text-slate-300 leading-relaxed">{d.mainAnalysisSections.watchPoint}</p> : null}
         />
-        <HistoryCompareCard d={d} />
-        <div className="mb-6">
+        <div className="mb-5">
           <PriceChangeTable ticker={d.ticker} />
         </div>
 
-        {/* 3층: 종목 구조 */}
-        <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 배당 · 거래" />
-        <div className={`grid grid-cols-1 ${d.sectorComparison ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+        {/* 3층: 종목 구조 — components/diagnosis/DiagnosisReport.tsx와 동일한 2열 묶음(2026-09-02) */}
+        <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 거래 · 배당" />
+        <div className={`grid grid-cols-1 ${d.sectorComparison ? 'md:grid-cols-2' : ''} gap-3 mb-3`}>
           <InstitutionalFlowCard
             flowType={d.flowType}
             flowPercentage={d.flowPercentage}
@@ -430,29 +432,33 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           quarterly={d.quarterlyFinancials ?? []}
           yearEndMonth={d.financialsYearEndMonth}
           narrative={d.financialsNarrative ? <p className="text-xs text-slate-300 leading-relaxed">{d.financialsNarrative}</p> : null}
-          className="mb-4"
+          className="mb-3"
         />
-        <DividendInfo summary={d.dividendSummary ?? null} history={d.dividendHistory ?? []} />
-        <SurgeTradingRow surgeHistory={d.surgeHistory} tradingValueMultiple={d.tradingValueMultiple} className="mb-4" />
-        <FxCorrelationCard fx={d.fxCorrelation} className="mb-4" />
+        <SurgeTradingRow surgeHistory={d.surgeHistory} tradingValueMultiple={d.tradingValueMultiple} className="mb-3" />
+        <div className={`grid grid-cols-1 ${d.fxCorrelation ? 'md:grid-cols-2' : ''} gap-3 mb-5`}>
+          <DividendInfo summary={d.dividendSummary ?? null} history={d.dividendHistory ?? []} />
+          <FxCorrelationCard fx={d.fxCorrelation} />
+        </div>
 
         {/* 4층: 참고 자료 */}
         <LayerHeading no={4} title="참고 자료" sub="공시 · 종목 고유 리스크 · 확인할 이벤트 · 기사" />
         <DisclosuresCard
           disclosures={d.disclosures ?? []}
           narrative={d.disclosureNarrative ? <p className="text-xs text-slate-300 leading-relaxed">{d.disclosureNarrative}</p> : null}
-          className="mb-4"
+          className="mb-3"
         />
-        <RiskFactorsCard riskFactors={d.riskFactors ?? []} className="mb-4" />
-        <WatchVariablesCard
-          shortTermOutlook={d.shortTermOutlook}
-          midTermOutlook={d.midTermOutlook}
-          title="확인할 이벤트·지표"
-          caption="이 종목 고유의 일정·공시·지표만 — 예측이 아니라 확인 목록입니다."
-          className="mb-4"
-        />
+        <div className="grid grid-cols-1 md:grid-cols-2 md:items-start gap-3 mb-3">
+          <RiskFactorsCard riskFactors={d.riskFactors ?? []} />
+          <WatchVariablesCard
+            shortTermOutlook={d.shortTermOutlook}
+            midTermOutlook={d.midTermOutlook}
+            title="확인할 이벤트·지표"
+            caption="이 종목 고유의 일정·공시·지표만 — 예측이 아니라 확인 목록입니다."
+            dense
+          />
+        </div>
         {d.news?.length > 0 && (
-          <ReferenceNewsList news={d.news} clusters={d.newsIssueClusters} newsBasis={d.newsBasis} className="mb-4" />
+          <ReferenceNewsList news={d.news} clusters={d.newsIssueClusters} newsBasis={d.newsBasis} className="mb-3" />
         )}
 
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-4 px-4">

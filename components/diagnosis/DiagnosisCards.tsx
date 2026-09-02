@@ -65,10 +65,10 @@ export function MainAnalysisCard({
   return (
     <div className={`rounded-2xl border border-slate-700/50 overflow-hidden ${className}`} style={{ background: 'linear-gradient(135deg, #1a1f2e 0%, #13161f 100%)' }}>
       <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-pink-500" />
-      <div className="p-6">
-        <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>오늘의 기업 분석</p>
+      <div className="p-4">
+        <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-3`}>오늘의 기업 분석</p>
         {sections ? (
-          <div className="flex flex-col gap-3.5">
+          <div className="flex flex-col gap-3">
             {MAIN_ANALYSIS_BLOCKS.map((b) => {
               const text = sections[b.field];
               if (!text && !isGenerating) return null;
@@ -81,7 +81,7 @@ export function MainAnalysisCard({
             })}
           </div>
         ) : isGenerating && !mainAnalysis ? (
-          <div className="flex flex-col gap-3.5">
+          <div className="flex flex-col gap-3">
             {MAIN_ANALYSIS_BLOCKS.map((b) => (
               <div key={b.key}>
                 <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>{b.label}</p>
@@ -93,7 +93,7 @@ export function MainAnalysisCard({
           <p className="text-xs text-slate-300 leading-relaxed">{mainAnalysis}</p>
         )}
         {finalVerdict && (
-          <div className="mt-5 pt-5 border-t border-slate-700/50">
+          <div className="mt-4 pt-4 border-t border-slate-700/50">
             <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-2">AI 종합 진단</p>
             <div className="bg-indigo-500/10 border-l-2 border-indigo-400/50 rounded-r-lg px-3 py-2.5">
               <StreamText value={finalVerdict} k="finalVerdict" revealed={revealed} className="text-xs text-slate-200 leading-relaxed" />
@@ -105,14 +105,15 @@ export function MainAnalysisCard({
   );
 }
 
-export function FlowDonut({ percent, type }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL' }) {
+// size: 렌더 크기(px). viewBox는 148 고정이라 축소해도 비율·글자 위치가 그대로 유지된다(2026-09-02 밀도 조정으로 기본 120).
+export function FlowDonut({ percent, type, size = 120 }: { percent: number; type: 'BUY' | 'SELL' | 'NEUTRAL'; size?: number }) {
   const r = 54;
   const circ = 2 * Math.PI * r;
   const filled = circ * (percent / 100);
   const color = type === 'BUY' ? '#10b981' : type === 'SELL' ? '#f87171' : '#94a3b8';
   const label = type === 'BUY' ? '자금 유입' : type === 'SELL' ? '자금 유출' : '중립';
   return (
-    <svg width="148" height="148" viewBox="0 0 148 148">
+    <svg width={size} height={size} viewBox="0 0 148 148">
       <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
       <circle cx="74" cy="74" r={r} fill="none" stroke={color} strokeWidth="14" strokeLinecap="round"
         strokeDasharray={`${filled} ${circ}`} transform="rotate(-90 74 74)" style={{ filter: `drop-shadow(0 0 6px ${color}66)` }} />
@@ -137,19 +138,19 @@ export function InstitutionalFlowCard({
   className?: string;
 }) {
   return (
-    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
-      <div className="flex items-center gap-2 mb-4">
+    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4 ${className}`}>
+      <div className="flex items-center gap-2 mb-3">
         <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5">
           <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
         <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>기관/외국인 동향</p>
       </div>
-      <p className="text-center text-[11px] font-bold tracking-wide text-slate-500 mb-2">오늘 수급 강도</p>
-      <div className="flex flex-col items-center py-2">
+      <p className="text-center text-[11px] font-bold tracking-wide text-slate-500 mb-1">오늘 수급 강도</p>
+      <div className="flex flex-col items-center py-1">
         <FlowDonut percent={flowPercentage} type={flowType} />
-        <p className="text-center text-[11px] text-slate-600 leading-snug mt-2">평소 거래대금 대비 이례적 쏠림 정도</p>
+        <p className="text-center text-[11px] text-slate-600 leading-snug mt-1.5">평소 거래대금 대비 이례적 쏠림 정도</p>
       </div>
-      <div className="flex items-center gap-2.5 mt-4 mb-3">
+      <div className="flex items-center gap-2.5 mt-3 mb-2">
         <span className="flex-1 h-px bg-slate-700/40" />
         <span className="text-[11px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
         <span className="flex-1 h-px bg-slate-700/40" />
@@ -184,11 +185,11 @@ export function InstitutionalFlowCard({
 export function RiskFactorsCard({ riskFactors, isGenerating = false, className = '' }: { riskFactors: string[]; isGenerating?: boolean; className?: string }) {
   if (riskFactors.length === 0 && !isGenerating) return null;
   return (
-    <div className={`bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-5 ${className}`}>
+    <div className={`bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-4 ${className}`}>
       <div className="flex flex-wrap items-center gap-2 mb-1">
         <span className={`px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>Risk Factors</span>
       </div>
-      <p className="text-[11px] text-slate-500 leading-relaxed mb-3">이 종목 고유의 이슈만 — 수급·밸류에이션·거래대금·변동성 지표는 각 카드에서 다룹니다.</p>
+      <p className="text-[11px] text-slate-500 leading-relaxed mb-3">이 종목 고유의 이슈만 — 수급·밸류에이션·거래 지표는 각 카드에서.</p>
       <div className="flex flex-col gap-2">
         {riskFactors.length > 0 ? riskFactors.map((line, i) => (
           <div key={i} className="flex gap-2">
@@ -201,25 +202,21 @@ export function RiskFactorsCard({ riskFactors, isGenerating = false, className =
   );
 }
 
-// 3층 급등/급락 이력 + 거래대금 배수 — hasMatches:false(대다수 종목의 기본 상태)면 빈 카드 대신
-// 거래대금 카드 안에 한 줄로 접는다(2026-09-01). 둘 다 없으면 행 자체 생략.
+// 3층 급등/급락 이력 + 거래대금 배수 — 항상 2열. 2026-09-01엔 hasMatches:false면 급등락 카드를 빼고
+// 거래대금 카드에 한 줄로 접었는데, 그러면 거래대금 카드가 전폭을 혼자 차지해 허전하다는 피드백
+// (2026-09-02)으로 되돌림 — 이력이 없어도 카드를 유지하고 빈 상태(8/28 설계)를 보여준다. 둘 다 없으면 행 생략.
 export function SurgeTradingRow({ surgeHistory, tradingValueMultiple, className = '' }: {
   surgeHistory?: SurgeHistory | null;
   tradingValueMultiple?: TradingValueMultiple | null;
   className?: string;
 }) {
-  const showSurge = !!surgeHistory?.hasMatches;
+  const showSurge = !!surgeHistory;
   const showTrading = !!tradingValueMultiple?.valid;
   if (!showSurge && !showTrading) return null;
   return (
-    <div className={`grid grid-cols-1 ${showSurge && showTrading ? 'md:grid-cols-2' : ''} gap-4 ${className}`}>
+    <div className={`grid grid-cols-1 ${showSurge && showTrading ? 'md:grid-cols-2' : ''} gap-3 ${className}`}>
       {showSurge && <SurgeHistoryCard surgeHistory={surgeHistory!} />}
-      {showTrading && (
-        <TradingValueMultipleCard
-          t={tradingValueMultiple!}
-          surgeEmptyNote={!showSurge && surgeHistory ? { threshold: surgeHistory.threshold } : null}
-        />
-      )}
+      {showTrading && <TradingValueMultipleCard t={tradingValueMultiple!} />}
     </div>
   );
 }
@@ -232,7 +229,7 @@ export function DisclosuresCard({ disclosures, narrative, className = '' }: {
 }) {
   if (disclosures.length === 0) return null;
   return (
-    <div className={`rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-5 ${className}`}>
+    <div className={`rounded-2xl border border-amber-500/40 bg-amber-500/[0.06] p-4 ${className}`}>
       <div className="flex items-center gap-2 mb-3">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
         <span className={`${SECTION_TITLE_CLASS} text-amber-400 uppercase tracking-widest`}>주요 공시 (DART)</span>
@@ -255,7 +252,7 @@ export function DisclosuresCard({ disclosures, narrative, className = '' }: {
 export function FxCorrelationCard({ fx, className = '' }: { fx?: { correlation: number } | null; className?: string }) {
   if (!fx) return null;
   return (
-    <div className={`bg-[#1a1f2e] border border-cyan-500/20 rounded-2xl p-5 ${className}`}>
+    <div className={`bg-[#1a1f2e] border border-cyan-500/20 rounded-2xl p-4 ${className}`}>
       <div className="flex items-center gap-2 mb-3">
         <span className={`px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>환율 상관관계</span>
       </div>
@@ -269,7 +266,7 @@ export function FxCorrelationCard({ fx, className = '' }: { fx?: { correlation: 
 // 층 구분 헤더 — 4층 구조(한눈에 / 내 포지션 / 종목 구조 / 참고자료)를 시각적으로 나눈다.
 export function LayerHeading({ no, title, sub }: { no: number; title: string; sub?: string }) {
   return (
-    <div className="flex items-baseline gap-2.5 mb-3 mt-1">
+    <div className="flex items-baseline gap-2.5 mb-2.5">
       <span className="text-[11px] font-mono text-indigo-400/70">{String(no).padStart(2, '0')}</span>
       <span className="text-[12px] font-bold text-slate-300 tracking-wide">{title}</span>
       {sub && <span className="text-[11px] text-slate-600">{sub}</span>}

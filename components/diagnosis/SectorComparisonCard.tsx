@@ -38,7 +38,7 @@ function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorCompariso
   }));
   return (
     <div className="mb-2">
-      <div style={{ height: 44 }}>
+      <div style={{ height: 64 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
             <Line type="monotone" dataKey="peerAvg" stroke="#64748b" strokeWidth={1.5} dot={false} isAnimationActive={false} />
@@ -70,8 +70,8 @@ export function SectorComparisonCard({
 }) {
   const prevClose = data.basis === 'prevClose';
   return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>업종 대비</p>
         {prevClose && (
           <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300/90 whitespace-nowrap">
@@ -102,7 +102,7 @@ export function SectorComparisonCard({
           {(data.peerNames?.length ?? 0) > 0 && (
             <>
               {data.sectorName ? ' · ' : ''}
-              {data.peerNames!.slice(0, 3).join('·')} 등 {data.peerNames!.length}개 종목 평균
+              {data.peerNames!.join('·')} {data.peerNames!.length}개 종목 평균
             </>
           )}
         </p>

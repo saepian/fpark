@@ -28,8 +28,8 @@ export function FinancialsTrendCard({
   const nonDecFy = yearEndMonth && yearEndMonth !== '12' ? `${Number(yearEndMonth)}월 결산` : null;
 
   return (
-    <div className={`bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-5 ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+    <div className={`bg-[#1a1f2e] border border-violet-500/20 rounded-2xl p-4 ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <span className={`px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
           실적 추이
         </span>
@@ -39,7 +39,7 @@ export function FinancialsTrendCard({
       {annual.length > 0 && (
         <>
           <p className="text-[11px] font-bold text-slate-500 mb-2.5">연간 (확정치, 억원)</p>
-          <div className="flex flex-col gap-3.5 mb-4">
+          <div className="flex flex-col gap-3 mb-3">
             {annual.map((r) => (
               <div key={r.year}>
                 <div className="flex items-center justify-between mb-1.5">

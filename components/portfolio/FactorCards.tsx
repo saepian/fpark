@@ -100,6 +100,7 @@ export function WatchVariablesCard({
   className = '',
   title = '앞으로 확인할 이벤트·지표',
   caption = '어떤 공시·지표·일정이 나오면 지금의 포트폴리오 구조에 영향을 줄 수 있는지 — 예측이 아니라 확인 목록입니다.',
+  dense = false,
 }: {
   shortTermOutlook?: string;
   midTermOutlook?: string;
@@ -108,13 +109,14 @@ export function WatchVariablesCard({
   className?: string;
   title?: string;    // 2026-09-01: 기업분석 리포트도 같은 카드를 쓰므로 문구를 바꿔 끼울 수 있게
   caption?: string;
+  dense?: boolean;   // 2026-09-02: 기업분석 4층에서 Risk Factors와 2열로 나란히 둘 때 — 패딩 축소 + 단기/중기 세로 스택
 }) {
   const showShort = shortTermOutlook === undefined ? pending : !!shortTermOutlook;
   const showMid   = midTermOutlook === undefined ? pending : !!midTermOutlook;
   if (!showShort && !showMid) return null;
   const block = (key: 'shortTermOutlook' | 'midTermOutlook', label: string, value: string | undefined, tone: string) => (
-    <div className={`rounded-xl border p-4 ${tone}`}>
-      <span className={`${TITLE} inline-block mb-3 ${key === 'shortTermOutlook' ? 'bg-indigo-500/15 border border-indigo-500/30 text-indigo-400' : 'bg-violet-500/15 border border-violet-500/30 text-violet-400'}`}>{label}</span>
+    <div className={`rounded-xl border ${dense ? 'p-3' : 'p-4'} ${tone}`}>
+      <span className={`${TITLE} inline-block ${dense ? 'mb-2' : 'mb-3'} ${key === 'shortTermOutlook' ? 'bg-indigo-500/15 border border-indigo-500/30 text-indigo-400' : 'bg-violet-500/15 border border-violet-500/30 text-violet-400'}`}>{label}</span>
       {value === undefined ? <FieldSkeleton lines={2} /> : (
         <p className="text-xs text-slate-300 leading-relaxed">
           {revealed?.[key]?.text ?? value}{revealed?.[key]?.active && <TypingCursor />}
@@ -123,10 +125,10 @@ export function WatchVariablesCard({
     </div>
   );
   return (
-    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
+    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl ${dense ? 'p-4' : 'p-5'} ${className}`}>
       <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">{title}</p>
-      <p className="text-[11px] text-slate-500 leading-relaxed mb-4">{caption}</p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <p className={`text-[11px] text-slate-500 leading-relaxed ${dense ? 'mb-3' : 'mb-4'}`}>{caption}</p>
+      <div className={`grid grid-cols-1 ${dense ? 'gap-3' : 'md:grid-cols-2 gap-4'}`}>
         {showShort && block('shortTermOutlook', '단기 (수주 내)', shortTermOutlook, 'border-indigo-500/20 bg-indigo-500/[0.03]')}
         {showMid   && block('midTermOutlook',   '중기 (수개월)',  midTermOutlook,   'border-violet-500/20 bg-violet-500/[0.03]')}
       </div>

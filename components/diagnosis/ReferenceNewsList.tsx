@@ -56,8 +56,8 @@ export default function ReferenceNewsList({
   const groups = buildNewsGroups(news, clusters);
   let no = 0; // 화면 표시 순서대로 1부터
   return (
-    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
-      <div className="flex items-center gap-2 mb-4">
+    <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4 ${className}`}>
+      <div className="flex items-center gap-2 mb-3">
         <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>참고 기사</p>
         {newsBasis === 'news' ? (
           <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">📰 뉴스 기반 분석</span>
@@ -68,7 +68,7 @@ export default function ReferenceNewsList({
       {news.length === 0 ? (
         <p className="text-xs text-slate-500 leading-relaxed">관련도 높은 뉴스가 확인되지 않아, 수급·기술적 지표를 근거로 분석했습니다.</p>
       ) : groups ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {groups.map((g, gi) => (
             <div key={gi}>
               <p className="text-[11px] font-bold text-indigo-300/90 mb-1.5">{g.label !== '기타' && '🔖 '}{g.label}</p>

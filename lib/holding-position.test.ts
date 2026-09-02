@@ -36,19 +36,42 @@ describe('computeHoldingPosition', () => {
     expect(buildHoldingPositionBlock(hp)).toContain('EPS 없음');
   });
 
-  it('매수일이 없으면 최근 1년 전체를 폴백으로 쓰고 캡션에 명시한다', () => {
+  it('매수일이 없으면 최근 6개월 전체를 폴백으로 쓰고 캡션에 명시한다', () => {
     const hp = computeHoldingPosition({ avgPrice: 12000, quantity: 1, currentPrice: 11000, buyDate: null, chart, eps: null, benchmark: null })!;
-    expect(hp.window.basis).toBe('fallback1Y');
+    expect(hp.window.basis).toBe('fallback6M');
+    expect(hp.priceBasis).toBe('close'); // high/low 없는 입력은 종가 기준 폴백
     expect(hp.window.from).toBe('2026-06-01');
     expect(hp.low).toEqual({ date: '2026-06-01', close: 10000, vsCurrent: 10 });
     expect(describeHoldingWindow(hp)).toContain('매수일 미입력');
     expect(hp.bigMoves.count).toBe(2); // 6/2 +10%는 미만
   });
 
-  it('매수일이 차트 범위보다 오래되면 1년 절삭을 basis로 표시한다', () => {
+  it('매수일이 차트 범위보다 오래되면 6개월 절삭을 basis로 표시한다', () => {
     const hp = computeHoldingPosition({ avgPrice: 12000, quantity: 1, currentPrice: 11000, buyDate: '2025-01-01', chart, eps: null, benchmark: null })!;
-    expect(hp.window.basis).toBe('buyDateCapped1Y');
-    expect(describeHoldingWindow(hp)).toContain('최근 1년만 반영');
+    expect(hp.window.basis).toBe('buyDateCapped6M');
+    expect(describeHoldingWindow(hp)).toContain('최근 6개월만 반영');
+  });
+
+  it('장중 고가/저가가 있으면 그 기준으로 고점·저점·최대/최저 평가손익을 계산한다(기간별 등락률 표와 동일 기준, 2026-09-02)', () => {
+    // 종가 기준이면 고점 6/4 14000·저점 6/8 10500이지만, 장중 고가는 6/5에 15000, 장중 저가는 6/9에 9800
+    const intradayChart = chart.map((p) => ({ ...p, high: p.close + 500, low: p.close - 500 }));
+    intradayChart[4] = { ...intradayChart[4], high: 15000 }; // 6/5 장중 고가
+    intradayChart[6] = { ...intradayChart[6], low: 9800 };   // 6/9 장중 저가
+    const hp = computeHoldingPosition({ avgPrice: 12345, quantity: 10, currentPrice: 11000, buyDate: '2026-06-03', chart: intradayChart, eps: null, benchmark: null })!;
+    expect(hp.priceBasis).toBe('intraday');
+    expect(hp.high).toEqual({ date: '2026-06-05', close: 15000, vsCurrent: -26.67 });
+    expect(hp.low).toEqual({ date: '2026-06-09', close: 9800, vsCurrent: 12.24 });
+    expect(hp.maxPnl).toEqual({ date: '2026-06-05', rate: 21.51, amount: 26550 });
+    expect(hp.minPnl).toEqual({ date: '2026-06-09', rate: -20.62, amount: -25450 });
+    expect(hp.bigMoves.count).toBe(2); // ±15% 변동일은 종가 대비 종가 그대로
+    expect(buildHoldingPositionBlock(hp)).toContain('장중 고가 15,000원');
+  });
+
+  it('구간 일부 행에 장중 고가/저가가 없으면 전체를 종가 기준으로 통일 폴백한다', () => {
+    const mixed = chart.map((p, i) => (i === 5 ? p : { ...p, high: p.close + 500, low: p.close - 500 }));
+    const hp = computeHoldingPosition({ avgPrice: 12345, quantity: 10, currentPrice: 11000, buyDate: '2026-06-03', chart: mixed, eps: null, benchmark: null })!;
+    expect(hp.priceBasis).toBe('close');
+    expect(hp.high?.close).toBe(14000);
   });
 
   it('매수일이 차트 마지막 행보다 뒤면 마지막 행만 구간으로 삼는다', () => {

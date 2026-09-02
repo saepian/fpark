@@ -25,7 +25,7 @@ export interface TradingValueMultiple {
 
 function fmt(n: number) { return n.toLocaleString(); }
 
-export function TradingValueGauge({ multiple }: { multiple: number }) {
+export function TradingValueGauge({ multiple, size = 120 }: { multiple: number; size?: number }) {
   const r = 54;
   const circ = 2 * Math.PI * r;
   const capped = Math.min(multiple, 4);
@@ -34,7 +34,7 @@ export function TradingValueGauge({ multiple }: { multiple: number }) {
   const label = multiple >= 3 ? '거래 폭증' : multiple >= 1.5 ? '거래 증가' : '평이한 수준';
 
   return (
-    <svg width="148" height="148" viewBox="0 0 148 148">
+    <svg width={size} height={size} viewBox="0 0 148 148">
       <circle cx="74" cy="74" r={r} fill="none" stroke="#1e293b" strokeWidth="14" />
       <circle
         cx="74" cy="74" r={r}
@@ -62,8 +62,8 @@ export function TradingValueGauge({ multiple }: { multiple: number }) {
 // 그리고, 내부만 "이력 없음" 빈 상태로 바꾼다(사례 목록 대신 짧은 안내문).
 export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory }) {
   return (
-    <div className="bg-[#1a1f2e] border border-rose-500/20 rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="bg-[#1a1f2e] border border-rose-500/20 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3">
         <span className={`px-2 py-0.5 rounded-md bg-rose-500/15 border border-rose-500/30 text-rose-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>
           급등/급락 이력
         </span>
@@ -102,12 +102,12 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
           </p>
         </>
       ) : (
-        <div className="flex flex-col items-center py-5 text-center">
+        <div className="flex flex-col items-center justify-center py-4 text-center">
           <p className="text-[13px] text-slate-400">
-            최근 약 5개월 내 등락률 {surgeHistory.threshold}% 이상의 급등/급락 이력 없음
+            최근 5개월 내 {surgeHistory.threshold}% 이상 급등락 없음
           </p>
-          <p className="text-[11px] text-slate-600 mt-2 leading-relaxed">
-            오늘과 비슷한 규모의 과거 변동이 관측되지 않았습니다 — 이 종목이 상대적으로 완만한 가격 흐름을 보여왔다는 관찰입니다.
+          <p className="text-[11px] text-slate-600 mt-1.5 leading-relaxed">
+            오늘과 비슷한 규모의 과거 변동이 관측되지 않았다는 관찰입니다.
           </p>
         </div>
       )}
@@ -119,25 +119,19 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
 // 동향 도넛과 같은 시각 언어(TradingValueGauge)로 노출. 배수 자체는 평상시에도 항상
 // 존재하는 값(1배 안팎이 오히려 정상)이라 급등이력 카드와 달리 값 유무로 생략하지 않고,
 // 계산에 필요한 데이터(최근 20거래일)가 부족할 때만(valid:false) 생략한다.
-// 2026-09-01: 급등/급락 이력이 없을 때(hasMatches:false) 빈 카드를 따로 그리지 않고 이 카드 안에
-// 한 줄(surgeEmptyNote)로 접는다 — components/diagnosis/DiagnosisCards.tsx SurgeTradingRow 참고.
-export function TradingValueMultipleCard({ t, surgeEmptyNote = null }: { t: TradingValueMultiple; surgeEmptyNote?: { threshold: number } | null }) {
+// 2026-09-02: 급등/급락 이력 카드는 이력이 없어도 항상 옆에 유지(SurgeTradingRow) — 여기서 접지 않는다.
+export function TradingValueMultipleCard({ t }: { t: TradingValueMultiple }) {
   return (
-    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3">
         <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>거래대금 배수</p>
       </div>
-      <div className="flex flex-col items-center py-2">
+      <div className="flex flex-col items-center py-1">
         <TradingValueGauge multiple={t.multiple} />
-        <p className="text-center text-[11px] text-slate-600 leading-snug mt-2">
+        <p className="text-center text-[11px] text-slate-600 leading-snug mt-1.5">
           오늘 {fmt(Math.round(t.todayValue / 1e8))}억원 · 최근 20일 평균 {fmt(Math.round(t.avg20d / 1e8))}억원 대비
         </p>
       </div>
-      {surgeEmptyNote && (
-        <p className="text-[11px] text-slate-500 text-center leading-relaxed mt-2 pt-2 border-t border-slate-700/40">
-          최근 약 5개월 내 등락률 {surgeEmptyNote.threshold}% 이상의 급등/급락 이력 없음
-        </p>
-      )}
     </div>
   );
 }

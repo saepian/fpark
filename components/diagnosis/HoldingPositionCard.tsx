@@ -5,7 +5,7 @@
 // 아래 "관찰 포인트"(AI watchPoint)는 이 수치들을 내 포지션 관점에서 한 문장으로 잇는 자리.
 import type { ReactNode } from 'react';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
-import { describeHoldingWindow, type HoldingPosition } from '@/lib/holding-position';
+import { describeHoldingWindow, holdingPriceBasisLabel, type HoldingPosition } from '@/lib/holding-position';
 
 const sgn = (n: number, digits = 2) => `${n >= 0 ? '+' : ''}${n.toFixed(digits)}%`;
 const md = (d: string) => { const p = d.split('-'); return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : d; };
@@ -14,7 +14,7 @@ const toneOf = (n: number) => (n >= 0 ? 'text-red-400' : 'text-blue-400');
 
 function Tile({ label, value, sub, tone = 'text-slate-200' }: { label: string; value: ReactNode; sub?: ReactNode; tone?: string }) {
   return (
-    <div className="min-w-0 rounded-xl bg-slate-900/40 border border-slate-700/40 px-3.5 py-3">
+    <div className="min-w-0 rounded-xl bg-slate-900/40 border border-slate-700/40 px-3 py-2.5">
       <p className="text-[11px] text-slate-500 mb-1 whitespace-nowrap">{label}</p>
       <p className={`text-[15px] font-bold font-mono leading-tight whitespace-nowrap ${tone}`}>{value}</p>
       {sub && <p className="text-[11px] text-slate-500 mt-1 leading-snug">{sub}</p>}
@@ -34,14 +34,14 @@ export function HoldingPositionCard({
   if (!position && !narrative) return null;
   const p = position;
   return (
-    <div className={`bg-[#1a1f2e] border border-indigo-500/25 rounded-2xl p-5 ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-4">
+    <div className={`bg-[#1a1f2e] border border-indigo-500/25 rounded-2xl p-4 ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-3">
         <span className={`px-2 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>내 포지션</span>
-        {p && <span className="text-[11px] text-slate-500">{describeHoldingWindow(p)}</span>}
+        {p && <span className="text-[11px] text-slate-500">{describeHoldingWindow(p)} · {holdingPriceBasisLabel(p)}</span>}
       </div>
 
       {p && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <Tile
             label="매입가까지"
             value={p.recoveryRate === null ? '-' : p.recoveryRate > 0 ? `${sgn(p.recoveryRate)} 필요` : `${sgn(p.recoveryRate)} 여유`}
@@ -52,13 +52,13 @@ export function HoldingPositionCard({
             label="보유 중 고점 대비"
             value={p.high ? sgn(p.high.vsCurrent) : '-'}
             tone={p.high ? toneOf(p.high.vsCurrent) : undefined}
-            sub={p.high ? `고점 ${won(p.high.close)} · ${md(p.high.date)}` : undefined}
+            sub={p.high ? `${p.priceBasis === 'intraday' ? '장중 고가' : '고점'} ${won(p.high.close)} · ${md(p.high.date)}` : undefined}
           />
           <Tile
             label="보유 중 저점 대비"
             value={p.low ? sgn(p.low.vsCurrent) : '-'}
             tone={p.low ? toneOf(p.low.vsCurrent) : undefined}
-            sub={p.low ? `저점 ${won(p.low.close)} · ${md(p.low.date)}` : undefined}
+            sub={p.low ? `${p.priceBasis === 'intraday' ? '장중 저가' : '저점'} ${won(p.low.close)} · ${md(p.low.date)}` : undefined}
           />
           <Tile
             label="최대 / 최저 평가손익"
@@ -83,7 +83,7 @@ export function HoldingPositionCard({
       )}
 
       {p?.benchmark && (
-        <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">
+        <p className="text-[11px] text-slate-500 mt-2.5 leading-relaxed">
           보유기간 {p.benchmark.indexName} <span className={`font-mono ${toneOf(p.benchmark.indexChangeRate)}`}>{sgn(p.benchmark.indexChangeRate)}</span>
           {' '}vs 이 종목 <span className={`font-mono ${toneOf(p.benchmark.stockProfitRate)}`}>{sgn(p.benchmark.stockProfitRate)}</span>
           {' '}(<span className="font-mono">{p.benchmark.excess >= 0 ? '+' : ''}{p.benchmark.excess.toFixed(2)}%p</span>, {p.benchmark.fromDate}~{p.benchmark.toDate})
@@ -91,7 +91,7 @@ export function HoldingPositionCard({
       )}
 
       {narrative && (
-        <div className={`${p ? 'mt-4 pt-4 border-t border-slate-700/50' : ''}`}>
+        <div className={`${p ? 'mt-3 pt-3 border-t border-slate-700/50' : ''}`}>
           <p className={`${SECTION_TITLE_CLASS} text-indigo-400/80 uppercase tracking-wide mb-1`}>관찰 포인트</p>
           {narrative}
         </div>

@@ -285,7 +285,7 @@ function HistoryCompareCard({ result, isGenerating, revealed }: { result: Diagno
   const prevDateLabel = h.prevDate ? fmtShortDate(h.prevDate) : null;
 
   return (
-    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl px-5 py-4 mb-4">
+    <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl p-4">
       <p className={`${SECTION_TITLE_CLASS} text-indigo-400 uppercase tracking-wide mb-2`}>{label}</p>
       {!isFirst && (
         <div className="mb-2.5">
@@ -406,16 +406,22 @@ export default function DiagnosisReport({
           <p className="text-[12px] text-amber-200/90 leading-relaxed">{INVESTMENT_DISCLAIMER}</p>
         </div>
 
-        {/* ── 1층: 한눈에 — 주가 배경 → 밸류에이션 → AI 종합 진단 (+ 성과 스냅샷) ── */}
-        <LayerHeading no={1} title="한눈에" sub="주가 배경 · 밸류에이션 · AI 종합 진단" />
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] gap-4 mb-6">
-          <MainAnalysisCard
-            sections={result.mainAnalysisSections}
-            mainAnalysis={result.mainAnalysis}
-            finalVerdict={result.finalVerdict}
-            revealed={revealed}
-            isGenerating={isGenerating}
-          />
+        {/* ── 1층: 한눈에 — [주가 배경 → 밸류에이션 → AI 종합 진단, 직전 진단 대비] | 성과 스냅샷 ──
+            2026-09-02 밀도 재검토: 수급 소제목이 빠진 뒤 왼쪽 카드가 오른쪽 스냅샷보다 짧아져 왼쪽 아래가
+            크게 비었다 — 그리드를 items-start로 바꿔 카드가 늘어나지 않게 하고, 2층에 있던 "직전 진단
+            대비" 카드를 왼쪽 컬럼 아래로 올려 그 자리를 채운다(내용 추가 없이 배치만 변경). */}
+        <LayerHeading no={1} title="한눈에" sub="주가 배경 · 밸류에이션 · AI 종합 진단 · 직전 진단 대비" />
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_300px] md:items-start gap-3 mb-5">
+          <div className="flex flex-col gap-3 min-w-0">
+            <MainAnalysisCard
+              sections={result.mainAnalysisSections}
+              mainAnalysis={result.mainAnalysis}
+              finalVerdict={result.finalVerdict}
+              revealed={revealed}
+              isGenerating={isGenerating}
+            />
+            <HistoryCompareCard result={result} isGenerating={isGenerating} revealed={revealed} />
+          </div>
           <PerformanceSnapshotCard
             currentPrice={result.currentPrice}
             profitRate={result.profitRate}
@@ -430,25 +436,25 @@ export default function DiagnosisReport({
           />
         </div>
 
-        {/* ── 2층: 내 포지션 — 신설 카드(서버 계산) + 관찰 포인트(내 포지션 관점) + 직전 진단 대비 + 기간별 등락률 ── */}
+        {/* ── 2층: 내 포지션 — 신설 카드(서버 계산, 최근 6개월·장중 고가/저가 기준) + 관찰 포인트 + 기간별 등락률 ── */}
         <LayerHeading no={2} title="내 포지션" sub="매입가 · 보유기간 기준" />
         <HoldingPositionCard
           position={result.holdingPosition}
-          className="mb-4"
+          className="mb-3"
           narrative={(result.mainAnalysisSections?.watchPoint || (isGenerating && result.mainAnalysisSections)) ? (
             <StreamText value={result.mainAnalysisSections?.watchPoint} k="mainAnalysisSections_watchPoint" revealed={revealed} pending={isGenerating} />
           ) : null}
         />
-        <HistoryCompareCard result={result} isGenerating={isGenerating} revealed={revealed} />
         {livePriceTable && (
-          <div className="mb-6">
+          <div className="mb-5">
             <PriceChangeTable ticker={ticker} />
           </div>
         )}
 
-        {/* ── 3층: 종목 구조 — 수급(서술처 1곳) · 업종 대비 · 실적(연간+분기) · 배당 · 급등락/거래대금 · 환율 ── */}
-        <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 배당 · 거래" />
-        <div className={`grid grid-cols-1 ${result.sectorComparison ? 'md:grid-cols-2' : ''} gap-4 mb-4`}>
+        {/* ── 3층: 종목 구조 — [수급 | 업종 대비] · 실적(연간+분기) · [급등락 | 거래대금] · [배당 | 환율] ──
+            짧은 카드끼리 2열로 묶어 세로 스크롤을 줄인다(2026-09-02). */}
+        <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 거래 · 배당" />
+        <div className={`grid grid-cols-1 ${result.sectorComparison ? 'md:grid-cols-2' : ''} gap-3 mb-3`}>
           <InstitutionalFlowCard
             flowType={result.flowType}
             flowPercentage={result.flowPercentage}
@@ -470,15 +476,17 @@ export default function DiagnosisReport({
           quarterly={result.quarterlyFinancials ?? []}
           yearEndMonth={result.financialsYearEndMonth}
           narrative={<StreamText value={result.financialsNarrative} k="financialsNarrative" revealed={revealed} pending={isGenerating} />}
-          className="mb-4"
+          className="mb-3"
         />
-        <DividendInfo summary={result.dividendSummary} history={result.dividendHistory} />
-        <SurgeTradingRow surgeHistory={result.surgeHistory} tradingValueMultiple={result.tradingValueMultiple} className="mb-4" />
-        <FxCorrelationCard fx={result.fxCorrelation} className="mb-4" />
+        <SurgeTradingRow surgeHistory={result.surgeHistory} tradingValueMultiple={result.tradingValueMultiple} className="mb-3" />
+        <div className={`grid grid-cols-1 ${result.fxCorrelation ? 'md:grid-cols-2' : ''} gap-3 mb-5`}>
+          <DividendInfo summary={result.dividendSummary} history={result.dividendHistory} />
+          <FxCorrelationCard fx={result.fxCorrelation} />
+        </div>
 
         {/* 최근 뉴스 논조 추이(2026-08-21 신설, 현재 플래그로 숨김 — 재설계 완료 시 SHOW_NEWS_SENTIMENT_CARD=true) */}
         {SHOW_NEWS_SENTIMENT_CARD && result.newsSentiment && (
-          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
+          <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4 mb-3">
             <div className="flex items-center justify-between mb-3">
               <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>최근 뉴스 논조 추이</p>
               <span className="text-[11px] font-semibold text-indigo-300">{result.newsSentiment.label}</span>
@@ -496,24 +504,26 @@ export default function DiagnosisReport({
           </div>
         )}
 
-        {/* ── 4층: 참고 자료 — DART 공시 · 종목 고유 리스크 · 확인할 이벤트·지표 · 참고 기사 ── */}
+        {/* ── 4층: 참고 자료 — DART 공시 · [종목 고유 리스크 | 확인할 이벤트·지표] · 참고 기사 ── */}
         <LayerHeading no={4} title="참고 자료" sub="공시 · 종목 고유 리스크 · 확인할 이벤트 · 기사" />
         <DisclosuresCard
           disclosures={result.disclosures}
           narrative={<StreamText value={result.disclosureNarrative} k="disclosureNarrative" revealed={revealed} pending={isGenerating} lines={1} />}
-          className="mb-4"
+          className="mb-3"
         />
-        <RiskFactorsCard riskFactors={result.riskFactors} isGenerating={isGenerating} className="mb-4" />
-        <WatchVariablesCard
-          shortTermOutlook={result.shortTermOutlook}
-          midTermOutlook={result.midTermOutlook}
-          pending={isGenerating}
-          revealed={revealed}
-          title="확인할 이벤트·지표"
-          caption="이 종목 고유의 일정·공시·지표만 — 예측이 아니라 확인 목록입니다."
-          className="mb-4"
-        />
-        <ReferenceNewsList news={result.news ?? []} clusters={result.newsIssueClusters} newsBasis={result.newsBasis} className="mb-4" />
+        <div className="grid grid-cols-1 md:grid-cols-2 md:items-start gap-3 mb-3">
+          <RiskFactorsCard riskFactors={result.riskFactors} isGenerating={isGenerating} />
+          <WatchVariablesCard
+            shortTermOutlook={result.shortTermOutlook}
+            midTermOutlook={result.midTermOutlook}
+            pending={isGenerating}
+            revealed={revealed}
+            title="확인할 이벤트·지표"
+            caption="이 종목 고유의 일정·공시·지표만 — 예측이 아니라 확인 목록입니다."
+            dense
+          />
+        </div>
+        <ReferenceNewsList news={result.news ?? []} clusters={result.newsIssueClusters} newsBasis={result.newsBasis} className="mb-3" />
 
         {/* 면책 */}
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6 px-4">
