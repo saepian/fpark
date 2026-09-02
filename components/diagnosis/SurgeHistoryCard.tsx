@@ -56,11 +56,47 @@ export function TradingValueGauge({ multiple, size = 120 }: { multiple: number; 
   );
 }
 
+// 한 건을 한 줄로 압축한 행 — 예전엔 날짜/등락률 줄 + N일 후 되돌림 줄, 2줄 구조였는데
+// (2026-08-27 커밋 사유는 아래 유지) 이력이 많은 종목(8건 이상 실측)에서 옆 "거래대금
+// 배수" 카드보다 카드가 훨씬 길어지는 높이 불균형 문제(2026-09-02)로 한 줄로 합쳤다.
+// justify-between + flex-wrap이라 아주 좁은 화면에서 되돌림 텍스트가 넘치면 자동으로
+// 아래 줄로 감싸지되(잘리지 않음), 보통 폭에서는 한 줄로 붙는다.
+function SurgeMatchRow({ m }: { m: SurgeHistory['matches'][number] }) {
+  const afterParts = [
+    m.afterReturns.d3  !== undefined && `3일 ${m.afterReturns.d3  >= 0 ? '+' : ''}${m.afterReturns.d3}%`,
+    m.afterReturns.d5  !== undefined && `5일 ${m.afterReturns.d5  >= 0 ? '+' : ''}${m.afterReturns.d5}%`,
+    m.afterReturns.d10 !== undefined && `10일 ${m.afterReturns.d10 >= 0 ? '+' : ''}${m.afterReturns.d10}%`,
+  ].filter(Boolean) as string[];
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 py-1.5">
+      <span className="flex items-baseline gap-2 shrink-0">
+        <span className="text-[11px] text-slate-500 font-mono">{m.date}</span>
+        <span className={`text-[12px] font-bold font-mono ${m.changeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
+          {m.changeRate >= 0 ? '+' : ''}{m.changeRate}%
+        </span>
+      </span>
+      <span className="text-[11px] text-slate-500">
+        {afterParts.length > 0 ? afterParts.join(' · ') : '이후 데이터 부족'}
+      </span>
+    </div>
+  );
+}
+
+// 기본으로 보여줄 최근 건수 — 이보다 많으면 나머지는 <details>(훅 없는 순수 CSS 접이식,
+// 이 컴포넌트가 공유 페이지의 서버 컴포넌트에서도 그대로 쓰이므로 useState를 못 씀)로 접는다.
+const RECENT_VISIBLE_COUNT = 4;
+
 // 2026-08-28: 오늘과 유사한 규모(threshold% 이상)의 과거 사례가 없는 게 대다수 종목의
 // 기본 상태인 건 맞지만, 카드 자체를 생략하면 "거래대금 배수"(평이한 값 1배 안팎도
 // 항상 보여줌)와 시각적 일관성이 깨진다는 지적으로 hasMatches:false여도 카드는 항상
 // 그리고, 내부만 "이력 없음" 빈 상태로 바꾼다(사례 목록 대신 짧은 안내문).
 export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory }) {
+  // matches는 오래된 → 최신 순(lib/stock-analysis-data.ts computeSurgeHistory가 그렇게 push함).
+  // 최근 것을 항상 보여주고, 그보다 오래된 것만 접어서 "더 오래된 이력" 쪽에 둔다 —
+  // 펼쳐도 항상 보이던 최근 항목들의 위치가 바뀌지 않아 자연스럽다.
+  const hasOverflow = surgeHistory.matches.length > RECENT_VISIBLE_COUNT;
+  const older  = hasOverflow ? surgeHistory.matches.slice(0, surgeHistory.matches.length - RECENT_VISIBLE_COUNT) : [];
+  const recent = hasOverflow ? surgeHistory.matches.slice(-RECENT_VISIBLE_COUNT) : surgeHistory.matches;
   return (
     <div className="bg-[#1a1f2e] border border-rose-500/20 rounded-2xl p-4">
       <div className="flex items-center gap-2 mb-3">
@@ -71,31 +107,18 @@ export function SurgeHistoryCard({ surgeHistory }: { surgeHistory: SurgeHistory 
       {surgeHistory.hasMatches ? (
         <>
           <div className="flex flex-col divide-y divide-slate-700/40">
-            {surgeHistory.matches.map((m, i) => {
-              const afterParts = [
-                m.afterReturns.d3  !== undefined && `3일 후 ${m.afterReturns.d3  >= 0 ? '+' : ''}${m.afterReturns.d3}%`,
-                m.afterReturns.d5  !== undefined && `5일 후 ${m.afterReturns.d5  >= 0 ? '+' : ''}${m.afterReturns.d5}%`,
-                m.afterReturns.d10 !== undefined && `10일 후 ${m.afterReturns.d10 >= 0 ? '+' : ''}${m.afterReturns.d10}%`,
-              ].filter(Boolean) as string[];
-              // 2026-08-27 실라이브 검증(390px 모바일)에서 발견: 날짜/등락률과 N일 후
-              // 되돌림을 한 줄(flex justify-between)에 욱여넣으면 좁은 화면에서 되돌림
-              // 텍스트가 2줄로 줄바꿈되고, items-center 때문에 위 줄(날짜/등락률)이 그
-              // 두 줄 사이 중간 높이로 어색하게 떠 보였음 — 날짜/등락률 줄과 되돌림 줄을
-              // 아예 분리해 항상 2줄 구조로 고정(너비와 무관하게 정렬이 흔들리지 않음).
-              return (
-                <div key={`${m.date}-${i}`} className="py-2.5 first:pt-0 last:pb-0">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] text-slate-500 font-mono">{m.date}</span>
-                    <span className={`text-[13px] font-bold font-mono ${m.changeRate >= 0 ? 'text-red-400' : 'text-blue-400'}`}>
-                      {m.changeRate >= 0 ? '+' : ''}{m.changeRate}%
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
-                    {afterParts.length > 0 ? afterParts.join(' · ') : '이후 데이터 부족'}
-                  </p>
+            {hasOverflow && (
+              <details className="group pb-1.5">
+                <summary className="cursor-pointer select-none list-none text-[11px] text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1 [&::-webkit-details-marker]:hidden [&::marker]:content-none">
+                  <span className="inline-block transition-transform group-open:rotate-90">▶</span>
+                  이전 이력 더보기 ({older.length}건)
+                </summary>
+                <div className="flex flex-col divide-y divide-slate-700/40 mt-1">
+                  {older.map((m, i) => <SurgeMatchRow key={`${m.date}-${i}`} m={m} />)}
                 </div>
-              );
-            })}
+              </details>
+            )}
+            {recent.map((m, i) => <SurgeMatchRow key={`${m.date}-${i}`} m={m} />)}
           </div>
           <p className="text-[11px] text-slate-600 mt-3 leading-relaxed">
             최근 약 5개월 내 오늘과 유사한 규모(등락률 {surgeHistory.threshold}% 이상)의 과거 사례이며, 이후 수익률은 결과를 예측하는 값이 아닌 관측된 기록입니다.
