@@ -26,6 +26,7 @@ import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnaps
 import { SectorComparisonCard, type SectorComparison as SectorComparisonData } from '@/components/diagnosis/SectorComparisonCard';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import PriceChangeTable from '@/components/stock/PriceChangeTable';
+import { buildStateSentence } from '@/lib/diagnosis-history-sentence';
 import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChangeTable';
 
 export const dynamic = 'force-dynamic';
@@ -264,29 +265,6 @@ function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: n
   );
 }
 
-// components/diagnosis/DiagnosisReport.tsx의 buildStateSentence와 동일 — 손복제.
-function buildStateSentence(prevRate: number, rateDelta: number, amountDelta: number): string {
-  const prevProfit = prevRate >= 0;
-  const currProfit = prevRate + rateDelta >= 0;
-  const rateStr   = `${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`;
-  const amountStr = `${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`;
-  const deltaTxt  = `직전 대비 ${rateStr}(${amountStr})`;
-
-  if (prevProfit && currProfit) {
-    return rateDelta >= 0
-      ? `${deltaTxt} 늘며 수익 폭이 커졌습니다.`
-      : `${deltaTxt} 줄었지만, 여전히 수익 구간입니다.`;
-  }
-  if (prevProfit && !currProfit) {
-    return `${deltaTxt} — 직전 수익 구간에서 손실로 전환됐습니다.`;
-  }
-  if (!prevProfit && currProfit) {
-    return `${deltaTxt} — 직전 손실 구간에서 수익으로 전환됐습니다.`;
-  }
-  return rateDelta < 0
-    ? `${deltaTxt} — 손실 폭이 커졌습니다.`
-    : `${deltaTxt} — 손실 폭이 줄었지만, 여전히 손실 구간입니다.`;
-}
 
 // components/diagnosis/DiagnosisReport.tsx의 HistoryCompareCard와 동일한 로직(2026-08-28
 // 재설계 — 그때/지금 절대 상태를 먼저 보여주고 변화량은 보조 문구로) —

@@ -18,7 +18,8 @@ import {
   buildTradingValueBlock,
   buildRiskMetricsBlock,
 } from '@/lib/stock-analysis-data';
-import { fetchSectorPeers, computeSectorRelativeChange } from '@/lib/sector-peers';
+import { fetchSectorPeers, computeSectorRelativeChange, computeSectorRelativeChangeFromCloses, shouldUsePrevCloseSectorBasis, type SectorBasis } from '@/lib/sector-peers';
+import { stripFlowSubject } from '@/lib/flow-caption';
 import { fetchUsdKrwDaily1Y, computeFxCorrelation, isFxCorrelationMeaningful } from '@/lib/fx-correlation';
 import { fetchRecentDisclosures, type DartDisclosure, fetchDividendSummary, type DartDividendSummary } from '@/lib/dart-api';
 import { COMPLIANCE_PRINCIPLE, scanComplianceViolations } from '@/lib/ai-compliance';
@@ -62,13 +63,13 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
   "mainAnalysisSections_valuationNote": "【최대 90자, 절대 넘기지 말 것 — 1문장】PER/PBR을 다루는 유일한 자리입니다. PER·PBR 수준을 오늘 움직임 또는 실적 추세와 연결해 해석하세요(단순히 높다/낮다만 재서술 금지). 예) 'PER 36.5배로 업종 평균보다 높게 거래돼온 만큼, 오늘 같은 급락은 그 프리미엄이 일부 되돌려지는 과정으로도 해석될 수 있다.' 데이터 없으면 빈 문자열 \\"\\". 동종업계 등락률·수급·매입가 대비 언급 금지",
   "mainAnalysisSections_watchPoint": "【최대 150자, 절대 넘기지 말 것 — 1~2문장, 내 포지션 관점】아래 [내 포지션 데이터]의 수치만 사용해 '지금 내 위치'를 서술하세요. 반드시 포함: (1) 매입가 대비 수익/손실 구간 (2) 보유 중 고점 또는 저점 대비 현재 위치. 여기에 ±15% 변동일 수·PER 변화·지수 대비 중 1개만 골라 덧붙일 수 있습니다(수치는 총 3개 이하 — 카드 타일에 전부 표시되므로 나열하지 말 것). 예) '매입가 대비 -10% 구간에서, 보유 중 고점(374,500원) 대비 -30%를 되돌린 위치다. 보유기간 중 ±15% 변동일은 없었다.' [내 포지션 데이터]에 없는 수치를 만들지 말 것. 업종 대비·실적·수급·급등락 사례·거래대금·뉴스는 다른 필드의 몫이므로 언급 금지. '회복', '반등', '되찾', '만회' 같은 방향 표현 금지 — 위치만 서술",
   "historyNarrative": "【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로 서술",
-  "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석. 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중 — 격차의 '원인'(자사주·수급·뉴스 등)은 background·flowInsight가 이미 다뤘으므로 여기서 다시 쓰지 말 것. PER/PBR(valuationNote)·수급(flowInsight)과 겹치지 않음",
+  "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석([업종 대비]에 '전일 … 마감 기준' 표시가 있으면 '오늘' 대신 '전일(날짜)' 기준으로 서술). 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중 — 격차의 '원인'(자사주·수급·뉴스 등)은 background·flowInsight가 이미 다뤘으므로 여기서 다시 쓰지 말 것. PER/PBR(valuationNote)·수급(flowInsight)과 겹치지 않음",
   "financialsNarrative": "【[실적 추이]에 데이터가 있을 때만 2문장 — 없으면 빈 문자열 \\"\\"】연간 추세 1문장 + 최근 분기(전년 동기 대비) 1문장. 숫자를 전부 나열하지 말고 추세(개선/악화/횡보)와 그 의미 위주로, 향후 실적을 예측하지 말고 '다음 분기 실적에서 확인' 같은 관찰형으로 마무리",
   "disclosureNarrative": "【[최근 주요 공시]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】공시는 사실관계가 명확하므로 구체적 수치·날짜를 그대로 인용해도 됨(예: '7월 10일 자기주식 500억원 규모 처분을 공시했다'). 이 공시가 무엇을 의미하는지 관찰형으로 해석. 공시 수치는 이 필드에서만 인용(background·riskFactors에서 반복 금지)",
   "riskFactors": ["종목 고유 리스크 1 (25~40자)", "종목 고유 리스크 2 (25~40자)", "종목 고유 리스크 3 (25~40자)"],
   "flowInsight": "【최대 110자, 절대 넘기지 말 것 — 1문장】수급을 해석하는 유일한 자리(기관/외국인 카드 안). 외국인·기관 5일 추이 중 방향이 뚜렷한 쪽 하나를 골라 개인 수급 방향 또는 오늘 등락률과 연결해 해석하세요(유입·유출 금액 재서술 금지, 금액 수치는 최대 1개). 개인과 방향이 반대라면 그 대립이 왜 눈에 띄는지까지. 근거가 부족하면 '아직 명확하지 않다'도 정답. 미래 가격 예측 금지",
-  "institutionalFlow": "기관 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술)",
-  "foreignFlow": "외국인 수급 한 줄 캡션 (도넛 차트 옆에 표시, 1문장, 동일 기준)",
+  "institutionalFlow": "기관 수급 한 줄 캡션 (도넛 차트 옆 '기관' 라벨 뒤에 표시되므로 '기관'이라는 주어 없이 서술, 1문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술 — 예: '최근 5거래일 중 3일 순유입, 누적 +120억원')",
+  "foreignFlow": "외국인 수급 한 줄 캡션 ('외국인' 라벨 뒤에 표시되므로 주어 없이, 1문장, 동일 기준)",
   "shortTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 1문장】수주 내 확인할 이 종목 고유의 이벤트·지표 1개(실적 발표, 공시, 신제품·수주·규제 결정, 주주환원 집행 등) + 그것이 무엇을 확인시켜 주는지. 금리·환율·지수 같은 매크로 일반론, 수급 추이(외국인·기관·개인·공매도 등 수급 단어 자체 금지), '주가 방향이 갈릴 수 있다'·'~구간이다'·'상승/하락 여력' 같은 가격 표현, 목표가·저항선·지지선 금지",
   "midTermOutlook": "【최대 100자, 절대 넘기지 말 것 — 1문장】수개월 내 확인할 이 종목 고유의 이벤트·지표 1개 + 그것이 무엇을 확인시켜 주는지. shortTermOutlook과 다른 이벤트. 동일한 금지 규칙(매크로 일반론·수급·가격 방향·목표가·저항선·지지선 금지)",
   "finalVerdict": "【최대 180자, 절대 넘기지 말 것 — 1~2문장, 순수 서술형】앞선 필드들이 내린 '판단'(개별 이슈인지 업종 동반인지, 밸류에이션 부담 여부, 수급 대립 여부, 실적 추세)만 서로 연결해 종합하는 자리 — 개별 사실·수치(등락률·금액·PER·매입가 대비 등)를 다시 인용하지 마세요. 오늘의 반응(가격 변동 폭)이 실제 근거(뉴스·실적·수급·밸류에이션) 대비 (a) 과도한 반응인지 (b) 타당한 반응인지 (c) 근거가 엇갈려 판단을 유보하는 게 맞는지 하나를 명확히 고르고 그 근거를 같은 문장 안에 붙이세요 — (c)라도 '지켜보자'로 끝내지 말고 무엇이 확인되면 판단이 바뀔지까지 밝힐 것. 점수·등급·별점·숫자 표기 절대 금지, (a)/(b)/(c) 같은 선택지 기호도 문장에 쓰지 말 것. 매매행위(매수/매도/추격매수/진입/청산 등) 직접 지목 금지, 목표가·저항선·지지선·가격 방향 예측 금지",
@@ -569,19 +570,6 @@ export async function POST(request: NextRequest) {
         });
         const holdingPositionBlock = buildHoldingPositionBlock(holdingPosition);
 
-        // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
-        // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —
-        // sectorNameForMacro(KIS bstp_kor_isnm, 이미 위에서 계산됨)와 sectorPeers(이미 fetch됨)를
-        // 그대로 재사용하므로 신규 조회 없음. peer 등락률이 장 시작 전 등의 이유로 0%여도
-        // sectorName·peerNames는 그 값과 무관하게 항상 함께 채워진다.
-        const rawSectorComparison = computeSectorRelativeChange(changeRate, sectorPeers);
-        const sectorComparisonBase = rawSectorComparison
-          ? { ...rawSectorComparison, sectorName: sectorNameForMacro || undefined, peerNames: sectorPeers.map((p) => p.name) }
-          : null;
-        const sectorBlock = sectorComparisonBase
-          ? `- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 등락률 ${changeRate >= 0 ? '+' : ''}${changeRate}% vs 동종업계 peer 평균 등락률 ${sectorComparisonBase.peerAvgChangeRate >= 0 ? '+' : ''}${sectorComparisonBase.peerAvgChangeRate}% (${sectorComparisonBase.deltaVsPeer >= 0 ? '+' : ''}${sectorComparisonBase.deltaVsPeer}%p 차이)`
-          : '동종업계 비교 데이터 없음';
-
         // 국내 peer 스파크라인(최근 1개월 상대수익률)용 종가 조회 — sectorPeers는 이미 위에서
         // resolve됐으므로 여기서 병렬로 미리 시작해둔다.
         // 2026-08-11: 예전엔 아래 Claude 호출과 Promise.all로 함께 await했지만(체감 지연
@@ -591,6 +579,50 @@ export async function POST(request: NextRequest) {
         const peerChartsPromise = Promise.allSettled(
           sectorPeers.map((p) => fetchDailyChart(p.ticker, '1M')),
         );
+
+        // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
+        // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —
+        // sectorNameForMacro(KIS bstp_kor_isnm, 이미 위에서 계산됨)와 sectorPeers(이미 fetch됨)를
+        // 그대로 재사용하므로 신규 조회 없음.
+        // 2026-09-02: 평일 개장(09:00) 전 생성이면 네이버 peer 등락률·KIS 당일 등락률이 전부 0이라
+        // "업종 평균 +0.00% / 차이 +0.00%p"가 나왔다(S-Oil 08:38 실화면). 그 구간엔 위에서 이미 시작한
+        // peer 1M 차트와 종목 1Y 차트의 마지막 두 종가로 "전일 마감 기준" 등락률을 계산하고
+        // basis='prevClose'·basisDate를 함께 내려 카드·프롬프트가 전일 기준임을 밝힌다(AI 주가 배경
+        // 서술이 이미 "어제" 기준이라 일관). 전일 기준 계산이 불가하면(유효 peer 없음) 0.00%를 보여주는
+        // 대신 카드를 생략한다(근거 부족 시 생략 관례). 장중·장마감 후는 기존 당일 기준 그대로.
+        type SectorComparisonBase = { peerAvgChangeRate: number; deltaVsPeer: number; basis: SectorBasis; basisDate?: string; sectorName?: string; peerNames: string[] };
+        let sectorComparisonBase: SectorComparisonBase | null = null;
+        let sectorStockChangeRate = changeRate; // 프롬프트에 적는 "이 종목 등락률" — 전일 기준이면 그 기준으로 맞춘다
+        if (shouldUsePrevCloseSectorBasis(marketDayContext)) {
+          const settled = await peerChartsPromise; // 스파크라인용 조회를 여기서 먼저 소비(추가 호출 없음, ~70ms)
+          const prevClose = computeSectorRelativeChangeFromCloses(
+            chartData,
+            sectorPeers.map((p, i) => ({ peer: p, chart: settled[i]?.status === 'fulfilled' ? settled[i].value : [] })),
+          );
+          if (prevClose) {
+            sectorComparisonBase = {
+              peerAvgChangeRate: prevClose.peerAvgChangeRate,
+              deltaVsPeer: prevClose.deltaVsPeer,
+              basis: 'prevClose',
+              basisDate: prevClose.basisDate,
+              sectorName: sectorNameForMacro || undefined,
+              peerNames: prevClose.peerNames,
+            };
+            sectorStockChangeRate = prevClose.stockChangeRate;
+          }
+          console.log(`[DIAGNOSIS] ${ticker} 개장 전 생성 — 업종 대비를 전일(${prevClose?.basisDate ?? '계산 불가'}) 마감 기준으로 계산 (peer ${prevClose?.peerNames.length ?? 0}/${sectorPeers.length})`);
+        } else {
+          const rawSectorComparison = computeSectorRelativeChange(changeRate, sectorPeers);
+          sectorComparisonBase = rawSectorComparison
+            ? { ...rawSectorComparison, basis: 'today', sectorName: sectorNameForMacro || undefined, peerNames: sectorPeers.map((p) => p.name) }
+            : null;
+        }
+        const sectorBasisNote = sectorComparisonBase?.basis === 'prevClose'
+          ? `[전일 ${sectorComparisonBase.basisDate} 마감 기준 — 개장 전 생성이라 당일 등락률이 아직 없음. sectorNarrative에서 '오늘'이 아니라 '전일(${sectorComparisonBase.basisDate})' 기준임을 명시해 서술할 것] `
+          : '';
+        const sectorBlock = sectorComparisonBase
+          ? `- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): ${sectorBasisNote}이 종목 등락률 ${sectorStockChangeRate >= 0 ? '+' : ''}${sectorStockChangeRate}% vs 동종업계 peer 평균 등락률 ${sectorComparisonBase.peerAvgChangeRate >= 0 ? '+' : ''}${sectorComparisonBase.peerAvgChangeRate}% (${sectorComparisonBase.deltaVsPeer >= 0 ? '+' : ''}${sectorComparisonBase.deltaVsPeer}%p 차이)`
+          : '동종업계 비교 데이터 없음';
 
         // ── 그룹 3-1: 실적 추이 (최근 3개년 확정 연간, 잠정치 아님) ──────────────────────
         const financialsBlock = annualFinancials.length
@@ -1051,8 +1083,9 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           mainAnalysisSections: mainAnalysisSections ?? undefined, // 있으면 프론트가 소제목 렌더링, 없으면(과거 레코드/폴백) mainAnalysis 문자열로 폴백
           riskFactors:        toArr(result!.riskFactors),
           flowInsight:        typeof result!.flowInsight       === 'string' ? result!.flowInsight       : '',
-          institutionalFlow:  typeof result!.institutionalFlow === 'string' ? result!.institutionalFlow : '',
-          foreignFlow:        typeof result!.foreignFlow       === 'string' ? result!.foreignFlow       : '',
+          // 카드가 '기관'/'외국인' 라벨을 직접 붙이므로 AI가 넣은 주어 접두어는 저장 전에 뗀다(2026-09-02)
+          institutionalFlow:  typeof result!.institutionalFlow === 'string' ? stripFlowSubject(result!.institutionalFlow) : '',
+          foreignFlow:        typeof result!.foreignFlow       === 'string' ? stripFlowSubject(result!.foreignFlow)       : '',
           shortTermOutlook:   typeof result!.shortTermOutlook  === 'string' ? result!.shortTermOutlook  : undefined,
           midTermOutlook:     typeof result!.midTermOutlook    === 'string' ? result!.midTermOutlook    : undefined,
           // 2026-09-01 실측: 프롬프트의 선택지 기호 "(a)/(b)/(c)"가 문장에 그대로 새어 나오고(삼성전자

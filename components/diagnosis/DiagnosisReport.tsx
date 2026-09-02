@@ -21,6 +21,7 @@ import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnaps
 import { SectorComparisonCard, type SectorComparison } from '@/components/diagnosis/SectorComparisonCard';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
+import { buildStateSentence } from '@/lib/diagnosis-history-sentence';
 import type { RevealedField } from '@/lib/useSmoothTypingText';
 
 export interface DiagnosisHistory {
@@ -256,31 +257,6 @@ function StateBlock({ label, rate, amount, emphasize }: { label: string; rate: n
   );
 }
 
-// 그때→지금 조합별 보조 문구 — 델타 부호만이 아니라 "상태(수익/손실) 유지냐 전환이냐"까지
-// 구분해서 서술한다. 수익유지(증가/감소)·수익→손실전환·손실→수익전환·손실유지(악화/회복)
-// 6가지 조합을 전부 커버(설계 검토에서 요구한 4가지 핵심 케이스 + 대칭 케이스).
-function buildStateSentence(prevRate: number, rateDelta: number, amountDelta: number): string {
-  const prevProfit = prevRate >= 0;
-  const currProfit = prevRate + rateDelta >= 0;
-  const rateStr   = `${rateDelta >= 0 ? '+' : ''}${rateDelta.toFixed(2)}%p`;
-  const amountStr = `${amountDelta >= 0 ? '+' : ''}${fmt(Math.round(amountDelta))}원`;
-  const deltaTxt  = `직전 대비 ${rateStr}(${amountStr})`;
-
-  if (prevProfit && currProfit) {
-    return rateDelta >= 0
-      ? `${deltaTxt} 늘며 수익 폭이 커졌습니다.`
-      : `${deltaTxt} 줄었지만, 여전히 수익 구간입니다.`;
-  }
-  if (prevProfit && !currProfit) {
-    return `${deltaTxt} — 직전 수익 구간에서 손실로 전환됐습니다.`;
-  }
-  if (!prevProfit && currProfit) {
-    return `${deltaTxt} — 직전 손실 구간에서 수익으로 전환됐습니다.`;
-  }
-  return rateDelta < 0
-    ? `${deltaTxt} — 손실 폭이 커졌습니다.`
-    : `${deltaTxt} — 손실 폭이 줄었지만, 여전히 손실 구간입니다.`;
-}
 
 // "직전 기업분석 대비" 카드 — 그때/지금의 절대 손익 상태를 나란히 먼저 보여주고, 변화량은
 // 그 아래 보조 문구로만 붙인다(2026-08-28 재설계 — 델타만 보여주면 "지금도 수익 중인데

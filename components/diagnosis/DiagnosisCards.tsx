@@ -10,6 +10,7 @@
 //  · SurgeTradingRow       3층 — 급등락 이력이 있을 때만 별도 카드, 없으면 거래대금 카드 안 한 줄로 접음
 import type { ReactNode } from 'react';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
+import { stripFlowSubject } from '@/lib/flow-caption';
 import type { RevealedField } from '@/lib/useSmoothTypingText';
 import { SurgeHistoryCard, TradingValueMultipleCard, type SurgeHistory, type TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
 
@@ -28,10 +29,11 @@ export function TypingCursor() {
 
 // 스트리밍 텍스트 한 조각 — 값이 있으면 텍스트(+타이핑 커서), 아직 없고 생성 중이면 스켈레톤, 아니면 null.
 export function StreamText({
-  value, k, revealed, pending = false, lines = 2, className = 'text-xs text-slate-300 leading-relaxed',
-}: { value?: string; k: string; revealed?: Record<string, RevealedField>; pending?: boolean; lines?: number; className?: string }) {
+  value, k, revealed, pending = false, lines = 2, className = 'text-xs text-slate-300 leading-relaxed', transform,
+}: { value?: string; k: string; revealed?: Record<string, RevealedField>; pending?: boolean; lines?: number; className?: string; transform?: (s: string) => string }) {
   if (value) {
-    return <p className={className}>{revealed?.[k]?.text ?? value}{revealed?.[k]?.active && <TypingCursor />}</p>;
+    const shown = revealed?.[k]?.text ?? value;
+    return <p className={className}>{transform ? transform(shown) : shown}{revealed?.[k]?.active && <TypingCursor />}</p>;
   }
   return pending ? <FieldSkeleton lines={lines} /> : null;
 }
@@ -152,9 +154,22 @@ export function InstitutionalFlowCard({
         <span className="text-[11px] font-bold tracking-wide text-slate-500 whitespace-nowrap">최근 5일 흐름</span>
         <span className="flex-1 h-px bg-slate-700/40" />
       </div>
+      {/* 2026-09-02: 두 줄 다 "최근 5거래일 중 N일 순유입"처럼 나와 어느 줄이 기관/외국인인지 알 수 없던
+          문제 — AI 캡션의 주어에 기대지 않고 카드가 라벨을 직접 붙인다(AI가 주어를 넣어도 stripFlowSubject로 정리). */}
       <div className="flex flex-col gap-1.5">
-        <StreamText value={institutionalFlow} k="institutionalFlow" revealed={revealed} pending={isGenerating} lines={1} className="text-center text-xs text-slate-400 leading-relaxed" />
-        <StreamText value={foreignFlow} k="foreignFlow" revealed={revealed} pending={isGenerating} lines={1} className="text-center text-xs text-slate-400 leading-relaxed" />
+        {[
+          { label: '기관',   value: institutionalFlow, k: 'institutionalFlow' },
+          { label: '외국인', value: foreignFlow,       k: 'foreignFlow' },
+        ].map(({ label, value, k }) => (
+          (value || isGenerating) && (
+            <div key={k} className="flex items-start gap-2">
+              <span className="shrink-0 w-10 text-[11px] font-semibold text-slate-500 leading-relaxed">{label}</span>
+              <div className="min-w-0 flex-1">
+                <StreamText value={value} k={k} revealed={revealed} pending={isGenerating} lines={1} className="text-xs text-slate-400 leading-relaxed" transform={stripFlowSubject} />
+              </div>
+            </div>
+          )
+        ))}
       </div>
       {(flowInsight || isGenerating) && (
         <div className="mt-3 rounded-lg bg-indigo-500/10 border-l-2 border-indigo-400/50 px-3 py-2">

@@ -23,6 +23,12 @@ type TableState = TableData | 'error' | null;
 // 현재가·시장(KOSPI/KOSDAQ)은 /api/stock/[ticker]/price(StockHeader가 이미 폴링 중인
 // 것과 같은, TTL 캐시가 있는 엔드포인트)를 1회만 조회해서 쓴다 — DailyPriceTable도
 // ticker만 받아 스스로 데이터를 가져오는 동일한 패턴.
+// "YYYY-MM-DD" → "8/26" — 기준일 인라인 표기용(다른 카드의 fmtShortDate/md와 같은 형식).
+function fmtMonthDay(d: string): string {
+  const p = d.split('-');
+  return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : d;
+}
+
 export default function PriceChangeTable({ ticker }: { ticker: string }) {
   const [state, setState] = useState<TableState>(null);
 
@@ -143,10 +149,16 @@ export default function PriceChangeTable({ ticker }: { ticker: string }) {
               return (
                 <tr
                   key={row.label}
-                  title={row.pastDate}
                   className="border-b border-[#2d313e]/60 hover:bg-[#2d313e]/30 transition-colors"
                 >
-                  <td className="py-2.5 text-[#8c909f] whitespace-nowrap">{row.label}</td>
+                  {/* 기준일은 예전엔 tr title(브라우저 네이티브 툴팁)로만 보여줬는데, 2026-09-02 기업분석
+                      실화면에서 그 툴팁("2026-08-26" 박스)이 커서 위치에 떠서 다른 카드의 캡션을 가리는
+                      문제가 보고됐다 — OS 툴팁은 위치·z-index를 제어할 수 없으므로 없애고 라벨 옆에
+                      바로 표기한다(표는 overflow-x-auto라 폭 여유 있음). */}
+                  <td className="py-2.5 text-[#8c909f] whitespace-nowrap">
+                    {row.label}
+                    <span className="ml-1.5 text-[10px] font-mono text-[#5c6070]">{fmtMonthDay(row.pastDate)}</span>
+                  </td>
                   <td className="py-2.5 text-right font-mono text-[#d4e4fa] whitespace-nowrap">
                     {row.pastClose.toLocaleString()}원
                   </td>

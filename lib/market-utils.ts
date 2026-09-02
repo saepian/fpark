@@ -44,8 +44,8 @@ export function isKoreanMarketOpen(): boolean {
 // 이미 false라 실질적 영향은 없음). 대시보드 "AI 분석" 버튼처럼 "장마감~자정"에만
 // 활성화되어야 하는 기능이 isKoreanMarketOpen()과 함께 써서 자정 이후 재비활성화를
 // 판단한다(2026-08-31, isKoreanMarketOpen()과 동일한 KST 변환 패턴 재사용).
-export function isKoreanMarketPreOpen(): boolean {
-  const kst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+export function isKoreanMarketPreOpen(now: Date = new Date()): boolean {
+  const kst = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
   const minutes = kst.getHours() * 60 + kst.getMinutes();
   return minutes < 9 * 60;
 }

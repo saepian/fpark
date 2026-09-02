@@ -15,6 +15,13 @@ export interface SectorComparison {
   sectorName?: string;   // KIS 업종명(예: "전기·전자") — 없으면 캡션에서 생략
   peerNames?: string[];  // 비교에 쓰인 동종업계 peer 종목명 전체(평균 계산에 쓰인 개수와 동일)
   sparkline?: { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null;
+  basis?: 'today' | 'prevClose'; // 2026-09-02 신설 — 'prevClose'면 개장 전 생성이라 전일 마감 등락률로 계산(옛 레코드는 undefined=당일)
+  basisDate?: string;            // basis='prevClose'일 때 그 마감일(YYYY-MM-DD)
+}
+
+function fmtMonthDay(d: string): string {
+  const p = d.split('-');
+  return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : d;
 }
 
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
@@ -61,14 +68,20 @@ export function SectorComparisonCard({
   data: SectorComparison;
   narrative?: React.ReactNode;
 }) {
+  const prevClose = data.basis === 'prevClose';
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <p className={`${SECTION_TITLE_CLASS} text-slate-400 uppercase tracking-widest`}>업종 대비</p>
+        {prevClose && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300/90 whitespace-nowrap">
+            전일{data.basisDate ? `(${fmtMonthDay(data.basisDate)})` : ''} 마감 기준
+          </span>
+        )}
       </div>
       <div className="flex flex-col divide-y divide-slate-700/40 mb-3">
         <div className="flex items-center justify-between py-2 first:pt-0">
-          <span className="text-[12px] text-slate-400">업종 평균 등락률</span>
+          <span className="text-[12px] text-slate-400">업종 평균 등락률{prevClose ? ' (전일)' : ''}</span>
           <span className="text-[13px] font-bold font-mono text-slate-300">{fmtRate(data.peerAvgChangeRate)}</span>
         </div>
         <div className="flex items-center justify-between py-2 last:pb-0">
@@ -78,6 +91,11 @@ export function SectorComparisonCard({
           </span>
         </div>
       </div>
+      {prevClose && (
+        <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
+          개장 전 생성이라 당일 등락률이 아직 없어 전일 마감 등락률로 비교했습니다.
+        </p>
+      )}
       {(data.sectorName || (data.peerNames?.length ?? 0) > 0) && (
         <p className="text-[11px] text-slate-500 mb-2">
           {data.sectorName}
