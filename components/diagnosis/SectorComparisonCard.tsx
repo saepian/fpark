@@ -46,6 +46,10 @@ const TOP_PEER_COLORS = ['#f59e0b', '#22c55e', '#e879f9']; // amber / green / fu
 // 되므로 이 종목만 굵게 강조하고 TOP3는 얇게 눌러 범례가 깨지지 않게 한다.
 function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorComparison['sparkline']> }) {
   const topPeers = sparkline.topPeers ?? [];
+  // peer가 정확히 1개면 "업종 평균"은 정의상 그 peer의 값 그 자체라 두 선이 항상 완전히
+  // 겹친다 — 범례엔 3개(이 종목/업종 평균/peer명)가 보이는데 화면엔 선이 2개로만 보이는
+  // 원인. 이 경우 평균 선을 따로 그리지 않고 peer 선 하나로 합쳐 범례도 2개로 줄인다.
+  const singlePeer = topPeers.length === 1 ? topPeers[0] : null;
   const data = sparkline.dates.map((d, i) => {
     const row: Record<string, string | number> = {
       date: d,
@@ -60,10 +64,10 @@ function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorCompariso
       <div style={{ height: 64 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-            {topPeers.map((_, pi) => (
+            {!singlePeer && topPeers.map((_, pi) => (
               <Line key={pi} type="monotone" dataKey={`top${pi}`} stroke={TOP_PEER_COLORS[pi]} strokeWidth={1} strokeOpacity={0.75} dot={false} isAnimationActive={false} />
             ))}
-            <Line type="monotone" dataKey="peerAvg" stroke="#64748b" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="peerAvg" stroke={singlePeer ? TOP_PEER_COLORS[0] : '#64748b'} strokeWidth={1.5} dot={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="stock" stroke="#818cf8" strokeWidth={2.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -72,14 +76,22 @@ function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorCompariso
         <span className="flex items-center gap-1 text-[11px] text-slate-300 font-semibold">
           <span className="w-2 h-0.5 rounded-full bg-indigo-400 inline-block" /> 이 종목
         </span>
-        <span className="flex items-center gap-1 text-[11px] text-slate-500">
-          <span className="w-2 h-0.5 rounded-full bg-slate-500 inline-block" /> 업종 평균
-        </span>
-        {topPeers.map((p, pi) => (
-          <span key={p.name} className="flex items-center gap-1 text-[11px] text-slate-500">
-            <span className="w-2 h-0.5 rounded-full inline-block" style={{ backgroundColor: TOP_PEER_COLORS[pi] }} /> {p.name}
+        {singlePeer ? (
+          <span className="flex items-center gap-1 text-[11px] text-slate-500">
+            <span className="w-2 h-0.5 rounded-full inline-block" style={{ backgroundColor: TOP_PEER_COLORS[0] }} /> {singlePeer.name}
           </span>
-        ))}
+        ) : (
+          <>
+            <span className="flex items-center gap-1 text-[11px] text-slate-500">
+              <span className="w-2 h-0.5 rounded-full bg-slate-500 inline-block" /> 업종 평균
+            </span>
+            {topPeers.map((p, pi) => (
+              <span key={p.name} className="flex items-center gap-1 text-[11px] text-slate-500">
+                <span className="w-2 h-0.5 rounded-full inline-block" style={{ backgroundColor: TOP_PEER_COLORS[pi] }} /> {p.name}
+              </span>
+            ))}
+          </>
+        )}
         <span className="text-[11px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
       </div>
       {topPeers.length > 0 && (
