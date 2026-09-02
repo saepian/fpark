@@ -394,7 +394,12 @@ export async function POST(request: NextRequest) {
         const chartData    = chartResult.status    === 'fulfilled' ? chartResult.value    : [];
         const sectorMacroNews = sectorMacroResult.status === 'fulfilled' ? sectorMacroResult.value.items : [];
         const sectorNameForMacro = analysisData?.sector || priceData?.sector || '';
-        const sectorPeers   = sectorResult.status     === 'fulfilled' ? sectorResult.value     : [];
+        const sectorPeersResult = sectorResult.status === 'fulfilled' ? sectorResult.value : null;
+        const sectorPeers   = sectorPeersResult?.peers ?? [];
+        // "업종 대비" 카드에 표시할 업종명은 실제로 peer 선정에 쓰인 네이버 하위분류명을
+        // 우선한다(2026-09-02 — sectorNameForMacro는 KIS 대분류라 peer 소스와 어긋났다).
+        // 파싱 실패 시에만 기존 KIS 이름으로 폴백.
+        const peerSectorName = sectorPeersResult?.sectorName || sectorNameForMacro;
 
         // 거래일 상태 — 별도 KIS 재조회 없이 위에서 이미 받은 차트의 마지막 행 날짜를 재사용
         // 해 휴장일(주말/공휴일)을 판정한다(lib/market-day-context.ts 참고).
@@ -629,7 +634,7 @@ export async function POST(request: NextRequest) {
               deltaVsPeer: prevClose.deltaVsPeer,
               basis: 'prevClose',
               basisDate: prevClose.basisDate,
-              sectorName: sectorNameForMacro || undefined,
+              sectorName: peerSectorName || undefined,
               peerNames: prevClose.peerNames,
             };
             sectorStockChangeRate = prevClose.stockChangeRate;
@@ -638,7 +643,7 @@ export async function POST(request: NextRequest) {
         } else {
           const rawSectorComparison = computeSectorRelativeChange(changeRate, sectorPeers);
           sectorComparisonBase = rawSectorComparison
-            ? { ...rawSectorComparison, basis: 'today', sectorName: sectorNameForMacro || undefined, peerNames: sectorPeers.map((p) => p.name) }
+            ? { ...rawSectorComparison, basis: 'today', sectorName: peerSectorName || undefined, peerNames: sectorPeers.map((p) => p.name) }
             : null;
         }
         const sectorBasisNote = sectorComparisonBase?.basis === 'prevClose'

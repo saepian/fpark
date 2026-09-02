@@ -910,6 +910,60 @@ export async function fetchStockPricesCached(
   return { prices, failed, cacheHits };
 }
 
+// ── peer 시가총액 유사도 필터용 일괄 조회 (2026-09-02) ─────────────────────────
+// lib/sector-peers.ts가 "업종 대비" peer 후보(넓은 업종에서 최대 수십 개)의 시가총액을
+// 필터링 기준으로만 쓴다 — 표시용 StockQuote 전체를 만들 필요 없이 hts_avls(억원 단위
+// 원시값)만 뽑으면 되므로, fetchStockPricesCached와 동일한 "캐시 일괄 조회 → 미스만
+// 작은 동시성으로 라이브" 패턴을 그대로 재사용해 새 함수로 둔다(기존 함수의 반환 타입
+// StockPrice를 바꾸면 워치리스트 등 기존 소비처에 영향이 가서 별도 함수로 분리).
+export async function fetchMarketCapsCached(tickers: string[]): Promise<Map<string, number>> {
+  const caps = new Map<string, number>();
+  const unique = [...new Set(tickers)];
+  if (unique.length === 0) return caps;
+
+  const ttlMs = isKoreanMarketOpen() ? QUOTE_CACHE_TTL_MS_OPEN : QUOTE_CACHE_TTL_MS_CLOSED;
+  const keyToTicker = new Map(unique.map(t => [quoteCacheKey(t), t]));
+  let cachedRows: { ticker: string; raw: CachedQuoteRaw; updatedAt: string }[] = [];
+  try {
+    const { data } = await supabase
+      .from('market_cache')
+      .select('key, data, updated_at')
+      .in('key', [...keyToTicker.keys()]);
+    cachedRows = (data ?? []).flatMap(row => {
+      const ticker = keyToTicker.get(row.key);
+      const raw = row.data as unknown as CachedQuoteRaw | null;
+      return ticker && raw?.output && typeof raw.name === 'string'
+        ? [{ ticker, raw, updatedAt: row.updated_at }]
+        : [];
+    });
+  } catch (e) {
+    console.warn('[fetchMarketCapsCached] 캐시 일괄 조회 실패, 전부 라이브로:', e instanceof Error ? e.message : e);
+  }
+  for (const row of selectFreshQuoteCacheRows(cachedRows, new Date(), ttlMs)) {
+    const cap = parseInt(row.raw.output.hts_avls, 10);
+    if (Number.isFinite(cap) && cap > 0) caps.set(row.ticker, cap);
+  }
+
+  const misses = unique.filter(t => !caps.has(t));
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < misses.length) {
+      const ticker = misses[cursor++];
+      try {
+        const o = await queryPrice(ticker, false);
+        const name = await resolveStockName(ticker, o);
+        await saveStockQuoteCache(ticker, { output: o, name });
+        const cap = parseInt(o.hts_avls, 10);
+        if (Number.isFinite(cap) && cap > 0) caps.set(ticker, cap);
+      } catch (e) {
+        console.warn(`[fetchMarketCapsCached] ${ticker} 라이브 조회 실패:`, e instanceof Error ? e.message : e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(QUOTE_BATCH_LIVE_CONCURRENCY, misses.length) }, worker));
+  return caps;
+}
+
 export async function fetchStockInfo(ticker: string): Promise<StockInfo> {
   const o = await queryPrice(ticker);
   return {

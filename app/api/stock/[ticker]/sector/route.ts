@@ -12,7 +12,7 @@ export async function GET(
   const { ticker } = await params;
 
   try {
-    const peers = await fetchSectorPeers(ticker);
+    const { peers } = await fetchSectorPeers(ticker);
     return Response.json(peers);
   } catch (err) {
     console.error(`[sector] ${ticker}:`, err);
