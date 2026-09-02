@@ -65,7 +65,7 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
   "mainAnalysisSections_watchPoint": "【최대 150자, 절대 넘기지 말 것 — 1~2문장, 내 포지션 관점】아래 [내 포지션 데이터]의 수치만 사용해 '지금 내 위치'를 서술하세요. 반드시 포함: (1) 매입가 대비 수익/손실 구간 (2) 보유 중 고점 또는 저점 대비 현재 위치. 여기에 ±15% 변동일 수·PER 변화·지수 대비 중 1개만 골라 덧붙일 수 있습니다(수치는 총 3개 이하 — 카드 타일에 전부 표시되므로 나열하지 말 것). 예) '매입가 대비 -10% 구간에서, 보유 중 고점(374,500원) 대비 -30%를 되돌린 위치다. 보유기간 중 ±15% 변동일은 없었다.' [내 포지션 데이터]에 없는 수치를 만들지 말 것. 업종 대비·실적·수급·급등락 사례·거래대금·뉴스는 다른 필드의 몫이므로 언급 금지. '회복', '반등', '되찾', '만회' 같은 방향 표현 금지 — 위치만 서술",
   "historyNarrative": "【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로 서술",
   "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석([업종 대비]에 '전일 … 마감 기준' 표시가 있으면 '오늘' 대신 '전일(날짜)' 기준으로 서술). 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중 — 격차의 '원인'(자사주·수급·뉴스 등)은 background·flowInsight가 이미 다뤘으므로 여기서 다시 쓰지 말 것. PER/PBR(valuationNote)·수급(flowInsight)과 겹치지 않음",
-  "sectorTopPeersNarrative": "【[업종 내 TOP3]에 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】sectorNarrative와 다른 관점입니다 — 오늘(또는 전일) 하루 vs 업종 평균이 아니라, [업종 내 TOP3]에 제시된 구간 누적 등락률 기준으로 이 종목이 업종 상위 종목들과 비교해 어디에 있는지를 서술하세요. 이 종목이 TOP3 안에 드는지 여부, TOP3와의 격차 크기, TOP3와 같은 방향으로 움직였는지(동반 상승/하락) 중심으로. 예) '같은 기간 업종 TOP3가 모두 두 자릿수 상승한 반면 이 종목은 소폭 상승에 그쳐 업종 상위 종목 대비 상승 폭이 뚜렷이 좁았다.' sectorNarrative가 이미 쓴 '오늘' 수치는 반복하지 말 것",
+  "sectorTopPeersNarrative": "【[업종 내 비교 대상]에 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】sectorNarrative와 다른 관점입니다 — 오늘(또는 전일) 하루 vs 업종 평균이 아니라, [업종 내 비교 대상]에 제시된 구간 누적 등락률 기준으로 이 종목이 그 종목(들)과 비교해 어디에 있는지를 서술하세요. 격차 크기, 같은 방향으로 움직였는지(동반 상승/하락) 중심으로. 【중요】[업종 내 비교 대상]의 라벨을 그대로 따르세요 — 라벨이 '업종 내 TOP3 종목'일 때만 'TOP3'라는 표현을 쓸 수 있고, '비교 가능한 상위 2종목'이면 '상위 2종목', '비교 가능한 유일한 종목'이면 그 종목명을 '유일한 비교 대상'으로 표현하세요(실제로 1~2개뿐인데 'TOP3'라고 쓰면 안 됨). 예) '같은 기간 업종 TOP3가 모두 두 자릿수 상승한 반면 이 종목은 소폭 상승에 그쳐 상승 폭이 뚜렷이 좁았다.' 또는 '비슷한 규모의 비교 대상이 SK하이닉스뿐인 가운데, 이 종목은 같은 기간 그보다 낮은 상승률을 보였다.' sectorNarrative가 이미 쓴 '오늘' 수치는 반복하지 말 것",
   "financialsNarrative": "【[실적 추이]에 데이터가 있을 때만 2문장 — 없으면 빈 문자열 \\"\\"】연간 추세 1문장 + 최근 분기(전년 동기 대비) 1문장. 숫자를 전부 나열하지 말고 추세(개선/악화/횡보)와 그 의미 위주로, 향후 실적을 예측하지 말고 '다음 분기 실적에서 확인' 같은 관찰형으로 마무리",
   "disclosureNarrative": "【[최근 주요 공시]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】공시는 사실관계가 명확하므로 구체적 수치·날짜를 그대로 인용해도 됨(예: '7월 10일 자기주식 500억원 규모 처분을 공시했다'). 이 공시가 무엇을 의미하는지 관찰형으로 해석. 공시 수치는 이 필드에서만 인용(background·riskFactors에서 반복 금지)",
   "riskFactors": ["종목 고유 리스크 1 (25~40자)", "종목 고유 리스크 2 (25~40자)", "종목 고유 리스크 3 (25~40자)"],
@@ -696,9 +696,17 @@ export async function POST(request: NextRequest) {
         const sectorComparison = sectorComparisonBase
           ? { ...sectorComparisonBase, sparkline: sectorSparkline }
           : null;
-        const sectorTopPeersBlock = sectorSparkline && sectorSparkline.topPeers.length > 0
-          ? `- 업종 내 TOP3 종목(기준: 최근 ${sectorSparkline.dates.length}거래일 누적 등락률 상위): ${sectorSparkline.topPeers.map((p) => `${p.name} ${p.returns[p.returns.length - 1] >= 0 ? '+' : ''}${p.returns[p.returns.length - 1]}%`).join(', ')} / 이 종목 같은 기간 누적 등락률: ${sectorSparkline.stockReturns[sectorSparkline.stockReturns.length - 1] >= 0 ? '+' : ''}${sectorSparkline.stockReturns[sectorSparkline.stockReturns.length - 1]}%`
-          : 'TOP3 비교 데이터 없음';
+        // 2026-09-02: 넓은 업종의 시가총액 유사도 필터(lib/sector-peers.ts)를 거치면 peer가
+        // 1~2개로 줄 수 있어(예: 삼성전자는 SK하이닉스 1개만 남음) "TOP3"라는 라벨이 어색해진다.
+        // 실제 개수에 맞는 라벨을 데이터 블록에 써서, AI가 데이터를 그대로 옮겨 적어도
+        // sectorTopPeersNarrative에서 "TOP3" 오용이 자연스럽게 줄어들게 한다(스키마 지침에도 명시).
+        const topPeersLabel = !sectorSparkline || sectorSparkline.topPeers.length === 0 ? null
+          : sectorSparkline.topPeers.length >= 3 ? '업종 내 TOP3 종목'
+          : sectorSparkline.topPeers.length === 2 ? '업종 내 비교 가능한 상위 2종목'
+          : '업종 내 비교 가능한 유일한 종목';
+        const sectorTopPeersBlock = sectorSparkline && topPeersLabel
+          ? `- ${topPeersLabel}(기준: 최근 ${sectorSparkline.dates.length}거래일 누적 등락률 상위): ${sectorSparkline.topPeers.map((p) => `${p.name} ${p.returns[p.returns.length - 1] >= 0 ? '+' : ''}${p.returns[p.returns.length - 1]}%`).join(', ')} / 이 종목 같은 기간 누적 등락률: ${sectorSparkline.stockReturns[sectorSparkline.stockReturns.length - 1] >= 0 ? '+' : ''}${sectorSparkline.stockReturns[sectorSparkline.stockReturns.length - 1]}%`
+          : '비교 데이터 없음';
 
         // 환율 상관관계 — 종목 1년 일별 종가(chartData, 이미 있음) vs 환율 1년 일별 종가(fxDaily,
         // 위에서 함께 받음)의 피어슨 상관계수. |r| < 0.3(약한 상관)이거나 표본이 부족하면
@@ -821,7 +829,7 @@ ${investorBlock}
 ## 업종 대비
 ${sectorBlock}
 
-## 업종 내 TOP3
+## 업종 내 비교 대상
 ${sectorTopPeersBlock}
 
 ## 실적 추이
@@ -865,7 +873,7 @@ ${disclosureBlock}
 7. [직전 기업분석과의 차이]를 [직전 진단과의 간격] 지시에 따라 historyNarrative로 해석
 8. [내부 계산 지표](급등이력·거래대금 배수·MDD)는 화면에 원자료 카드로 별도 표시되므로 어떤 서술 필드에서도 그 수치를 인용하지 말 것 — riskFactors에 넣는 것도 금지
 9. [업종 대비]에 peer 데이터가 있으면 sectorNarrative를, [실적 추이]에 데이터가 있으면 financialsNarrative를, [최근 주요 공시]에 사례가 있으면 disclosureNarrative를 채우세요 — 데이터가 없으면 해당 필드는 빈 문자열로 두고 mainAnalysisSections_* 등 다른 필드에서 억지로 대신 언급하지 마세요. mainAnalysisSections_valuationNote(PER/PBR)와 sectorNarrative(등락률)는 서로 다른 지표이므로 데이터가 있어도 서로 겹치지 않게
-10. [업종 내 TOP3]에 데이터가 있으면 sectorTopPeersNarrative를 채우세요 — sectorNarrative는 오늘(또는 전일) 하루 대비 업종 평균, sectorTopPeersNarrative는 구간 누적 기준 TOP3 대비 위치로 시점·비교 대상이 서로 다릅니다. 데이터 없으면 빈 문자열로 두세요
+10. [업종 내 비교 대상]에 데이터가 있으면 sectorTopPeersNarrative를 채우세요 — sectorNarrative는 오늘(또는 전일) 하루 대비 업종 평균, sectorTopPeersNarrative는 구간 누적 기준 비교 대상 대비 위치로 시점·비교 대상이 서로 다릅니다. 데이터 없으면 빈 문자열로 두세요. 비교 대상이 1~2개뿐이면 절대 "TOP3"라고 쓰지 말고 [업종 내 비교 대상]의 라벨 그대로 서술하세요
 ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치는 mainAnalysisSections_watchPoint에서만, 판단 없이 사실 비교로 1회 언급 가능 — background 등 다른 필드에서 인용 금지, "그래서 ~해야 한다"는 연결 금지` : ''}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;

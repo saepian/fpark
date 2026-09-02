@@ -12,7 +12,7 @@ import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 export interface SectorComparison {
   peerAvgChangeRate: number;
   deltaVsPeer: number;
-  sectorName?: string;   // KIS 업종명(예: "전기·전자") — 없으면 캡션에서 생략
+  sectorName?: string;   // peer 선정에 실제로 쓰인 네이버 하위분류명(예: "반도체와반도체장비", 2026-09-02부터 KIS 대분류 대신 이 값) — 없으면 캡션에서 생략
   peerNames?: string[];  // 비교에 쓰인 동종업계 peer 종목명 전체(평균 계산에 쓰인 개수와 동일)
   sparkline?: {
     dates: string[]; stockReturns: number[]; peerAvgReturns: number[];
@@ -23,6 +23,10 @@ export interface SectorComparison {
   basis?: 'today' | 'prevClose'; // 2026-09-02 신설 — 'prevClose'면 개장 전 생성이라 전일 마감 등락률로 계산(옛 레코드는 undefined=당일)
   basisDate?: string;            // basis='prevClose'일 때 그 마감일(YYYY-MM-DD)
 }
+
+// 2026-09-02: 넓은 업종의 시가총액 유사도 필터(lib/sector-peers.ts)를 거치면 peer가
+// 이 값 이하로 줄어들 수 있다 — 그 경우 "왜 이렇게 적은지" 안내 문구를 붙인다.
+const SPARSE_PEER_THRESHOLD = 2;
 
 function fmtMonthDay(d: string): string {
   const p = d.split('-');
@@ -79,7 +83,13 @@ function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorCompariso
         <span className="text-[11px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
       </div>
       {topPeers.length > 0 && (
-        <p className="text-[10px] text-slate-600 mt-0.5">TOP3 기준: 같은 구간 누적 등락률 상위 3종목</p>
+        <p className="text-[10px] text-slate-600 mt-0.5">
+          {topPeers.length >= 3
+            ? 'TOP3 기준: 같은 구간 누적 등락률 상위 3종목'
+            : topPeers.length === 2
+              ? '업종 내 비교 가능한 상위 2종목 기준: 같은 구간 누적 등락률'
+              : '업종 내 비교 가능한 유일한 종목 기준: 같은 구간 누적 등락률'}
+        </p>
       )}
     </div>
   );
@@ -133,6 +143,15 @@ export function SectorComparisonCard({
               {data.peerNames!.join('·')} {data.peerNames!.length}개 종목 평균
             </>
           )}
+        </p>
+      )}
+      {/* 2026-09-02: 넓은 업종에서 시가총액 유사도 필터(lib/sector-peers.ts)를 거치면 삼성전자처럼
+          peer가 1~2개로 줄어들 수 있다 — 그 자체는 정상 동작이지만 설명 없이 "6개 종목 평균"에
+          익숙한 화면에서 갑자기 1개만 보이면 뭔가 잘못됐다고 오인하기 쉬워, 왜 이렇게 됐는지
+          납득할 수 있는 문구를 붙인다. */}
+      {(data.peerNames?.length ?? 0) > 0 && data.peerNames!.length <= SPARSE_PEER_THRESHOLD && (
+        <p className="text-[11px] text-amber-300/70 mb-2 leading-relaxed">
+          이 종목과 비교할 만한 규모의 동종업계 상장사가 {data.peerNames!.join('·')} 외에는 확인되지 않아, 비교 대상이 제한적입니다.
         </p>
       )}
       {data.sparkline && <SectorSparkline sparkline={data.sparkline} />}
