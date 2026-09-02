@@ -675,7 +675,7 @@ export async function POST(request: NextRequest) {
           const peerAvgReturns: number[] = [];
           const rawPeerReturns: number[][] = peerWindows.map(() => []);
           for (let i = 0; i < n; i++) {
-            const rates = peerWindows.map((w) => ((w[i].close - w[0].close) / w[0].close) * 100);
+            const rates = peerWindows.map((w) => ((w.chart[i].close - w.chart[0].close) / w.chart[0].close) * 100);
             rates.forEach((r, pi) => rawPeerReturns[pi].push(r));
             peerAvgReturns.push(parseFloat((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(2)));
           }
