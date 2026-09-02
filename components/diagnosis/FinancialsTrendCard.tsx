@@ -36,10 +36,13 @@ export function FinancialsTrendCard({
         {nonDecFy && <span className="text-[11px] text-slate-500">{nonDecFy} 기업 — 분기 순번은 회계연도 기준</span>}
       </div>
 
+      {/* 2026-09-02 밀도 조정: 연간(막대)과 분기(표)를 세로로 나열하면 카드가 페이지에서 가장 길어져
+          데스크톱에선 둘 다 있을 때 2열로 나란히 둔다(모바일은 세로 스택 그대로). */}
+      <div className={`grid grid-cols-1 ${annual.length > 0 && quarterly.length > 0 ? 'md:grid-cols-2 md:gap-5' : ''} gap-3 mb-3`}>
       {annual.length > 0 && (
-        <>
+        <div className="min-w-0">
           <p className="text-[11px] font-bold text-slate-500 mb-2.5">연간 (확정치, 억원)</p>
-          <div className="flex flex-col gap-3 mb-3">
+          <div className="flex flex-col gap-3">
             {annual.map((r) => (
               <div key={r.year}>
                 <div className="flex items-center justify-between mb-1.5">
@@ -80,12 +83,12 @@ export function FinancialsTrendCard({
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {quarterly.length > 0 && (
-        <div className={annual.length > 0 ? 'pt-3 border-t border-slate-700/40 mb-3' : 'mb-3'}>
-          <p className="text-[11px] font-bold text-slate-500 mb-2">분기 (단독 실적, 억원 · 괄호는 전년 동기 대비)</p>
+        <div className={`min-w-0 ${annual.length > 0 ? 'pt-3 border-t border-slate-700/40 md:pt-0 md:border-t-0 md:border-l md:pl-5' : ''}`}>
+          <p className="text-[11px] font-bold text-slate-500 mb-2">분기 (단독, 억원 · 괄호는 전년 동기비)</p>
           <div className="overflow-x-auto">
             <table className="w-full text-[11px] tabular-nums">
               <thead>
@@ -115,6 +118,7 @@ export function FinancialsTrendCard({
           </div>
         </div>
       )}
+      </div>
 
       {narrative}
     </div>

@@ -412,7 +412,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
 
         {/* 3층: 종목 구조 — components/diagnosis/DiagnosisReport.tsx와 동일한 2열 묶음(2026-09-02) */}
         <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 거래 · 배당" />
-        <div className={`grid grid-cols-1 ${d.sectorComparison ? 'md:grid-cols-2' : ''} gap-3 mb-3`}>
+        <div className={`grid grid-cols-1 ${d.sectorComparison ? 'md:grid-cols-2 md:items-start' : ''} gap-3 mb-3`}>
           <InstitutionalFlowCard
             flowType={d.flowType}
             flowPercentage={d.flowPercentage}

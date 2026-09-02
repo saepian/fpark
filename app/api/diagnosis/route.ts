@@ -29,7 +29,7 @@ import { selectSectorMacroNews } from '@/lib/sector-news';
 import { fetchNewsSentimentTrend } from '@/lib/news-sentiment';
 import {
   nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION, checkTemporalConsistency,
-  kstDateStr, daysBetween,
+  kstDateStr, daysBetween, kstYearMonthDay, kstMidnight,
 } from '@/lib/ai-grounding';
 import { getDomesticMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import { StreamingFieldParser, DIAGNOSIS_FIELD_SPECS } from '@/lib/streaming-json-fields';
@@ -572,7 +572,11 @@ export async function POST(request: NextRequest) {
           const merged = new Map<string, (typeof chartData)[number]>();
           for (const d of chart6m) merged.set(d.date, d);
           for (const d of chartData) merged.set(d.date, d);
-          return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+          // 연쇄 백필은 청크 단위(≈100거래일)라 6개월보다 더 거슬러 올라간 행이 섞여 온다(실측 200행≈10개월) —
+          // "오늘 기준 6개월"로 정확히 자른다(매수일 미입력 폴백이 그 이상을 쓰지 않도록).
+          const { year, month, day } = kstYearMonthDay(new Date());
+          const sixMonthsAgo = kstDateStr(kstMidnight(year, month - 6, day));
+          return [...merged.values()].filter((d) => d.date >= sixMonthsAgo).sort((a, b) => a.date.localeCompare(b.date));
         })();
         if (chart6m.length === 0) console.warn(`[DIAGNOSIS] ${ticker} 6개월 차트 백필 실패 — 내 포지션은 1Y 차트(${chartData.length}행)로 폴백`);
         const holdingPosition = computeHoldingPosition({

@@ -454,7 +454,7 @@ export default function DiagnosisReport({
         {/* ── 3층: 종목 구조 — [수급 | 업종 대비] · 실적(연간+분기) · [급등락 | 거래대금] · [배당 | 환율] ──
             짧은 카드끼리 2열로 묶어 세로 스크롤을 줄인다(2026-09-02). */}
         <LayerHeading no={3} title="종목 구조" sub="수급 · 업종 · 실적 · 거래 · 배당" />
-        <div className={`grid grid-cols-1 ${result.sectorComparison ? 'md:grid-cols-2' : ''} gap-3 mb-3`}>
+        <div className={`grid grid-cols-1 ${result.sectorComparison ? 'md:grid-cols-2 md:items-start' : ''} gap-3 mb-3`}>
           <InstitutionalFlowCard
             flowType={result.flowType}
             flowPercentage={result.flowPercentage}
