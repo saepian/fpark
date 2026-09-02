@@ -309,9 +309,14 @@ export const DIAGNOSIS_FIELD_SPECS: FieldSpec[] = [
   { key: 'mainAnalysisSections_watchPoint',    type: 'string', emit: true },
   { key: 'historyNarrative',     type: 'string',   emit: true },
   { key: 'sectorNarrative',      type: 'string',   emit: true },
+  // 2026-09-02: 업종 대비 카드의 TOP3 스파크라인 추가와 짝 — sectorNarrative(오늘 vs 업종평균)와
+  // 역할을 갈라 최근 21거래일 누적 등락률 기준 TOP3 peer 대비 위치만 담당한다.
+  { key: 'sectorTopPeersNarrative', type: 'string', emit: true },
   { key: 'financialsNarrative',  type: 'string',   emit: true },
   { key: 'disclosureNarrative',  type: 'string',   emit: true },
   { key: 'riskFactors',          type: 'string[]', emit: true },
+  // 2026-09-02: 포트폴리오분석 FactorCards(리스크/긍정 양쪽) 패턴을 기업분석에도 도입.
+  { key: 'opportunityFactors',   type: 'string[]', emit: true },
   { key: 'flowInsight',          type: 'string',   emit: true },
   { key: 'institutionalFlow',    type: 'string',   emit: true },
   { key: 'foreignFlow',          type: 'string',   emit: true },

@@ -15,7 +15,7 @@ import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 import type { SurgeHistory, TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
 import {
-  MainAnalysisCard, InstitutionalFlowCard, RiskFactorsCard, SurgeTradingRow, DisclosuresCard, FxCorrelationCard, LayerHeading,
+  MainAnalysisCard, InstitutionalFlowCard, SurgeTradingRow, DisclosuresCard, FxCorrelationCard, LayerHeading,
   type MainAnalysisSectionsData,
 } from '@/components/diagnosis/DiagnosisCards';
 import HoldingPositionCard from '@/components/diagnosis/HoldingPositionCard';
@@ -85,6 +85,7 @@ interface DiagnosisData {
     toDate: string;
   } | null;
   riskFactors: string[];
+  opportunityFactors?: string[]; // 2026-09-02 신설 — 옛 공유 리포트엔 없어 optional(리스크만 표시로 폴백)
   institutionalFlow: string;
   foreignFlow: string;
   flowType?: 'BUY' | 'SELL' | 'NEUTRAL';
@@ -103,6 +104,7 @@ interface DiagnosisData {
   // 2026-07-13 신설 — 이전에 저장된 공유 리포트에는 없을 수 있어 optional로 둠
   sectorComparison?: SectorComparisonData | null;
   sectorNarrative?: string;
+  sectorTopPeersNarrative?: string; // 2026-09-02 신설 — 업종 TOP3 대비 위치 해석
   annualFinancials?: AnnualFinancialRow[];
   quarterlyFinancials?: QuarterlyFinancialRow[]; // 2026-09-01 신설(옛 공유 리포트엔 없음)
   financialsYearEndMonth?: string;
@@ -424,6 +426,7 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
             <SectorComparisonCard
               data={d.sectorComparison}
               narrative={d.sectorNarrative ? <p className="text-[12px] text-slate-400 leading-relaxed">{d.sectorNarrative}</p> : null}
+              topPeersNarrative={d.sectorTopPeersNarrative ? <p className="text-[12px] text-slate-400 leading-relaxed">{d.sectorTopPeersNarrative}</p> : null}
             />
           )}
         </div>
@@ -448,7 +451,12 @@ function DiagnosisView({ d }: { d: DiagnosisData }) {
           className="mb-3"
         />
         <div className="grid grid-cols-1 md:grid-cols-2 md:items-start gap-3 mb-3">
-          <RiskFactorsCard riskFactors={d.riskFactors ?? []} />
+          <IssueFactorsCard
+            riskFactors={d.riskFactors ?? []}
+            opportunityFactors={d.opportunityFactors}
+            title="종목 고유 이슈"
+            caption="리스크·긍정 요인 모두 이 종목만의 사정만 다룹니다 — 수급·밸류에이션·거래 지표는 각 카드에서."
+          />
           <WatchVariablesCard
             shortTermOutlook={d.shortTermOutlook}
             midTermOutlook={d.midTermOutlook}

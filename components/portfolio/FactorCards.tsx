@@ -32,19 +32,23 @@ export function IssueFactorsCard({
   opportunityFactors,
   pending = false,
   className = '',
+  title = '종목별 개별 이슈',
+  caption = '각 종목 고유의 요인만 다룹니다 — 비중·집중도·변동성 기여 같은 구조 수치는 위 AI 종합 평가를 참고하세요.',
 }: {
   riskFactors?: RiskFactorEntry[];
   opportunityFactors?: string[];
   pending?: boolean;       // Stage2 아직 진행 중(미도착이면 스켈레톤)
   className?: string;
+  title?: string;    // 2026-09-02: 기업분석 리포트(종목 1개)는 "종목별"이 어색해 문구를 바꿔 끼울 수 있게
+  caption?: string;
 }) {
   const showRisk = riskFactors === undefined ? pending : riskFactors.length > 0;
   const showOpp  = opportunityFactors === undefined ? pending : opportunityFactors.length > 0;
   if (!showRisk && !showOpp) return null;
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
-      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">종목별 개별 이슈</p>
-      <p className="text-[11px] text-slate-500 leading-relaxed mb-4">각 종목 고유의 요인만 다룹니다 — 비중·집중도·변동성 기여 같은 구조 수치는 위 AI 종합 평가를 참고하세요.</p>
+      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">{title}</p>
+      <p className="text-[11px] text-slate-500 leading-relaxed mb-4">{caption}</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {showRisk && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/[0.03] p-4">

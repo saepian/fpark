@@ -6,8 +6,10 @@
 // 카드 단일역할 원칙(프롬프트 DIAGNOSIS_OUTPUT_INSTRUCTIONS와 짝):
 //  · MainAnalysisCard      1층 — 주가 배경(원인 1개 + 개별/업종 판단) → 밸류에이션(PER/PBR 유일) → AI 종합 진단(판단만)
 //  · InstitutionalFlowCard 3층 — 수급을 서술하는 유일한 카드(도넛 + 5일 캡션 + 해석 1문장 flowInsight)
-//  · RiskFactorsCard       4층 — 종목 고유 이슈만(수급·PER·거래대금배수·MDD 금지)
 //  · SurgeTradingRow       3층 — 급등락 이력이 있을 때만 별도 카드, 없으면 거래대금 카드 안 한 줄로 접음
+// 4층 "종목 고유 이슈"(리스크·긍정 요인)는 2026-09-02부터 포트폴리오와 동일한
+// components/portfolio/FactorCards.tsx의 IssueFactorsCard를 재사용한다(과거엔 이 파일의
+// RiskFactorsCard가 리스크만 담당했으나, opportunityFactors 신설로 두 화면이 같은 컴포넌트를 씀).
 import type { ReactNode } from 'react';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import { stripFlowSubject } from '@/lib/flow-caption';
@@ -177,27 +179,6 @@ export function InstitutionalFlowCard({
           <StreamText value={flowInsight} k="flowInsight" revealed={revealed} pending={isGenerating} lines={2} className="text-xs text-slate-200 leading-relaxed" />
         </div>
       )}
-    </div>
-  );
-}
-
-// 4층 "종목 고유 리스크" — 수급·PER·거래대금배수·MDD 같은 다른 카드의 지표는 프롬프트에서 금지.
-export function RiskFactorsCard({ riskFactors, isGenerating = false, className = '' }: { riskFactors: string[]; isGenerating?: boolean; className?: string }) {
-  if (riskFactors.length === 0 && !isGenerating) return null;
-  return (
-    <div className={`bg-[#1a1f2e] border border-red-500/20 rounded-2xl p-4 ${className}`}>
-      <div className="flex flex-wrap items-center gap-2 mb-1">
-        <span className={`px-2 py-0.5 rounded-md bg-red-500/15 border border-red-500/30 text-red-400 uppercase tracking-wider ${SECTION_TITLE_CLASS}`}>Risk Factors</span>
-      </div>
-      <p className="text-[11px] text-slate-500 leading-relaxed mb-3">이 종목 고유의 이슈만 — 수급·밸류에이션·거래 지표는 각 카드에서.</p>
-      <div className="flex flex-col gap-2">
-        {riskFactors.length > 0 ? riskFactors.map((line, i) => (
-          <div key={i} className="flex gap-2">
-            <span className="text-red-500/60 text-[11px] mt-1 shrink-0">▶</span>
-            <p className="text-xs text-slate-300 leading-relaxed">{line}</p>
-          </div>
-        )) : <FieldSkeleton lines={3} />}
-      </div>
     </div>
   );
 }

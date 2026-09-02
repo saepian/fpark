@@ -14,7 +14,12 @@ export interface SectorComparison {
   deltaVsPeer: number;
   sectorName?: string;   // KIS 업종명(예: "전기·전자") — 없으면 캡션에서 생략
   peerNames?: string[];  // 비교에 쓰인 동종업계 peer 종목명 전체(평균 계산에 쓰인 개수와 동일)
-  sparkline?: { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null;
+  sparkline?: {
+    dates: string[]; stockReturns: number[]; peerAvgReturns: number[];
+    // 2026-09-02 신설 — 업종 내 상위 3종목(기준: 같은 스파크라인 구간의 누적 등락률 상위, 캡션에 명시).
+    // 없거나(peer 부족) 옛 레코드면 undefined — 스파크라인은 기존 2선(이 종목/업종 평균)만 표시.
+    topPeers?: { name: string; returns: number[] }[];
+  } | null;
   basis?: 'today' | 'prevClose'; // 2026-09-02 신설 — 'prevClose'면 개장 전 생성이라 전일 마감 등락률로 계산(옛 레코드는 undefined=당일)
   basisDate?: string;            // basis='prevClose'일 때 그 마감일(YYYY-MM-DD)
 }
@@ -26,35 +31,56 @@ function fmtMonthDay(d: string): string {
 
 function fmtRate(r: number) { return `${r >= 0 ? '+' : ''}${r.toFixed(2)}%`; }
 
-// 최근 1개월 상대수익률(이 종목 vs peer 평균, 첫날 대비 누적%)을 축·범례 없이 보여주는
-// 작은 스파크라인 — MarketSummary.tsx의 MiniAreaChart와 같은 "축·범례 없는 미니 차트"
-// 원칙을 따르되, 여기는 실제 시계열 2개(가짜 장식용 곡선이 아님)라 범례 대신 아래 10px
-// 캡션으로 색을 설명한다.
+// 업종 내 TOP3 peer 선 색 — 이 종목(indigo, 굵게 강조)·업종 평균(회색)과 겹치지 않게
+// 채도 다른 3색을 얇은 선으로. 이 종목 선을 마지막에 그려 항상 맨 위에 오도록 한다.
+const TOP_PEER_COLORS = ['#f59e0b', '#22c55e', '#e879f9']; // amber / green / fuchsia
+
+// 최근 1개월 상대수익률(이 종목 vs peer 평균 vs 업종 TOP3, 첫날 대비 누적%)을 축 없이
+// 보여주는 작은 스파크라인 — MarketSummary.tsx의 MiniAreaChart와 같은 "축 없는 미니 차트"
+// 원칙을 따르되, 여기는 실제 시계열(가짜 장식용 곡선이 아님)이라 범례로 색을 설명한다.
+// 2026-09-02: peer 6종목 중 TOP3(같은 구간 누적 등락률 상위)를 얇은 선 3개로 추가 — 5선이
+// 되므로 이 종목만 굵게 강조하고 TOP3는 얇게 눌러 범례가 깨지지 않게 한다.
 function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorComparison['sparkline']> }) {
-  const data = sparkline.dates.map((d, i) => ({
-    date: d,
-    stock: sparkline.stockReturns[i],
-    peerAvg: sparkline.peerAvgReturns[i],
-  }));
+  const topPeers = sparkline.topPeers ?? [];
+  const data = sparkline.dates.map((d, i) => {
+    const row: Record<string, string | number> = {
+      date: d,
+      stock: sparkline.stockReturns[i],
+      peerAvg: sparkline.peerAvgReturns[i],
+    };
+    topPeers.forEach((p, pi) => { row[`top${pi}`] = p.returns[i]; });
+    return row;
+  });
   return (
     <div className="mb-2">
       <div style={{ height: 64 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+            {topPeers.map((_, pi) => (
+              <Line key={pi} type="monotone" dataKey={`top${pi}`} stroke={TOP_PEER_COLORS[pi]} strokeWidth={1} strokeOpacity={0.75} dot={false} isAnimationActive={false} />
+            ))}
             <Line type="monotone" dataKey="peerAvg" stroke="#64748b" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-            <Line type="monotone" dataKey="stock" stroke="#818cf8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line type="monotone" dataKey="stock" stroke="#818cf8" strokeWidth={2.5} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <div className="flex items-center gap-3 mt-1">
-        <span className="flex items-center gap-1 text-[11px] text-slate-500">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+        <span className="flex items-center gap-1 text-[11px] text-slate-300 font-semibold">
           <span className="w-2 h-0.5 rounded-full bg-indigo-400 inline-block" /> 이 종목
         </span>
         <span className="flex items-center gap-1 text-[11px] text-slate-500">
           <span className="w-2 h-0.5 rounded-full bg-slate-500 inline-block" /> 업종 평균
         </span>
+        {topPeers.map((p, pi) => (
+          <span key={p.name} className="flex items-center gap-1 text-[11px] text-slate-500">
+            <span className="w-2 h-0.5 rounded-full inline-block" style={{ backgroundColor: TOP_PEER_COLORS[pi] }} /> {p.name}
+          </span>
+        ))}
         <span className="text-[11px] text-slate-600 ml-auto">최근 {data.length}거래일</span>
       </div>
+      {topPeers.length > 0 && (
+        <p className="text-[10px] text-slate-600 mt-0.5">TOP3 기준: 같은 구간 누적 등락률 상위 3종목</p>
+      )}
     </div>
   );
 }
@@ -64,9 +90,11 @@ function SectorSparkline({ sparkline }: { sparkline: NonNullable<SectorCompariso
 export function SectorComparisonCard({
   data,
   narrative,
+  topPeersNarrative,
 }: {
   data: SectorComparison;
-  narrative?: React.ReactNode;
+  narrative?: React.ReactNode;          // 오늘(또는 전일) vs 업종 평균 — 기존 서술
+  topPeersNarrative?: React.ReactNode;  // 2026-09-02: 최근 구간 누적 기준 TOP3 대비 위치 — narrative와 역할 분리
 }) {
   const prevClose = data.basis === 'prevClose';
   return (
@@ -108,7 +136,10 @@ export function SectorComparisonCard({
         </p>
       )}
       {data.sparkline && <SectorSparkline sparkline={data.sparkline} />}
-      {narrative}
+      <div className="flex flex-col gap-1.5">
+        {narrative}
+        {topPeersNarrative}
+      </div>
     </div>
   );
 }

@@ -65,9 +65,11 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
   "mainAnalysisSections_watchPoint": "【최대 150자, 절대 넘기지 말 것 — 1~2문장, 내 포지션 관점】아래 [내 포지션 데이터]의 수치만 사용해 '지금 내 위치'를 서술하세요. 반드시 포함: (1) 매입가 대비 수익/손실 구간 (2) 보유 중 고점 또는 저점 대비 현재 위치. 여기에 ±15% 변동일 수·PER 변화·지수 대비 중 1개만 골라 덧붙일 수 있습니다(수치는 총 3개 이하 — 카드 타일에 전부 표시되므로 나열하지 말 것). 예) '매입가 대비 -10% 구간에서, 보유 중 고점(374,500원) 대비 -30%를 되돌린 위치다. 보유기간 중 ±15% 변동일은 없었다.' [내 포지션 데이터]에 없는 수치를 만들지 말 것. 업종 대비·실적·수급·급등락 사례·거래대금·뉴스는 다른 필드의 몫이므로 언급 금지. '회복', '반등', '되찾', '만회' 같은 방향 표현 금지 — 위치만 서술",
   "historyNarrative": "【1~2문장, 아래 [직전 진단과의 간격] 지시를 그대로 따를 것】구체적 수치는 화면에 별도로 표시되므로 여기서는 그 변화가 어떤 의미인지 해석 위주로 서술",
   "sectorNarrative": "【[업종 대비]에 peer 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】오늘 이 종목의 등락률이 동종업계 대비 어떻게 움직였는지만 집중 해석([업종 대비]에 '전일 … 마감 기준' 표시가 있으면 '오늘' 대신 '전일(날짜)' 기준으로 서술). 예) '오늘 반도체 업종 평균은 +0.81%인 반면 이 종목은 -7.71%로 업종 내에서도 두드러진 약세를 보였습니다.' 수치 나열보다 그 격차가 업종 공통 이슈인지 이 종목만의 개별 이슈인지 짚는 데 집중 — 격차의 '원인'(자사주·수급·뉴스 등)은 background·flowInsight가 이미 다뤘으므로 여기서 다시 쓰지 말 것. PER/PBR(valuationNote)·수급(flowInsight)과 겹치지 않음",
+  "sectorTopPeersNarrative": "【[업종 내 TOP3]에 데이터가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】sectorNarrative와 다른 관점입니다 — 오늘(또는 전일) 하루 vs 업종 평균이 아니라, [업종 내 TOP3]에 제시된 구간 누적 등락률 기준으로 이 종목이 업종 상위 종목들과 비교해 어디에 있는지를 서술하세요. 이 종목이 TOP3 안에 드는지 여부, TOP3와의 격차 크기, TOP3와 같은 방향으로 움직였는지(동반 상승/하락) 중심으로. 예) '같은 기간 업종 TOP3가 모두 두 자릿수 상승한 반면 이 종목은 소폭 상승에 그쳐 업종 상위 종목 대비 상승 폭이 뚜렷이 좁았다.' sectorNarrative가 이미 쓴 '오늘' 수치는 반복하지 말 것",
   "financialsNarrative": "【[실적 추이]에 데이터가 있을 때만 2문장 — 없으면 빈 문자열 \\"\\"】연간 추세 1문장 + 최근 분기(전년 동기 대비) 1문장. 숫자를 전부 나열하지 말고 추세(개선/악화/횡보)와 그 의미 위주로, 향후 실적을 예측하지 말고 '다음 분기 실적에서 확인' 같은 관찰형으로 마무리",
   "disclosureNarrative": "【[최근 주요 공시]에 사례가 있을 때만 1~2문장 — 없으면 빈 문자열 \\"\\"】공시는 사실관계가 명확하므로 구체적 수치·날짜를 그대로 인용해도 됨(예: '7월 10일 자기주식 500억원 규모 처분을 공시했다'). 이 공시가 무엇을 의미하는지 관찰형으로 해석. 공시 수치는 이 필드에서만 인용(background·riskFactors에서 반복 금지)",
   "riskFactors": ["종목 고유 리스크 1 (25~40자)", "종목 고유 리스크 2 (25~40자)", "종목 고유 리스크 3 (25~40자)"],
+  "opportunityFactors": ["종목 고유 긍정 요인 1 (25~40자)", "종목 고유 긍정 요인 2 (25~40자)", "종목 고유 긍정 요인 3 (25~40자)"],
   "flowInsight": "【최대 110자, 절대 넘기지 말 것 — 1문장】수급을 해석하는 유일한 자리(기관/외국인 카드 안). 외국인·기관 5일 추이 중 방향이 뚜렷한 쪽 하나를 골라 개인 수급 방향 또는 오늘 등락률과 연결해 해석하세요(유입·유출 금액 재서술 금지, 금액 수치는 최대 1개). 개인과 방향이 반대라면 그 대립이 왜 눈에 띄는지까지. 근거가 부족하면 '아직 명확하지 않다'도 정답. 미래 가격 예측 금지",
   "institutionalFlow": "기관 수급 한 줄 캡션 (도넛 차트 옆 '기관' 라벨 뒤에 표시되므로 '기관'이라는 주어 없이 서술, 1문장, '순매수 우위' 같은 방향성 판단 표현 대신 관찰된 유입/유출 규모를 그대로 서술 — 예: '최근 5거래일 중 3일 순유입, 누적 +120억원')",
   "foreignFlow": "외국인 수급 한 줄 캡션 ('외국인' 라벨 뒤에 표시되므로 주어 없이, 1문장, 동일 기준)",
@@ -81,14 +83,16 @@ const DIAGNOSIS_OUTPUT_INSTRUCTIONS = `## 출력 JSON 스키마 (반드시 아�
 규칙:
 - ${COMPLIANCE_PRINCIPLE}
 - JSON 키 순서 및 구조 변경 금지
-- 【수치 반복 금지 — 가장 중요】같은 수치·같은 사실을 두 필드 이상에서 쓰지 마세요. 다른 필드가 이미 인용한 수치는 표현을 바꿔도('약 X%', 'X배 수준', '두 자릿수 하락') 반복으로 간주합니다. 수치는 아래 담당 필드에서만 인용하세요: 오늘 등락률·움직임의 원인 → mainAnalysisSections_background / PER·PBR → mainAnalysisSections_valuationNote / 매입가·보유 중 고점·저점 대비·±15% 변동일·PER 변화·지수 대비 → mainAnalysisSections_watchPoint / 외국인·기관·개인 수급 → flowInsight·institutionalFlow·foreignFlow / 업종 peer 등락률 → sectorNarrative / 매출·영업이익·분기 실적 → financialsNarrative / 공시 수치·날짜 → disclosureNarrative / 직전 진단 대비 변화 → historyNarrative. riskFactors·shortTermOutlook·midTermOutlook·finalVerdict는 어떤 수치도 새로 인용하지 않습니다.
-- 【테마 반복 금지】mainAnalysisSections_background에서 오늘 움직임의 원인으로 쓴 사건·테마(예: 자사주 취득, MSCI 편입, 특정 뉴스)는 sectorNarrative·flowInsight·riskFactors·shortTermOutlook·midTermOutlook에서 같은 사건을 다시 서술하지 마세요 — 그 사건의 '다음 확인 이벤트'(공시 이행·실적 반영 등)로 shortTermOutlook 또는 midTermOutlook 중 한 곳에서 1회만 허용, finalVerdict는 판단 종합이므로 예외
-- riskFactors는 반드시 문자열 배열(JSON array), 각 항목 25~40자, 이 종목 고유 이슈(사업·규제·경쟁·고객사·공급망·소송·실적 변수·자사주 등 주주환원 실행 여부)만. 수급·PER/PBR·거래대금 배수·MDD/변동성·52주 위치·시장 전체 매크로(금리·환율·지수 일반론)는 절대 금지 — 다른 카드가 담당합니다. 고유 이슈가 부족하면 2개만 써도 됩니다(억지로 3개 채우지 말 것). '외국인·기관·개인·공매도·패시브·순매수·순매도·유입·유출·차익실현' 같은 수급 단어는 riskFactors·shortTermOutlook·midTermOutlook에 아예 쓰지 마세요 — 수급 이야기는 flowInsight 한 곳뿐입니다
+- 【수치 반복 금지 — 가장 중요】같은 수치·같은 사실을 두 필드 이상에서 쓰지 마세요. 다른 필드가 이미 인용한 수치는 표현을 바꿔도('약 X%', 'X배 수준', '두 자릿수 하락') 반복으로 간주합니다. 수치는 아래 담당 필드에서만 인용하세요: 오늘 등락률·움직임의 원인 → mainAnalysisSections_background / PER·PBR → mainAnalysisSections_valuationNote / 매입가·보유 중 고점·저점 대비·±15% 변동일·PER 변화·지수 대비 → mainAnalysisSections_watchPoint / 외국인·기관·개인 수급 → flowInsight·institutionalFlow·foreignFlow / 오늘(전일) 업종 peer 등락률 → sectorNarrative / 구간 누적 기준 업종 TOP3 대비 위치 → sectorTopPeersNarrative / 매출·영업이익·분기 실적 → financialsNarrative / 공시 수치·날짜 → disclosureNarrative / 직전 진단 대비 변화 → historyNarrative. riskFactors·opportunityFactors·shortTermOutlook·midTermOutlook·finalVerdict는 어떤 수치도 새로 인용하지 않습니다.
+- 【테마 반복 금지】mainAnalysisSections_background에서 오늘 움직임의 원인으로 쓴 사건·테마(예: 자사주 취득, MSCI 편입, 특정 뉴스)는 sectorNarrative·flowInsight·riskFactors·opportunityFactors·shortTermOutlook·midTermOutlook에서 같은 사건을 다시 서술하지 마세요 — 그 사건의 '다음 확인 이벤트'(공시 이행·실적 반영 등)로 shortTermOutlook 또는 midTermOutlook 중 한 곳에서 1회만 허용, finalVerdict는 판단 종합이므로 예외
+- riskFactors는 반드시 문자열 배열(JSON array), 각 항목 25~40자, 이 종목 고유 이슈(사업·규제·경쟁·고객사·공급망·소송·실적 변수·자사주 등 주주환원 실행 여부)만. 수급·PER/PBR·거래대금 배수·MDD/변동성·52주 위치·시장 전체 매크로(금리·환율·지수 일반론)는 절대 금지 — 다른 카드가 담당합니다. 고유 이슈가 부족하면 2개만 써도 됩니다(억지로 3개 채우지 말 것). '외국인·기관·개인·공매도·패시브·순매수·순매도·유입·유출·차익실현' 같은 수급 단어는 riskFactors·opportunityFactors·shortTermOutlook·midTermOutlook에 아예 쓰지 마세요 — 수급 이야기는 flowInsight 한 곳뿐입니다
+- opportunityFactors는 riskFactors와 동일한 형식·동일한 금지 규칙(수급·PER/PBR·거래대금 배수·MDD/변동성·52주 위치·시장 전체 매크로 절대 금지, 각 항목 25~40자, 이 종목 고유의 긍정 요인만 — 신제품·수주·실적 개선·원가 하락·자사주 매입 등 주주환원 집행). "매수 신호", "지금이 기회", "상승 여력" 같은 투자 유인·전망 표현 절대 금지 — 관찰된 사실만. 뚜렷한 긍정 요인이 없으면 억지로 채우지 말고 ["현재 뚜렷한 긍정 요인이 확인되지 않는다"] 하나만 반환
 - "목표가", "손절가", "매수 추천", "매도 추천", "권고", "정당화", "저항선", "지지선", "매물대", "과매수", "과매도", "지지 시험", "가격 방향", "우위를 점하는지", "상승 여력을 기대", "신호로 해석" 단어·표현을 사용하지 마세요
 - mainAnalysisSections_background/valuationNote/watchPoint·flowInsight·shortTermOutlook·midTermOutlook은 사실 서술에 전체 분량의 절반을 넘기지 말고, 나머지 절반은 "그 사실이 왜 유의미한지"에 쓰세요. 단, 그 유의미함이 향후 가격 방향 예측이어선 안 됩니다(가격이 오른다/내린다는 판단 금지, 지표의 성격·신뢰도·희소성에 대한 해석은 허용)
 - 데이터 포인트를 연결해서 해석하라는 지시가 있다고 근거 없이 억지로 연결하지 마세요 — 연결 지을 근거가 부족하면 "아직 명확하지 않다", "뚜렷한 연결고리는 확인되지 않는다"처럼 솔직하게 쓰는 것도 정답입니다
 - financialsNarrative: [실적 추이]의 연간은 확정 실적, 분기는 단독 분기 실적(회계연도 누적 차감)입니다 — "향후 실적이 개선될 것" 같은 전망이 아니라 추세 관찰로만 서술하세요
 - sectorNarrative: [업종 대비]는 "판단이 아닌 수치 비교"입니다 — 시장(KOSPI) 대비 비교와 같은 어투로, 우열을 평가하는 뉘앙스 없이 사실만 전달하세요
+- sectorTopPeersNarrative도 같은 원칙(판단이 아닌 수치 비교) — sectorNarrative와 시점·기준이 다르다는 점만 다르고 어투는 동일하게 우열 평가 뉘앙스 없이
 - finalVerdict는 점수·등급·별점·숫자를 절대 포함하지 말고 순수 문장으로만 최종 판단을 전달하세요. "관찰이 필요하다", "지켜볼 필요가 있다", "추가 확인이 필요하다" 류의 문장으로 판단을 얼버무리며 끝내지 마세요. 판단을 유보할 때조차 무엇이 확인되면 판단이 바뀌는지까지 구체적으로 밝혀야 유효한 유보입니다.
 - newsIssueClusters: [뉴스 이슈 클러스터링용 전체 목록]의 기사가 2건 이상이고 서로 다른 사건(이슈)을 대표할 때만 채우세요(3~4개 이하 클러스터). label은 8~16자 명사구로 간결하게(문장형·완결된 문장 금지). 기사가 1건뿐이거나 사실상 하나의 사건만 다루고 있으면 억지로 나누지 말고 빈 배열 []을 반환하세요. 각 인덱스는 최대 하나의 클러스터에만 넣으세요(중복 금지)
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
@@ -644,6 +648,60 @@ export async function POST(request: NextRequest) {
           ? `- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): ${sectorBasisNote}이 종목 등락률 ${sectorStockChangeRate >= 0 ? '+' : ''}${sectorStockChangeRate}% vs 동종업계 peer 평균 등락률 ${sectorComparisonBase.peerAvgChangeRate >= 0 ? '+' : ''}${sectorComparisonBase.peerAvgChangeRate}% (${sectorComparisonBase.deltaVsPeer >= 0 ? '+' : ''}${sectorComparisonBase.deltaVsPeer}%p 차이)`
           : '동종업계 비교 데이터 없음';
 
+        // 국내 peer 스파크라인(최근 1개월 상대수익률) + 업종 TOP3 계산 — peer 6개(각 1개월 종가)를
+        // 첫날 대비 누적%로 정규화해 평균 내고, 대상 종목은 이미 있는 chartData(1Y 조회)에서 마지막
+        // ~21거래일만 잘라 같은 방식으로 정규화한다(신규 호출 없음). 유효 peer가 없거나 구간이 너무
+        // 짧으면 null(카드에서 스파크라인만 생략, 나머지 업종 대비 카드는 그대로 표시).
+        // 2026-09-02: 프롬프트가 [업종 내 TOP3]를 참고해 sectorTopPeersNarrative를 써야 하므로
+        // Claude 호출(스트림 시작) 전인 여기서 peerChartsPromise를 미리 resolve한다 — 위
+        // shouldUsePrevCloseSectorBasis 분기에서 이미 한 번 await됐을 수 있지만 Promise는 한 번
+        // 실행되면 캐시되므로 추가 네트워크 호출 없음.
+        console.log('[DIAGNOSIS] 4. peer 스파크라인/환율 상관관계 수집');
+        const [peerChartsSettled, fxDaily] = await Promise.all([peerChartsPromise, fxDailyPromise]);
+        const sectorSparkline = ((): { dates: string[]; stockReturns: number[]; peerAvgReturns: number[]; topPeers: { name: string; returns: number[] }[] } | null => {
+          if (!sectorComparisonBase) return null;
+          const validPeers = sectorPeers
+            .map((p, i) => ({ name: p.name, chart: peerChartsSettled[i]?.status === 'fulfilled' ? peerChartsSettled[i].value : [] }))
+            .filter((x) => x.chart.length >= 2);
+          if (validPeers.length === 0) return null;
+          const targetSlice = chartData.slice(-21);
+          if (targetSlice.length < 2) return null;
+          const n = Math.min(targetSlice.length, ...validPeers.map((x) => x.chart.length));
+          if (n < 2) return null;
+          const targetWindow = targetSlice.slice(-n);
+          const peerWindows  = validPeers.map((x) => ({ name: x.name, chart: x.chart.slice(-n) }));
+          const stockBase = targetWindow[0].close;
+          const stockReturns = targetWindow.map((d) => parseFloat((((d.close - stockBase) / stockBase) * 100).toFixed(2)));
+          const peerAvgReturns: number[] = [];
+          const rawPeerReturns: number[][] = peerWindows.map(() => []);
+          for (let i = 0; i < n; i++) {
+            const rates = peerWindows.map((w) => ((w[i].close - w[0].close) / w[0].close) * 100);
+            rates.forEach((r, pi) => rawPeerReturns[pi].push(r));
+            peerAvgReturns.push(parseFloat((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(2)));
+          }
+          // 업종 내 TOP3 — 같은 구간(스파크라인과 동일 창) 누적 등락률(마지막 값) 상위 3종목 기준.
+          // 시가총액은 이 peer 목록(Naver 업종 페이지 스크래핑, lib/sector-peers.ts)에 없어 별도
+          // 조회가 필요하므로, 이미 계산해둔 구간 누적 등락률을 기준으로 삼는다(카드 캡션에 기준 명시).
+          const topPeers = peerWindows
+            .map((w, pi) => ({ name: w.name, returns: rawPeerReturns[pi].map((r) => parseFloat(r.toFixed(2))) }))
+            .sort((a, b) => b.returns[b.returns.length - 1] - a.returns[a.returns.length - 1])
+            .slice(0, 3);
+          return { dates: targetWindow.map((d) => d.date), stockReturns, peerAvgReturns, topPeers };
+        })();
+        const sectorComparison = sectorComparisonBase
+          ? { ...sectorComparisonBase, sparkline: sectorSparkline }
+          : null;
+        const sectorTopPeersBlock = sectorSparkline && sectorSparkline.topPeers.length > 0
+          ? `- 업종 내 TOP3 종목(기준: 최근 ${sectorSparkline.dates.length}거래일 누적 등락률 상위): ${sectorSparkline.topPeers.map((p) => `${p.name} ${p.returns[p.returns.length - 1] >= 0 ? '+' : ''}${p.returns[p.returns.length - 1]}%`).join(', ')} / 이 종목 같은 기간 누적 등락률: ${sectorSparkline.stockReturns[sectorSparkline.stockReturns.length - 1] >= 0 ? '+' : ''}${sectorSparkline.stockReturns[sectorSparkline.stockReturns.length - 1]}%`
+          : 'TOP3 비교 데이터 없음';
+
+        // 환율 상관관계 — 종목 1년 일별 종가(chartData, 이미 있음) vs 환율 1년 일별 종가(fxDaily,
+        // 위에서 함께 받음)의 피어슨 상관계수. |r| < 0.3(약한 상관)이거나 표본이 부족하면
+        // null로 취급해 카드 자체를 생략한다 — 다른 카드들(sectorComparison 등)과 동일하게
+        // "근거 부족하면 생략" 관례.
+        const rawFxCorrelation = computeFxCorrelation(chartData, fxDaily);
+        const fxCorrelation = isFxCorrelationMeaningful(rawFxCorrelation) ? rawFxCorrelation : null;
+
         // ── 그룹 3-1: 실적 추이 (최근 3개년 확정 연간, 잠정치 아님) ──────────────────────
         const financialsBlock = annualFinancials.length
           ? annualFinancials.map((r) => {
@@ -758,6 +816,9 @@ ${investorBlock}
 ## 업종 대비
 ${sectorBlock}
 
+## 업종 내 TOP3
+${sectorTopPeersBlock}
+
 ## 실적 추이
 [연간 — 최근 3개년 확정 실적, 잠정치 아님]
 ${financialsBlock}
@@ -799,58 +860,20 @@ ${disclosureBlock}
 7. [직전 기업분석과의 차이]를 [직전 진단과의 간격] 지시에 따라 historyNarrative로 해석
 8. [내부 계산 지표](급등이력·거래대금 배수·MDD)는 화면에 원자료 카드로 별도 표시되므로 어떤 서술 필드에서도 그 수치를 인용하지 말 것 — riskFactors에 넣는 것도 금지
 9. [업종 대비]에 peer 데이터가 있으면 sectorNarrative를, [실적 추이]에 데이터가 있으면 financialsNarrative를, [최근 주요 공시]에 사례가 있으면 disclosureNarrative를 채우세요 — 데이터가 없으면 해당 필드는 빈 문자열로 두고 mainAnalysisSections_* 등 다른 필드에서 억지로 대신 언급하지 마세요. mainAnalysisSections_valuationNote(PER/PBR)와 sectorNarrative(등락률)는 서로 다른 지표이므로 데이터가 있어도 서로 겹치지 않게
+10. [업종 내 TOP3]에 데이터가 있으면 sectorTopPeersNarrative를 채우세요 — sectorNarrative는 오늘(또는 전일) 하루 대비 업종 평균, sectorTopPeersNarrative는 구간 누적 기준 TOP3 대비 위치로 시점·비교 대상이 서로 다릅니다. 데이터 없으면 빈 문자열로 두세요
 ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치는 mainAnalysisSections_watchPoint에서만, 판단 없이 사실 비교로 1회 언급 가능 — background 등 다른 필드에서 인용 금지, "그래서 ~해야 한다"는 연결 금지` : ''}
 
 위 데이터를 바탕으로 시스템 프롬프트에 제시된 JSON 스키마와 규칙에 따라 정리하세요.`;
 
-        // ── 5단계: Stage0 — peerCharts/fxDaily를 Claude 스트림 시작 전으로 끌어올려
-        // await하고, 서버 계산값을 전부 하나의 이벤트로 선송신한다. 2026-08-11 스트리밍
-        // 전환의 핵심 — 기업분석에 이미 있던 배당/실적/공시/업종대비/수급강도/서지히스토리는
+        // ── 5단계: Stage0 — 서버 계산값을 전부 하나의 이벤트로 선송신한다. 2026-08-11
+        // 스트리밍 전환의 핵심 — 기업분석에 이미 있던 배당/실적/공시/업종대비/수급강도/서지히스토리는
         // 전부 AI 호출과 무관한 순수 계산값인데, 예전엔 Claude 응답을 기다려야만 함께
         // 보였다. AI 필드는 전부 빈 값으로 미리 채워 DiagnosisResult 타입을 그대로
         // 유지한다(components/diagnosis/DiagnosisReport.tsx가 옵셔널 체이닝을 늘릴 필요
         // 없게) — app/diagnosis/page.tsx가 이 stage0 페이로드로 완전한 형태의 result를
-        // 만들고, 이후 field/field-partial 이벤트가 개별 키만 덮어쓴다.
-        console.log('[DIAGNOSIS] 4. peer 스파크라인/환율 상관관계 수집');
-        const [peerChartsSettled, fxDaily] = await Promise.all([peerChartsPromise, fxDailyPromise]);
-
-        // 국내 peer 스파크라인 계산 — peer 6개(각 1개월 종가)를 첫날 대비 누적%로 정규화한 뒤
-        // 평균 내고, 대상 종목은 이미 있는 chartData(1Y 조회)에서 마지막 ~21거래일만 잘라
-        // 같은 방식으로 정규화한다(신규 호출 없음). 유효 peer가 없거나 구간이 너무 짧으면
-        // null(카드에서 스파크라인만 생략, 나머지 업종 대비 카드는 그대로 표시).
-        const sectorSparkline = ((): { dates: string[]; stockReturns: number[]; peerAvgReturns: number[] } | null => {
-          if (!sectorComparisonBase) return null;
-          const validPeerCharts = peerChartsSettled
-            .map((r) => (r.status === 'fulfilled' ? r.value : []))
-            .filter((c) => c.length >= 2);
-          if (validPeerCharts.length === 0) return null;
-          const targetSlice = chartData.slice(-21);
-          if (targetSlice.length < 2) return null;
-          const n = Math.min(targetSlice.length, ...validPeerCharts.map((c) => c.length));
-          if (n < 2) return null;
-          const targetWindow = targetSlice.slice(-n);
-          const peerWindows  = validPeerCharts.map((c) => c.slice(-n));
-          const stockBase = targetWindow[0].close;
-          const stockReturns = targetWindow.map((d) => parseFloat((((d.close - stockBase) / stockBase) * 100).toFixed(2)));
-          const peerAvgReturns: number[] = [];
-          for (let i = 0; i < n; i++) {
-            const rates = peerWindows.map((w) => ((w[i].close - w[0].close) / w[0].close) * 100);
-            peerAvgReturns.push(parseFloat((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(2)));
-          }
-          return { dates: targetWindow.map((d) => d.date), stockReturns, peerAvgReturns };
-        })();
-
-        const sectorComparison = sectorComparisonBase
-          ? { ...sectorComparisonBase, sparkline: sectorSparkline }
-          : null;
-
-        // 환율 상관관계 — 종목 1년 일별 종가(chartData, 이미 있음) vs 환율 1년 일별 종가(fxDaily,
-        // 위에서 함께 받음)의 피어슨 상관계수. |r| < 0.3(약한 상관)이거나 표본이 부족하면
-        // null로 취급해 카드 자체를 생략한다 — 다른 카드들(sectorComparison 등)과 동일하게
-        // "근거 부족하면 생략" 관례.
-        const rawFxCorrelation = computeFxCorrelation(chartData, fxDaily);
-        const fxCorrelation = isFxCorrelationMeaningful(rawFxCorrelation) ? rawFxCorrelation : null;
-
+        // 만들고, 이후 field/field-partial 이벤트가 개별 키만 덮어쓴다. peerCharts/fxDaily·
+        // sectorSparkline/sectorComparison/fxCorrelation은 프롬프트가 [업종 내 TOP3]를
+        // 참고해야 해서 위 프롬프트 조립 전에 이미 계산해뒀다(sectorBlock 바로 다음).
         send(controller, {
           type: 'stage0',
           // 서버 계산 수치 — Claude 응답과 무관
@@ -888,10 +911,12 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           mainAnalysis: '',
           mainAnalysisSections: undefined,
           riskFactors: [] as string[],
+          opportunityFactors: [] as string[],
           flowInsight: '',
           institutionalFlow: '',
           foreignFlow: '',
           sectorNarrative: '',
+          sectorTopPeersNarrative: '',
           financialsNarrative: '',
           disclosureNarrative: '',
           newsIssueClusters: [] as { label: string; articleIndexes: number[] }[],
@@ -922,9 +947,11 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           emitIfChanged('institutionalFlow', '응답 형식 오류로 분석 불가');
           emitIfChanged('foreignFlow', '응답 형식 오류로 분석 불가');
           emitIfChanged('riskFactors', ['응답 형식 오류로 리스크 요인 제공 불가']);
+          emitIfChanged('opportunityFactors', []);
           emitIfChanged('newsIssueClusters', []);
           emitIfChanged('historyNarrative', `AI 응답 형식 오류(${errReason})로 히스토리 해석을 가져오지 못했습니다.`);
           emitIfChanged('sectorNarrative', '');
+          emitIfChanged('sectorTopPeersNarrative', '');
           emitIfChanged('financialsNarrative', '');
           emitIfChanged('disclosureNarrative', '');
         };
@@ -1102,6 +1129,7 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           mainAnalysis:         mainAnalysis,             // 4개 섹션을 이어붙인 값(과거 소비처 호환) — 신 스키마 응답이면 항상 이 값
           mainAnalysisSections: mainAnalysisSections ?? undefined, // 있으면 프론트가 소제목 렌더링, 없으면(과거 레코드/폴백) mainAnalysis 문자열로 폴백
           riskFactors:        toArr(result!.riskFactors),
+          opportunityFactors: toArr(result!.opportunityFactors),
           flowInsight:        typeof result!.flowInsight       === 'string' ? result!.flowInsight       : '',
           // 카드가 '기관'/'외국인' 라벨을 직접 붙이므로 AI가 넣은 주어 접두어는 저장 전에 뗀다(2026-09-02)
           institutionalFlow:  typeof result!.institutionalFlow === 'string' ? stripFlowSubject(result!.institutionalFlow) : '',
@@ -1113,6 +1141,7 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           // 저장·재전송 전에 제거한다(스트리밍 중 잠깐 보였더라도 정합성 보정 전송이 덮어씀).
           finalVerdict:       typeof result!.finalVerdict      === 'string' ? stripChoiceLabels(result!.finalVerdict) : undefined,
           sectorNarrative:     sectorComparison ? (typeof result!.sectorNarrative === 'string' ? result!.sectorNarrative : '') : '',
+          sectorTopPeersNarrative: (sectorSparkline?.topPeers.length ?? 0) > 0 ? (typeof result!.sectorTopPeersNarrative === 'string' ? result!.sectorTopPeersNarrative : '') : '',
           financialsNarrative: (annualFinancials.length > 0 || quarterlyFinancials.length > 0) ? (typeof result!.financialsNarrative === 'string' ? result!.financialsNarrative : '') : '',
           disclosureNarrative: disclosures.length > 0 ? (typeof result!.disclosureNarrative === 'string' ? result!.disclosureNarrative : '') : '',
         };
@@ -1130,9 +1159,11 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           mainAnalysisSections_watchPoint:    finalResult.mainAnalysisSections?.watchPoint,
           historyNarrative:     finalResult.history.narrative,
           sectorNarrative:      finalResult.sectorNarrative,
+          sectorTopPeersNarrative: finalResult.sectorTopPeersNarrative,
           financialsNarrative:  finalResult.financialsNarrative,
           disclosureNarrative:  finalResult.disclosureNarrative,
           riskFactors:          finalResult.riskFactors,
+          opportunityFactors:   finalResult.opportunityFactors,
           flowInsight:          finalResult.flowInsight,
           institutionalFlow:    finalResult.institutionalFlow,
           foreignFlow:          finalResult.foreignFlow,
@@ -1148,9 +1179,10 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
         // 시간적 사실관계 사후 검증 — 이 라우트는 실패 시 fallback으로 이미 복구 경로가
         // 얽혀 있어 자동 재생성은 붙이지 않고(비용/복잡도 판단), 불일치만 로그로 남겨 모니터링한다.
         const diagnosisReportText = [
-          finalResult.mainAnalysis, ...finalResult.riskFactors, finalResult.history.narrative, finalResult.flowInsight,
+          finalResult.mainAnalysis, ...finalResult.riskFactors, ...finalResult.opportunityFactors,
+          finalResult.history.narrative, finalResult.flowInsight,
           finalResult.shortTermOutlook, finalResult.midTermOutlook, finalResult.finalVerdict,
-          finalResult.sectorNarrative, finalResult.financialsNarrative, finalResult.disclosureNarrative,
+          finalResult.sectorNarrative, finalResult.sectorTopPeersNarrative, finalResult.financialsNarrative, finalResult.disclosureNarrative,
         ].filter(Boolean).join(' ');
         const diagnosisNewsText = combinedNews.map((n) => `${n.title} ${n.description}`).join(' ')
           + ' ' + sectorMacroNews.map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');

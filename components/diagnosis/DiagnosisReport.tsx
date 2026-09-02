@@ -9,12 +9,12 @@ import ReferenceNewsList from '@/components/diagnosis/ReferenceNewsList';
 import DividendInfo, { type DartDividendSummary, type DividendHistoryRow } from '@/components/diagnosis/DividendInfo';
 import type { SurgeHistory, TradingValueMultiple } from '@/components/diagnosis/SurgeHistoryCard';
 import {
-  MainAnalysisCard, InstitutionalFlowCard, RiskFactorsCard, SurgeTradingRow, DisclosuresCard, FxCorrelationCard,
+  MainAnalysisCard, InstitutionalFlowCard, SurgeTradingRow, DisclosuresCard, FxCorrelationCard,
   LayerHeading, StreamText, FieldSkeleton, TypingCursor, type MainAnalysisSectionsData,
 } from '@/components/diagnosis/DiagnosisCards';
 import HoldingPositionCard from '@/components/diagnosis/HoldingPositionCard';
 import FinancialsTrendCard from '@/components/diagnosis/FinancialsTrendCard';
-import { WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
 import type { HoldingPosition } from '@/lib/holding-position';
 import type { QuarterlyFinancialRow } from '@/lib/kis-api';
 import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
@@ -77,8 +77,10 @@ export interface DiagnosisResult {
   institutionalFlow: string; // 도넛 옆 한 줄 캡션
   foreignFlow: string;       // 도넛 옆 한 줄 캡션
   riskFactors: string[];
+  opportunityFactors?: string[]; // 2026-09-02 신설(포트폴리오 FactorCards와 동일 스키마) — 옛 레코드는 undefined → 리스크만 표시(폴백)
   sectorComparison: SectorComparison | null; // 동종업계 peer 없으면 null — 카드 자체 생략
   sectorNarrative: string;   // 업종 대비 해석 (1~3문장), 데이터 없으면 빈 문자열
+  sectorTopPeersNarrative?: string; // 2026-09-02 신설 — 업종 TOP3 대비 위치 해석(스파크라인에 topPeers 없으면 빈 문자열/undefined)
   fxCorrelation?: { correlation: number; sampleSize: number } | null; // 최근 1년 원/달러 환율과의 피어슨 상관계수 — |r|<0.3이거나 표본 부족이면 null(카드 생략)
   surgeHistory?: SurgeHistory | null; // 최근 약 5개월 내 오늘과 유사 규모의 과거 급등/급락 이력 — hasMatches:false(평상시 종목)면 카드 안에 "이력 없음" 빈 상태로 표시(카드 자체는 항상 노출, 2026-08-28), 값 자체가 없으면(계산 실패·과거 레코드) undefined/null이라 카드 생략
   tradingValueMultiple?: TradingValueMultiple | null; // 오늘 거래대금의 최근 20거래일 평균 대비 배수 — valid:false(데이터 부족)면 카드 생략, 과거 레코드는 undefined
@@ -468,6 +470,11 @@ export default function DiagnosisReport({
             <SectorComparisonCard
               data={result.sectorComparison}
               narrative={<StreamText value={result.sectorNarrative} k="sectorNarrative" revealed={revealed} pending={isGenerating} className="text-xs text-slate-400 leading-relaxed" />}
+              topPeersNarrative={
+                (result.sectorComparison.sparkline?.topPeers?.length ?? 0) > 0
+                  ? <StreamText value={result.sectorTopPeersNarrative} k="sectorTopPeersNarrative" revealed={revealed} pending={isGenerating} className="text-xs text-slate-400 leading-relaxed" />
+                  : null
+              }
             />
           )}
         </div>
@@ -512,7 +519,13 @@ export default function DiagnosisReport({
           className="mb-3"
         />
         <div className="grid grid-cols-1 md:grid-cols-2 md:items-start gap-3 mb-3">
-          <RiskFactorsCard riskFactors={result.riskFactors} isGenerating={isGenerating} />
+          <IssueFactorsCard
+            riskFactors={isGenerating && result.riskFactors.length === 0 ? undefined : result.riskFactors}
+            opportunityFactors={isGenerating && (result.opportunityFactors?.length ?? 0) === 0 ? undefined : result.opportunityFactors}
+            pending={isGenerating}
+            title="종목 고유 이슈"
+            caption="리스크·긍정 요인 모두 이 종목만의 사정만 다룹니다 — 수급·밸류에이션·거래 지표는 각 카드에서."
+          />
           <WatchVariablesCard
             shortTermOutlook={result.shortTermOutlook}
             midTermOutlook={result.midTermOutlook}
