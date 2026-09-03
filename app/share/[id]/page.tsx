@@ -664,7 +664,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                   </div>
                   <HoldingPositionLine
                     s={buildHoldingPositionSummary(h, { totalValue: d.totalValue, pnl: computePnlSums(d.holdings ?? []), riskByTicker: new Map((d.riskContribution ?? []).map(r => [r.ticker, r.pct])) })}
-                    issueTag={d.holdingTags?.find(t => t.ticker === h.ticker)?.tag ?? h.issueTag ?? null}
+                    issueTag={d.holdingTags?.find(t => t.ticker === h.ticker || t.name === h.name)?.tag ?? h.issueTag ?? null}
                     className="mt-2 pl-0 md:pl-44"
                   />
                   {h.reason && (

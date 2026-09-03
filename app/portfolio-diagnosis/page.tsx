@@ -1072,7 +1072,7 @@ function PortfolioDiagnosisPageInner() {
                       {/* 2026-09-03: 성격 태그(🔴/🟢)는 Stage 2 완료 시 holdingTags로 도착 — 저장된 리포트는 h.issueTag */}
                       <HoldingPositionLine
                         s={buildHoldingPositionSummary(h, positionCtx)}
-                        issueTag={result.holdingTags?.find(t => t.ticker === h.ticker)?.tag ?? h.issueTag ?? null}
+                        issueTag={result.holdingTags?.find(t => t.ticker === h.ticker || t.name === h.name)?.tag ?? h.issueTag ?? null}
                         className="mt-2"
                       />
                       {h.reason !== undefined ? (

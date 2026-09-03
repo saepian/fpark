@@ -644,7 +644,10 @@ export async function analyzePortfolioSummary(
     claudeStream.on('text', (delta) => {
       fullText += delta;
       const { fields, partial } = parser.feedWithPartial(delta);
-      for (const field of fields) onField(field.key, field.value);
+      // holdingTags는 AI 원본({name, tag})이 아니라 티커로 해석한 값만 프론트에 흘린다 — 원본을
+      // 먼저 보내면 프론트가 ticker로 찾지 못해 태그가 비어 보이고(2026-09-03 C_mixed 실측), 최종
+      // 정합성 보정 재전송에 의존하게 된다.
+      for (const field of fields) onField(field.key, field.key === 'holdingTags' ? resolveHoldingTags(field.value, nameMap) : field.value);
       if (partial) {
         const now = Date.now();
         const last = lastPartialEmitAt[partial.key] ?? 0;
