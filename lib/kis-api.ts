@@ -3,6 +3,7 @@ import type { Json, Database } from './database.types';
 import { adminClient as supabaseAdmin } from './supabase-admin';
 import { supabase } from './supabase';
 import { findClosestPastClose, isKoreanMarketOpen } from './market-utils';
+import { tryAcquireCacheLock, releaseCacheLock } from './cache-lock';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
@@ -756,6 +757,12 @@ const QUOTE_CACHE_TTL_MS_CLOSED = 30 * 60_000;
 const QUOTE_MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30;
 const quoteCacheKey = (ticker: string) => `stock_quote_raw_${ticker}`;
 
+// 2026-09-03 트래픽점검 3번: single-flight 락(lib/cache-lock.ts)에서 락을 놓친 요청이
+// "값이 아예 없는 진짜 콜드"일 때만 쓰는 짧은 폴링 — queryPriceCached·cacheJsonResult가
+// 공유한다.
+const LOCK_POLL_INTERVAL_MS = 200;
+const LOCK_POLL_MAX_MS = 4000;
+
 type CachedQuoteRaw = { output: Record<string, string>; name: string };
 
 function kstMinutesSinceMidnight(d: Date): number {
@@ -799,19 +806,44 @@ async function saveStockQuoteCache(ticker: string, raw: CachedQuoteRaw): Promise
   }
 }
 
+// 2026-09-03 트래픽점검 3번: 삼성전자처럼 동시접속이 몰리는 인기 종목은 30초 TTL이
+// 만료되는 그 순간 N명이 동시에 미스를 감지해 N번 KIS를 부르는 스탬피드가 가장 뚜렷하게
+// 드러나는 경로다. cacheJsonResult와 같은 single-flight+SWR 락(lib/cache-lock.ts)을
+// 적용 — 락을 놓친 요청은 만료된(초 단위) 값을 그대로 서빙하고, 갱신은 락을 쥔 요청만.
+const PRICE_CACHE_LOCK_TTL_MS = 8_000;
+
 // 신선한 캐시가 있으면 그것을, 없으면 KIS 라이브(queryPrice → 레이트리미터 게이트 포함)로
 // 조회 후 저장. 라이브 실패는 그대로 throw — 폴백(옛 캐시/Yahoo)은 호출부 정책.
-async function queryPriceCached(ticker: string, opts?: { waitForLock?: boolean }): Promise<{ raw: CachedQuoteRaw; cachedAt: string | null }> {
+async function queryPriceCached(ticker: string, opts?: { waitForLock?: boolean }): Promise<{ raw: CachedQuoteRaw; cachedAt: string | null; stale?: boolean }> {
   const ttlMs = isKoreanMarketOpen() ? QUOTE_CACHE_TTL_MS_OPEN : QUOTE_CACHE_TTL_MS_CLOSED;
   const fresh = await loadStockQuoteCache(ticker);
   if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs && !isQuoteCacheStaleAcrossClose(fresh.updatedAt)) {
     return { raw: fresh.raw, cachedAt: fresh.updatedAt };
   }
-  const o = await queryPrice(ticker, false, opts);
-  const name = await resolveStockName(ticker, o);
-  const raw: CachedQuoteRaw = { output: o, name };
-  await saveStockQuoteCache(ticker, raw);
-  return { raw, cachedAt: null };
+
+  const cacheKey = quoteCacheKey(ticker);
+  const won = await tryAcquireCacheLock(cacheKey, PRICE_CACHE_LOCK_TTL_MS);
+  if (!won) {
+    if (fresh) return { raw: fresh.raw, cachedAt: fresh.updatedAt, stale: true }; // SWR: 패자는 만료된 값 그대로
+    // 값 자체가 없는 진짜 콜드 — 승자의 결과를 짧게 기다린다.
+    const deadline = Date.now() + LOCK_POLL_MAX_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, LOCK_POLL_INTERVAL_MS));
+      const polled = await loadStockQuoteCache(ticker);
+      if (polled) return { raw: polled.raw, cachedAt: polled.updatedAt };
+    }
+    // 폴링 타임아웃 — 최후 수단으로 직접 라이브 호출(락은 안 쥐었으니 해제 불필요)
+  }
+
+  try {
+    const o = await queryPrice(ticker, false, opts);
+    const name = await resolveStockName(ticker, o);
+    const raw: CachedQuoteRaw = { output: o, name };
+    await saveStockQuoteCache(ticker, raw);
+    return { raw, cachedAt: null };
+  } finally {
+    if (won) await releaseCacheLock(cacheKey);
+  }
 }
 
 // TTL 무관 옛 캐시(loadStockQuoteCache 결과)를 StockPrice로 변환 — 라이브 실패 시 "마지막
@@ -832,7 +864,7 @@ export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock
   return cachedAt ? { ...quote, isCached: true, cachedAt } : quote;
 }
 
-// ── 계산된 JSON 결과 캐싱용 범용 헬퍼 (2026-09-03 트래픽점검 2번) ────────────────────
+// ── 계산된 JSON 결과 캐싱용 범용 헬퍼 (2026-09-03 트래픽점검 2번, 3번) ────────────────
 // investors(수급)/finance(재무)/daily(일별차트) 세 라우트가 종목상세 페이지 1회 로드마다
 // 캐시 없이 KIS를 직접 호출해(8/31에 레이트리미터 우회만 막아둠, 캐싱은 별도 과제로 남김)
 // 페이지 1개 = KIS 8~10건이 되는 병목이었다. 이 세 라우트는 원본 KIS 응답이 아니라 이미
@@ -840,37 +872,75 @@ export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock
 // 파생"할 소비처가 하나뿐이라 원본을 따로 저장할 이유가 없음)을 그대로 캐싱한다 —
 // fetchDividendHistory(24시간 고정 TTL)와 같은 "전체 결과 캐싱" 방식이되, TTL을 장중/장외로
 // 나누는 부분은 fetchStockPriceCached·fetchDailyChart(1Y)와 같은 패턴을 따른다.
+//
+// 2026-09-03 트래픽점검 3번(캐시 스탬피드 방지): TTL이 만료되는 순간 동시에 여러 요청이
+// 미스를 감지하면 각자 KIS를 호출하던 걸, single-flight 락(lib/cache-lock.ts)으로 한
+// 요청만 실제 갱신하게 한다. 이 서비스는 "장중 실시간성"보다 "안정성/부하 감소"가 우선이라
+// stale-while-revalidate를 택했다 — 락을 놓친 요청은 몇 초를 기다리는 대신 만료된(그래도
+// 초/분 단위로만 오래된) 값을 즉시 서빙하고, 갱신은 락을 쥔 요청 하나가 백그라운드처럼
+// 대신 끝낸다. 값 자체가 아예 없는 진짜 콜드 스타트(그 키의 첫 요청)일 때만 짧게 폴링
+// 후 그래도 없으면 직접 라이브로 폴백한다(요청을 실패시키지 않기 위한 최후 수단).
+const CACHE_LOCK_TTL_MS_DEFAULT = 10_000;
+
 export async function cacheJsonResult<T>(
   key: string,
   ttlMs: number,
   fetchLive: () => Promise<T>,
-  opts?: { invalidateAcrossClose?: boolean },
-): Promise<{ data: T; isCached: boolean; cachedAt: string | null }> {
-  try {
-    const { data: cache } = await supabase
-      .from('market_cache')
-      .select('data, updated_at')
-      .eq('key', key)
-      .single();
-    if (cache?.data) {
-      const fresh = Date.now() - new Date(cache.updated_at).getTime() < ttlMs
-        && !(opts?.invalidateAcrossClose && isQuoteCacheStaleAcrossClose(cache.updated_at));
-      if (fresh) return { data: cache.data as T, isCached: true, cachedAt: cache.updated_at };
+  opts?: { invalidateAcrossClose?: boolean; lockTtlMs?: number },
+): Promise<{ data: T; isCached: boolean; cachedAt: string | null; stale?: boolean }> {
+  const readCache = async (): Promise<{ data: unknown; updated_at: string } | null> => {
+    try {
+      const { data: cache } = await supabase
+        .from('market_cache')
+        .select('data, updated_at')
+        .eq('key', key)
+        .single();
+      return cache?.data != null ? cache : null;
+    } catch {
+      return null;
     }
-  } catch {
-    // 캐시 조회 실패 → 라이브로 폴백
+  };
+
+  const cache = await readCache();
+  if (cache) {
+    const fresh = Date.now() - new Date(cache.updated_at).getTime() < ttlMs
+      && !(opts?.invalidateAcrossClose && isQuoteCacheStaleAcrossClose(cache.updated_at));
+    if (fresh) return { data: cache.data as T, isCached: true, cachedAt: cache.updated_at };
   }
 
-  const data = await fetchLive();
-  try {
-    const { error } = await supabase
-      .from('market_cache')
-      .upsert({ key, data: data as unknown as Json, updated_at: new Date().toISOString() });
-    if (error) console.warn(`[cacheJsonResult] ${key} 캐시 저장 실패:`, error.message);
-  } catch (e) {
-    console.warn(`[cacheJsonResult] ${key} 캐시 저장 예외:`, e instanceof Error ? e.message : e);
+  // 캐시 미스/만료 — single-flight: 갱신 락을 먼저 잡아본다.
+  const lockTtlMs = opts?.lockTtlMs ?? CACHE_LOCK_TTL_MS_DEFAULT;
+  const won = await tryAcquireCacheLock(key, lockTtlMs);
+
+  if (!won) {
+    if (cache) {
+      // 패자: 만료됐어도 값이 있으면 그대로 서빙(SWR) — 갱신은 승자가 대신 끝낸다.
+      return { data: cache.data as T, isCached: true, cachedAt: cache.updated_at, stale: true };
+    }
+    // 값 자체가 없는 진짜 콜드 — 승자의 결과를 짧게 기다린다.
+    const deadline = Date.now() + LOCK_POLL_MAX_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, LOCK_POLL_INTERVAL_MS));
+      const polled = await readCache();
+      if (polled) return { data: polled.data as T, isCached: true, cachedAt: polled.updated_at };
+    }
+    // 폴링 타임아웃 — 최후 수단으로 직접 라이브 호출(요청을 실패시키지 않기 위해, 락은 안 쥐었으니 해제 불필요)
   }
-  return { data, isCached: false, cachedAt: null };
+
+  try {
+    const data = await fetchLive();
+    try {
+      const { error } = await supabase
+        .from('market_cache')
+        .upsert({ key, data: data as unknown as Json, updated_at: new Date().toISOString() });
+      if (error) console.warn(`[cacheJsonResult] ${key} 캐시 저장 실패:`, error.message);
+    } catch (e) {
+      console.warn(`[cacheJsonResult] ${key} 캐시 저장 예외:`, e instanceof Error ? e.message : e);
+    }
+    return { data, isCached: false, cachedAt: null };
+  } finally {
+    if (won) await releaseCacheLock(key);
+  }
 }
 
 // ── 여러 종목 일괄 조회 (2026-09-01) ─────────────────────────────────────────────
@@ -932,11 +1002,29 @@ export async function fetchStockPricesCached(
   const cacheHits = prices.size;
 
   // 2) 미스만 라이브 — 작은 동시성 풀, 인위적 sleep 없음(전역 게이트가 페이싱)
+  //
+  // 2026-09-03 트래픽점검 3번: 여러 유저의 워치리스트가 같은 티커(예: 삼성전자)를 갖고
+  // 있으면 서로 다른 /api/watchlist 요청이 같은 순간 같은 티커를 미스로 감지할 수 있다.
+  // 다만 이 배치 경로는 응답 전체가 모든 워커의 완료를 기다리므로(Promise.all), 락을
+  // 놓친 티커마다 몇 초씩 폴링하면 워치리스트 전체 응답이 그만큼 느려진다 — 그래서 여기는
+  // queryPriceCached(단건)와 달리 "한 박자(300ms)만 기다렸다가 그래도 없으면 직접 라이브"로
+  // 대기를 짧게 잡는다(응답속도 우선, 완전한 중복 제거보다 "많이 줄이기"가 목표).
   const misses = unique.filter(t => !prices.has(t));
   let cursor = 0;
   const worker = async () => {
     while (cursor < misses.length) {
       const ticker = misses[cursor++];
+      const cacheKey = quoteCacheKey(ticker);
+      const won = await tryAcquireCacheLock(cacheKey, PRICE_CACHE_LOCK_TTL_MS);
+      if (!won) {
+        await new Promise((r) => setTimeout(r, 300));
+        const polled = await loadStockQuoteCache(ticker);
+        if (polled) {
+          prices.set(ticker, { ...buildStockPrice(ticker, polled.raw.output, polled.raw.name), isCached: true, cachedAt: polled.updatedAt });
+          continue;
+        }
+        // 짧은 대기로도 안 끝났으면 직접 라이브(락은 안 쥐었으니 해제 불필요) — 아래로 낙하
+      }
       try {
         const o = await queryPrice(ticker, false, opts);
         const name = await resolveStockName(ticker, o);
@@ -946,6 +1034,8 @@ export async function fetchStockPricesCached(
       } catch (e) {
         console.warn(`[fetchStockPricesCached] ${ticker} 라이브 조회 실패:`, e instanceof Error ? e.message : e);
         failed.push(ticker);
+      } finally {
+        if (won) await releaseCacheLock(cacheKey);
       }
     }
   };

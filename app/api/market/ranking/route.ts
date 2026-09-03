@@ -2,6 +2,7 @@ import { after } from 'next/server';
 import { getAccessToken } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 import { isKoreanMarketOpen } from '@/lib/market-utils';
+import { tryAcquireCacheLock, releaseCacheLock } from '@/lib/cache-lock';
 import {
   type StockRow,
   type MarketCacheJson,
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
 
   // TTL 이내면 라이브 호출(및 KIS 인증) 없이 캐시 재사용
   const ttlMs = isKoreanMarketOpen() ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
+  let cacheRow: { data: unknown; updated_at: string } | null = null;
   try {
     const { data: cache } = await supabase
       .from('market_cache')
@@ -37,6 +39,7 @@ export async function GET(request: Request) {
       .eq('key', cacheKeyFor(tab))
       .single();
     if (cache) {
+      cacheRow = cache;
       const age = Date.now() - new Date(cache.updated_at).getTime();
       if (age < ttlMs) {
         console.log(`[ranking] ${tab} TTL 캐시 히트 (${Math.round(age / 1000)}s < ${ttlMs / 1000}s) — 라이브 호출 생략`);
@@ -47,6 +50,26 @@ export async function GET(request: Request) {
     console.warn(`[ranking] ${tab} TTL 캐시 조회 실패, 라이브로 진행:`, e instanceof Error ? e.message : e);
   }
 
+  // 2026-09-03 트래픽점검 3번: 국내증시 페이지 5분 자동 새로고침이 여러 유저에 걸쳐
+  // 겹치면 TTL 만료 순간 탭별로 스탬피드가 난다. single-flight 락을 먼저 잡아본다 —
+  // 놓쳤는데 기존 값이 있으면 그 값을 즉시 서빙(SWR), 갱신은 락을 쥔 요청 하나가 맡는다.
+  // 이 라우트는 tab 4종(거래대금순/거래량순/급등/급락) 각각의 라이브→저장 분기가 서로
+  // 다른 곳에서 return하므로, 함수 나머지 전체를 감싸 어느 분기로 나가든 락을 반드시
+  // 해제한다.
+  const lockKey = cacheKeyFor(tab);
+  const won = await tryAcquireCacheLock(lockKey, 10_000);
+  if (!won && cacheRow) {
+    return Response.json(cacheRow.data as unknown as StockRow[]);
+  }
+
+  try {
+    return await handleTab(tab);
+  } finally {
+    if (won) await releaseCacheLock(lockKey);
+  }
+}
+
+async function handleTab(tab: string): Promise<Response> {
   try {
     await getAccessToken();
   } catch {

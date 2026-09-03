@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { fetchMarketIndex } from '../../../lib/kis-api';
 import { supabase } from '../../../lib/supabase';
 import { isKoreanMarketOpen, getLastTradingDate, fetchYahooIndex } from '../../../lib/market-utils';
+import { tryAcquireCacheLock, releaseCacheLock } from '../../../lib/cache-lock';
 import type { MarketResponse, MarketIndexData } from '../../../lib/types';
 import type { Database } from '../../../lib/database.types';
 
@@ -309,6 +310,7 @@ export async function GET() {
 
   // TTL 이내면 라이브 호출 없이 캐시 재사용
   const ttlMs = marketOpen ? CACHE_TTL_MS_OPEN : CACHE_TTL_MS_CLOSED;
+  let cacheRow: { data: unknown; updated_at: string } | null = null;
   try {
     const { data: cache } = await supabase
       .from('market_cache')
@@ -316,6 +318,7 @@ export async function GET() {
       .eq('key', CACHE_KEY)
       .single();
     if (cache) {
+      cacheRow = cache;
       const staleAcrossClose = !marketOpen && isPostCloseCacheStale(cache.updated_at);
       if (staleAcrossClose) {
         console.log(`[MARKET] 장마감 전 캐시(${cache.updated_at}) 감지 — 장마감 후 첫 조회라 TTL 무시하고 확정치로 강제 갱신`);
@@ -333,6 +336,17 @@ export async function GET() {
     }
   } catch (e) {
     console.warn('[MARKET] TTL 캐시 조회 실패, 라이브로 진행:', e instanceof Error ? e.message : e);
+  }
+
+  // 2026-09-03 트래픽점검 3번: 이 라우트는 모든 페이지 상단 시세 배너가 부르는 전역
+  // 캐시라 TTL 만료 순간의 스탬피드 영향이 가장 크다(동시접속자 전원이 같은 순간 미스).
+  // single-flight 락을 먼저 잡아본다 — 놓쳤는데 기존 값이 있으면(대부분의 경우, 최초
+  // 배포 직후가 아닌 한 거의 항상 있음) 그 값을 즉시 서빙(SWR)하고 갱신은 락을 쥔
+  // 요청 하나에게 맡긴다.
+  const won = await tryAcquireCacheLock(CACHE_KEY, 10_000);
+  if (!won && cacheRow) {
+    if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
+    return NextResponse.json({ ...(cacheRow.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cacheRow.updated_at, isPrevDay, prevDateLabel });
   }
 
   try {
@@ -358,6 +372,7 @@ export async function GET() {
         updated_at: new Date().toISOString(),
       });
       if (error) console.warn('[MARKET] 캐시 저장 실패:', error.message);
+      if (won) await releaseCacheLock(CACHE_KEY);
     });
     // fetchLive()가 이미 USD_KRW도 같이 가져왔으므로, 이 기회에 USD_KRW 전용 캐시도
     // 같이 최신화한다(market_indices와 별개 row).
@@ -374,6 +389,7 @@ export async function GET() {
     return NextResponse.json({ ...live, USD_KRW: live.USD_KRW ?? usdKrwValue, isCached: false, cachedAt: null, isPrevDay, prevDateLabel });
   } catch (e) {
     console.error('[MARKET] 지수 조회 실패, 캐시로 폴백:', e instanceof Error ? e.message : e);
+    if (won) await releaseCacheLock(CACHE_KEY);
   }
 
   const cached = await getCache();

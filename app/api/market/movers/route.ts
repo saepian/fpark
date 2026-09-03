@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAccessToken, fetchCuratedMovers, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
 import { supabase } from '@/lib/supabase';
 import { isKoreanMarketOpen, getTradingDateCandidates, findFirstNonEmptyByDate } from '@/lib/market-utils';
+import { tryAcquireCacheLock, releaseCacheLock } from '@/lib/cache-lock';
 import { EXCLUDE_PATTERN } from '@/lib/market-ranking';
 import type { MoversResponse, MoverStock } from '@/lib/types';
 
@@ -155,10 +156,34 @@ async function saveCache(data: MoversResponse) {
   }
 }
 
+const MOVERS_LOCK_KEY = 'market_movers';
+
+// 2026-09-03 트래픽점검 3번: 이 라우트는 TTL 게이팅이 없어(항상 라이브 우선 시도, 캐시는
+// 완전 실패 시 최후 폴백) 애초에 "만료 순간 스탬피드"라는 문제 형태 자체는 없지만, 그
+// 대신 시장 페이지에 동시접속이 몰리면 매 요청이 각자 KIS→네이버→curated 라이브 체인을
+// 반복하는 더 큰 중복이 상시로 있다. single-flight 락으로 동시 요청 중 하나만 이 체인을
+// 실행하게 하고, 나머지는 그 결과가 저장한 캐시를 즉시 서빙한다(락을 놓쳤는데 캐시가
+// 아예 없으면 — 배포 직후뿐인 극히 드문 경우 — 그냥 각자 라이브를 시도해 요청을 실패시키지
+// 않는다). TTL 자체를 도입하는 건(예: "1분 이내 재요청은 무조건 캐시") 이 라우트의 "항상
+// 최신"이라는 기존 설계를 바꾸는 별도 결정이라 이번 스코프에서는 건드리지 않는다.
 export async function GET() {
   const marketOpen = isKoreanMarketOpen();
   console.log(`[MOVERS] 장 ${marketOpen ? '중' : '외'}`);
 
+  const won = await tryAcquireCacheLock(MOVERS_LOCK_KEY, 15_000);
+  if (!won) {
+    const cached = await loadCache();
+    if (cached) return NextResponse.json({ ...cached, isPrevDay: !marketOpen });
+    // 캐시조차 없으면(배포 직후 등) 락을 놓쳤어도 그냥 직접 라이브 진행 — 아래로 낙하
+  }
+  try {
+    return await fetchMoversLive(marketOpen);
+  } finally {
+    if (won) await releaseCacheLock(MOVERS_LOCK_KEY);
+  }
+}
+
+async function fetchMoversLive(marketOpen: boolean): Promise<NextResponse> {
   if (marketOpen) {
     // 장 중: 실시간 순위 조회
     // 1순위: KIS 급등락 순위 API — 코스피(J) + 코스닥(Q) 동시 조회
