@@ -364,19 +364,32 @@ export async function POST(request: NextRequest) {
         // 한다 — 아래에서 peerChartsPromise와 함께 끌어올려 await한다.
         const fxDailyPromise = fetchUsdKrwDaily1Y().catch(() => []);
 
-        const [priceResult, analysisResult, newsSelectionResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult, chart6mResult, investorTrend21Result] = await Promise.allSettled([
-          priceDataPromise,
-          analysisDataPromise,
-          newsSelectionPromise,
+        // 2026-09-03 로딩속도 후속 2번: 데이터 수집은 병렬이라 "종목 데이터 수집 중..." 한 문구가 10초
+        // 가까이 그대로 떠 있었다 — 각 조회가 끝날 때마다 완료 개수와 방금 끝난 항목을 progress로 흘려
+        // 체감 대기를 줄인다(클라이언트는 label만 표시). 실패해도 "완료"로 세는 건 allSettled와 같은
+        // 원칙(실패는 아래 status 로그와 각 폴백이 처리).
+        const COLLECT_STEPS = 11;
+        let collectDone = 0;
+        const track = <T,>(p: Promise<T>, label: string): Promise<T> => p.finally(() => {
+          collectDone++;
+          send(controller, { type: 'progress', label: `데이터 수집 중 (${collectDone}/${COLLECT_STEPS}) · ${label}` });
+        });
+
+        // 2026-09-03 로딩속도 후속 3번: 뉴스 선별(newsSelectionPromise, Haiku 2~8초 편차)은 이 배리어에서
+        // 뺀다 — Stage0(서버 계산 카드)은 뉴스 없이도 완성되므로 먼저 보내고, 뉴스는 Stage0 뒤에서만
+        // 기다린 뒤(프롬프트에 필요) field 이벤트로 채운다. 선별 자체는 위에서 이미 병렬로 시작돼 있다.
+        const [priceResult, analysisResult, chartResult, sectorResult, financialsResult, disclosuresResult, dividendSummaryResult, dividendHistoryResult, sectorMacroResult, newsSentimentResult, chart6mResult, investorTrend21Result] = await Promise.allSettled([
+          track(priceDataPromise, '현재가'),
+          track(analysisDataPromise, '수급·기술 지표'),
           // '1M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
           // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
-          fetchDailyChart(ticker, '1Y', { priority: 'batch' }),
-          fetchSectorPeers(ticker, { priority: 'batch', targetName: name }),
-          fetchFinancialsTrend(ticker, { priority: 'batch' }), // 연간 3개년 + 분기 6개(단독값·전년동기비), 2026-09-01
-          fetchRecentDisclosures(ticker),
-          fetchDividendSummary(ticker),
-          fetchDividendHistory(ticker, { priority: 'batch' }),
-          sectorMacroPromise,
+          track(fetchDailyChart(ticker, '1Y', { priority: 'batch' }), '1년 차트'),
+          track(fetchSectorPeers(ticker, { priority: 'batch', targetName: name }), '업종 비교(peer)'),
+          track(fetchFinancialsTrend(ticker, { priority: 'batch' }), '실적 추이'), // 연간 3개년 + 분기 6개(단독값·전년동기비), 2026-09-01
+          track(fetchRecentDisclosures(ticker), '공시'),
+          track(fetchDividendSummary(ticker), '배당 요약'),
+          track(fetchDividendHistory(ticker, { priority: 'batch' }), '배당 이력'),
+          track(sectorMacroPromise, '업종 뉴스'),
           // 뉴스 논조 추이(2단계 UI 노출, 2026-08-21) — news_sentiment_daily는 CURATED_TICKERS_MKT
           // (대형주 100종목) 한정 크론이라 그 밖의 종목은 null이 정상. fetchNewsSentimentTrend
           // 내부에서 이미 5거래일 미만이면 null을 반환하므로 여기선 그대로 통과시키면 됨.
@@ -384,20 +397,20 @@ export async function POST(request: NextRequest) {
           // 내 포지션 관찰 구간용 최근 6개월 일별 시세(2026-09-02) — fetchDailyChart('1Y')는 KIS 100거래일
           // 캡 때문에 실제로는 약 5개월치라 "오늘 기준 6개월"에 못 미쳤다. 기간별 등락률 표의 6개월 칸이
           // 이미 쓰는 연쇄 백필 + 1일 캐시(lib/chart-near-cache.ts)를 그대로 재사용(캐시 적중 시 추가 호출 없음).
-          getCachedChartNear(ticker, 6, { priority: 'batch' }),
+          track(getCachedChartNear(ticker, 6, { priority: 'batch' }), '6개월 시세'),
           // 거래대금 배수 카드 막대그래프 툴팁용(2026-09-02) — 기존 analysisDataPromise가
           // 쓰는 5일 수급 데이터(buildInvestorBlock, "## 수급 동향 (최근 5영업일)" 프롬프트
           // 블록)를 그대로 21일로 늘리면 프롬프트에 21행짜리 표가 그대로 들어가 버려서
           // (buildInvestorBlock이 investorTrend 전체를 순회) 별도로 21일치를 다시 조회한다.
           // 같은 KIS 엔드포인트(inquire-investor)가 날짜 파라미터 없이도 최근 30일치를
           // 돌려주는 걸 확인해(실측 30건), days=21만 넘기면 추가 엔드포인트 없이 가능.
-          fetchInvestorTrend(ticker, 21, { priority: 'batch' }),
+          track(fetchInvestorTrend(ticker, 21, { priority: 'batch' }), '수급 21일'),
         ]);
+        send(controller, { type: 'progress', label: '업종 비교·내 포지션 계산 중...' });
 
         console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
           price:    priceResult.status,
           analysis: analysisResult.status,
-          news:     newsSelectionResult.status,
           chart:    chartResult.status,
           sector:   sectorResult.status,
           financials: financialsResult.status,
@@ -408,7 +421,6 @@ export async function POST(request: NextRequest) {
           newsSentiment: newsSentimentResult.status,
           priceErr:    priceResult.status    === 'rejected' ? String(priceResult.reason)    : null,
           analysisErr: analysisResult.status === 'rejected' ? String(analysisResult.reason) : null,
-          newsErr:     newsSelectionResult.status === 'rejected' ? String(newsSelectionResult.reason): null,
           chartErr:    chartResult.status    === 'rejected' ? String(chartResult.reason)    : null,
           sectorErr:   sectorResult.status   === 'rejected' ? String(sectorResult.reason)   : null,
           financialsErr: financialsResult.status === 'rejected' ? String(financialsResult.reason) : null,
@@ -472,15 +484,11 @@ export async function POST(request: NextRequest) {
           if (analysisData) investorBlock = buildInvestorBlock(analysisData);
         } catch (e) { console.error('[DIAGNOSIS] buildInvestorBlock 실패:', e); }
 
-        // 종목명+종목코드 병행 검색 + Haiku 1차 선별 결과(최대 5건, 이미 관련성 검증됨)
-        const relevantNews = newsSelectionResult.status === 'fulfilled' ? newsSelectionResult.value.items : [];
-        const hasRelevantNews = relevantNews.length > 0;
-
-        try {
-          // changeRate를 넘겨야 buildNewsBlock의 5→3 캡이 "최신순"이 아니라 "오늘 가격변동
-          // 관련성 우선순위"로 절삭한다(lib/stock-analysis-data.ts 참고).
-          newsBlockStr = buildNewsBlock(relevantNews, priceData?.changeRate);
-        } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock 실패:', e); }
+        // 종목명+종목코드 병행 검색 + Haiku 1차 선별 결과(최대 5건, 이미 관련성 검증됨).
+        // 2026-09-03 로딩속도 후속 3번: 선별 결과는 Stage0 전송 뒤에 도착하므로 여기서는 "뉴스 없음"
+        // 기본값만 두고, 아래 applyNewsSelection이 실제 결과로 한 번에 채운다(프롬프트는 그 뒤 buildPrompt).
+        let relevantNews: NewsCandidate[] = [];
+        let hasRelevantNews = false;
 
         try {
           sectorNewsBlockStr = buildNewsBlock(sectorMacroNews);
@@ -489,20 +497,13 @@ export async function POST(request: NextRequest) {
         // date(원문 pubDate)는 아래 newsClusterListBlock(AI 클러스터링 프롬프트 컨텍스트)에서
         // 쓴다 — 프론트엔드는 더 이상 소비하지 않음(모멘텀 타임라인 카드 삭제, 2026-08-26).
         // relevantNews에 이미 있던 값을 그대로 실어보내는 것뿐, 신규 조회 없음.
-        const combinedNews = relevantNews.map(n => ({
-          title:       n.title,
-          description: n.summary ?? '',
-          url:         n.url ?? '',
-          date:        n.date ?? '',
-        }));
+        let combinedNews: { title: string; description: string; url: string; date: string }[] = [];
 
         // 뉴스 이슈 클러스터링(newsIssueClusters)용 인덱스 목록 — buildNewsBlock은 프롬프트
         // 본문(관련 뉴스 섹션)에 최대 3건만 넣지만, 클러스터링은 combinedNews(최대 5건, UI에
         // 그대로 노출되는 배열)와 인덱스가 정확히 일치해야 하므로 별도로 전체를 나열한다.
         // 신규 조회 없음 — 이미 갖고 있는 relevantNews를 다른 포맷으로 다시 나열할 뿐.
-        const newsClusterListBlock = hasRelevantNews
-          ? relevantNews.map((n, i) => `${i}: [${n.date ?? '날짜 미상'}] ${n.title}`).join('\n')
-          : '해당 없음';
+        let newsClusterListBlock = '해당 없음';
 
         const changeRate = (priceData && typeof priceData.changeRate === 'number') ? priceData.changeRate : 0;
         const isBigMove   = Math.abs(changeRate) >= 5;
@@ -516,12 +517,33 @@ export async function POST(request: NextRequest) {
           : ' 단, 오늘은 휴장일이므로 이 뉴스를 "오늘 이 뉴스로 주가가 움직였다"는 실시간 반응으로 서술하지 말고 "다음 거래일 개장 시 참고할 만한 소식"으로 다루세요.';
 
         const hasSectorMacroNews = sectorMacroNews.length > 0;
-        const newsInstruction = (hasRelevantNews
-          ? '위 뉴스는 이 종목과 관련도가 높다고 판단되어 매칭된 실제 기사입니다. mainAnalysis를 작성할 때 반드시 이 뉴스를 근거로 최근 주가 변동 원인을 설명하고, 뉴스에 없는 내용을 지어내지 마세요.'
-          : hasSectorMacroNews
-            ? '이 종목과 직접 관련된 뉴스는 매칭되지 않았지만, 아래 [업종/시장 배경]에 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스가 있습니다. mainAnalysis를 작성할 때 "이 종목만의 뉴스는 없지만 업종 전체가 영향을 받고 있다"는 취지를 밝히고, 그 배경을 근거로 오늘 움직임을 서술하세요 — 이 종목 개별 뉴스가 있는 것처럼 단정하지 마세요.'
-            : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.')
-          + marketDayNewsNote;
+        let newsInstruction = '';
+        // 뉴스 선별 결과를 프롬프트 재료(newsBlockStr/combinedNews/newsClusterListBlock/newsInstruction)로
+        // 한 번에 반영 — Stage0 전송 뒤, Claude 호출 직전에 정확히 한 번 호출된다(실패 시 [] 로).
+        const applyNewsSelection = (items: NewsCandidate[]) => {
+          relevantNews = items;
+          hasRelevantNews = items.length > 0;
+          try {
+            // changeRate를 넘겨야 buildNewsBlock의 5→3 캡이 "최신순"이 아니라 "오늘 가격변동
+            // 관련성 우선순위"로 절삭한다(lib/stock-analysis-data.ts 참고).
+            newsBlockStr = buildNewsBlock(relevantNews, priceData?.changeRate);
+          } catch (e) { console.error('[DIAGNOSIS] buildNewsBlock 실패:', e); }
+          combinedNews = relevantNews.map(n => ({
+            title:       n.title,
+            description: n.summary ?? '',
+            url:         n.url ?? '',
+            date:        n.date ?? '',
+          }));
+          newsClusterListBlock = hasRelevantNews
+            ? relevantNews.map((n, i) => `${i}: [${n.date ?? '날짜 미상'}] ${n.title}`).join('\n')
+            : '해당 없음';
+          newsInstruction = (hasRelevantNews
+            ? '위 뉴스는 이 종목과 관련도가 높다고 판단되어 매칭된 실제 기사입니다. mainAnalysis를 작성할 때 반드시 이 뉴스를 근거로 최근 주가 변동 원인을 설명하고, 뉴스에 없는 내용을 지어내지 마세요.'
+            : hasSectorMacroNews
+              ? '이 종목과 직접 관련된 뉴스는 매칭되지 않았지만, 아래 [업종/시장 배경]에 이 종목이 속한 업종·시장 전체에 영향을 줄 만한 매크로 뉴스가 있습니다. mainAnalysis를 작성할 때 "이 종목만의 뉴스는 없지만 업종 전체가 영향을 받고 있다"는 취지를 밝히고, 그 배경을 근거로 오늘 움직임을 서술하세요 — 이 종목 개별 뉴스가 있는 것처럼 단정하지 마세요.'
+              : '관련 뉴스가 매칭되지 않았습니다. 이 경우 뉴스를 근거로 등락 원인을 지어내지 말고, mainAnalysis에 "특별한 뉴스 없이 수급·기술적 요인으로 추정됩니다" 취지의 문구를 명확히 포함해 뉴스 기반 분석이 아니라는 점을 밝히세요.')
+            + marketDayNewsNote;
+        };
 
         const profitRate   = currentPrice > 0 && avgPrice > 0
           ? ((currentPrice - avgPrice) / avgPrice * 100)
@@ -849,7 +871,9 @@ export async function POST(request: NextRequest) {
           ? `\n- 벤치마크(참고용 수치 비교, 판단 근거로 쓰지 말 것): 이 종목 수익률 ${benchmark.stockProfitRate >= 0 ? '+' : ''}${benchmark.stockProfitRate}% vs 같은 기간 ${benchmark.indexName} 등락률 ${benchmark.indexChangeRate >= 0 ? '+' : ''}${benchmark.indexChangeRate}% (${benchmark.fromDate}~${benchmark.toDate})`
           : '';
 
-        const prompt = `아래 실제 데이터를 기반으로 관찰된 사실 위주로 정리하여 반드시 JSON만 출력하세요.
+        // 2026-09-03 로딩속도 후속 3번: 프롬프트는 뉴스 선별이 끝난 뒤(Stage0 전송 후) 조립한다 — 함수로
+        // 감싸 두고 applyNewsSelection 다음에 buildPrompt()로 호출(본문의 다른 재료는 이미 확정돼 있다).
+        const buildPrompt = () => `아래 실제 데이터를 기반으로 관찰된 사실 위주로 정리하여 반드시 JSON만 출력하세요.
 
 ## 기준 시각
 현재 시각: ${nowKstString()}
@@ -942,8 +966,11 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           quantity:      Number(quantity),
           profitRate:    parseFloat(profitRate.toFixed(2)),
           profitAmount:  Math.round(profitAmount),
-          news:          combinedNews,
-          newsBasis:     (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
+          // 2026-09-03 로딩속도 후속 3번: 뉴스는 아직 선별 중 — 빈 배열 + newsPending으로 보내고
+          // (참고 기사 카드는 "선별 중" 표시), 선별이 끝나면 아래에서 field 이벤트로 채운다.
+          news:          [] as typeof combinedNews,
+          newsBasis:     'estimated' as 'news' | 'estimated',
+          newsPending:   true,
           flowType,
           flowPercentage,
           resistance:    Math.round(resistance),
@@ -984,6 +1011,20 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           midTermOutlook: undefined,
           finalVerdict: undefined,
         });
+
+        // ── 5.5단계: 뉴스 선별 대기 — Stage0(카드)은 이미 나갔고, 프롬프트에만 뉴스가 필요하므로
+        // 여기서만 기다린다(2026-09-03 로딩속도 후속 3번). 선별은 데이터 수집과 처음부터 병렬이었다.
+        send(controller, { type: 'progress', label: '관련 뉴스 선별 중...' });
+        const newsSelectionResult = await newsSelectionPromise.then(
+          (v) => ({ status: 'fulfilled' as const, value: v }),
+          (e) => ({ status: 'rejected' as const, reason: e }),
+        );
+        if (newsSelectionResult.status === 'rejected') console.warn('[DIAGNOSIS] 뉴스 선별 실패, 뉴스 없이 진행:', String(newsSelectionResult.reason));
+        applyNewsSelection(newsSelectionResult.status === 'fulfilled' ? newsSelectionResult.value.items : []);
+        send(controller, { type: 'field', key: 'news', value: combinedNews });
+        send(controller, { type: 'field', key: 'newsBasis', value: hasRelevantNews ? 'news' : 'estimated' });
+        send(controller, { type: 'field', key: 'newsPending', value: false });
+        const prompt = buildPrompt();
 
         // ── 6단계: Claude 스트리밍 분석 ────────────────────────────────────────────
         send(controller, { type: 'progress', label: 'AI 분석 생성 중...' });

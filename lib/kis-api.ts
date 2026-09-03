@@ -2395,6 +2395,18 @@ async function resolveDividendCloses(ticker: string, recordDates: string[], prio
   return closes;
 }
 
+// 2026-09-03 로딩속도 후속 — 크론(app/api/cron/dividend-cache-warm)용 선채움. 배당 이력 24시간 캐시와
+// 기준일 종가 영구 캐시를 미리 채워, 실제 유저가 처음 조회할 때 "종목당 평생 1회" 5년치 종가 조회(실측
+// 최대 17초)를 겪지 않게 한다. 24시간 캐시가 아직 신선하면 fetchDividendHistory는 종가를 건드리지
+// 않으므로(오늘 이전에 계산된 캐시엔 영구 종가가 없을 수 있음) 종가 해결을 한 번 더 명시적으로 돈다 —
+// 이미 영구 캐시에 있으면 IN 조회 1건으로 끝난다.
+export async function warmDividendCache(ticker: string): Promise<{ records: number; closes: number }> {
+  const rows = await fetchDividendHistory(ticker, { priority: 'cron' });
+  if (rows.length === 0) return { records: 0, closes: 0 };
+  const closes = await resolveDividendCloses(ticker, rows.map((r) => r.recordDate), 'cron');
+  return { records: rows.length, closes: closes.size };
+}
+
 // 함수 전체 결과(배당율 계산까지 끝난 상태)는 24시간 캐싱 — 새 배당 공시가 이 주기로 반영된다.
 export async function fetchDividendHistory(ticker: string, opts?: { priority?: KisPriority }): Promise<DividendHistoryRow[]> {
   try {

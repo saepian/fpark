@@ -48,6 +48,9 @@
     },
     "app/api/cron/news-sentiment/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/dividend-cache-warm/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -106,6 +109,10 @@
     {
       "path": "/api/cron/stock-master-refresh",
       "schedule": "10 17 * * *"
+    },
+    {
+      "path": "/api/cron/dividend-cache-warm",
+      "schedule": "50 6 * * 1-5"
     }
   ]
 }

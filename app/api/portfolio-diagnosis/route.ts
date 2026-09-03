@@ -268,8 +268,22 @@ export async function POST(request: NextRequest) {
           ));
         });
 
-        const [analysisResults, chartResults, newsSelectionResults, sectorMacroMap, dividendResults] = await Promise.all([
-          Promise.allSettled(analysisDataPromises),
+        // 2026-09-03 로딩속도 후속 2번: "종목 데이터 수집 중..." 한 문구 대신 종목별 조회가 끝날 때마다
+        // 진행 개수를 progress로 흘린다(시세·수급 / 차트 / 배당 3갈래 × 보유종목 수). 실패도 "완료"로
+        // 센다(allSettled와 같은 원칙 — 실패 처리는 아래 각 폴백이 담당).
+        const N = holdings.length;
+        const prog = { analysis: 0, chart: 0, dividend: 0 };
+        const emitCollectProgress = () => send(controller, {
+          type: 'progress',
+          label: `데이터 수집 중 — 시세·수급 ${prog.analysis}/${N} · 차트 ${prog.chart}/${N} · 배당 ${prog.dividend}/${N}`,
+        });
+        const track = <T,>(p: Promise<T>, key: keyof typeof prog): Promise<T> => p.finally(() => { prog[key]++; emitCollectProgress(); });
+
+        // 2026-09-03 로딩속도 후속 3번: 뉴스 선별(newsSelectionPromises, 종목당 Haiku 2~8초)은 이 배리어에서
+        // 뺀다 — meta/holding-meta(서버 계산 수치)는 뉴스 없이 완성되므로 먼저 보내고, Stage 1은 종목별로
+        // "자기 뉴스"가 준비되는 즉시 시작한다(가장 느린 종목의 선별을 전원이 기다리지 않음).
+        const [analysisResults, chartResults, sectorMacroMap, dividendResults] = await Promise.all([
+          Promise.allSettled(analysisDataPromises.map(p => track(p, 'analysis'))),
           // '3M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
           // 호출 수는 그대로(종목당 1회) — MDD/변동성 계산도 배열이 길어져도 동일하게 동작.
           // 타임아웃 8초→15초(2026-07-13 발견): fetchDailyChart 내부 자체 타임아웃이
@@ -277,16 +291,16 @@ export async function POST(request: NextRequest) {
           // 더 짧으면 KIS 응답이 오기도 전에 먼저 포기해서 오늘 손익 기여도·급등이력·
           // 거래대금배수가 조용히 null 처리되는 버그가 있었다(4종목 동시 요청 부하에서
           // 매번 다른 종목이 랜덤하게 누락됨 — 실측: 모베이스전자).
-          Promise.allSettled(chartPromises),
-          Promise.allSettled(newsSelectionPromises),
+          Promise.allSettled(chartPromises.map(p => track(p, 'chart'))),
           sectorMacroMapPromise,
           // 배당 정보(2026-08-04 신설) — DART 요약(7일 캐시) + KIS 5년 이력(24시간 캐시).
           // 기존 chart(15초 상한)와 같은 Promise.all에 편승시켜 새 병목을 만들지 않는다
           // — 최악의 경우(완전 콜드 캐시)에도 이미 지배적인 chart fetch와 동시에 진행된다.
           Promise.allSettled(
-            holdings.map(h => Promise.all([fetchDividendSummary(h.ticker), fetchDividendHistory(h.ticker, { priority: 'batch' })])),
+            holdings.map(h => track(Promise.all([fetchDividendSummary(h.ticker), fetchDividendHistory(h.ticker, { priority: 'batch' })]), 'dividend')),
           ),
         ]);
+        send(controller, { type: 'progress', label: '포트폴리오 구조 계산 중...' });
 
         const enriched: EnrichedHolding[] = holdings.map((h, i) => {
           const ar           = analysisResults[i];
@@ -299,8 +313,8 @@ export async function POST(request: NextRequest) {
           const profitRate   = h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : 0;
           const sectorMacroNews = sectorMacroMap.get((ad?.sector ?? '').trim()) ?? [];
 
-          const newsRes = newsSelectionResults[i];
-          const relevantNews = newsRes.status === 'fulfilled' ? newsRes.value.items : [];
+          // 뉴스는 Stage 1 직전에 종목별로 채운다(아래 newsSelectionPromises 체이닝) — 여기선 빈 배열.
+          const relevantNews: EnrichedHolding['relevantNews'] = [];
 
           const cr        = chartResults[i];
           const chartData = (cr.status === 'fulfilled' && cr.value) ? cr.value : [];
@@ -548,11 +562,21 @@ export async function POST(request: NextRequest) {
         console.log(`[PORTFOLIO-DIAGNOSIS] Stage 1 시작 — ${enriched.length}개 병렬 분석`);
 
         const portfolioMarketDayBlock = buildPortfolioMarketDayBlock(marketDayContext);
-        const stockResults = await Promise.all(enriched.map(h => analyzeOneStock(
-          h, portfolioMarketDayBlock,
-          (key, value) => send(controller, { type: 'holding-field-partial', ticker: h.ticker, key, value }),
-          (key, value) => send(controller, { type: 'holding-field', ticker: h.ticker, key, value }),
-        )));
+        // 2026-09-03 로딩속도 후속 3번: 종목별 Stage 1은 "자기 뉴스 선별"이 끝나는 즉시 시작 — 뉴스는
+        // enriched[i]에 채워 넣고(아래 nameMap/newsMap·최종 병합이 같은 객체를 읽는다) holding-field로
+        // 프론트에도 흘린다. newsSelectionPromises는 withTimeout으로 감싸져 있어 reject되지 않는다.
+        const stockResults = await Promise.all(enriched.map((h, i) => newsSelectionPromises[i]
+          .then((res) => res.items, () => [] as EnrichedHolding['relevantNews'])
+          .then((items) => {
+            h.relevantNews = items;
+            send(controller, { type: 'holding-field', ticker: h.ticker, key: 'news', value: items });
+            send(controller, { type: 'holding-field', ticker: h.ticker, key: 'newsBasis', value: items.length > 0 ? 'news' : 'estimated' });
+            return analyzeOneStock(
+              h, portfolioMarketDayBlock,
+              (key, value) => send(controller, { type: 'holding-field-partial', ticker: h.ticker, key, value }),
+              (key, value) => send(controller, { type: 'holding-field', ticker: h.ticker, key, value }),
+            );
+          })));
 
         // 섹터별 최근 뉴스 논조(2단계 UI 노출, 2026-08-21) — "섹터 편중도 분석" 카드와 동일한
         // 그룹핑 키(stockResults의 AI sector 라벨)를 그대로 재사용해 두 카드의 섹터명이 어긋나지

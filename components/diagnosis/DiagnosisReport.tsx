@@ -75,6 +75,7 @@ export interface DiagnosisResult {
   profitAmount: number;
   news: { title: string; description: string; url?: string; date?: string }[]; // date(원문 pubDate)는 현재 프론트엔드 미사용 — route.ts가 뉴스 클러스터링 프롬프트 컨텍스트로만 사용
   newsBasis?: 'news' | 'estimated';
+  newsPending?: boolean; // 2026-09-03: Stage0 뒤에 뉴스 선별 결과가 따로 도착 — 그 사이 참고 기사 카드는 "선별 중"
   newsIssueClusters?: { label: string; articleIndexes: number[] }[]; // news 배열의 인덱스 기준 이슈 묶음 — 뉴스가 적어 클러스터링할 게 없으면 빈 배열(참고 기사는 flat 목록으로 표시)
   institutionalFlow: string; // 도넛 옆 한 줄 캡션
   foreignFlow: string;       // 도넛 옆 한 줄 캡션
@@ -550,7 +551,7 @@ export default function DiagnosisReport({
             dense
           />
         </div>
-        <ReferenceNewsList news={result.news ?? []} clusters={result.newsIssueClusters} newsBasis={result.newsBasis} className="mb-3" />
+        <ReferenceNewsList news={result.news ?? []} clusters={result.newsIssueClusters} newsBasis={result.newsBasis} pending={result.newsPending} className="mb-3" />
 
         {/* 면책 */}
         <p className="text-[11px] text-slate-600 text-center leading-relaxed mb-6 px-4">

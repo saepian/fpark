@@ -46,26 +46,37 @@ export default function ReferenceNewsList({
   news,
   clusters,
   newsBasis,
+  pending = false,
   className = '',
 }: {
   news: ReferenceNewsItem[];
   clusters?: NewsIssueCluster[] | null;
   newsBasis?: 'news' | 'estimated';
+  // 2026-09-03 로딩속도 후속 3번: 기업분석 Stage0(서버 계산 카드)이 뉴스 선별(Haiku)보다 먼저
+  // 도착하므로, 선별 결과가 올 때까지 "없음"이 아니라 "선별 중"으로 보여준다(배지도 잠시 숨김).
+  pending?: boolean;
   className?: string;
 }) {
   const groups = buildNewsGroups(news, clusters);
+  const waiting = pending && news.length === 0;
   let no = 0; // 화면 표시 순서대로 1부터
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-4 ${className}`}>
       <div className="flex items-center gap-2 mb-3">
         <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest`}>참고 기사</p>
-        {newsBasis === 'news' ? (
+        {waiting ? null : newsBasis === 'news' ? (
           <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">📰 뉴스 기반 분석</span>
         ) : newsBasis === 'estimated' ? (
           <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-700/40 text-slate-400 border border-slate-600/40">🔍 수급·기술적 추정</span>
         ) : null}
       </div>
-      {news.length === 0 ? (
+      {waiting ? (
+        <div className="space-y-1.5 animate-pulse">
+          <p className="text-xs text-slate-500">관련 뉴스를 선별하는 중입니다...</p>
+          <div className="h-3 rounded bg-slate-700/40 w-full" />
+          <div className="h-3 rounded bg-slate-700/40 w-3/5" />
+        </div>
+      ) : news.length === 0 ? (
         <p className="text-xs text-slate-500 leading-relaxed">관련도 높은 뉴스가 확인되지 않아, 수급·기술적 지표를 근거로 분석했습니다.</p>
       ) : groups ? (
         <div className="flex flex-col gap-3">
