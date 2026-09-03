@@ -617,7 +617,103 @@ const KIS_RATE_LIMIT_PER_SEC = 15;
 const KIS_RATE_LIMIT_BURST = 15;
 const RATE_SLOT_MAX_WAIT_MS = 5000;
 
-export async function acquireKisRateSlot(): Promise<void> {
+// 게이트가 거부됐을 때(하드캡 5초 초과 대기, 또는 유저 클래스 소프트캡 소진) 던지는 에러 —
+// 호출부가 "요청 실패"로 인식하고 캐시 폴백/503 등을 결정할 수 있도록 일반 Error가 아닌
+// 구분 가능한 타입으로 분리(2026-09-03 트래픽점검 4번).
+export class KisRateLimitExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'KisRateLimitExceededError';
+  }
+}
+
+// ── 유저 클래스 소프트 상한 (2026-09-03 트래픽점검 4번) ─────────────────────────────
+// 하드캡(15/s, 위 RPC)은 모든 호출자가 공유하는 물리적 한도라 KIS_RATE_LIMIT_PER_SEC은
+// 그대로 두고, "검색창 타이핑처럼 저가치인 유저 요청이 알림 크론 같은 고가치 요청을
+// 밀어내지 못하게" 유저 클래스에만 별도 소프트 상한(10/s)을 추가로 건다. 크론은 이
+// 소프트캡을 거치지 않고 하드캡만 적용받으므로, 유저 트래픽이 아무리 몰려도 최소
+// 15-10=5/s는 크론 몫으로 항상 남는다(유저가 소프트캡을 다 못 채우면 크론은 그 이상도
+// 쓸 수 있음 — 엄격한 두 예산 분리가 아니라 "유저 상한선"으로 크론 최소 여유를 보장하는
+// 방식).
+//
+// kis_rate_limiter처럼 전용 테이블+RPC(FOR UPDATE 행 잠금)로 만드는 게 원칙적으로 더
+// 깔끔하지만, 이 세션엔 Supabase 마이그레이션을 적용할 CLI/DB 접근 권한이 없어 새
+// 테이블/함수를 만들 수 없다(cache-lock.ts와 동일한 제약) — 대신 market_cache 테이블에
+// CAS(compare-and-swap)로 근사 토큰버킷을 구현한다.
+//
+// 2026-09-03 최초 구현(단순 읽기→upsert)은 진짜 동시 폭주(Promise.all로 80개를 동시에
+// 쏘는 실측)에서 대부분이 "갱신 전" 같은 tokens 값을 읽어 전부 허용으로 판정, 소프트캡이
+// 사실상 무력화되는 걸 확인했다 — read-modify-write 사이 경쟁 윈도우가 너무 넓었다.
+// PostgREST의 `.update().eq('updated_at', 읽은시각)`은 그 WHERE가 매치되는 행에만
+// UPDATE를 적용하고 매치 실패(그 사이 다른 요청이 먼저 갱신) 시 0행을 반환하는데, 이
+// UPDATE...WHERE 자체는 Postgres 행 단위로 원자적이라 "내가 읽은 시점 그대로인 행만
+// 갱신"이 보장된다 — 낙관적 동시성 제어(CAS)로 재구현. 매치 실패하면 재시도(최대 5회,
+// 새로 읽은 상태로 다시 계산)해 실제로 순차 처리된 것처럼 정확한 토큰 차감이 되게 한다.
+// 그래도 하드캡(15/s, RPC의 FOR UPDATE)이 최종 안전망이므로 이 소프트캡이 드물게
+// 재시도를 소진해 허용 쪽으로 새어도 KIS 자체가 과호출되는 일은 없다.
+const USER_SOFT_RATE_LIMIT_PER_SEC = 10;
+const USER_SOFT_RATE_LIMIT_BURST = 10;
+const USER_SOFT_BUCKET_KEY = 'kis_soft_bucket_user';
+const USER_SOFT_BUCKET_CAS_RETRIES = 5;
+
+async function trySoftUserSlot(): Promise<boolean> {
+  try {
+    for (let attempt = 0; attempt < USER_SOFT_BUCKET_CAS_RETRIES; attempt++) {
+      const now = Date.now();
+      const { data: row } = await supabase
+        .from('market_cache')
+        .select('data, updated_at')
+        .eq('key', USER_SOFT_BUCKET_KEY)
+        .maybeSingle();
+
+      const prevTokens = row ? Number((row.data as { tokens?: number } | null)?.tokens ?? USER_SOFT_RATE_LIMIT_BURST) : USER_SOFT_RATE_LIMIT_BURST;
+      const lastRefillMs = row ? new Date(row.updated_at).getTime() : now;
+      const elapsedSec = Math.max(0, (now - lastRefillMs) / 1000);
+      const tokens = Math.min(USER_SOFT_RATE_LIMIT_BURST, prevTokens + elapsedSec * USER_SOFT_RATE_LIMIT_PER_SEC);
+      const allowed = tokens >= 1;
+      const nextTokens = allowed ? tokens - 1 : tokens;
+      const nowIso = new Date(now).toISOString();
+
+      if (!row) {
+        // 행이 아예 없음(최초 호출) — INSERT 시도, PK 충돌(23505)이면 다른 요청이 먼저
+        // 만든 것이니 재시도(이번엔 read에서 그 행을 보게 된다).
+        const { error } = await supabase.from('market_cache').insert({ key: USER_SOFT_BUCKET_KEY, data: { tokens: nextTokens }, updated_at: nowIso });
+        if (!error) return allowed;
+        if (error.code === '23505') continue;
+        return true; // 그 외 에러 — 허용(가용성 우선)
+      }
+
+      // CAS: 내가 읽은 시점의 updated_at과 정확히 일치하는 행만 갱신 — 그 사이 다른
+      // 요청이 먼저 갱신했으면 0행이 매치돼 갱신되지 않는다(update 자체는 실행되지만
+      // WHERE에 안 걸려 아무 행도 안 바뀜).
+      const { data: updated, error } = await supabase
+        .from('market_cache')
+        .update({ data: { tokens: nextTokens }, updated_at: nowIso })
+        .eq('key', USER_SOFT_BUCKET_KEY)
+        .eq('updated_at', row.updated_at)
+        .select('key');
+      if (error) return true; // DB 에러 — 허용(가용성 우선, 판단 불가 상황)
+      if (updated && updated.length > 0) return allowed; // CAS 성공
+      // CAS 실패(경쟁 — 그 사이 다른 요청이 먼저 갱신) — 짧게 쉬고 새 상태로 재시도
+      await new Promise((r) => setTimeout(r, 5 + Math.random() * 15));
+    }
+    // 재시도를 다 썼는데도 매번 "경쟁으로 실패"였다는 건 판단 불가가 아니라 오히려
+    // 지금 트래픽이 소프트캡을 자주 두드리고 있다는 신호다 — 이 경우 "허용"으로 새면
+    // 정확히 막으려던 상황(부담 상황에서 저가치 요청 유입)을 못 막으므로, 여기서는
+    // 안전 방향을 반대로(거부) 잡는다. DB 자체가 안 되는 진짜 장애는 위 catch에서 처리.
+    return false;
+  } catch (e) {
+    console.warn('[KIS] 유저 소프트캡 확인 실패, 허용으로 처리:', e instanceof Error ? e.message : e);
+    return true;
+  }
+}
+
+export async function acquireKisRateSlot(opts?: { priority?: 'cron' | 'user' }): Promise<void> {
+  const priority = opts?.priority ?? 'user';
+  if (priority === 'user' && !(await trySoftUserSlot())) {
+    throw new KisRateLimitExceededError('유저 요청 소프트캡(10/s) 소진 — 크론 우선순위 확보를 위해 거부');
+  }
+
   const deadline = Date.now() + RATE_SLOT_MAX_WAIT_MS;
   for (;;) {
     const { data, error } = await supabaseAdmin.rpc('kis_acquire_rate_slot', {
@@ -626,15 +722,19 @@ export async function acquireKisRateSlot(): Promise<void> {
     });
     if (error) {
       // 리미터 자체가 죽었다고 KIS 조회 전체를 막을 수는 없다 — 게이트 없이 진행한다
-      // (로컬 청크 스로틀링 + queryPrice의 EGW00201 재시도가 안전망으로 남는다).
+      // (로컬 청크 스로틀링 + queryPrice의 EGW00201 재시도가 안전망으로 남는다). 이건
+      // "포화" 상황이 아니라 리미터 인프라 자체의 장애라 폴스루 제거 대상이 아니다.
       console.warn('[KIS] 레이트리미터 RPC 실패, 게이트 없이 진행:', error.message);
       return;
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (row?.allowed) return;
     if (Date.now() >= deadline) {
-      console.warn('[KIS] 레이트리미터 대기 시간 초과, 게이트 없이 진행');
-      return;
+      // 2026-09-03 트래픽점검 4번: 예전엔 여기서 "게이트 없이 진행"했는데, 시스템이
+      // 이미 포화 상태(초당 15건을 5초 넘게 못 뚫음)인 순간에 오히려 요청을 더 흘려보내는
+      // 증폭기 역할을 했다 — 막아야 할 순간에 더 많은 요청이 뚫고 나가는 구조. 이제는
+      // 실패로 던져서 호출부가 캐시 폴백(있으면)이나 503(없으면)을 결정하게 한다.
+      throw new KisRateLimitExceededError(`레이트리미터 대기 시간(${RATE_SLOT_MAX_WAIT_MS}ms) 초과 — 시스템 포화`);
     }
     const waitMs = Math.min(Math.max(Number(row?.wait_ms) || 70, 30), 1000);
     await new Promise((r) => setTimeout(r, waitMs + Math.random() * 20));
@@ -646,11 +746,11 @@ export async function acquireKisRateSlot(): Promise<void> {
 async function queryPrice(
   ticker: string,
   _retried = false,
-  opts?: { waitForLock?: boolean },
+  opts?: { waitForLock?: boolean; priority?: 'cron' | 'user' },
   _rateRetried = false,
 ): Promise<any> {
   const token = await getAccessToken(opts);
-  await acquireKisRateSlot();
+  await acquireKisRateSlot({ priority: opts?.priority });
 
   const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
   url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
@@ -722,7 +822,7 @@ function buildStockQuote(ticker: string, o: any, name: string): StockQuote {
   };
 }
 
-export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockPrice> {
+export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boolean; priority?: 'cron' | 'user' }): Promise<StockPrice> {
   const o = await queryPrice(ticker, false, opts);
   const name = await resolveStockName(ticker, o);
   return buildStockPrice(ticker, o, name);
@@ -841,6 +941,15 @@ async function queryPriceCached(ticker: string, opts?: { waitForLock?: boolean }
     const raw: CachedQuoteRaw = { output: o, name };
     await saveStockQuoteCache(ticker, raw);
     return { raw, cachedAt: null };
+  } catch (e) {
+    // 2026-09-03 트래픽점검 4번: 라이브 실패(레이트리미터 하드캡/소프트캡 거부 포함)해도
+    // 캐시가 있으면(만료됐더라도) 그 값을 서빙 — 완전 실패(에러 응답)보다 낫다. fresh는
+    // 위에서 이미 읽어둔 값이라 추가 조회 없음.
+    if (fresh) {
+      console.warn(`[queryPriceCached] ${ticker} 라이브 실패, stale 캐시로 폴백:`, e instanceof Error ? e.message : e);
+      return { raw: fresh.raw, cachedAt: fresh.updatedAt, stale: true };
+    }
+    throw e;
   } finally {
     if (won) await releaseCacheLock(cacheKey);
   }
@@ -938,6 +1047,14 @@ export async function cacheJsonResult<T>(
       console.warn(`[cacheJsonResult] ${key} 캐시 저장 예외:`, e instanceof Error ? e.message : e);
     }
     return { data, isCached: false, cachedAt: null };
+  } catch (e) {
+    // 2026-09-03 트래픽점검 4번: 라이브 실패(레이트리미터 하드캡/소프트캡 거부 포함)해도
+    // 캐시가 있으면(만료됐더라도) 그 값을 서빙 — 완전 실패(에러 응답)보다 낫다.
+    if (cache) {
+      console.warn(`[cacheJsonResult] ${key} 라이브 실패, stale 캐시로 폴백:`, e instanceof Error ? e.message : e);
+      return { data: cache.data as T, isCached: true, cachedAt: cache.updated_at, stale: true };
+    }
+    throw e;
   } finally {
     if (won) await releaseCacheLock(key);
   }
@@ -1129,6 +1246,7 @@ async function fetchChartRangeRaw(
   startDate: Date,
   endDate: Date,
   label: string,
+  priority?: 'cron' | 'user',
 ): Promise<ChartDataPoint[]> {
   // 토큰 조기 만료 감지가 없던 함수 — 만료된 토큰으로 J/Q를 번갈아 시도해봐야 둘 다
   // 같은 이유로 실패할 뿐이라, 감지 즉시 상위 withKisTokenRetry가 재발급 후 한 번
@@ -1148,7 +1266,7 @@ async function fetchChartRangeRaw(
       url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
       url.searchParams.set('FID_ORG_ADJ_PRC', '0');
 
-      await acquireKisRateSlot();
+      await acquireKisRateSlot({ priority });
       const res = await fetch(url.toString(), {
         headers: headers(token, 'FHKST03010100'),
         cache:   'no-store',
@@ -1224,7 +1342,8 @@ async function saveDailyChartCache(ticker: string, period: '1Y', data: ChartData
 
 export async function fetchDailyChart(
   ticker: string,
-  period: '1W' | '1M' | '3M' | '1Y'
+  period: '1W' | '1M' | '3M' | '1Y',
+  opts?: { priority?: 'cron' | 'user' },
 ): Promise<ChartDataPoint[]> {
   if (period === '1Y') {
     const ttlMs = isKoreanMarketOpen() ? CHART_1Y_CACHE_TTL_MS_OPEN : CHART_1Y_CACHE_TTL_MS_CLOSED;
@@ -1242,7 +1361,7 @@ export async function fetchDailyChart(
     case '3M': startDate.setMonth(endDate.getMonth() - 3); break;
     case '1Y': startDate.setFullYear(endDate.getFullYear() - 1); break;
   }
-  const data = await fetchChartRangeRaw(ticker, startDate, endDate, `fetchDailyChart(${ticker})`);
+  const data = await fetchChartRangeRaw(ticker, startDate, endDate, `fetchDailyChart(${ticker})`, opts?.priority);
 
   if (period === '1Y') {
     await saveDailyChartCache(ticker, period, data);
@@ -1641,7 +1760,9 @@ export async function fetchInvestorFlowRanking(
     url.searchParams.set('FID_RANK_SORT_CLS_CODE', direction === 'inflow' ? '0' : '1');
     url.searchParams.set('FID_ETC_CLS_CODE', investorType === 'foreign' ? '1' : '2');
 
-    await acquireKisRateSlot();
+    // 현재 유일한 호출부(cron/daily-alert-email)가 크론이라 고정 — 다른 소비처가 생기면
+    // 그때 옵션으로 뺀다(YAGNI).
+    await acquireKisRateSlot({ priority: 'cron' });
     const res = await fetch(url.toString(), {
       headers: headers(token, 'FHPTJ04400000'),
       cache: 'no-store',

@@ -342,7 +342,7 @@ export async function generateAndSavePick(): Promise<{ ticker: string; name: str
 
   const token = await getAccessToken();
   const detail = await fetchStockDetail(selected.ticker, token);
-  const priceInfo = await fetchStockPrice(selected.ticker).catch(() => null);
+  const priceInfo = await fetchStockPrice(selected.ticker, { priority: 'cron' }).catch(() => null);
   const currentPrice = priceInfo?.price ?? detail?.currentPrice ?? 0;
   const changeRate   = priceInfo?.changeRate ?? detail?.changeRate ?? 0;
 

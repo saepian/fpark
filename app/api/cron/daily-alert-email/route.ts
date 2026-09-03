@@ -28,7 +28,7 @@ async function fetchPricesInChunks(tickers: string[]): Promise<Map<string, Stock
     const batch = tickers.slice(i, i + 3);
     const settled = await Promise.allSettled(
       batch.map(async (ticker) => {
-        const data = await fetchStockPrice(ticker);
+        const data = await fetchStockPrice(ticker, { priority: 'cron' });
         return {
           ticker, name: data.name, price: data.price, change: data.change,
           changeRate: data.changeRate, sector: data.sector,
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
   // 실행 시각(15:45 KST)이 정규장 마감(15:30) 이후라 홀리데이 판정이 항상 신뢰 가능한
   // 구간이다(lib/market-day-context.ts 상단 주석 참고). 조회 실패 시엔 안전하게 거래일로
   // 간주해 정상 발송을 진행한다(발송 누락보다 과다 발송이 덜 해로움).
-  const anchorChart = await fetchDailyChart('005930', '1W').catch(() => []);
+  const anchorChart = await fetchDailyChart('005930', '1W', { priority: 'cron' }).catch(() => []);
   const marketDayContext = getDomesticMarketDayContext(anchorChart);
   if (!marketDayContext.isTradingDay) {
     console.log(

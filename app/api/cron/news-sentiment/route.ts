@@ -25,7 +25,7 @@ async function processTicker(ticker: string, todayStr: string) {
   const name = STOCK_NAMES[ticker] || ticker; // 미매핑 종목(현재 1개)은 코드로 폴백 — selectRelevantNews의 코드 검색은 이름 정확도와 무관하게 동작
 
   const [priceResult, newsResult] = await Promise.allSettled([
-    fetchStockPrice(ticker),
+    fetchStockPrice(ticker, { priority: 'cron' }),
     selectRelevantNews(ticker, name),
   ]);
 

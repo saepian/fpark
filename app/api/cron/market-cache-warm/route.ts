@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   // daily-alert-email과 동일하게 앵커 종목(삼성전자) 1주치를 가볍게 조회(실행 시각 15:35도
   // 마감 이후라 홀리데이 판정이 신뢰 가능한 구간). 조회 실패 시엔 안전하게 거래일로 간주해
   // 정상 갱신을 진행한다(캐시 미갱신보다 과다 갱신이 덜 해로움).
-  const anchorChart = await fetchDailyChart('005930', '1W').catch(() => []);
+  const anchorChart = await fetchDailyChart('005930', '1W', { priority: 'cron' }).catch(() => []);
   const marketDayContext = getDomesticMarketDayContext(anchorChart);
   if (!marketDayContext.isTradingDay) {
     console.log(

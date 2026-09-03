@@ -71,7 +71,7 @@ async function fetchInvestorFlow(
       url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
       url.searchParams.set('FID_INPUT_ISCD', ticker);
 
-      await acquireKisRateSlot();
+      await acquireKisRateSlot({ priority: 'cron' });
       const res = await fetch(url.toString(), {
         headers: kisHeaders(token),
         cache: 'no-store',
@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
   // 이후)에서 신뢰 가능하도록 설계되어 있다(lib/market-day-context.ts 상단 주석 참고).
   // 판정 실패 시엔 안전하게 거래일로 간주해 정상 진행한다(알림 누락보다 과다 발송이
   // 덜 해로움).
-  const anchorChart = await fetchDailyChart('005930', '1W').catch(() => []);
+  const anchorChart = await fetchDailyChart('005930', '1W', { priority: 'cron' }).catch(() => []);
   const marketDayContext = getDomesticMarketDayContext(anchorChart);
   if (!marketDayContext.isTradingDay) {
     console.log(
@@ -211,7 +211,7 @@ export async function GET(request: NextRequest) {
     uniqueTickers,
     async (ticker) => {
       const [priceRes, flowRes] = await Promise.allSettled([
-        fetchStockPrice(ticker),
+        fetchStockPrice(ticker, { priority: 'cron' }),
         fetchInvestorFlow(ticker, token),
       ]);
 
