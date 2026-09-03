@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-browser';
 import {
   Sparkles, Plus, Trash2, Search, ChevronLeft,
   Printer, TrendingUp, TrendingDown, BookMarked, Lock, RefreshCw,
 } from 'lucide-react';
+import SaveReportButton from '@/components/SaveReportButton';
+import { useSaveReport } from '@/lib/useSaveReport';
 import DiagnosisSidebar from '@/components/diagnosis/DiagnosisSidebar';
 import DividendMatrix, { type DividendMatrixRow } from '@/components/diagnosis/DividendMatrix';
 import ShareDropdown from '@/components/ShareDropdown';
@@ -312,8 +314,10 @@ function TypingCursor() {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export default function PortfolioDiagnosisPage() {
+function PortfolioDiagnosisPageInner() {
   const router  = useRouter();
+  const searchParams = useSearchParams();
+  const savedId = searchParams.get('savedId');
   const supabase = createClient();
 
   // auth / plan
@@ -339,6 +343,14 @@ export default function PortfolioDiagnosisPage() {
   const [stage1Complete, setStage1Complete] = useState(false); // 종목별 개별 분석(Stage1) 전부 완료 여부
   const [stage2Failed,   setStage2Failed]   = useState(false); // Stage1은 끝났는데 종합분석(Stage2)만 실패/끊김
   const [streamFinished, setStreamFinished] = useState(false); // done 수신 또는 stage2 실패 확정 — 공유/인쇄 활성화 기준
+  // 2026-09-03 저장 기능 — reportId는 portfolio_diagnosis 행의 실제 id. savedId로
+  // 진입했다면 그 id를 그대로 쓰고, 새로 생성했다면 SSE done 이벤트로 받는다.
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [initialSaved, setInitialSaved] = useState(false);
+  const [initialSavedReportId, setInitialSavedReportId] = useState<string | null>(null);
+  const [savedViewLoading, setSavedViewLoading] = useState(!!savedId);
+  const [savedViewError, setSavedViewError] = useState('');
+  const { saved, saving: savingReport, toggle: toggleSaveReport } = useSaveReport(reportId, 'portfolio', initialSaved, initialSavedReportId);
   // 2026-08-12 클라이언트 측 smooth streaming — Stage1(종목별 reason/sector, 종목마다
   // 병렬 스트리밍이라 `holding:{ticker}:{key}` 키로 종목별 독립 애니메이션)·Stage2
   // (summarySections_* 등) 공통으로 사용. lib/useSmoothTypingText.ts 참고.
@@ -365,6 +377,30 @@ export default function PortfolioDiagnosisPage() {
         .catch(() => {});
     });
   }, []); // eslint-disable-line
+
+  // 2026-09-03 저장 기능 — savedId 쿼리 파라미터로 진입하면 홀딩 입력폼 대신 GET
+  // /api/saved-reports/:id를 호출해 기존 result를 그대로 렌더링한다. 이 GET은
+  // checkPlan/deductCredit/Claude 호출이 없는 순수 읽기 전용이라 사용횟수가 늘지 않는다.
+  useEffect(() => {
+    if (!savedId || !authChecked) return;
+    setSavedViewLoading(true);
+    setSavedViewError('');
+    fetch(`/api/saved-reports/${savedId}?type=portfolio`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || '저장된 리포트를 불러오지 못했습니다.');
+        setResult(data.result as StreamedResult);
+        setGeneratedAt(new Date(data.reportDate ?? Date.now()).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+        setReportId(data.id);
+        setInitialSaved(!!data.savedReportId);
+        setInitialSavedReportId(data.savedReportId ?? null);
+        setStage1Complete(true);
+        setStage2Failed(false);
+        setStreamFinished(true);
+      })
+      .catch((e) => setSavedViewError(e instanceof Error ? e.message : '저장된 리포트를 불러오지 못했습니다.'))
+      .finally(() => setSavedViewLoading(false));
+  }, [savedId, authChecked]); // eslint-disable-line
 
   // close watch popover on outside click
   useEffect(() => {
@@ -544,6 +580,8 @@ export default function PortfolioDiagnosisPage() {
               setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
               setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
               setStreamFinished(true);
+              // 2026-09-03 저장 기능 — 방금 생성된 리포트의 실제 DB 행 id.
+              if (typeof event.id === 'string') setReportId(event.id);
               smoothText.snapAll();
             } else if (event.type === 'error') {
               receivedTerminalEvent = true;
@@ -591,6 +629,30 @@ export default function PortfolioDiagnosisPage() {
       <div className="min-h-screen flex items-center justify-center">
         <PageBackground />
         <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // 2026-09-03 저장 기능 — savedId 뷰 로딩/에러. AI 생성이 아니라 단순 DB 조회라
+  // AiLoadingOverlay(수집 중 문구)가 아니라 간단한 스피너로 충분하다.
+  if (savedId && savedViewLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <PageBackground />
+        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  if (savedId && savedViewError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4">
+        <PageBackground />
+        <p className="text-slate-400 text-sm text-center">{savedViewError}</p>
+        <button onClick={() => router.replace('/portfolio-diagnosis')}
+          className="px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700
+            text-slate-300 text-[13px] transition-colors cursor-pointer">
+          새로 분석하기
+        </button>
       </div>
     );
   }
@@ -740,6 +802,9 @@ export default function PortfolioDiagnosisPage() {
                   >
                     <Printer className="w-3 h-3" /> PRINT REPORT
                   </button>
+                  {reportId && (
+                    <SaveReportButton saved={saved} saving={savingReport} onToggle={toggleSaveReport} />
+                  )}
                 </>
               ) : (
                 <span className="text-[11px] text-slate-500">리포트 생성 중...</span>
@@ -1099,20 +1164,30 @@ export default function PortfolioDiagnosisPage() {
             투자 결정과 그 결과에 대한 책임은 투자자 본인에게 있습니다.
           </p>
 
-          <button
-            onClick={() => {
-              setResult(null);
-              setStage1Complete(false);
-              setStage2Failed(false);
-              setStreamFinished(false);
-              smoothText.reset();
-            }}
-            className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl
-              bg-slate-800 hover:bg-slate-700 border border-slate-700
-              text-slate-300 text-[13px] transition-colors cursor-pointer"
-          >
-            <ChevronLeft className="w-4 h-4" /> 다시 분석받기
-          </button>
+          <div className="flex items-center justify-center gap-2 no-print">
+            {reportId && (
+              <SaveReportButton saved={saved} saving={savingReport} onToggle={toggleSaveReport} />
+            )}
+            <button
+              onClick={() => {
+                setResult(null);
+                setStage1Complete(false);
+                setStage2Failed(false);
+                setStreamFinished(false);
+                setReportId(null);
+                setInitialSaved(false);
+                setInitialSavedReportId(null);
+                setSavedViewError('');
+                if (savedId) router.replace('/portfolio-diagnosis'); // savedId 뷰였다면 URL에서 지운다
+                smoothText.reset();
+              }}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl
+                bg-slate-800 hover:bg-slate-700 border border-slate-700
+                text-slate-300 text-[13px] transition-colors cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" /> 다시 분석받기
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1347,6 +1422,15 @@ export default function PortfolioDiagnosisPage() {
         </div>{/* ← 그리드 닫기 */}
       </div>
     </div>
+  );
+}
+
+// useSearchParams(savedId)를 쓰므로 Suspense로 감싼다 — app/auth/login/page.tsx와 동일 패턴.
+export default function PortfolioDiagnosisPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <PortfolioDiagnosisPageInner />
+    </Suspense>
   );
 }
 

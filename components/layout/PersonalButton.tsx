@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
-import { User } from 'lucide-react';
+import { User, Bookmark } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { useSession } from '@/lib/useSession';
@@ -170,6 +170,146 @@ function WatchlistList({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ── 저장내역 사이드 패널 내부 리스트 ───────────────────────────────────────────
+// 2026-09-03: 기업분석/포트폴리오분석 "저장" 기능 — WatchlistList와 같은 패널 셸을
+// 공유하되(PersonalButton 하단 portal), 안쪽 리스트만 기업분석/포트폴리오분석 두
+// 섹션으로 나눠 보여준다. 저장내역은 매일 자정(KST) 초기화되므로 GET /api/saved-reports는
+// 항상 "오늘자"만 반환한다(서버 측 필터 — lib/database 설계 확정, 2026-09-03).
+
+interface SavedStockItem {
+  savedReportId: string;
+  sourceId: string;
+  ticker: string;
+  name: string;
+  reportDate: string | null;
+  savedAt: string;
+}
+interface SavedPortfolioItem {
+  savedReportId: string;
+  sourceId: string;
+  reportDate: string | null;
+  holdingsCount: number | null;
+  totalProfitRate: number | null;
+  savedAt: string;
+}
+
+function SavedReportsList({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
+  const [stock, setStock]         = useState<SavedStockItem[]>([]);
+  const [portfolio, setPortfolio] = useState<SavedPortfolioItem[]>([]);
+  const [loading, setLoading]     = useState(true);
+
+  useEffect(() => {
+    fetch('/api/saved-reports')
+      .then(r => r.json())
+      .then(data => {
+        setStock(Array.isArray(data?.stock) ? data.stock : []);
+        setPortfolio(Array.isArray(data?.portfolio) ? data.portfolio : []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const unsave = async (savedReportId: string, type: 'stock' | 'portfolio') => {
+    if (type === 'stock') setStock(prev => prev.filter(s => s.savedReportId !== savedReportId));
+    else setPortfolio(prev => prev.filter(p => p.savedReportId !== savedReportId));
+    await fetch(`/api/saved-reports/${savedReportId}`, { method: 'DELETE' });
+  };
+
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500 text-sm">불러오는 중…</div>;
+  }
+
+  if (stock.length === 0 && portfolio.length === 0) {
+    return (
+      <div className="p-8 text-center text-slate-500 text-sm">
+        <p className="text-3xl mb-3">🔖</p>
+        <p>오늘 저장한 리포트가 없습니다</p>
+        <p className="text-xs mt-1 text-slate-600">리포트 화면의 저장 버튼을 눌러 추가하세요</p>
+        <p className="text-xs mt-3 text-slate-700">저장내역은 매일 자정(KST) 초기화됩니다</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* 기업분석 섹션 */}
+      <div className="px-5 pt-4 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-widest">
+        기업분석 {stock.length > 0 && `(${stock.length})`}
+      </div>
+      {stock.length === 0 ? (
+        <div className="px-5 pb-4 text-xs text-slate-600">저장한 기업분석이 없습니다</div>
+      ) : (
+        stock.map((item) => (
+          <div
+            key={item.savedReportId}
+            className="flex items-center gap-2 px-3 py-3.5 border-b border-slate-800 hover:bg-slate-800/50 transition-colors"
+          >
+            <div
+              className="flex-1 cursor-pointer min-w-0"
+              onClick={() => { router.push(`/diagnosis?savedId=${item.sourceId}`); onClose(); }}
+            >
+              <p className="text-sm font-semibold text-white truncate leading-tight">{item.name}</p>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">{item.ticker}</p>
+            </div>
+            <button
+              onClick={() => unsave(item.savedReportId, 'stock')}
+              className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-red-500/20
+                hover:text-red-400 text-slate-500 flex items-center justify-center
+                transition-colors text-xs shrink-0 cursor-pointer"
+              aria-label="저장 취소"
+            >
+              ✕
+            </button>
+          </div>
+        ))
+      )}
+
+      {/* 포트폴리오분석 섹션 */}
+      <div className="px-5 pt-4 pb-2 text-xs font-semibold text-slate-500 uppercase tracking-widest border-t border-slate-800">
+        포트폴리오분석 {portfolio.length > 0 && `(${portfolio.length})`}
+      </div>
+      {portfolio.length === 0 ? (
+        <div className="px-5 pb-4 text-xs text-slate-600">저장한 포트폴리오분석이 없습니다</div>
+      ) : (
+        portfolio.map((item) => {
+          const isUp = (item.totalProfitRate ?? 0) >= 0;
+          return (
+            <div
+              key={item.savedReportId}
+              className="flex items-center gap-2 px-3 py-3.5 border-b border-slate-800 hover:bg-slate-800/50 transition-colors"
+            >
+              <div
+                className="flex-1 cursor-pointer min-w-0"
+                onClick={() => { router.push(`/portfolio-diagnosis?savedId=${item.sourceId}`); onClose(); }}
+              >
+                <p className="text-sm font-semibold text-white truncate leading-tight">
+                  {item.holdingsCount != null ? `${item.holdingsCount}개 종목` : '포트폴리오 리포트'}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">{item.reportDate ?? ''}</p>
+              </div>
+              {item.totalProfitRate != null && (
+                <p className={`text-xs font-mono shrink-0 ${isUp ? 'text-red-400' : 'text-blue-400'}`}>
+                  {isUp ? '+' : ''}{item.totalProfitRate.toFixed(2)}%
+                </p>
+              )}
+              <button
+                onClick={() => unsave(item.savedReportId, 'portfolio')}
+                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-red-500/20
+                  hover:text-red-400 text-slate-500 flex items-center justify-center
+                  transition-colors text-xs shrink-0 cursor-pointer"
+                aria-label="저장 취소"
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 // ── PersonalButton ─────────────────────────────────────────────────────────────
 
 export default function PersonalButton() {
@@ -179,6 +319,7 @@ export default function PersonalButton() {
   const { user } = useSession();
   const [open, setOpen]               = useState(false);
   const [isWatchlistOpen, setWatchlistOpen] = useState(false);
+  const [isSavedReportsOpen, setSavedReportsOpen] = useState(false);
   const [mounted, setMounted]         = useState(false);
   const dropdownRef                   = useRef<HTMLDivElement>(null);
 
@@ -196,9 +337,9 @@ export default function PersonalButton() {
 
   // 패널 열릴 때 body 스크롤 잠금
   useEffect(() => {
-    document.body.style.overflow = isWatchlistOpen ? 'hidden' : '';
+    document.body.style.overflow = (isWatchlistOpen || isSavedReportsOpen) ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [isWatchlistOpen]);
+  }, [isWatchlistOpen, isSavedReportsOpen]);
 
   const signOut = async () => {
     await getClient().auth.signOut();
@@ -268,6 +409,16 @@ export default function PersonalButton() {
               </button>
 
               <button
+                onClick={() => { setOpen(false); setSavedReportsOpen(true); }}
+                className="flex items-center gap-2.5 w-full px-4 py-2.5
+                  text-[13px] text-slate-300 hover:text-white hover:bg-slate-700/60
+                  transition-colors cursor-pointer"
+              >
+                <Bookmark className="w-3.5 h-3.5" />
+                저장내역
+              </button>
+
+              <button
                 onClick={signOut}
                 className="flex items-center gap-2.5 w-full px-4 py-2.5
                   text-[13px] text-slate-400 hover:text-red-400 hover:bg-slate-700/60
@@ -321,6 +472,49 @@ export default function PersonalButton() {
 
             {/* 리스트 */}
             <WatchlistList onClose={() => setWatchlistOpen(false)} />
+          </div>
+        </>,
+        document.body,
+      )}
+
+      {/* 저장내역 사이드 패널 (portal → body) — Watchlist와 동일한 셸 재사용 */}
+      {mounted && isSavedReportsOpen && createPortal(
+        <>
+          {/* 오버레이 */}
+          <div
+            className="fixed inset-0 z-[60] bg-black/50"
+            onClick={() => setSavedReportsOpen(false)}
+          />
+
+          {/* 패널 */}
+          <div className="fixed right-0 top-0 h-full w-80 z-[61]
+            bg-[#1e2130] border-l border-slate-700 shadow-2xl
+            overflow-y-auto
+            [&::-webkit-scrollbar]:w-1
+            [&::-webkit-scrollbar-track]:bg-transparent
+            [&::-webkit-scrollbar-thumb]:bg-slate-700
+            [&::-webkit-scrollbar-thumb]:rounded-full">
+
+            {/* 패널 헤더 */}
+            <div className="flex items-center justify-between p-5
+              border-b border-slate-700 sticky top-0 bg-[#1e2130] z-10">
+              <div className="flex items-center gap-2">
+                <Bookmark className="w-4 h-4 text-amber-400" />
+                <span className="font-bold text-white text-sm tracking-wider">저장내역</span>
+              </div>
+              <button
+                onClick={() => setSavedReportsOpen(false)}
+                className="w-7 h-7 flex items-center justify-center
+                  text-slate-400 hover:text-white transition-colors
+                  rounded-lg hover:bg-slate-700 cursor-pointer text-base"
+                aria-label="닫기"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 리스트 */}
+            <SavedReportsList onClose={() => setSavedReportsOpen(false)} />
           </div>
         </>,
         document.body,

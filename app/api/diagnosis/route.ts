@@ -1245,9 +1245,18 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
         // 패턴("응답 직후 실행 컨텍스트가 얼어붙어 저장이 끊기는 문제 방지")과 일관성을
         // 맞춘 것. done 전송은 저장 완료를 기다리지 않지만, 클라이언트는 원래도 저장
         // 성공 여부와 무관하게 done만 보고 화면을 마무리하므로 사용자 경험 변화는 없다.
+        //
+        // 2026-09-03 "저장" 기능 선행 변경: id를 DB 기본값(gen_random_uuid())에 맡기지
+        // 않고 여기서 미리 생성해 insert에 명시한다 — after()는 응답이 끝난 뒤 실행되므로
+        // 그 안에서 만든 id를 SSE로 클라이언트에 보낼 방법이 없다(스트림이 이미 닫힘).
+        // 미리 만든 id를 insert와 done 프레임에 동시에 실어 보내면, "응답 안 기다리고
+        // 빠르게 스트림 닫기" 최적화를 그대로 유지하면서도 프론트가 방금 생성된 리포트의
+        // DB 행 id를 알 수 있다(저장 버튼이 이 id를 saved_reports.source_id로 씀).
+        const reportId = crypto.randomUUID();
         after(async () => {
           try {
             await supabase.from('stock_diagnosis').insert({
+              id:          reportId,
               user_id:     user.id,
               ticker,
               name:        stockName,
@@ -1263,7 +1272,7 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           }
         });
 
-        send(controller, { type: 'done' });
+        send(controller, { type: 'done', id: reportId });
       } catch (e) {
         console.error('[DIAGNOSIS] 최상위 예외:', e);
         try { send(controller, { type: 'error', message: 'AI 분석 생성 실패' }); } catch { /* 클라이언트가 이미 끊었으면 무시 */ }

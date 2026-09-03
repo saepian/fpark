@@ -746,9 +746,15 @@ export async function POST(request: NextRequest) {
         // 이유로 쓰고 있는 검증된 패턴과 일관성을 맞춘 것. done 전송은 저장 완료를 기다리지
         // 않지만, 클라이언트는 원래도 저장 성공 여부와 무관하게 done만 보고 화면을
         // 마무리하므로 사용자 경험 변화는 없다.
+        //
+        // 2026-09-03 "저장" 기능 선행 변경(app/api/diagnosis/route.ts와 동일 이유) — id를
+        // DB 기본값에 맡기지 않고 미리 생성해 insert와 done 프레임에 함께 실어 보낸다.
+        // after() 안에서 만든 id는 스트림이 이미 닫힌 뒤라 클라이언트에 전달할 방법이 없다.
+        const reportId = crypto.randomUUID();
         after(async () => {
           try {
             const { error: insertError } = await supabase.from('portfolio_diagnosis').insert({
+              id:          reportId,
               user_id:     user.id,
               report_date: todayStr,
               result:      finalResult,
@@ -764,7 +770,7 @@ export async function POST(request: NextRequest) {
         // 2026-07-27 스트리밍 전환 — 프론트는 위에서 이미 meta/holding-meta/holding-field/
         // portfolio-field 이벤트로 finalResult와 동등한 내용을 다 받았으므로, 여기서는
         // 전체를 다시 보내지 않고 종료만 통지한다(종목분석 done 이벤트와 동일 설계).
-        send(controller, { type: 'done' });
+        send(controller, { type: 'done', id: reportId });
       } catch (e) {
         console.error('[PORTFOLIO-DIAGNOSIS] 치명적 오류:', e);
         send(controller, { type: 'error', message: 'AI 분석 생성 실패' });

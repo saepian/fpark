@@ -18,6 +18,8 @@ import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/Fac
 import type { HoldingPosition } from '@/lib/holding-position';
 import type { QuarterlyFinancialRow } from '@/lib/kis-api';
 import { PerformanceSnapshotCard } from '@/components/diagnosis/PerformanceSnapshotCard';
+import SaveReportButton from '@/components/SaveReportButton';
+import { useSaveReport } from '@/lib/useSaveReport';
 import { SectorComparisonCard, type SectorComparison } from '@/components/diagnosis/SectorComparisonCard';
 import { INVESTMENT_DISCLAIMER } from '@/lib/ai-compliance';
 import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
@@ -353,6 +355,12 @@ interface DiagnosisReportProps {
   // 2026-08-12 클라이언트 측 smooth streaming(lib/useSmoothTypingText.ts) — 키(필드명)별로
   // 화면에 보여줄 텍스트와, 아직 목표 길이를 못 따라잡아 타이핑 커서를 그려야 하는지(active)를 담음.
   revealed?: Record<string, RevealedField>;
+  // 2026-09-03 저장 기능 — reportId는 stock_diagnosis 행의 실제 id(방금 생성했다면 SSE
+  // done 이벤트로 받은 id, savedId로 진입했다면 그 id 그대로). 없으면(정적 예시 렌더 등)
+  // 저장 버튼 자체를 숨긴다 — 가짜 데이터를 저장할 방법이 없어야 하므로.
+  reportId?: string | null;
+  initialSaved?: boolean;          // savedId로 진입한 경우 true로 시작(이미 저장된 상태로 표시)
+  initialSavedReportId?: string | null;
 }
 
 // app/diagnosis/page.tsx의 결과 리포트 뷰를 그대로 추출한 컴포넌트.
@@ -366,7 +374,9 @@ interface DiagnosisReportProps {
 export default function DiagnosisReport({
   result, stockName, ticker, generatedAt, onReset, actions = true, showBackground = true,
   isGenerating = false, revealed, livePriceTable = true,
+  reportId = null, initialSaved = false, initialSavedReportId = null,
 }: DiagnosisReportProps) {
+  const { saved, saving, toggle: toggleSave } = useSaveReport(reportId, 'stock', initialSaved, initialSavedReportId);
 
   return (
     <div className="pb-8">
@@ -399,6 +409,9 @@ export default function DiagnosisReport({
               >
                 <Printer className="w-3 h-3" /> PRINT REPORT
               </button>
+              {reportId && (
+                <SaveReportButton saved={saved} saving={saving} onToggle={toggleSave} />
+              )}
             </div>
           )}
         </div>
@@ -544,14 +557,21 @@ export default function DiagnosisReport({
           {INVESTMENT_DISCLAIMER}
         </p>
 
-        {/* 다시 진단받기 */}
-        {actions && onReset && (
-          <button onClick={onReset}
-            className="flex items-center gap-2 mx-auto px-6 py-3 rounded-xl
-              bg-slate-800 hover:bg-slate-700 border border-slate-700
-              text-slate-300 text-[13px] transition-colors cursor-pointer">
-            <ChevronLeft className="w-4 h-4" /> 다시 기업 분석 받기
-          </button>
+        {/* 저장 + 다시 진단받기 */}
+        {actions && (onReset || reportId) && (
+          <div className="flex items-center justify-center gap-2 no-print">
+            {reportId && (
+              <SaveReportButton saved={saved} saving={saving} onToggle={toggleSave} />
+            )}
+            {onReset && (
+              <button onClick={onReset}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl
+                  bg-slate-800 hover:bg-slate-700 border border-slate-700
+                  text-slate-300 text-[13px] transition-colors cursor-pointer">
+                <ChevronLeft className="w-4 h-4" /> 다시 기업 분석 받기
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

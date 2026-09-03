@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { Search, Sparkles } from 'lucide-react';
@@ -66,8 +66,10 @@ function applyDiagnosisField(prev: DiagnosisResult, key: string, value: unknown)
 
 // ── 사이드바 카드 ──────────────────────────────────────────────────────────────
 
-export default function DiagnosisPage() {
+function DiagnosisPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const savedId = searchParams.get('savedId');
   const supabase = createClient();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const skipSearch  = useRef(false);
@@ -93,6 +95,14 @@ export default function DiagnosisPage() {
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [generatedAt, setGeneratedAt] = useState('');
+  // 2026-09-03 저장 기능 — reportId는 stock_diagnosis 행의 실제 id. savedId로 진입했다면
+  // 그 id를 그대로 쓰고(initialSaved/initialSavedReportId도 함께 세팅), 새로 생성했다면
+  // SSE done 이벤트로 받는다(둘 다 이 하나의 state로 수렴).
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [initialSaved, setInitialSaved] = useState(false);
+  const [initialSavedReportId, setInitialSavedReportId] = useState<string | null>(null);
+  const [savedViewLoading, setSavedViewLoading] = useState(!!savedId);
+  const [savedViewError, setSavedViewError] = useState('');
   // 2026-08-11 스트리밍 전환 — Stage0(서버 계산값) 도착 즉시 showResult가 true가 되므로,
   // AI 필드가 아직 채워지는 중임을 DiagnosisReport에 알려 스켈레톤/타이핑 커서를 그리게 한다.
   // Stage1이 실패해도(stage1-error) isGenerating을 false로 내려 "생성 중" 표시만 멈추면
@@ -112,6 +122,31 @@ export default function DiagnosisPage() {
       fetch('/api/diagnosis').then(r => r.json()).then(d => setRemaining(d.remaining ?? 0));
     });
   }, []); // eslint-disable-line
+
+  // 2026-09-03 저장 기능 — savedId 쿼리 파라미터로 진입하면 입력폼 대신 GET
+  // /api/saved-reports/:id를 호출해 기존 result를 그대로 렌더링한다. 이 GET은
+  // checkPlan/deductCredit/Claude 호출이 없는 순수 읽기 전용이라 사용횟수가 늘지 않는다.
+  useEffect(() => {
+    if (!savedId || !authChecked) return;
+    setSavedViewLoading(true);
+    setSavedViewError('');
+    fetch(`/api/saved-reports/${savedId}?type=stock`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || '저장된 리포트를 불러오지 못했습니다.');
+        setResult(data.result as DiagnosisResult);
+        setTicker(data.ticker);
+        setStockName(data.name);
+        setGeneratedAt(new Date(data.reportDate ?? Date.now()).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
+        setReportId(data.id);
+        setInitialSaved(!!data.savedReportId);
+        setInitialSavedReportId(data.savedReportId ?? null);
+        setShowResult(true);
+        setIsGenerating(false);
+      })
+      .catch((e) => setSavedViewError(e instanceof Error ? e.message : '저장된 리포트를 불러오지 못했습니다.'))
+      .finally(() => setSavedViewLoading(false));
+  }, [savedId, authChecked]); // eslint-disable-line
 
   // 검색 자동완성 (종목 직접 선택 시 skipSearch로 드롭다운 억제)
   useEffect(() => {
@@ -234,6 +269,9 @@ export default function DiagnosisPage() {
               smoothText.snapAll();
               setGeneratedAt(new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }));
               setRemaining(prev => Math.max(0, (prev ?? 1) - 1));
+              // 2026-09-03 저장 기능 — 방금 생성된 리포트의 실제 DB 행 id. 새로 생성한
+              // 리포트는 저장된 적 없으므로 initialSaved/initialSavedReportId는 그대로 둔다.
+              if (typeof event.id === 'string') setReportId(event.id);
             } else if (event.type === 'error') {
               receivedTerminalEvent = true;
               setError(event.message || '분석 실패');
@@ -273,6 +311,11 @@ export default function DiagnosisPage() {
     setQuantity('');
     setBuyDate('');
     setError('');
+    setReportId(null);
+    setInitialSaved(false);
+    setInitialSavedReportId(null);
+    setSavedViewError('');
+    if (savedId) router.replace('/diagnosis'); // savedId로 들어온 뷰였다면 URL에서 지운다
     fetch('/api/diagnosis').then(r => r.json()).then(d => setRemaining(d.remaining ?? 0));
   };
 
@@ -281,6 +324,30 @@ export default function DiagnosisPage() {
       <div className="min-h-screen flex items-center justify-center">
         <PageBackground />
         <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // 2026-09-03 저장 기능 — savedId 뷰 로딩/에러. AI 생성이 아니라 단순 DB 조회라
+  // AiLoadingOverlay(수집 중 문구)가 아니라 간단한 스피너로 충분하다.
+  if (savedId && savedViewLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <PageBackground />
+        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  if (savedId && savedViewError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4">
+        <PageBackground />
+        <p className="text-slate-400 text-sm text-center">{savedViewError}</p>
+        <button onClick={handleReset}
+          className="px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700
+            text-slate-300 text-[13px] transition-colors cursor-pointer">
+          새로 분석하기
+        </button>
       </div>
     );
   }
@@ -305,6 +372,9 @@ export default function DiagnosisPage() {
         onReset={handleReset}
         isGenerating={isGenerating}
         revealed={smoothText.revealed}
+        reportId={reportId}
+        initialSaved={initialSaved}
+        initialSavedReportId={initialSavedReportId}
       />
     );
   }
@@ -500,5 +570,14 @@ export default function DiagnosisPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// useSearchParams(savedId)를 쓰므로 Suspense로 감싼다 — app/auth/login/page.tsx와 동일 패턴.
+export default function DiagnosisPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <DiagnosisPageInner />
+    </Suspense>
   );
 }
