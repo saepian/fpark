@@ -30,12 +30,26 @@ function WatchlistList({ onClose }: { onClose: () => void }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
+  // 2026-09-03: 관심종목 패널은 화면에 현재가·등락률을 보여줘야 해서 app/portfolio-diagnosis
+  // 의 "워치리스트에서 불러오기"(prices=0 그대로 사용, 종목코드·이름만 필요)처럼 시세를 아예
+  // 뺄 수는 없다. 대신 실측(BEFORE: 시세 포함 기본 경로 웜 ~1.0~1.25s vs prices=0 ~0.8s)에
+  // 근거해 2단계로 나눈다 — 먼저 prices=0으로 목록만 즉시 그려 패널을 바로 열고(가격 자리는
+  // 기존 렌더링이 이미 price>0 여부로 '—' 처리하므로 별도 스켈레톤 UI 없이도 자연스럽게
+  // 빈 상태로 보임), 그 직후 시세 포함 전체 목록을 다시 받아 가격만 채워 넣는다. 두 요청 다
+  // 기존 GET /api/watchlist를 그대로 재사용 — 새 엔드포인트 없이 프론트에서만 바꾼다.
   useEffect(() => {
+    let cancelled = false;
+    fetch('/api/watchlist?prices=0')
+      .then(r => r.json())
+      .then(data => { if (!cancelled) { setList(Array.isArray(data) ? data : []); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+
     fetch('/api/watchlist')
       .then(r => r.json())
-      .then(data => setList(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .then(data => { if (!cancelled && Array.isArray(data)) setList(data); })
+      .catch(() => {});
+
+    return () => { cancelled = true; };
   }, []);
 
   const remove = async (ticker: string) => {
