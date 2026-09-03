@@ -20,7 +20,7 @@ export default function WelcomeLink() {
   return (
     <Link
       href="/welcome"
-      className="fixed bottom-24 right-4 sm:right-6 z-[9998] flex items-center gap-1.5
+      className="no-print fixed bottom-24 right-4 sm:right-6 z-[9998] flex items-center gap-1.5
         rounded-full pl-2.5 pr-3 py-2 text-[11.5px] font-semibold text-indigo-200
         bg-[#151a2e]/95 border border-indigo-500/30 shadow-lg backdrop-blur-sm
         hover:border-indigo-400/50 hover:text-white transition-colors"

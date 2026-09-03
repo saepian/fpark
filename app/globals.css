@@ -300,6 +300,31 @@ button, [role="button"], a {
     break-inside: avoid;
   }
 
+  /* 2026-09-03 실측(삼성전자 리포트 인쇄 PDF): PERFORMANCE SNAPSHOT·급등/급락 이력 카드가
+     페이지 경계에서 중간에 잘리고, 잘린 나머지 내용이 다음 페이지로 이어지지 않고 그냥
+     사라지는 걸 확인 — break-inside: avoid를 위에서 이미 걸었는데도 무시된 것. 원인은
+     Chrome의 오래된 프린트 렌더링 버그로, break-inside:avoid가 display:grid/flex의 직계
+     자식에게는 적용되지 않는다(이 파일 아래 [data-suggestions-list]에 "flex 대신 block —
+     Chrome flex+break-inside 버그 우회"라고 이미 남긴 것과 동일 원인이 카드 그리드에서도
+     재현). 두 카드 모두 실제로는 grid 컨테이너(md:grid-cols-[1fr_300px] 등)의 직계
+     자식이었다 — 화면 너비(md 768px)보다 인쇄 컨텐츠 폭(A4 210mm - 여백 20mm ≈ 718px)이
+     좁아 실제로는 이미 1열로 보이는 상태였는데도 컨테이너 자체는 여전히 display:grid라
+     버그가 발동했다.
+     .rounded-2xl 카드를 직계 자식으로 둔 grid만 :has()로 정밀하게 골라 block으로 바꿔
+     각 카드를 일반 블록 흐름으로 되돌린다 — 카드가 아닌 순수 지표만 나열하는 작은 내부
+     grid(예: 내 포지션 카드 안의 3열 지표, HoldingPositionCard)는 직계 자식이 .rounded-2xl이
+     아니므로 대상에서 자연히 제외돼 레이아웃이 안 바뀐다. block 전환 시 gap이 무시되므로
+     margin-bottom으로 기존 간격(gap-3 → 10px 상당)을 대신 준다. */
+  .grid:has(> .rounded-2xl) {
+    display: block !important;
+  }
+  .grid:has(> .rounded-2xl) > .rounded-2xl {
+    margin-bottom: 10px !important;
+  }
+  .grid:has(> .rounded-2xl) > .rounded-2xl:last-child {
+    margin-bottom: 0 !important;
+  }
+
   /* 포트폴리오 개선 제안 섹션 강제 표시 */
   [data-suggestions-section] {
     display: block !important;
