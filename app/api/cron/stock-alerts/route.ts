@@ -3,6 +3,7 @@ import { adminClient as supabase } from '@/lib/supabase-admin';
 import { fetchStockPrice, fetchDailyChart, getAccessToken, acquireKisRateSlot } from '@/lib/kis-api';
 import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 import { sendTelegramMessage, isBlockedByUser } from '@/lib/telegram';
+import { computeShardCount, hashUserIdToShard, getCurrentShardIndex } from '@/lib/cron-sharding';
 
 export const dynamic = 'force-dynamic';
 // 2026-08-31 트래픽 점검: 유니크 관심종목 수에 비례해 KIS 호출(종목당 시세 1 + 수급 1~2)이
@@ -167,9 +168,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, inserted: 0 });
   }
 
-  const userIds = proUsers.map((u: { id: string }) => u.id);
+  // 1-1. 유저 샤딩 — 위 주석 참고. shardCount=1(현재 규모)이면 전원이 그대로 유일한
+  // 샤드에 속해 필터링 효과가 없다(회귀 없음).
+  const shardCount = computeShardCount(proUsers.length);
+  const shardIndex = getCurrentShardIndex(shardCount);
+  const shardedProUsers = shardCount > 1
+    ? proUsers.filter((u: { id: string }) => hashUserIdToShard(u.id, shardCount) === shardIndex)
+    : proUsers;
+  if (shardCount > 1) {
+    console.log(`[STOCK-ALERTS] 샤딩 적용: Pro ${proUsers.length}명 → ${shardCount}개 그룹, 이번 실행은 그룹 ${shardIndex}(유저 ${shardedProUsers.length}명) 처리`);
+  }
+
+  const userIds = shardedProUsers.map((u: { id: string }) => u.id);
   const telegramChatIdByUser = new Map(
-    proUsers
+    shardedProUsers
       .filter((u: { telegram_chat_id: string | null }) => u.telegram_chat_id)
       .map((u: { id: string; telegram_chat_id: string | null }) => [u.id, u.telegram_chat_id as string]),
   );

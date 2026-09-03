@@ -17,6 +17,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { computeShardCount, hashUserIdToShard, getCurrentShardIndex, USERS_PER_SHARD } from '@/lib/cron-sharding';
 
 const CRON_SECRET = 'test-cron-secret';
 
@@ -78,6 +79,9 @@ const mockState = vi.hoisted(() => ({
   telegramSent: [] as { chatId: string; text: string }[],
   telegramChatIdByUser: {} as Record<string, string | null>,
   store: null as ReturnType<typeof makeFakeUpsertStore> | null,
+  // 비어있으면(기본) 기존처럼 watchlist의 유니크 user_id로 Pro 목록을 유도한다 — 샤딩
+  // 테스트(전체 Pro 유저 수가 watchlist에 등장하는 유저 수보다 훨씬 많아야 함)만 명시적으로 채운다.
+  proUsers: [] as string[],
 }));
 
 vi.mock('@/lib/kis-api', () => ({
@@ -102,7 +106,9 @@ vi.mock('@/lib/supabase-admin', () => {
   const usersChain: any = {
     select: () => usersChain,
     eq: () => {
-      const ids = [...new Set(mockState.watchlist.map(w => w.user_id))];
+      const ids = mockState.proUsers.length > 0
+        ? mockState.proUsers
+        : [...new Set(mockState.watchlist.map(w => w.user_id))];
       return Promise.resolve({
         data: ids.map(id => ({ id, telegram_chat_id: mockState.telegramChatIdByUser[id] ?? null })),
         error: null,
@@ -186,6 +192,7 @@ beforeEach(() => {
   mockState.rpcCalls.length = 0;
   mockState.telegramSent.length = 0;
   mockState.telegramChatIdByUser = {};
+  mockState.proUsers = [];
   mockState.store = makeFakeUpsertStore();
   vi.useFakeTimers();
 });
@@ -372,4 +379,78 @@ describe('GET /api/cron/stock-alerts — telegram_sent_at 기반 재시도(2026-
       expect(row?.telegram_sent_at).toBeTruthy();
     },
   );
+});
+
+describe('GET /api/cron/stock-alerts — 유저 샤딩(2026-09-03 트래픽점검 5번)', () => {
+  const CYCLE_1 = '2026-08-18T09:10:00+09:00'; // 화요일, 거래일
+  const CYCLE_2 = '2026-08-18T09:20:00+09:00'; // 10분 뒤 — 다음 샤드 차례
+
+  it(`현재 규모(USERS_PER_SHARD=${USERS_PER_SHARD}명 이하)에서는 샤딩 없이 전원 처리된다(회귀 없음)`, async () => {
+    const userIds = Array.from({ length: 10 }, (_, i) => `user-${i}`);
+    mockState.proUsers = userIds;
+    mockState.watchlist = userIds.map((id) => ({ user_id: id, ticker: '005930', name: '삼성전자' }));
+    mockState.telegramChatIdByUser = Object.fromEntries(userIds.map((id) => [id, `chat-${id}`]));
+    mockState.anchorChart = [{ date: '2026-08-14' }, { date: '2026-08-18' }];
+    mockState.priceByTicker['005930'] = { name: '삼성전자', price: 74000, changeRate: 6 };
+    vi.setSystemTime(new Date(CYCLE_1));
+
+    // 알림 10건이면 텔레그램 발송 루프(3개씩·300ms 간격 청크)가 여러 청크로 나뉘어
+    // 실제 setTimeout을 기다린다 — 기존 소규모(≤3건) 테스트들과 달리 fake timer를
+    // 명시적으로 흘려보내야 한다.
+    const resultPromise = GET(makeRequest());
+    await vi.runAllTimersAsync();
+    const res = await resultPromise;
+    const body = await res.json();
+
+    expect(computeShardCount(userIds.length)).toBe(1);
+    expect(body.telegramSent).toBe(10); // 전원 발송 — 아무도 제외되지 않음
+    expect(new Set(mockState.telegramSent.map((t) => t.chatId)).size).toBe(10);
+  });
+
+  it(`Pro 유저가 ${USERS_PER_SHARD + 1}명(샤딩 임계값 초과)이면 자동으로 2개 그룹으로 나뉘어, 한 사이클엔 그중 한 그룹만 처리되고 10분 뒤 다음 사이클엔 나머지 그룹이 처리된다`, async () => {
+    const userIds = Array.from({ length: USERS_PER_SHARD + 1 }, (_, i) => `user-${String(i).padStart(3, '0')}`);
+    mockState.proUsers = userIds;
+    mockState.watchlist = userIds.map((id) => ({ user_id: id, ticker: '005930', name: '삼성전자' }));
+    mockState.telegramChatIdByUser = Object.fromEntries(userIds.map((id) => [id, `chat-${id}`]));
+    mockState.anchorChart = [{ date: '2026-08-14' }, { date: '2026-08-18' }];
+    mockState.priceByTicker['005930'] = { name: '삼성전자', price: 74000, changeRate: 6 };
+
+    const shardCount = computeShardCount(userIds.length);
+    expect(shardCount).toBe(2);
+
+    // 사이클 1
+    vi.setSystemTime(new Date(CYCLE_1));
+    const shardIndex1 = getCurrentShardIndex(shardCount, new Date(CYCLE_1));
+    const shard1Users = userIds.filter((id) => hashUserIdToShard(id, shardCount) === shardIndex1);
+    const notShard1Users = userIds.filter((id) => hashUserIdToShard(id, shardCount) !== shardIndex1);
+    expect(shard1Users.length).toBeGreaterThan(0);
+    expect(notShard1Users.length).toBeGreaterThan(0);
+
+    const result1Promise = GET(makeRequest());
+    await vi.runAllTimersAsync();
+    const res1 = await result1Promise;
+    const body1 = await res1.json();
+    expect(body1.telegramSent).toBe(shard1Users.length);
+    const sentChatIds1 = new Set(mockState.telegramSent.map((t) => t.chatId));
+    for (const id of shard1Users) expect(sentChatIds1.has(`chat-${id}`)).toBe(true);
+    for (const id of notShard1Users) expect(sentChatIds1.has(`chat-${id}`)).toBe(false);
+
+    // 사이클 2(10분 뒤) — 다른 그룹 차례
+    mockState.telegramSent.length = 0;
+    vi.setSystemTime(new Date(CYCLE_2));
+    const shardIndex2 = getCurrentShardIndex(shardCount, new Date(CYCLE_2));
+    expect(shardIndex2).not.toBe(shardIndex1); // 그룹이 실제로 교대됐는지 확인
+
+    const result2Promise = GET(makeRequest());
+    await vi.runAllTimersAsync();
+    const res2 = await result2Promise;
+    const body2 = await res2.json();
+    const shard2Users = userIds.filter((id) => hashUserIdToShard(id, shardCount) === shardIndex2);
+    expect(body2.telegramSent).toBe(shard2Users.length);
+    const sentChatIds2 = new Set(mockState.telegramSent.map((t) => t.chatId));
+    for (const id of shard2Users) expect(sentChatIds2.has(`chat-${id}`)).toBe(true);
+
+    // 2개 그룹뿐이므로 두 사이클을 합치면 전체 유저를 정확히 한 번씩 커버해야 함
+    expect(shard1Users.length + shard2Users.length).toBe(userIds.length);
+  });
 });
