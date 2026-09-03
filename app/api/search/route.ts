@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchStockPriceCached } from '../../../lib/kis-api';
-import { getStockMasterList, type StockMasterEntry } from '../../../lib/krx-stock-master';
+import { getStockMasterListCached, type StockMasterEntry } from '../../../lib/krx-stock-master';
 import type { SearchResult } from '../../../lib/types';
 
 // 2026-08-31 트래픽 점검: 이 라우트는 비로그인 포함 모든 방문자의 헤더 검색창이
@@ -16,25 +16,12 @@ export const dynamic = 'force-dynamic';
 
 type StockEntry = StockMasterEntry;
 
-interface StockCache {
-  items: StockEntry[];
-  expiresAt: number;
-}
-
-let stockCache: StockCache | null = null;
-
-// 국내 종목 목록은 KRX 실시간 스크래핑(app/api/cron/stock-master-refresh가 하루 1회
-// 갱신)이 아니라 stock_master 테이블에서 읽는다 — KRX가 Vercel 서버리스 IP를 403으로
-// 막아 매 요청 스크래핑이 항상 실패하던 문제(2026-08-18)의 근본 수정. 인스턴스 메모리
-// 캐시는 그대로 유지 — 테이블이 하루 1회만 바뀌므로 매 요청 DB 왕복을 줄여준다.
-async function getStockList(): Promise<StockEntry[]> {
-  if (stockCache && Date.now() < stockCache.expiresAt) {
-    return stockCache.items;
-  }
-  const items = await getStockMasterList();
-  stockCache = { items, expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
-  return items;
-}
+// 2026-09-03 트래픽점검 6번: 국내 종목 목록(stock_master, 2,781행)을 예전엔 이 파일
+// 안의 인스턴스 메모리 캐시(let stockCache)로 들고 있었는데, 이건 서버리스 인스턴스
+// 경계를 못 넘어 접속자가 몰려 인스턴스가 여러 개 뜰 때마다 재적재가 인스턴스 수만큼
+// 중복 발생했다(실측: 20 동시요청 콜드스타트 p50 6.3s). lib/krx-stock-master.ts의
+// getStockMasterListCached(Next.js unstable_cache, Vercel Data Cache 기반 — 배포 내
+// 모든 인스턴스가 공유)로 교체 — 인메모리 캐시 코드 자체를 제거한다.
 
 // 2026-09-01: 해외증시 지원 범위를 미국으로 한정 — 일본(JPX/TYO)·홍콩(HKG)·
 // 중국(SHH/SHZ) 거래소를 검색 결과에서 제외한다(해외증시 미국 외 국가 삭제).
@@ -135,7 +122,7 @@ export async function GET(req: NextRequest) {
   // 국내 stock_master 테이블 조회 + 해외 Yahoo 검색 병렬 실행
   let stockList: StockEntry[];
   try {
-    stockList = await getStockList();
+    stockList = await getStockMasterListCached();
   } catch (err) {
     // stock_master는 크론이 하루 1회 채우는 테이블이라 정상 운영 중엔 실패하지 않는다 —
     // 여기 도달하면 DB 연결 장애 등 이상 상황이므로 반드시 로그에 남긴다(2026-08-18).
