@@ -1314,6 +1314,35 @@ export async function fetchDailyChart(
   return data;
 }
 
+// 2026-09-03 긴급조사(SK하이닉스 업종대비 카드 — 텍스트는 정상인데 스파크라인 선그래프만
+// 통째로 안 보임): 오늘 오전 같은 리포트 생성 파이프라인에서 fetchMarketCapsWithRetry(peer
+// 선정용 시가총액)·fetchNaverHtml(sector-peers.ts)엔 유저 소프트캡(10/s) 순간 포화를
+// 흡수하는 재시도를 붙였는데(2026-09-03 오전 SK하이닉스 peer 누락 건), 그 직후 단계인
+// "peer 6종목의 1개월 차트"(sectorSparkline용, app/api/diagnosis/route.ts)는 재시도 없이
+// Promise.allSettled로만 병렬 조회했다. 개별 peer 실패는 필터로 흡수되지만, 소프트캡
+// 포화 순간엔 여러 peer가 동시에 거부될 수 있어 전부 실패하면 스파크라인 자체가 null이
+// 되고 카드에서 조용히 사라진다 — 업종 대비 카드의 서술 텍스트(peerAvgChangeRate 등)는
+// KIS가 아니라 Naver 스크래핑(sector-peers.ts)에서 오는 별도 소스라 이 실패와 무관하게
+// 정상 표시돼, "텍스트는 되는데 그래프만 없음"이라는 눈에 띄는 비대칭이 생긴다. 실패한
+// 티커만 골라 소프트캡 버킷 회복 시간(300ms, fetchMarketCapsWithRetry와 동일 간격)을
+// 두고 한 번 더 조회한다.
+export async function fetchDailyChartsWithRetry(
+  tickers: string[],
+  period: '1W' | '1M' | '3M' | '1Y',
+): Promise<PromiseSettledResult<ChartDataPoint[]>[]> {
+  const first = await Promise.allSettled(tickers.map((t) => fetchDailyChart(t, period)));
+  const failedIdx = first
+    .map((r, i) => (r.status === 'rejected' || r.value.length < 2 ? i : -1))
+    .filter((i) => i >= 0);
+  if (failedIdx.length === 0) return first;
+
+  await new Promise((r) => setTimeout(r, 300));
+  const retried = await Promise.allSettled(failedIdx.map((i) => fetchDailyChart(tickers[i], period)));
+  const merged = [...first];
+  failedIdx.forEach((idx, ri) => { merged[idx] = retried[ri]; });
+  return merged;
+}
+
 // 종목분석 페이지 "1년 전 대비" 배지 전용 — fetchDailyChart('1Y')는 100건 캡 때문에
 // 실제로는 최근 ~5개월치만 반환해 1년 전 시점에 닿지 못한다(위 fetchChartRangeRaw 주석
 // 참고). targetDate 좌우로 좁은 창만 요청해 100건 캡 안에서 정확히 그 근방 종가를 받는다.

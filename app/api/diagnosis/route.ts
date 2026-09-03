@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { deductCredit } from '@/lib/credits';
 import { checkPlan, resolveDiagnosisLimit, getUsageCycleStart } from '@/lib/plan';
-import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchFinancialsTrend, type AnnualFinancialRow, type QuarterlyFinancialRow, fetchDividendHistory, type DividendHistoryRow } from '@/lib/kis-api';
+import { fetchStockPrice, fetchIndexRangeChange, fetchDailyChart, fetchDailyChartsWithRetry, fetchFinancialsTrend, type AnnualFinancialRow, type QuarterlyFinancialRow, fetchDividendHistory, type DividendHistoryRow } from '@/lib/kis-api';
 import { computeHoldingPosition, buildHoldingPositionBlock, holdingPriceBasisLabel } from '@/lib/holding-position';
 import { getCachedChartNear } from '@/lib/chart-near-cache';
 import {
@@ -641,9 +641,10 @@ export async function POST(request: NextRequest) {
         // 없음 — peer 6개 병렬 조회 실측 ~70ms), 스트리밍 전환으로 Stage0 페이로드에
         // sectorComparison.sparkline을 포함시키려면 Claude 스트림 시작 전에 resolve돼야
         // 한다 — fxDailyPromise와 함께 아래에서 끌어올려 await한다.
-        const peerChartsPromise = Promise.allSettled(
-          sectorPeers.map((p) => fetchDailyChart(p.ticker, '1M')),
-        );
+        // 2026-09-03 긴급조사(SK하이닉스 업종대비 스파크라인 통째로 누락) — 소프트캡(10/s)
+        // 순간 포화에 peer 전원이 동시에 걸리면 카드가 조용히 사라지던 문제를 fetchDailyChartsWithRetry
+        // (실패분만 300ms 뒤 재조회, lib/kis-api.ts)로 흡수한다.
+        const peerChartsPromise = fetchDailyChartsWithRetry(sectorPeers.map((p) => p.ticker), '1M');
 
         // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
         // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —
