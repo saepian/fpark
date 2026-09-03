@@ -297,6 +297,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '필수 항목이 누락되었습니다.' }, { status: 400 });
   }
 
+  // 2026-09-03 "저장" 기능 선행 변경 — id를 여기서 미리 생성해 함수 전체(성공 경로뿐 아니라
+  // Stage1 실패 폴백 경로도)에서 공유한다. 애초에 이 위치에 뒀어야 했는데, 처음 구현할 때
+  // 성공 경로(맨 아래 send 'done')만 고치고 Stage1 폴백 3곳(JSON 없음/파싱 실패/Claude 호출
+  // 실패, 각자 자체적으로 'done'을 보내고 return하는 조기 종료 경로)을 놓쳐 그 경우엔
+  // done 이벤트에 id가 없었다 — 저장 버튼이 조건부 렌더링(reportId 존재 시)이라 그 경우엔
+  // 버튼 자체가 안 뜨는 회귀로 이어졌다(2026-09-03 재조사로 발견).
+  const reportId = crypto.randomUUID();
+
   // ── 2. SSE 스트림 시작 — 2026-08-11 스트리밍 전환. Stage0(서버 계산값 선송신) +
   //    Stage1(단일 Claude 스트림, lib/streaming-json-fields.ts 파서로 필드별 partial/
   //    complete 전송) 구조. app/api/portfolio-diagnosis/route.ts, app/api/stock/[ticker]/
@@ -997,6 +1005,82 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
           emitIfChanged('disclosureNarrative', '');
         };
 
+        // 2026-09-03 재조사(저장 버튼이 안 보임) 발견: Stage1(AI 분석) 실패 시 아래 3곳
+        // (JSON 없음/파싱 실패/Claude 호출 자체 실패)이 각자 emitFallbackFields 호출 후
+        // 바로 done을 보내고 return했는데, 이 done엔 id가 없었다(성공 경로의 done만 id를
+        // 넣도록 고쳤던 게 원인) — reportId를 아예 못 받으니 저장 버튼(reportId 있어야
+        // 렌더링)이 조용히 사라졌다. Stage0 계산값(가격·수급·업종대비·실적 등)은 AI 성패와
+        // 무관하게 이미 전부 확정돼 있으므로, AI 서술만 오류 문구로 채운 채로도 stock_diagnosis에
+        // 저장할 가치가 있다고 판단 — 성공 경로와 동일하게 DB에 남기고 id를 함께 보낸다.
+        const finishStage1Fallback = (errReason: string) => {
+          emitFallbackFields(errReason);
+          const fallbackResult = {
+            currentPrice:  Math.round(currentPrice),
+            avgPrice:      Math.round(Number(avgPrice)),
+            quantity:      Number(quantity),
+            profitRate:    parseFloat(profitRate.toFixed(2)),
+            profitAmount:  Math.round(profitAmount),
+            news:          combinedNews,
+            newsBasis:     (hasRelevantNews ? 'news' : 'estimated') as 'news' | 'estimated',
+            newsIssueClusters: [] as { label: string; articleIndexes: number[] }[],
+            flowType,
+            flowPercentage,
+            resistance:    Math.round(resistance),
+            support:       Math.round(support),
+            benchmark,
+            isCached:      analysisData?.isCached,
+            cachedAt:      analysisData?.cachedAt,
+            history:       buildHistory(`AI 응답 형식 오류(${errReason})로 히스토리 해석을 가져오지 못했습니다.`),
+            sectorComparison,
+            fxCorrelation,
+            surgeHistory,
+            tradingValueMultiple,
+            annualFinancials,
+            quarterlyFinancials,
+            financialsYearEndMonth,
+            holdingPosition,
+            disclosures,
+            dividendSummary,
+            dividendHistory,
+            mainAnalysis: rawTextRef.current.slice(0, 600).trim() || 'AI 분석 결과를 가져오는 중 형식 오류가 발생했습니다.',
+            mainAnalysisSections: undefined,
+            riskFactors: ['응답 형식 오류로 리스크 요인 제공 불가'],
+            opportunityFactors: [] as string[],
+            flowInsight: '',
+            institutionalFlow: '응답 형식 오류로 분석 불가',
+            foreignFlow: '응답 형식 오류로 분석 불가',
+            shortTermOutlook: undefined,
+            midTermOutlook: undefined,
+            finalVerdict: undefined,
+            sectorNarrative: '',
+            sectorTopPeersNarrative: '',
+            financialsNarrative: '',
+            disclosureNarrative: '',
+          };
+          after(async () => {
+            try {
+              await supabase.from('stock_diagnosis').insert({
+                id:          reportId,
+                user_id:     user.id,
+                ticker,
+                name:        stockName,
+                avg_price:   avgPrice,
+                quantity,
+                buy_date:    buyDate || null,
+                report_date: todayStr,
+                // finalResult(성공 경로)와 동일하게 일부 필드가 undefined라 Json 타입과
+                // 구조적으로 안 맞는 기존 tsc 경고(baseline)와 같은 이유 — 캐스트로 통일.
+                result:      fallbackResult as unknown as Database['public']['Tables']['stock_diagnosis']['Insert']['result'],
+              });
+              console.log(`[DIAGNOSIS] Stage1 폴백 DB 저장 완료(${errReason})`);
+            } catch (dbErr) {
+              console.error('[DIAGNOSIS] Stage1 폴백 DB 저장 실패:', dbErr);
+            }
+          });
+          send(controller, { type: 'stage1-error' });
+          send(controller, { type: 'done', id: reportId });
+        };
+
         let result: Record<string, unknown> | null = null;
         try {
           const parser = new StreamingFieldParser(DIAGNOSIS_FIELD_SPECS);
@@ -1054,9 +1138,7 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
 
           if (!jsonMatch) {
             console.error('[DIAGNOSIS] JSON 없음, 원문 앞 300자:', rawText.slice(0, 300));
-            emitFallbackFields('JSON 없음');
-            send(controller, { type: 'stage1-error' });
-            send(controller, { type: 'done' });
+            finishStage1Fallback('JSON 없음');
             return;
           }
 
@@ -1064,18 +1146,14 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
             result = JSON.parse(jsonMatch[0]);
           } catch (e) {
             console.error('[DIAGNOSIS] JSON.parse 실패:', e, jsonMatch[0].slice(0, 300));
-            emitFallbackFields('JSON 파싱 실패');
-            send(controller, { type: 'stage1-error' });
-            send(controller, { type: 'done' });
+            finishStage1Fallback('JSON 파싱 실패');
             return;
           }
         } catch (aiErr) {
           // Claude 호출 자체가 실패(네트워크/타임아웃 등) — Stage0 데이터는 이미 화면에
           // 있으므로 전체를 에러로 무너뜨리지 않고, AI 섹션만 실패로 표시한다.
           console.error('[DIAGNOSIS] Claude 호출 실패:', aiErr);
-          emitFallbackFields('AI 호출 실패');
-          send(controller, { type: 'stage1-error' });
-          send(controller, { type: 'done' });
+          finishStage1Fallback('AI 호출 실패');
           return;
         }
 
@@ -1247,12 +1325,12 @@ ${benchmark ? `\n벤치마크(보유기간 ${benchmark.indexName} 대비) 수치
         // 성공 여부와 무관하게 done만 보고 화면을 마무리하므로 사용자 경험 변화는 없다.
         //
         // 2026-09-03 "저장" 기능 선행 변경: id를 DB 기본값(gen_random_uuid())에 맡기지
-        // 않고 여기서 미리 생성해 insert에 명시한다 — after()는 응답이 끝난 뒤 실행되므로
-        // 그 안에서 만든 id를 SSE로 클라이언트에 보낼 방법이 없다(스트림이 이미 닫힘).
-        // 미리 만든 id를 insert와 done 프레임에 동시에 실어 보내면, "응답 안 기다리고
-        // 빠르게 스트림 닫기" 최적화를 그대로 유지하면서도 프론트가 방금 생성된 리포트의
-        // DB 행 id를 알 수 있다(저장 버튼이 이 id를 saved_reports.source_id로 씀).
-        const reportId = crypto.randomUUID();
+        // 않고 함수 최상단에서 미리 생성해(reportId, 이 파일 상단 참고) insert에 명시한다 —
+        // after()는 응답이 끝난 뒤 실행되므로 그 안에서 만든 id를 SSE로 클라이언트에 보낼
+        // 방법이 없다(스트림이 이미 닫힘). 미리 만든 id를 insert와 done 프레임에 동시에
+        // 실어 보내면, "응답 안 기다리고 빠르게 스트림 닫기" 최적화를 그대로 유지하면서도
+        // 프론트가 방금 생성된 리포트의 DB 행 id를 알 수 있다(저장 버튼이 이 id를
+        // saved_reports.source_id로 씀).
         after(async () => {
           try {
             await supabase.from('stock_diagnosis').insert({

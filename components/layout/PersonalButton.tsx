@@ -176,6 +176,15 @@ function WatchlistList({ onClose }: { onClose: () => void }) {
 // 섹션으로 나눠 보여준다. 저장내역은 매일 자정(KST) 초기화되므로 GET /api/saved-reports는
 // 항상 "오늘자"만 반환한다(서버 측 필터 — lib/database 설계 확정, 2026-09-03).
 
+// 2026-09-03: 같은 종목도 시간대별로 리포트 내용이 달라질 수 있어(장중 가격 변동,
+// 재생성 트리거 등) 날짜(자정에 삭제되니 항상 오늘이라 불필요) 대신 저장 시각(HH:MM,
+// KST)만 표시한다.
+function formatSavedTime(savedAt: string): string {
+  return new Date(savedAt).toLocaleTimeString('ko-KR', {
+    timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
+
 interface SavedStockItem {
   savedReportId: string;
   sourceId: string;
@@ -250,7 +259,9 @@ function SavedReportsList({ onClose }: { onClose: () => void }) {
               onClick={() => { router.push(`/diagnosis?savedId=${item.sourceId}`); onClose(); }}
             >
               <p className="text-sm font-semibold text-white truncate leading-tight">{item.name}</p>
-              <p className="text-xs text-slate-500 font-mono mt-0.5">{item.ticker}</p>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">
+                {item.ticker} · {formatSavedTime(item.savedAt)}
+              </p>
             </div>
             <button
               onClick={() => unsave(item.savedReportId, 'stock')}
@@ -286,7 +297,7 @@ function SavedReportsList({ onClose }: { onClose: () => void }) {
                 <p className="text-sm font-semibold text-white truncate leading-tight">
                   {item.holdingsCount != null ? `${item.holdingsCount}개 종목` : '포트폴리오 리포트'}
                 </p>
-                <p className="text-xs text-slate-500 mt-0.5">{item.reportDate ?? ''}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{formatSavedTime(item.savedAt)}</p>
               </div>
               {item.totalProfitRate != null && (
                 <p className={`text-xs font-mono shrink-0 ${isUp ? 'text-red-400' : 'text-blue-400'}`}>
