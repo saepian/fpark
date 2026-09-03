@@ -7,10 +7,10 @@ export const CHATBOT_MODEL = 'claude-haiku-4-5-20251001';
 
 export const CHATBOT_MAX_TOKENS = 500;
 
-// rate limit — in-memory sliding window(app/api/chatbot/route.ts). DB 테이블 없이
-// 서버리스 인스턴스 메모리에만 유지하므로 콜드스타트/인스턴스 분산 시 한도가 느슨해질 수
-// 있지만, 이 기능의 핵심 안전장치(투자 질문 차단)와는 무관한 비용 통제 목적이라 이
-// 정도 허용치로 시작 — 실제 악용 사례가 나오면 lib/contact처럼 DB 기반으로 전환.
+// rate limit — IP당 10분에 이 횟수까지. 2026-09-03 트래픽점검 7번: 예전엔 서버리스
+// 인스턴스 메모리에만 유지해 인스턴스 분산 시 한도가 사실상 무효했던 것을,
+// lib/rate-limit.ts(DB 기반 CAS 토큰버킷, market_cache 재사용)로 전환해 인스턴스
+// 경계와 무관하게 정확히 카운트된다(app/api/chatbot/route.ts).
 export const CHATBOT_RATE_LIMIT_MAX = 20;
 export const CHATBOT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10분
 

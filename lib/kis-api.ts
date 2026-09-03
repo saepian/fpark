@@ -4,6 +4,7 @@ import { adminClient as supabaseAdmin } from './supabase-admin';
 import { supabase } from './supabase';
 import { findClosestPastClose, isKoreanMarketOpen } from './market-utils';
 import { tryAcquireCacheLock, releaseCacheLock } from './cache-lock';
+import { tryConsumeRateLimit } from './rate-limit';
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 
@@ -644,73 +645,16 @@ export class KisRateLimitExceededError extends Error {
 // 2026-09-03 최초 구현(단순 읽기→upsert)은 진짜 동시 폭주(Promise.all로 80개를 동시에
 // 쏘는 실측)에서 대부분이 "갱신 전" 같은 tokens 값을 읽어 전부 허용으로 판정, 소프트캡이
 // 사실상 무력화되는 걸 확인했다 — read-modify-write 사이 경쟁 윈도우가 너무 넓었다.
-// PostgREST의 `.update().eq('updated_at', 읽은시각)`은 그 WHERE가 매치되는 행에만
-// UPDATE를 적용하고 매치 실패(그 사이 다른 요청이 먼저 갱신) 시 0행을 반환하는데, 이
-// UPDATE...WHERE 자체는 Postgres 행 단위로 원자적이라 "내가 읽은 시점 그대로인 행만
-// 갱신"이 보장된다 — 낙관적 동시성 제어(CAS)로 재구현. 매치 실패하면 재시도(최대 5회,
-// 새로 읽은 상태로 다시 계산)해 실제로 순차 처리된 것처럼 정확한 토큰 차감이 되게 한다.
-// 그래도 하드캡(15/s, RPC의 FOR UPDATE)이 최종 안전망이므로 이 소프트캡이 드물게
-// 재시도를 소진해 허용 쪽으로 새어도 KIS 자체가 과호출되는 일은 없다.
+// PostgREST의 `.update().eq('updated_at', 읽은시각)`으로 CAS(낙관적 동시성 제어)를
+// 적용해 재구현했고, 이 로직 자체는 트래픽점검 7번에서 lib/rate-limit.ts로 범용화해
+// 챗봇 레이트리밋과 함께 공유한다(중복 제거 겸 재사용 검증).
 const USER_SOFT_RATE_LIMIT_PER_SEC = 10;
 const USER_SOFT_RATE_LIMIT_BURST = 10;
 const USER_SOFT_BUCKET_KEY = 'kis_soft_bucket_user';
-const USER_SOFT_BUCKET_CAS_RETRIES = 5;
-
-async function trySoftUserSlot(): Promise<boolean> {
-  try {
-    for (let attempt = 0; attempt < USER_SOFT_BUCKET_CAS_RETRIES; attempt++) {
-      const now = Date.now();
-      const { data: row } = await supabase
-        .from('market_cache')
-        .select('data, updated_at')
-        .eq('key', USER_SOFT_BUCKET_KEY)
-        .maybeSingle();
-
-      const prevTokens = row ? Number((row.data as { tokens?: number } | null)?.tokens ?? USER_SOFT_RATE_LIMIT_BURST) : USER_SOFT_RATE_LIMIT_BURST;
-      const lastRefillMs = row ? new Date(row.updated_at).getTime() : now;
-      const elapsedSec = Math.max(0, (now - lastRefillMs) / 1000);
-      const tokens = Math.min(USER_SOFT_RATE_LIMIT_BURST, prevTokens + elapsedSec * USER_SOFT_RATE_LIMIT_PER_SEC);
-      const allowed = tokens >= 1;
-      const nextTokens = allowed ? tokens - 1 : tokens;
-      const nowIso = new Date(now).toISOString();
-
-      if (!row) {
-        // 행이 아예 없음(최초 호출) — INSERT 시도, PK 충돌(23505)이면 다른 요청이 먼저
-        // 만든 것이니 재시도(이번엔 read에서 그 행을 보게 된다).
-        const { error } = await supabase.from('market_cache').insert({ key: USER_SOFT_BUCKET_KEY, data: { tokens: nextTokens }, updated_at: nowIso });
-        if (!error) return allowed;
-        if (error.code === '23505') continue;
-        return true; // 그 외 에러 — 허용(가용성 우선)
-      }
-
-      // CAS: 내가 읽은 시점의 updated_at과 정확히 일치하는 행만 갱신 — 그 사이 다른
-      // 요청이 먼저 갱신했으면 0행이 매치돼 갱신되지 않는다(update 자체는 실행되지만
-      // WHERE에 안 걸려 아무 행도 안 바뀜).
-      const { data: updated, error } = await supabase
-        .from('market_cache')
-        .update({ data: { tokens: nextTokens }, updated_at: nowIso })
-        .eq('key', USER_SOFT_BUCKET_KEY)
-        .eq('updated_at', row.updated_at)
-        .select('key');
-      if (error) return true; // DB 에러 — 허용(가용성 우선, 판단 불가 상황)
-      if (updated && updated.length > 0) return allowed; // CAS 성공
-      // CAS 실패(경쟁 — 그 사이 다른 요청이 먼저 갱신) — 짧게 쉬고 새 상태로 재시도
-      await new Promise((r) => setTimeout(r, 5 + Math.random() * 15));
-    }
-    // 재시도를 다 썼는데도 매번 "경쟁으로 실패"였다는 건 판단 불가가 아니라 오히려
-    // 지금 트래픽이 소프트캡을 자주 두드리고 있다는 신호다 — 이 경우 "허용"으로 새면
-    // 정확히 막으려던 상황(부담 상황에서 저가치 요청 유입)을 못 막으므로, 여기서는
-    // 안전 방향을 반대로(거부) 잡는다. DB 자체가 안 되는 진짜 장애는 위 catch에서 처리.
-    return false;
-  } catch (e) {
-    console.warn('[KIS] 유저 소프트캡 확인 실패, 허용으로 처리:', e instanceof Error ? e.message : e);
-    return true;
-  }
-}
 
 export async function acquireKisRateSlot(opts?: { priority?: 'cron' | 'user' }): Promise<void> {
   const priority = opts?.priority ?? 'user';
-  if (priority === 'user' && !(await trySoftUserSlot())) {
+  if (priority === 'user' && !(await tryConsumeRateLimit(USER_SOFT_BUCKET_KEY, USER_SOFT_RATE_LIMIT_PER_SEC, USER_SOFT_RATE_LIMIT_BURST))) {
     throw new KisRateLimitExceededError('유저 요청 소프트캡(10/s) 소진 — 크론 우선순위 확보를 위해 거부');
   }
 

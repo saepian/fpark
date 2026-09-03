@@ -22,6 +22,7 @@ import {
 } from '@/lib/chatbot-constants';
 import { CHATBOT_SITE_KNOWLEDGE } from '@/lib/chatbot-knowledge';
 import { checkInvestmentAdviceLanguage, CHATBOT_INVESTMENT_REFUSAL_MESSAGE } from '@/lib/chatbot-guardrail';
+import { tryConsumeRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -69,9 +70,17 @@ interface ChatMessage {
   content: string;
 }
 
-// in-memory sliding window rate limit — lib/chatbot-constants.ts 주석 참고
-// (서버리스 인스턴스별 메모리라 완벽하지 않지만 이 기능의 핵심 안전장치는 아님).
-const requestLog = new Map<string, number[]>();
+// 2026-09-03 트래픽점검 7번: 예전엔 서버리스 인스턴스 메모리(Map)에 IP별 타임스탬프를
+// 들고 슬라이딩 윈도우로 세는 방식이었다 — 인스턴스마다 카운터가 따로 놀아서, 접속자가
+// 몰려 인스턴스가 여러 개 뜨면 한도가 사실상 무효했다(인스턴스 A가 10회, B가 10회 세면
+// 실제로는 20회가 나가도 각자는 "아직 10/20"으로 봄). 로그인 없이도(비로그인 방문자의
+// 요금제 문의가 이 기능의 주 용도 — 위 파일 상단 주석 참고) Claude 비용 노출을 막아야
+// 해서 로그인 필수 전환 대신, lib/rate-limit.ts(트래픽점검 4번의 CAS 토큰버킷 패턴을
+// 범용화)로 IP 기준 DB 레이트리밋으로 전환한다 — 인스턴스 경계와 무관하게 정확히
+// 카운트된다. IP는 공유 IP(사내망·모바일 CGNAT)에서 오탐이 있을 수 있지만, 이 기능은
+// 저비용 모델(Haiku, 500토큰 상한)+가드레일까지 걸린 낮은 가치의 공격 표면이라 로그인·
+// CAPTCHA 같은 추가 마찰 없이 "우발적/스크립트성 남용을 막는" 수준이면 충분하다고 판단.
+const CHATBOT_RATE_LIMIT_PER_SEC = CHATBOT_RATE_LIMIT_MAX / (CHATBOT_RATE_LIMIT_WINDOW_MS / 1000);
 
 function getClientIp(req: NextRequest): string {
   const xff = req.headers.get('x-forwarded-for');
@@ -79,26 +88,16 @@ function getClientIp(req: NextRequest): string {
   return req.headers.get('x-real-ip') || 'unknown';
 }
 
-function isRateLimited(ip: string): boolean {
+async function isRateLimited(ip: string): Promise<boolean> {
   if (ip === 'unknown') return false; // fail-open, contact 라우트와 동일한 방침
-  const now = Date.now();
-  const windowStart = now - CHATBOT_RATE_LIMIT_WINDOW_MS;
-  const timestamps = (requestLog.get(ip) ?? []).filter((t) => t > windowStart);
-
-  if (timestamps.length >= CHATBOT_RATE_LIMIT_MAX) {
-    requestLog.set(ip, timestamps);
-    return true;
-  }
-
-  timestamps.push(now);
-  requestLog.set(ip, timestamps);
-  return false;
+  const allowed = await tryConsumeRateLimit(`chatbot_ratelimit_${ip}`, CHATBOT_RATE_LIMIT_PER_SEC, CHATBOT_RATE_LIMIT_MAX);
+  return !allowed;
 }
 
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
-    if (isRateLimited(ip)) {
+    if (await isRateLimited(ip)) {
       console.warn(`[CHATBOT] rate limit 초과 — IP: ${ip}`);
       return NextResponse.json({ error: '너무 많은 요청입니다. 잠시 후 다시 시도해주세요.' }, { status: 429 });
     }
