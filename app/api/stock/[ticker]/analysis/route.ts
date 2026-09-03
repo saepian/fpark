@@ -20,6 +20,7 @@ import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, M
 import { getDomesticMarketDayContext, buildMarketDayBlock } from '@/lib/market-day-context';
 import { checkPlan, resolveStockAnalysisLimit, getUsageCycleStart, isStockAnalysisDaily } from '@/lib/plan';
 import { StreamingFieldParser, STOCK_ANALYSIS_FIELD_SPECS, type JsonFieldValue } from '@/lib/streaming-json-fields';
+import { isIntradayCacheStale, isIntradayRefreshDue, MAX_DAILY_REGENS } from '@/lib/stock-analysis-refresh';
 import type { Database } from '@/lib/database.types';
 
 export const dynamic = 'force-dynamic';
@@ -221,79 +222,13 @@ const PRICE_CORRECTED_KEYS = new Set(['headline', 'mainAnalysis', 'yesterdayDelt
 // 캐시는 report_date만 보고 무조건 재사용해서, 장중에 생성된 리포트가 마감 후 재방문에도
 // 그대로 남아 "장중 스냅샷을 오늘자 최종 리포트인 것처럼" 계속 보여주는 문제가 있었다.
 // 장 마감 후 첫 방문 때만, 캐시가 장중에 생성된 것이면 무시하고 재생성한다(일일 재생성
-// 상한 MAX_DAILY_REGENS 적용 — 아래 장중 신선도 로직과 공유).
-const MARKET_OPEN_MINUTES_KST = 9 * 60; // 09:00
-const MARKET_CLOSE_MINUTES_KST = 15 * 60 + 30; // 15:30
-
-function kstMinutesSinceMidnight(d: Date): number {
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return kst.getUTCHours() * 60 + kst.getUTCMinutes();
-}
-
-function isIntradayCacheStale(cachedCreatedAt: string): boolean {
-  const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedCreatedAt)) < MARKET_CLOSE_MINUTES_KST;
-  const nowIsAfterClose = kstMinutesSinceMidnight(new Date()) >= MARKET_CLOSE_MINUTES_KST;
-  return generatedBeforeClose && nowIsAfterClose;
-}
-
-// 2026-07-15 "장중 캐시 신선도" 개선: 위 장마감 무효화만으로는 아침에 생성된
-// 리포트가 장마감 전까지 하루 종일 그대로 유지되는 문제가 있었다(가격이 크게
-// 움직이거나 새 뉴스가 나와도 아침 리포트가 그대로 노출됨). 장중에도 "일정 시간
-// 경과 AND 가격이 유의미하게 변동"했을 때만 재생성한다 — 시간만 보면(고정 주기)
-// 안 움직인 날도 기계적으로 비용이 발생하고, 가격만 보면 생성 직후 정상 변동폭
-// 에도 바로 재트리거(thrashing)되므로 AND로 묶어 둘 다 회피한다. 가격 조회 자체가
-// KIS 호출 1회를 유발하므로 시간 조건을 먼저 걸러, 최소 시간 미경과 시엔 가격
-// 조회조차 하지 않는다(캐시 히트 시 대부분 KIS 호출 0회를 유지).
+// 상한 MAX_DAILY_REGENS 적용 — 장중 신선도 로직과 공유).
 //
-// 2026-07-30 발견: 위 단일 조건(2시간+2.5%)은 개장 직후처럼 리포트 생성 직후 큰
-// 갭이 열리는 경우를 놓쳤다 — SK하이닉스가 09:16 생성 후 1.5시간 만에 -5.28%→
-// +2.93%(8%p+)로 움직였는데도 2시간 미만이라 가격 확인 자체를 안 해서 재생성이
-// 전혀 트리거되지 않았다. 급격한 변동은 더 짧은 경과 시간에도 빠르게 잡도록
-// 2단 임계값으로 분리한다 — "느슨한 변동 + 긴 대기" 조합(기존 취지)은 그대로 두고,
-// "급격한 변동 + 짧은 대기" 조합을 추가해 개장 직후 큰 갭만 예외적으로 빠르게 잡는다.
-const INTRADAY_FAST_MIN_HOURS_ELAPSED = 0.5; // 30분
-const INTRADAY_FAST_PRICE_MOVE_THRESHOLD = 0.05; // ±5%
-const INTRADAY_MIN_HOURS_ELAPSED = 2;
-const INTRADAY_PRICE_MOVE_THRESHOLD = 0.025; // ±2.5%
-// 하루 재생성 총 상한(초기 생성 포함) — 변동이 잦은 종목이 무한정 비용을 늘리지
-// 않도록 하는 안전장치. 단, 장마감 강제 재생성(isIntradayCacheStale)은 이 상한과
-// 무관하게 항상 보장한다 — "그날의 최종 확정 데이터"라는 점에서 인트라데이 노이즈성
-// 재생성과 성격이 다르고, 장중에 변동성이 커서 이미 상한을 다 쓴 종목일수록 오히려
-// 장마감 후 정확한 최종 스냅샷이 더 중요하기 때문(2026-07-20 발견 — 상한에 걸리면
-// 장마감 후에도 낡은 장중 스냅샷이 그대로 남아, 애초에 이 로직이 막으려던 문제를
-// 재현하는 모순이 있었음). regen_count는 이 경우에도 정상적으로 +1 기록되어
-// 4를 넘을 수 있다(모니터링용 — 별도 상한으로 작동하지 않음).
-const MAX_DAILY_REGENS = 4;
-
-async function isIntradayRefreshDue(
-  cachedCreatedAt: string,
-  storedPrice: number | null,
-  ticker: string,
-): Promise<{ due: boolean; reason?: string }> {
-  const now = new Date();
-  const nowMinutes = kstMinutesSinceMidnight(now);
-  if (nowMinutes < MARKET_OPEN_MINUTES_KST || nowMinutes >= MARKET_CLOSE_MINUTES_KST) return { due: false };
-
-  const hoursSinceCreated = (now.getTime() - new Date(cachedCreatedAt).getTime()) / (60 * 60 * 1000);
-  if (hoursSinceCreated < INTRADAY_FAST_MIN_HOURS_ELAPSED) return { due: false };
-  if (!storedPrice) return { due: false };
-
-  // 2시간 이상 지났으면 완화된(2.5%) 기준, 그 전(30분~2시간)이면 급변만 잡는
-  // 엄격한(5%) 기준 — 경과 시간이 길수록 "낡았다"고 판단하는 기준을 낮춘다.
-  const threshold = hoursSinceCreated >= INTRADAY_MIN_HOURS_ELAPSED
-    ? INTRADAY_PRICE_MOVE_THRESHOLD
-    : INTRADAY_FAST_PRICE_MOVE_THRESHOLD;
-
-  try {
-    const price = await fetchStockPrice(ticker);
-    const movePct = Math.abs(price.price - storedPrice) / storedPrice;
-    if (movePct < threshold) return { due: false };
-    return { due: true, reason: `${hoursSinceCreated.toFixed(1)}h 경과·가격 ${(movePct * 100).toFixed(1)}% 변동` };
-  } catch (e) {
-    console.warn('[ANALYSIS] 장중 신선도 가격 조회 실패, 기존 캐시 유지:', ticker, e instanceof Error ? e.message : e);
-    return { due: false };
-  }
-}
+// 2026-09-03: 재생성 트리거 로직(isIntradayCacheStale/isIntradayRefreshDue/
+// MAX_DAILY_REGENS)을 lib/stock-analysis-refresh.ts로 옮김 — Next.js App Router가
+// route.ts의 GET/POST 등 인식된 이름 외 임의 export를 허용하지 않아, 이 로직을
+// 단위 테스트하려면 route.ts 밖에 있어야 했다(재생성 조건 조사·검증,
+// lib/stock-analysis-refresh.test.ts 참고). 동작은 그대로.
 
 // 직전 리포트(오늘 이전 가장 최근 1건) 대비 차이를 프롬프트에 주입할 텍스트로 변환.
 // "정확히 어제"만 조회하지 않고 report_date < 오늘 중 가장 최근 1건을 이미 가져오므로
