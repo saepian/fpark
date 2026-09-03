@@ -22,17 +22,25 @@ import type { StockMasterEntry } from './krx-stock-master';
 // 여기 얹으면 그 부하가 매일 반복됨). 새 우선주가 상장되면 이 배열에 직접 추가하거나
 // scripts/generate-preferred-stock-list.ts를 재실행해서 갱신할 것.
 //
-// 시장은 전부 KOSPI로 고정 — 조사 당시 KOSDAQ 우선주는 발견되지 않았음(코스닥은 우선주
-// 발행 자체가 KOSPI 대비 훨씬 드묾). 향후 KOSDAQ 우선주가 필요해지면 이 파일 구조를
-// { ticker, name, market } 형태로 확장하면 된다.
+// 2026-09-03 확장: 8/28엔 접미사 5/7(1·2차 우선주)만, KOSPI만 스캔해서 놓친 케이스가
+// 있었다 — 3차 우선주(접미사 9, 예: 현대차3우B 005389), 알파벳 접미사(예: CJ4우(전환)
+// 00104K — 회사가 우선주를 여러 차수 발행해 숫자 접미사가 소진되면 KRX가 배정하는
+// 관례), KOSDAQ 우선주(발행 자체가 드물지만 0건은 아니었음 — 해성산업1우·대호특수강우·
+// 소프트센우 3건 확인). 알파벳 접미사는 숫자 규칙으로 후보를 생성할 수 없어서, KRX
+// data.krx.co.kr의 정식 목록 API(Akamai+OTP 세션 보호로 스크래핑 차단 확인)
+// 대신 finance.naver.com의 시가총액순 전종목 목록을 후보 생성에 쓰고, 최종 확정은
+// 기존과 동일하게 KIS 단건조회로 검증했다(scripts/generate-preferred-stock-list.ts
+// 참고). 새로 33건(KOSPI 30 + KOSDAQ 3) 추가, 기존 183건은 그대로 유지.
 const KOSPI_PREFERRED_RAW: { ticker: string; name: string }[] = [
   { ticker: '000075', name: '삼양홀딩스우' },
   { ticker: '000085', name: '하이트진로1우' },
+  { ticker: '000087', name: '하이트진로2우B' },
   { ticker: '000105', name: '유한양행우' },
   { ticker: '000107', name: '유한양행2우B' },
   { ticker: '000145', name: '하이트진로홀딩스우' },
   { ticker: '000147', name: '하이트맥주2우B' },
   { ticker: '000155', name: '두산우' },
+  { ticker: '000157', name: '두산2우B' },
   { ticker: '000215', name: 'DL우' },
   { ticker: '000225', name: '유유제약1우' },
   { ticker: '000227', name: '유유제약2우B' },
@@ -47,10 +55,12 @@ const KOSPI_PREFERRED_RAW: { ticker: string; name: string }[] = [
   { ticker: '000815', name: '삼성화재우' },
   { ticker: '000885', name: '한화우' },
   { ticker: '000887', name: '한화2우B' },
+  { ticker: '00088K', name: '한화3우B' },
   { ticker: '000895', name: '보해양조우' },
   { ticker: '000995', name: 'DB하이텍1우' },
   { ticker: '000997', name: 'DB 하이텍2우' },
   { ticker: '001045', name: 'CJ우' },
+  { ticker: '00104K', name: 'CJ4우(전환)' },
   { ticker: '001065', name: 'JW중외제약우' },
   { ticker: '001067', name: 'JW중외제약2우B' },
   { ticker: '001265', name: '남광토건우B' },
@@ -82,11 +92,14 @@ const KOSPI_PREFERRED_RAW: { ticker: string; name: string }[] = [
   { ticker: '002787', name: '진흥기업2우B' },
   { ticker: '002795', name: '아모레퍼시픽홀딩스우' },
   { ticker: '002797', name: '아모레G2우B' },
+  { ticker: '00279K', name: '아모레퍼시픽홀딩스3우C' },
   { ticker: '002995', name: '금호건설우' },
   { ticker: '003075', name: '코오롱글로벌우' },
+  { ticker: '003465', name: '유화증권우' },
   { ticker: '003475', name: '유안타증권우' },
   { ticker: '003495', name: '대한항공우' },
   { ticker: '003497', name: '대한항공2우B' },
+  { ticker: '003535', name: '한화투자증권우' },
   { ticker: '003545', name: '대신증권우' },
   { ticker: '003547', name: '대신증권2우B' },
   { ticker: '003555', name: 'LG우' },
@@ -110,24 +123,30 @@ const KOSPI_PREFERRED_RAW: { ticker: string; name: string }[] = [
   { ticker: '004965', name: '한신공영우' },
   { ticker: '004985', name: '성신양회우' },
   { ticker: '004987', name: '성신양회2우B' },
+  { ticker: '00499K', name: '롯데지주우' },
   { ticker: '005255', name: '녹십자홀딩스1우' },
   { ticker: '005257', name: '녹십자홀딩스2우' },
   { ticker: '005305', name: '롯데칠성우' },
   { ticker: '005385', name: '현대차우' },
   { ticker: '005387', name: '현대차2우B' },
+  { ticker: '005389', name: '현대차3우B' },
   { ticker: '005725', name: '넥센우' },
   { ticker: '005745', name: '크라운해태홀딩스우' },
   { ticker: '005935', name: '삼성전자우' },
   { ticker: '005945', name: 'NH투자증권우' },
+  { ticker: '005965', name: '동부건설우' },
   { ticker: '006125', name: 'SK디스커버리우' },
   { ticker: '006345', name: '대원전선우' },
   { ticker: '006375', name: '대구백화우' },
   { ticker: '006405', name: '삼성SDI우' },
   { ticker: '006805', name: '미래에셋증권우' },
+  { ticker: '00680K', name: '미래에셋증권2우B' },
   { ticker: '007575', name: '일양약품우' },
   { ticker: '007595', name: '동방아그우' },
   { ticker: '007597', name: '동방아그로２우' },
   { ticker: '007815', name: '코리아써우' },
+  { ticker: '00781K', name: '코리아써키트2우B' },
+  { ticker: '00806K', name: '대덕1우' },
   { ticker: '008355', name: '남선알미우' },
   { ticker: '008705', name: '아남전자우' },
   { ticker: '008775', name: '호텔신라우' },
@@ -140,6 +159,7 @@ const KOSPI_PREFERRED_RAW: { ticker: string; name: string }[] = [
   { ticker: '009837', name: '한화석화2우B' },
   { ticker: '010145', name: '삼성중공우' },
   { ticker: '010955', name: 'S-Oil우' },
+  { ticker: '011155', name: 'CJ씨푸드1우' },
   { ticker: '011205', name: '현대상선1우' },
   { ticker: '011785', name: '금호석유화학우' },
   { ticker: '011815', name: 'STX우' },
@@ -161,8 +181,11 @@ const KOSPI_PREFERRED_RAW: { ticker: string; name: string }[] = [
   { ticker: '016367', name: '삼성증권2우B' },
   { ticker: '016385', name: 'KG스틸우' },
   { ticker: '017555', name: '수산세보틱스1우' },
+  { ticker: '019175', name: '신풍제약우' },
   { ticker: '019685', name: '대교우B' },
+  { ticker: '02826K', name: '삼성물산우B' },
   { ticker: '030215', name: '케이티비투자증권1우' },
+  { ticker: '03473K', name: 'SK우' },
   { ticker: '036585', name: '팜스코우B' },
   { ticker: '037565', name: '씨제이헬로비전1우' },
   { ticker: '039495', name: '키움증권1우' },
@@ -209,6 +232,31 @@ const KOSPI_PREFERRED_RAW: { ticker: string; name: string }[] = [
   { ticker: '126565', name: '에이치씨엔1우' },
   { ticker: '145215', name: '세화아이엠씨1우' },
   { ticker: '145995', name: '삼양사우' },
+  { ticker: '18064K', name: '한진칼우' },
+  { ticker: '26490K', name: '크라운제과우' },
+  { ticker: '28513K', name: 'SK케미칼우' },
+  { ticker: '33626K', name: '두산퓨얼셀1우' },
+  { ticker: '33626L', name: '두산퓨얼셀2우B' },
+  { ticker: '33637K', name: '솔루스첨단소재1우' },
+  { ticker: '33637L', name: '솔루스첨단소재2우B' },
+  { ticker: '35320K', name: '대덕전자1우' },
+  { ticker: '36328K', name: '티와이홀딩스우' },
+  { ticker: '37550K', name: 'DL이앤씨우' },
+  { ticker: '37550L', name: 'DL이앤씨2우(전환)' },
+  { ticker: '38380K', name: 'LX홀딩스1우' },
+  { ticker: '45226K', name: '한화갤러리아우' },
 ];
 
-export const PREFERRED_STOCKS: StockMasterEntry[] = KOSPI_PREFERRED_RAW.map((e) => ({ ...e, market: 'KOSPI' as const }));
+// 2026-09-03 확인: 코스닥 우선주는 발행 자체가 KOSPI 대비 훨씬 드물지만(코스닥
+// 전종목 ~1,821개 중 3건) 0건은 아니었다 — scripts/generate-preferred-stock-list.ts의
+// Naver 시가총액순 목록 대조로 발견, KIS로 확정.
+const KOSDAQ_PREFERRED_RAW: { ticker: string; name: string }[] = [
+  { ticker: '021045', name: '대호특수강우' },
+  { ticker: '032685', name: '소프트센우' },
+  { ticker: '03481K', name: '해성산업1우' },
+];
+
+export const PREFERRED_STOCKS: StockMasterEntry[] = [
+  ...KOSPI_PREFERRED_RAW.map((e) => ({ ...e, market: 'KOSPI' as const })),
+  ...KOSDAQ_PREFERRED_RAW.map((e) => ({ ...e, market: 'KOSDAQ' as const })),
+];

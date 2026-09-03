@@ -94,7 +94,9 @@ export interface RefreshStockMasterResult {
 
 // 한 시장의 종목 목록을 stock_master에 upsert. 소스(공공데이터포털/KRX 스크래핑)와
 // 무관하게 공용 — 두 경로 모두 이 함수로 수렴한다.
-async function upsertMarket(market: 'KOSPI' | 'KOSDAQ', items: StockMasterEntry[]): Promise<{ ok: boolean; count: number }> {
+// market은 로그 라벨용일 뿐 실제 DB에 쓰이는 값은 items 각 행 자신의 .market 필드다
+// (PREFERRED_STOCKS처럼 KOSPI/KOSDAQ이 섞인 배열을 한 번에 넘길 수 있는 이유).
+async function upsertMarket(market: string, items: StockMasterEntry[]): Promise<{ ok: boolean; count: number }> {
   if (items.length === 0) return { ok: false, count: 0 };
 
   // 동일 종목코드가 중복 행으로 오는 경우가 있어(KRX HTML 스크래핑에서 실측 확인,
@@ -163,7 +165,9 @@ export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
   // 우선주(lib/preferred-stock-master.ts) — 위 두 데이터소스 모두 "상장법인목록" 성격이라
   // 원천적으로 우선주를 안 내려주는 것을 확인(2026-08-28)하고 추가한 정적 보완 테이블.
   // KOSPI/KOSDAQ 갱신 성패와 무관하게 매번 upsert — 정적 데이터라 실패 사유가 따로 없다.
-  result.preferred = await upsertMarket('KOSPI', PREFERRED_STOCKS);
+  // 2026-09-03부터 KOSDAQ 우선주도 섞여 있음(각 행의 .market 필드로 구분, upsertMarket의
+  // 첫 인자는 로그 라벨일 뿐).
+  result.preferred = await upsertMarket('KOSPI+KOSDAQ', PREFERRED_STOCKS);
 
   // 2026-09-03 트래픽점검 6번: 아래 getStockMasterListCached()의 Vercel Data Cache를
   // 즉시 무효화 — 이 크론이 하루 1회(vercel.json 02:10 KST) 실행될 때마다 검색 API가
