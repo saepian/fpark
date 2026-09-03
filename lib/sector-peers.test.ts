@@ -1,6 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { computeSectorRelativeChange, computeSectorRelativeChangeFromCloses, shouldUsePrevCloseSectorBasis, type SectorPeer } from './sector-peers';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MarketDayContext } from './market-day-context';
+
+vi.mock('./kis-api', () => ({ fetchMarketCapsCached: vi.fn() }));
+
+import { computeSectorRelativeChange, computeSectorRelativeChangeFromCloses, shouldUsePrevCloseSectorBasis, fetchMarketCapsWithRetry, type SectorPeer } from './sector-peers';
+import { fetchMarketCapsCached } from './kis-api';
+
+const mockedFetchMarketCapsCached = vi.mocked(fetchMarketCapsCached);
 
 const peer = (name: string, changeRate = 0): SectorPeer => ({ ticker: name, name, price: 1000, changeRate });
 const chart = (rows: [string, number][]) => rows.map(([date, close]) => ({ date, close }));
@@ -52,5 +58,43 @@ describe('computeSectorRelativeChangeFromCloses — 마지막 두 종가로 전�
   });
   it('기존 당일 기준 계산은 그대로(회귀)', () => {
     expect(computeSectorRelativeChange(2.23, [peer('A', 1), peer('B', 0.62)])).toEqual({ peerAvgChangeRate: 0.81, deltaVsPeer: 1.42 });
+  });
+});
+
+// 2026-09-03 긴급조사: SK하이닉스 peer에 삼성전자가 빠진 원인 — 시가총액 조회가 유저
+// 소프트캡(10/s, lib/kis-api.ts)에 걸려 일부 실패하면, 기존 코드는 실패=밴드밖으로
+// 오인해 조용히 제외했다. 실패한 티커만 골라 한 번 더 조회하는 재시도로 고친다.
+describe('fetchMarketCapsWithRetry — 소프트캡 등으로 실패한 티커만 재시도', () => {
+  beforeEach(() => { mockedFetchMarketCapsCached.mockReset(); });
+
+  it('1차 조회가 모두 성공하면 재시도 없이 그대로 반환', async () => {
+    mockedFetchMarketCapsCached.mockResolvedValueOnce(new Map([['005930', 100], ['000660', 50]]));
+    const result = await fetchMarketCapsWithRetry(['005930', '000660']);
+    expect(result.get('005930')).toBe(100);
+    expect(result.get('000660')).toBe(50);
+    expect(mockedFetchMarketCapsCached).toHaveBeenCalledTimes(1);
+  });
+
+  // 실측 재현: SK하이닉스 리포트 생성 중 삼성전자(005930) 시가총액 조회가 소프트캡에
+  // 걸려 실패 — 1차 결과엔 005930이 없고, 재시도(005930만)에서 성공적으로 채워진다.
+  it('실패한 티커(캡 조회 안 됨)만 골라 재시도해서 채운다', async () => {
+    mockedFetchMarketCapsCached
+      .mockResolvedValueOnce(new Map([['000660', 50], ['402340', 10]])) // 1차: 005930 누락
+      .mockResolvedValueOnce(new Map([['005930', 400]])); // 재시도: 005930만 조회
+    const result = await fetchMarketCapsWithRetry(['000660', '005930', '402340']);
+    expect(result.get('005930')).toBe(400);
+    expect(result.get('000660')).toBe(50);
+    expect(result.get('402340')).toBe(10);
+    expect(mockedFetchMarketCapsCached).toHaveBeenCalledTimes(2);
+    expect(mockedFetchMarketCapsCached).toHaveBeenLastCalledWith(['005930']);
+  });
+
+  it('재시도도 실패하면 해당 티커는 최종적으로 없음(undefined) — 예외를 던지지 않음', async () => {
+    mockedFetchMarketCapsCached
+      .mockResolvedValueOnce(new Map([['000660', 50]])) // 1차: 005930 누락
+      .mockResolvedValueOnce(new Map()); // 재시도도 실패
+    const result = await fetchMarketCapsWithRetry(['000660', '005930']);
+    expect(result.get('000660')).toBe(50);
+    expect(result.has('005930')).toBe(false);
   });
 });

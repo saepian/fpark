@@ -3,15 +3,28 @@
 
 import { fetchMarketCapsCached } from './kis-api';
 
-async function fetchNaverHtml(url: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
-    cache: 'no-store',
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`Naver HTTP ${res.status}`);
-  const buf = await res.arrayBuffer();
-  return new TextDecoder('euc-kr').decode(buf);
+// 2026-09-03 긴급조사(삼성전자 업종대비 카드 통째로 누락) 실측: 오늘 생성된 삼성전자
+// stock_diagnosis 6건 중 1건(05:23:53)이 sectorComparison=null이었다 — fetchSectorPeers가
+// 통째로 reject되면 app/api/diagnosis/route.ts가 (다른 데이터 수집 실패와 동일하게)
+// sectorPeers를 빈 배열로 취급해 카드 자체를 생략한다(Promise.allSettled + rejected 처리,
+// 의도된 폴백 동작 — 문제는 이 함수가 너무 쉽게 reject된다는 것). 이 함수 안의 두 Naver
+// 페이지 조회(fetchNaverHtml)는 재시도 없이 1회 실패로 전체를 던지므로, 순간적인 타임아웃/
+// 5xx 하나가 카드 전체를 날린다 — 재시도 1회를 추가해 이런 일시적 실패를 흡수한다.
+async function fetchNaverHtml(url: string, _retried = false): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`Naver HTTP ${res.status}`);
+    const buf = await res.arrayBuffer();
+    return new TextDecoder('euc-kr').decode(buf);
+  } catch (e) {
+    if (_retried) throw e;
+    await new Promise((r) => setTimeout(r, 300));
+    return fetchNaverHtml(url, true);
+  }
 }
 
 function parseSectorNo(html: string): string | null {
@@ -125,12 +138,34 @@ const BROAD_SECTOR_CANDIDATE_CHECK_LIMIT = 40;
 // 시가총액을 조회해(fetchMarketCapsCached, 캐시 우선) 대상 종목과 규모가 비슷한 것만
 // 남긴 뒤(거래대금 순서는 그대로 유지) 상위 6개를 취한다. 대상 종목 시가총액 조회 자체가
 // 실패하면(드묾) 필터를 건너뛰고 기존 거래대금 정렬 상위 6개로 폴백한다.
+//
+// 2026-09-03 긴급조사(SK하이닉스 peer에 삼성전자가 빠짐) 실측 원인: 이 함수가 최대 41개
+// (대상 1 + 후보 40) 티커의 시가총액을 캐시미스 시 KIS로 한꺼번에 조회하는데, 같은 날
+// 오전에 배포된 유저 클래스 소프트 상한(10/s, lib/kis-api.ts acquireKisRateSlot)에 걸려
+// 일부 조회가 거부되는 걸 실측 재현했다("유저 요청 소프트캡(10/s) 소진" — SK하이닉스
+// 리포트 생성 중 005930 삼성전자의 시가총액 조회가 정확히 이 사유로 실패). 실패한 티커는
+// caps.get()이 undefined가 되고, 기존 코드는 이를 "밴드 밖"과 동일하게 취급해 조용히
+// 제외했다 — "조회 실패"와 "실제로 규모가 안 맞음"은 다른데 같은 결과(제외)로 이어지는
+// 게 버그였다. 실패한 티커만 골라 소프트캡 버킷이 채워질 시간(300ms, 10/s 버킷 기준
+// 약 3개 토큰 회복)을 두고 한 번 더 조회한다 — 대부분은 애초에 캐시 히트라 재시도 대상
+// 자체가 소수(실측: 41개 중 라이브 조회가 필요했던 건 10여 개, 그중 실패는 1~2개 수준).
+export async function fetchMarketCapsWithRetry(tickers: string[]): Promise<Map<string, number>> {
+  const caps = await fetchMarketCapsCached(tickers);
+  const missing = tickers.filter((t) => !caps.has(t));
+  if (missing.length === 0) return caps;
+
+  await new Promise((r) => setTimeout(r, 300));
+  const retried = await fetchMarketCapsCached(missing);
+  for (const [ticker, cap] of retried) caps.set(ticker, cap);
+  return caps;
+}
+
 async function selectPeersByMarketCapSimilarity(
   ticker: string,
   candidates: SectorPeerWithTrading[],
 ): Promise<SectorPeerWithTrading[]> {
   const pool = [...candidates].sort((a, b) => b._trading - a._trading).slice(0, BROAD_SECTOR_CANDIDATE_CHECK_LIMIT);
-  const caps = await fetchMarketCapsCached([ticker, ...pool.map((p) => p.ticker)]);
+  const caps = await fetchMarketCapsWithRetry([ticker, ...pool.map((p) => p.ticker)]);
   const targetCap = caps.get(ticker);
   if (!targetCap) return pool.slice(0, 6);
 
