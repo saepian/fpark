@@ -70,7 +70,9 @@ export async function GET() {
   const totalInvested = holdingsInput.reduce((s, h) => s + h.avg_price * h.quantity, 0);
 
   const withPoints = await fetchInChunks(holdingsInput, async (h) => {
-    const points = await getCachedChartNear(h.ticker, 6).catch(() => []);
+    // 2026-09-03 로딩속도 점검: 종목당 최대 4청크 연쇄 조회 × 보유종목 수 — 'user' fail-fast면 소프트캡
+    // 버스트(10)를 넘는 순간 일부 종목이 조용히 빠져 월별 수익률이 부분 집계된다 → 'batch'.
+    const points = await getCachedChartNear(h.ticker, 6, { priority: 'batch' }).catch(() => []);
     return { ticker: h.ticker, quantity: h.quantity, points: points.length ? points : null };
   });
 

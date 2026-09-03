@@ -69,7 +69,9 @@ export async function GET() {
         // 시세와 52주고저/시총/PER/PBR/업종을 같은 KIS 응답(inquire-price)에서 함께 받는다
         // (fetchStockQuote) — 카드에 52주고저·시총, 산업군별 비중 도넛에 업종을 추가해도
         // 호출 횟수는 늘지 않음.
-        const stock = await fetchStockQuoteCached(item.ticker);
+        // 2026-09-03 로딩속도 점검: 보유종목 수만큼 fan-out되는 서버 내부 호출 — 'user'(소프트캡
+        // fail-fast)로 두면 10종목 넘는 계정에서 일부가 조용히 quoteFailed가 된다 → 'batch'(대기).
+        const stock = await fetchStockQuoteCached(item.ticker, { priority: 'batch' });
         return {
           ...item,
           currentPrice: stock.price, changeRate: stock.changeRate,

@@ -680,7 +680,11 @@ const USER_SOFT_BUCKET_KEY = 'kis_soft_bucket_user';
 // 루프가 흡수한다.
 export type KisPriority = 'cron' | 'user' | 'batch';
 const BATCH_SOFT_RESERVE_TOKENS = 3;
-const BATCH_MIN_INTERVAL_MS = 125;      // 인스턴스당 ≤8/s
+// 2026-09-03 로딩속도 점검: 페이서는 소프트캡(10/s)과 같은 속도까지만 — 125ms(8/s)는 버킷이
+// 허용하는 것보다 더 느리게 직렬화해 콜드 경로(호출 N건)의 하한을 N×125ms로 만들었다.
+// 100ms면 버킷 속도와 같아 페이서가 버킷보다 먼저 병목이 되진 않는다(예약 3토큰·CAS 경쟁
+// 완화 역할은 그대로).
+const BATCH_MIN_INTERVAL_MS = 100;      // 인스턴스당 ≤10/s = 소프트캡 속도
 const BATCH_SOFT_WAIT_MAX_MS = 20_000;  // 이 이상 못 얻으면 포기(호출부 폴백/생략 관례대로)
 const BATCH_SOFT_POLL_MS = 150;
 let batchPacerTail: Promise<void> = Promise.resolve();
@@ -911,7 +915,7 @@ const PRICE_CACHE_LOCK_TTL_MS = 8_000;
 
 // 신선한 캐시가 있으면 그것을, 없으면 KIS 라이브(queryPrice → 레이트리미터 게이트 포함)로
 // 조회 후 저장. 라이브 실패는 그대로 throw — 폴백(옛 캐시/Yahoo)은 호출부 정책.
-async function queryPriceCached(ticker: string, opts?: { waitForLock?: boolean }): Promise<{ raw: CachedQuoteRaw; cachedAt: string | null; stale?: boolean }> {
+async function queryPriceCached(ticker: string, opts?: { waitForLock?: boolean; priority?: KisPriority }): Promise<{ raw: CachedQuoteRaw; cachedAt: string | null; stale?: boolean }> {
   const ttlMs = isKoreanMarketOpen() ? QUOTE_CACHE_TTL_MS_OPEN : QUOTE_CACHE_TTL_MS_CLOSED;
   const fresh = await loadStockQuoteCache(ticker);
   if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < ttlMs && !isQuoteCacheStaleAcrossClose(fresh.updatedAt)) {
@@ -964,7 +968,7 @@ export async function fetchStockPriceCached(ticker: string, opts?: { waitForLock
   return cachedAt ? { ...price, isCached: true, cachedAt } : price;
 }
 
-export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock?: boolean }): Promise<StockQuote> {
+export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock?: boolean; priority?: KisPriority }): Promise<StockQuote> {
   const { raw, cachedAt } = await queryPriceCached(ticker, opts);
   const quote = buildStockQuote(ticker, raw.output, raw.name);
   return cachedAt ? { ...quote, isCached: true, cachedAt } : quote;
@@ -2310,11 +2314,88 @@ async function fetchDividendHistoryRaw(ticker: string, priority?: KisPriority): 
   });
 }
 
-// 종가는 market_cache HTTP 라우트(/api/stock/[ticker]/chart-near)가 아니라 그 밑단의
-// fetchChartNear를 서버에서 직접 호출한다 — 배당기준일은 "몇 개월 전" 같은 고정
-// 버킷이 아니라 임의의 과거 날짜라 그 라우트의 캐시 키(monthsAgo 단위)와 맞지도 않고,
-// 어차피 이 함수 전체 결과(배당율 계산까지 끝난 상태)를 24시간 통째로 캐싱하므로
-// 종가만 따로 또 캐싱하면 이중 캐싱이 된다.
+// 배당기준일 종가 — 2026-09-03 로딩속도 점검 실측: fetchDividendHistory가 24시간 캐시 미스마다
+// 배당 레코드 수만큼(삼성전자·SK하이닉스는 5년치 분기배당 = 20건) fetchChartNear를 KIS로 다시
+// 불러, 대시보드 배당 라우트가 콜드에서 15.4초(보유 2종목 = 약 41건 KIS)까지 걸렸다. 같은 날
+// 오전 KIS 게이트(배치 페이서 ≤8/s)가 붙으면서 이 호출 수가 그대로 시간으로 드러난 것.
+// 과거 기준일의 종가는 절대 변하지 않는 값이라 TTL 없이 영구 캐시(div_close_{ticker}_{date})
+// 한다 — 종목당 최초 1회만 KIS를 부르고, 이후 24시간 캐시가 만료돼도 ksdinfo 1건만 다시
+// 조회한다. 그 전에 이미 캐시된 1년 일봉(stock_chart_*_1Y)에 기준일이 들어 있으면 그것으로
+// 해결해 KIS 호출을 아예 만들지 않는다.
+const dividendCloseKey = (ticker: string, recordDate: string) => `div_close_${ticker}_${recordDate}`;
+const DIVIDEND_CLOSE_LOOKBACK_DAYS = 14; // fetchChartNear의 과거 방향 창과 동일(연휴 포함 직전 거래일 확보)
+
+function shiftDateStr(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+async function resolveDividendCloses(ticker: string, recordDates: string[], priority?: KisPriority): Promise<Map<string, number>> {
+  const closes = new Map<string, number>();
+  const unique = [...new Set(recordDates)];
+  if (unique.length === 0) return closes;
+  const fromPermanent = new Set<string>();
+
+  // 1) 영구 캐시(한 번의 IN 조회)
+  try {
+    const prefix = `div_close_${ticker}_`;
+    const { data } = await supabase
+      .from('market_cache')
+      .select('key, data')
+      .in('key', unique.map((d) => dividendCloseKey(ticker, d)));
+    for (const row of data ?? []) {
+      const date = row.key.slice(prefix.length);
+      const close = Number((row.data as { close?: number } | null)?.close);
+      if (Number.isFinite(close) && close > 0) { closes.set(date, close); fromPermanent.add(date); }
+    }
+  } catch (e) {
+    console.warn(`[KIS] ${ticker} 배당기준일 종가 캐시 조회 실패:`, e instanceof Error ? e.message : e);
+  }
+
+  // 2) 이미 캐시된 1년 일봉으로 해결(신규 KIS 호출 없음) — 기준일 직전 14일 안의 종가가 차트 범위에 있을 때만
+  let missing = unique.filter((d) => !closes.has(d));
+  if (missing.length > 0) {
+    const chart = await loadDailyChartCache(ticker, '1Y');
+    if (chart && chart.data.length > 0) {
+      const earliest = chart.data[0].date;
+      for (const d of missing) {
+        const floor = shiftDateStr(d, -DIVIDEND_CLOSE_LOOKBACK_DAYS);
+        if (earliest > floor) continue;
+        const p = findClosestPastClose(chart.data, d);
+        if (p && p.date >= floor && p.close > 0) closes.set(d, p.close);
+      }
+      missing = missing.filter((d) => !closes.has(d));
+    }
+  }
+
+  // 3) 남은 기준일만 KIS(fetchChartNear) — 레이트리미터 게이트가 속도를 조절하므로 병렬로 던진다
+  if (missing.length > 0) {
+    const fetched = await Promise.all(missing.map(async (d) => {
+      const points = await fetchChartNear(ticker, new Date(d), priority);
+      const p = findClosestPastClose(points, d);
+      return [d, p && p.close > 0 ? p.close : null] as const;
+    }));
+    for (const [d, c] of fetched) if (c) closes.set(d, c);
+  }
+
+  // 4) 이번에 새로 해결한 종가(2·3)는 영구 저장
+  const toSave = [...closes.entries()].filter(([d]) => !fromPermanent.has(d));
+  if (toSave.length > 0) {
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('market_cache')
+        .upsert(toSave.map(([d, close]) => ({ key: dividendCloseKey(ticker, d), data: { close } as unknown as Json, updated_at: now })));
+      if (error) console.warn(`[KIS] ${ticker} 배당기준일 종가 캐시 저장 실패:`, error.message);
+    } catch (e) {
+      console.warn(`[KIS] ${ticker} 배당기준일 종가 캐시 저장 예외:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return closes;
+}
+
+// 함수 전체 결과(배당율 계산까지 끝난 상태)는 24시간 캐싱 — 새 배당 공시가 이 주기로 반영된다.
 export async function fetchDividendHistory(ticker: string, opts?: { priority?: KisPriority }): Promise<DividendHistoryRow[]> {
   try {
     const { data: cache } = await supabase
@@ -2332,27 +2413,20 @@ export async function fetchDividendHistory(ticker: string, opts?: { priority?: K
   try {
     const rawRows = await fetchDividendHistoryRaw(ticker, opts?.priority);
 
-    // 3개씩 배치 처리 (rate limit 회피, 기존 관례)
-    const enriched: DividendHistoryRow[] = [];
-    for (let i = 0; i < rawRows.length; i += 3) {
-      const batch = rawRows.slice(i, i + 3);
-      const results = await Promise.allSettled(
-        batch.map(async (r) => {
-          const points = await fetchChartNear(ticker, new Date(r.recordDate), opts?.priority);
-          const close = findClosestPastClose(points, r.recordDate)?.close ?? null;
-          const dividendRate = close && close > 0 ? (r.perShareAmount / close) * 100 : null;
-          return {
-            recordDate:     r.recordDate,
-            kind:           r.kind,
-            kindLabel:      r.kind === '분기' ? '분기배당' : '결산배당',
-            perShareAmount: r.perShareAmount,
-            dividendRate,
-            payDate:        r.payDate,
-          };
-        })
-      );
-      for (const result of results) if (result.status === 'fulfilled') enriched.push(result.value);
-    }
+    // 기준일 종가는 영구 캐시 → 캐시된 1Y 일봉 → (남은 것만) KIS 순으로 해결(resolveDividendCloses).
+    // 종가를 못 구한 레코드는 버리지 않고 배당률만 null로 둔다(금액·일자 정보는 그대로 유효).
+    const closes = await resolveDividendCloses(ticker, rawRows.map((r) => r.recordDate), opts?.priority);
+    const enriched: DividendHistoryRow[] = rawRows.map((r) => {
+      const close = closes.get(r.recordDate) ?? null;
+      return {
+        recordDate:     r.recordDate,
+        kind:           r.kind,
+        kindLabel:      r.kind === '분기' ? '분기배당' : '결산배당',
+        perShareAmount: r.perShareAmount,
+        dividendRate:   close && close > 0 ? (r.perShareAmount / close) * 100 : null,
+        payDate:        r.payDate,
+      };
+    });
 
     enriched.sort((a, b) => b.recordDate.localeCompare(a.recordDate));
 

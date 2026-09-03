@@ -65,7 +65,7 @@ function computeFiveDayChange(closes: number[]): number | null {
 
 async function getRiskMetrics(ticker: string): Promise<RiskData | null> {
   try {
-    const chart = await fetchDailyChart(ticker, '1Y');
+    const chart = await fetchDailyChart(ticker, '1Y', { priority: 'batch' }); // 2026-09-03: 보유종목 fan-out → 'batch'(거부 대신 대기)
     const closes = chart.map(p => p.close);
     const risk = computeRiskMetrics(closes);
     if (!risk) return null;
