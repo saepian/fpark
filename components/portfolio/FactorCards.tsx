@@ -105,6 +105,7 @@ export function WatchVariablesCard({
   title = '앞으로 확인할 이벤트·지표',
   caption = '어떤 공시·지표·일정이 나오면 지금의 포트폴리오 구조에 영향을 줄 수 있는지 — 예측이 아니라 확인 목록입니다.',
   dense = false,
+  large = false,
 }: {
   shortTermOutlook?: string;
   midTermOutlook?: string;
@@ -114,6 +115,10 @@ export function WatchVariablesCard({
   title?: string;    // 2026-09-01: 기업분석 리포트도 같은 카드를 쓰므로 문구를 바꿔 끼울 수 있게
   caption?: string;
   dense?: boolean;   // 2026-09-02: 기업분석 4층에서 Risk Factors와 2열로 나란히 둘 때 — 패딩 축소 + 단기/중기 세로 스택
+  // 2026-09-04: 포트폴리오진단은 레이어 구조(LayerHeading)가 없어 이 카드 제목이 화면에서
+  // 가장 상위 텍스트다 — 기업분석(레이어 15px > 카드 12px 위계가 이미 있음)과 달리 여기서만
+  // 15px로 키운다. 기업분석 쪽 호출부는 기본값(false)이라 영향 없음.
+  large?: boolean;
 }) {
   const showShort = shortTermOutlook === undefined ? pending : !!shortTermOutlook;
   const showMid   = midTermOutlook === undefined ? pending : !!midTermOutlook;
@@ -130,7 +135,7 @@ export function WatchVariablesCard({
   );
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl ${dense ? 'p-4' : 'p-5'} ${className}`}>
-      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">{title}</p>
+      <p className={`${large ? 'text-[15px]' : 'text-[11px]'} font-bold text-slate-500 uppercase tracking-widest mb-1`}>{title}</p>
       <p className={`text-[11px] text-slate-500 leading-relaxed ${dense ? 'mb-3' : 'mb-4'}`}>{caption}</p>
       <div className={`grid grid-cols-1 ${dense ? 'gap-3' : 'md:grid-cols-2 gap-4'}`}>
         {showShort && block('shortTermOutlook', '단기 (수주 내)', shortTermOutlook, 'border-indigo-500/20 bg-indigo-500/[0.03]')}

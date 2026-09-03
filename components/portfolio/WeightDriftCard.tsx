@@ -18,7 +18,7 @@ export default function WeightDriftCard({
   const maxW = Math.max(1, ...rows.flatMap(r => [r.buyWeight, r.currentWeight]));
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
-      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">매입 비중 vs 현재 비중</p>
+      <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-1">매입 비중 vs 현재 비중</p>
       <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
         처음 매입할 때의 배분(매입가×수량)과 지금의 배분(현재가×수량)입니다. 가격이 오른 종목은 손대지 않아도 비중이 커지고, 내린 종목은 비중이 줄어듭니다.
       </p>

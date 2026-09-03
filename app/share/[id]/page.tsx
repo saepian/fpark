@@ -528,7 +528,8 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           <div className="px-8 py-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-4 h-4 text-indigo-400" />
-              <p className="text-[11px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
+              {/* 2026-09-04: 메인 페이지와 동일 — 레이어 구분이 없어 이 카드 제목이 최상위 텍스트라 15px */}
+              <p className="text-[15px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
             </div>
             {/* 메인 페이지(app/portfolio-diagnosis/page.tsx)와 동일 정책 — 소제목 4분리
                 (summarySections)가 있으면 그걸로, 없으면(옛 공유 리포트) 문장 2개씩
@@ -584,7 +585,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         {/* 벤치마크 비교 (사실 수치만, 판단 없음) */}
         {d.benchmark && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">벤치마크 비교 (참고용 수치)</p>
+            <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-4">벤치마크 비교 (참고용 수치)</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl bg-slate-800/40 px-4 py-3">
                 <p className="text-[11px] text-slate-500 mb-1">귀하의 포트폴리오 수익률</p>
@@ -608,7 +609,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         {/* 보유 기간별 관점 (신설, 매입일 데이터로 비교 가능할 때만) */}
         {(d.holdingPeriod?.longest && d.holdingPeriod?.mostRecent) && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">보유 기간별 관점</p>
+            <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-4">보유 기간별 관점</p>
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div className="rounded-xl bg-slate-800/40 px-4 py-3">
                 <p className="text-[11px] text-slate-500 mb-1">가장 오래 보유 · {d.holdingPeriod.longest.name} ({d.holdingPeriod.longest.holdDays}일 전 매입)</p>
@@ -631,11 +632,11 @@ function PortfolioView({ d }: { d: PortfolioData }) {
 
         {/* 2층 · 보조 — 앞으로 확인할 이벤트·지표(공용 컴포넌트, 정적). 2026-09-03: "종목별 개별 이슈"
             카드는 제거(메인과 동일) — 리스크/긍정 판정은 아래 기업별 관찰 지표의 성격 태그로. */}
-        <WatchVariablesCard shortTermOutlook={d.shortTermOutlook} midTermOutlook={d.midTermOutlook} className="mb-4" />
+        <WatchVariablesCard shortTermOutlook={d.shortTermOutlook} midTermOutlook={d.midTermOutlook} large className="mb-4" />
 
         {/* 종목별 관찰 지표 (절대 금액 제외) */}
         <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">기업별 관찰 지표</p>
+          <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-4">기업별 관찰 지표</p>
           <div className="flex flex-col divide-y divide-slate-700/40">
             {(d.holdings ?? []).map(h => {
               const hUp = h.profitRate >= 0;
@@ -680,7 +681,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
             동일 구조(손복제). 전체 무배당이면 d.dividend가 null이라 섹션 자체를 렌더링하지 않는다. */}
         {d.dividend && (
           <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 mb-4">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4">배당 정보</p>
+            <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-4">배당 정보</p>
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-4">
               <div className="bg-slate-800/40 rounded-xl p-3 text-center sm:min-w-[140px]">
                 <p className="text-[11px] text-slate-500 mb-1">합산 배당률</p>

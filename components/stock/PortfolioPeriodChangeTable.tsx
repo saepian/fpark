@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChartDataPoint, PortfolioPeriodChange, PriceChangeBadge, StockPrice } from '../../lib/types';
 import { computePortfolioPeriodChange } from '../../lib/market-utils';
-import { SECTION_TITLE_CLASS } from '../../lib/ui-constants';
 
 interface HoldingInput {
   ticker: string;
@@ -201,7 +200,7 @@ export default function PortfolioPeriodChangeTable({ holdings, currentTotalValue
 
   return (
     <div className="rounded-xl bg-[#1a1d27] border border-slate-800 p-4 mb-4">
-      <h3 className={`${SECTION_TITLE_CLASS} text-slate-300 mb-1`}>
+      <h3 className="text-[15px] font-bold text-slate-300 mb-1">
         기간별 포트폴리오 평가금액 변동
         <span className="text-[11px] text-slate-500 font-normal ml-2">1년 전 · 6개월 전 · 1개월 전 · 1주일 전 대비</span>
       </h3>

@@ -16,7 +16,7 @@ const GRADE_COLOR: Record<SectorConcentration['grade'], string> = { '고집중':
 function CardShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 min-w-0">
-      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">{title}</p>
+      <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-3">{title}</p>
       {children}
     </div>
   );

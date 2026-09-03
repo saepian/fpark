@@ -19,7 +19,6 @@ import PortfolioPeriodChangeTable from '@/components/stock/PortfolioPeriodChange
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { formatExcludedHoldingsNote } from '@/lib/dividend-aggregation';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
-import { SECTION_TITLE_CLASS } from '@/lib/ui-constants';
 import AiSummarySections, { SUMMARY_SECTION_KEYS, hasAnySummarySection, type AiSummarySectionsData } from '@/components/portfolio/AiSummarySections';
 import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
 import { StructureChartsRow } from '@/components/portfolio/StructureCharts';
@@ -251,7 +250,10 @@ function applyPortfolioField(prev: StreamedResult | null, key: string, value: un
 function Card({ title, children, className = '', ...rest }: { title?: string; children: React.ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`} {...rest}>
-      {title && <p className={`${SECTION_TITLE_CLASS} text-slate-500 uppercase tracking-widest mb-4`}>{title}</p>}
+      {/* 2026-09-04: 포트폴리오진단엔 기업분석의 LayerHeading(15px) 같은 레이어 구분이 없어 이
+          카드 제목이 화면상 가장 상위 텍스트다 — 12px(SECTION_TITLE_CLASS)로는 위계가 안
+          보인다는 피드백으로 15px로 확대(레이어 구조 자체는 도입하지 않음). */}
+      {title && <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-4">{title}</p>}
       {children}
     </div>
   );
@@ -881,7 +883,7 @@ function PortfolioDiagnosisPageInner() {
               <div className="px-8 py-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Sparkles className="w-4 h-4 text-indigo-400" />
-                  <p className={`${SECTION_TITLE_CLASS} text-indigo-400/70 uppercase tracking-widest`}>AI 종합 평가</p>
+                  <p className="text-[15px] font-bold text-indigo-400/70 uppercase tracking-widest">AI 종합 평가</p>
                 </div>
                 {(() => {
                   const sections = result.summarySections;
@@ -1002,7 +1004,7 @@ function PortfolioDiagnosisPageInner() {
               반복하던 문제 → 프롬프트에서 역할을 갈랐고 카드도 2개로 통합.
               2026-09-03 최종 다듬기: "종목별 개별 이슈" 카드는 기업별 관찰 지표의 종목 서술과 같은 뉴스를
               반복해 제거 — 리스크/긍정 판정은 아래 3층 각 종목의 배지 옆 성격 태그로 흡수. */}
-          <WatchVariablesCard shortTermOutlook={result.shortTermOutlook} midTermOutlook={result.midTermOutlook} pending={!stage2Failed} revealed={smoothText.revealed} className="mb-4" />
+          <WatchVariablesCard shortTermOutlook={result.shortTermOutlook} midTermOutlook={result.midTermOutlook} pending={!stage2Failed} revealed={smoothText.revealed} large className="mb-4" />
 
           {/* 3층 · 종목별 — 기업별 관찰 지표 — 카드 위치는 입력 순서 고정, 내용(섹터/사유)은 완료되는 대로 채움 */}
           <Card title={stage1Complete ? '기업별 관찰 지표' : '기업별 관찰 지표 (분석 중...)'} className="mb-4">

@@ -31,7 +31,7 @@ export default function PnlContributionCard({
   };
   return (
     <div className={`bg-[#1a1f2e] border border-slate-700/50 rounded-2xl p-5 ${className}`}>
-      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">종목별 손익 기여</p>
+      <p className="text-[15px] font-bold text-slate-500 uppercase tracking-widest mb-1">종목별 손익 기여</p>
       <p className="text-[11px] text-slate-500 leading-relaxed mb-4">
         매입가 대비 평가손익을 종목별로 나란히 놓은 것입니다. 손실(왼쪽)과 이익(오른쪽)이 어느 종목에서 만들어지는지 — 비율은 같은 방향 종목만 더한 값 대비입니다.
       </p>
