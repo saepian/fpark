@@ -1,4 +1,3 @@
-import { unstable_cache, revalidateTag } from 'next/cache';
 import { adminClient } from './supabase-admin';
 import { fetchKrxListedInfoOfficial } from './krx-official-api';
 import { PREFERRED_STOCKS } from './preferred-stock-master';
@@ -25,23 +24,6 @@ export interface StockMasterEntry {
   name: string;
   market: 'KOSPI' | 'KOSDAQ';
 }
-
-// 2026-09-03 트래픽점검 6번: /api/search가 콜드스타트마다(서버리스 인스턴스가 새로
-// 뜰 때마다) stock_master 2,781행을 통째로 재조회했다 — search/route.ts에 있던
-// 인스턴스 메모리 캐시(let stockCache)는 인스턴스별로 독립이라 접속자가 몰려 인스턴스가
-// 여러 개 뜨면 그 재적재가 인스턴스 수만큼 중복 발생했다(실측: 20 동시요청 p50 6.3s).
-// Next.js unstable_cache는 Vercel Data Cache(서버리스 인스턴스 경계를 넘어 공유되는
-// 외부 캐시)에 저장되므로, 이걸로 바꾸면 같은 배포 안의 모든 인스턴스가 최초 1회만
-// DB를 읽고 그 뒤로는 공유 캐시를 재사용한다 — 콜드스타트마다 재조회하던 근본 원인
-// 자체가 없어진다(단순 인메모리 캐시로는 애초에 풀 수 없는 문제).
-export const STOCK_MASTER_CACHE_TAG = 'stock-master';
-// stock_master 갱신 빈도: 크론(app/api/cron/stock-master-refresh)이 하루 1회(vercel.json
-// "10 17 * * *" = 02:10 KST) KOSPI/KOSDAQ 전체를 upsert한다. KRX 신규상장·상장폐지는
-// 실무적으로 하루 여러 건이 아니라 한 달에 몇 건 수준의 드문 이벤트라(공시 기반 공지 후
-// 반영), 24시간보다 훨씬 짧은 주기로 캐시를 갱신할 실익이 없다 — 크론과 같은 24시간을
-// revalidate 상한으로 두되, 아래 refreshStockMaster()가 크론 실행 직후 revalidateTag로
-// 즉시 무효화도 같이 하므로 실질 반영은 대부분 크론 완료 시점(하루 1회, 수 분 이내)이다.
-const STOCK_MASTER_REVALIDATE_SEC = 24 * 60 * 60;
 
 async function fetchKrxMarket(market: 'KOSPI' | 'KOSDAQ'): Promise<StockMasterEntry[]> {
   const marketType = market === 'KOSPI' ? 'stockMkt' : 'kosdaqMkt';
@@ -165,20 +147,6 @@ export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
   // KOSPI/KOSDAQ 갱신 성패와 무관하게 매번 upsert — 정적 데이터라 실패 사유가 따로 없다.
   result.preferred = await upsertMarket('KOSPI', PREFERRED_STOCKS);
 
-  // 2026-09-03 트래픽점검 6번: 아래 getStockMasterListCached()의 Vercel Data Cache를
-  // 즉시 무효화 — 이 크론이 하루 1회(vercel.json 02:10 KST) 실행될 때마다 검색 API가
-  // 최대 24시간(그 캐시의 revalidate 주기) 기다리지 않고 바로 새 목록을 반영하게 한다.
-  // 부분 실패(예: KOSPI만 갱신 성공)여도 무효화한다 — 갱신된 부분만이라도 최신으로
-  // 반영하는 게 아무것도 안 하는 것보다 낫고, 실패한 시장은 upsertMarket이 기존 행을
-  // 그대로 두므로 캐시를 다시 채워도 손실이 없다.
-  try {
-    revalidateTag(STOCK_MASTER_CACHE_TAG);
-  } catch (e) {
-    // 크론 실행 컨텍스트에 따라 revalidateTag가 지원되지 않을 수 있음(예: 특정 런타임) —
-    // 실패해도 revalidate(24시간) 시간기반 만료가 안전망으로 남는다.
-    console.warn('[stock-master] revalidateTag 실패(24시간 시간기반 만료로 대체됨):', e instanceof Error ? e.message : e);
-  }
-
   return result;
 }
 
@@ -204,13 +172,3 @@ export async function getStockMasterList(): Promise<StockMasterEntry[]> {
   }
   return all;
 }
-
-// 검색 API 등 소비처는 이 캐시된 버전을 써야 한다 — 위 getStockMasterList() 자체(원본
-// DB 조회)는 그대로 두고(refreshStockMaster 등 "항상 최신을 직접 읽어야 하는" 내부용은
-// 원본을 계속 씀), unstable_cache로 감싼 버전만 새로 노출한다. 캐시 키가 인자를 안 받는
-// 상수 함수라 하나의 전역 엔트리만 생긴다.
-export const getStockMasterListCached = unstable_cache(
-  getStockMasterList,
-  ['stock-master-list'],
-  { tags: [STOCK_MASTER_CACHE_TAG], revalidate: STOCK_MASTER_REVALIDATE_SEC },
-);
