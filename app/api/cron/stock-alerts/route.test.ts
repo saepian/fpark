@@ -82,6 +82,9 @@ const mockState = vi.hoisted(() => ({
   // 비어있으면(기본) 기존처럼 watchlist의 유니크 user_id로 Pro 목록을 유도한다 — 샤딩
   // 테스트(전체 Pro 유저 수가 watchlist에 등장하는 유저 수보다 훨씬 많아야 함)만 명시적으로 채운다.
   proUsers: [] as string[],
+  // 기관/외국인 수급알림 재설계(2026-09-03) 검증용 — ticker별 fetchInvestorTrend 응답을
+  // 직접 제어한다. 비어있으면(기본) apiError:false, latest:null(수급 알림 없음)로 처리.
+  investorTrendByTicker: {} as Record<string, { latest: { date: string; foreign: { qty: number; amount: number }; institution: { qty: number; amount: number }; individual: { qty: number; amount: number } } | null; trend: { date: string; foreign: number; institution: number; individual: number }[]; apiError: boolean }>,
 }));
 
 vi.mock('@/lib/kis-api', () => ({
@@ -93,6 +96,18 @@ vi.mock('@/lib/kis-api', () => ({
   }),
   getAccessToken: vi.fn(async () => 'FAKE_TOKEN'),
 }));
+
+// computeFlowMultiple은 순수 함수라 실제 구현을 그대로 쓰고(importOriginal), fetchInvestorTrend
+// (KIS 네트워크 호출)만 목업한다 — 기관/외국인 수급알림 재설계(2026-09-03) 통합 검증용.
+vi.mock('@/lib/stock-analysis-data', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/stock-analysis-data')>();
+  return {
+    ...actual,
+    fetchInvestorTrend: vi.fn(async (ticker: string) => {
+      return mockState.investorTrendByTicker[ticker] ?? { latest: null, trend: [], apiError: false };
+    }),
+  };
+});
 
 vi.mock('@/lib/telegram', () => ({
   sendTelegramMessage: vi.fn(async (chatId: string, text: string) => {
@@ -193,16 +208,17 @@ beforeEach(() => {
   mockState.telegramSent.length = 0;
   mockState.telegramChatIdByUser = {};
   mockState.proUsers = [];
+  mockState.investorTrendByTicker = {};
   mockState.store = makeFakeUpsertStore();
   vi.useFakeTimers();
 });
 
-// 수급 알림(fetchInvestorFlow)은 route.ts 내부에서 KIS inquire-investor를 직접 fetch()하므로,
-// 전역 fetch를 스텁해 항상 임계값(1000억) 미만의 무의미한 수급으로 응답시켜 가격 변동
-// 알림에만 집중한다.
+// 2026-09-03 재설계 이후 수급 조회는 fetchInvestorTrend(위에서 목업)를 거쳐 route.ts가
+// 직접 fetch()하지 않는다 — 그래도 혹시 모를 미목업 fetch 호출이 실제 네트워크로
+// 새나가지 않도록 안전망으로 전역 fetch는 계속 스텁해 둔다.
 vi.stubGlobal('fetch', vi.fn(async () => ({
   ok: true,
-  json: async () => ({ rt_cd: '0', output: [{ frgn_ntby_tr_pbmn: '0', orgn_ntby_tr_pbmn: '0', stck_bsop_date: '20260814' }] }),
+  json: async () => ({ rt_cd: '0', output: [] }),
 } as Response)));
 
 describe('GET /api/cron/stock-alerts — 휴장일 게이트', () => {
@@ -452,5 +468,80 @@ describe('GET /api/cron/stock-alerts — 유저 샤딩(2026-09-03 트래픽점�
 
     // 2개 그룹뿐이므로 두 사이클을 합치면 전체 유저를 정확히 한 번씩 커버해야 함
     expect(shard1Users.length + shard2Users.length).toBe(userIds.length);
+  });
+});
+
+describe('GET /api/cron/stock-alerts — 기관/외국인 수급알림 재설계(2026-09-03, 대형주 편중 수정)', () => {
+  const CYCLE_1 = '2026-08-18T09:10:00+09:00';
+
+  // trend[0]=오늘(latest와 동일), trend[1..]=과거 20거래일 — fetchInvestorTrend(ticker, 21)의
+  // 실제 반환 형태를 그대로 흉내낸다.
+  function makeTrend(todayForeign: number, todayInstitution: number, priorForeign: number[], priorInstitution: number[]) {
+    const trend = [
+      { date: '2026-08-18', foreign: todayForeign, institution: todayInstitution, individual: 0 },
+      ...priorForeign.map((f, i) => ({ date: `prior-${i}`, foreign: f, institution: priorInstitution[i], individual: 0 })),
+    ];
+    return {
+      latest: {
+        date: '2026-08-18',
+        foreign: { qty: 0, amount: todayForeign },
+        institution: { qty: 0, amount: todayInstitution },
+        individual: { qty: 0, amount: 0 },
+      },
+      trend,
+      apiError: false,
+    };
+  }
+
+  beforeEach(() => {
+    // 가격 변동 알림과 섞이지 않도록 모든 종목을 무의미한 변동(1%)으로 고정.
+    mockState.anchorChart = [{ date: '2026-08-14' }, { date: '2026-08-18' }];
+    vi.setSystemTime(new Date(CYCLE_1));
+  });
+
+  it('삼성전자처럼 절대금액은 압도적이어도 평소(20일 평균) 흐름 대비로는 이례적이지 않으면 알림이 안 나간다(구 설계의 대형주 편중 재현 방지)', async () => {
+    mockState.watchlist = [{ user_id: 'user-1', ticker: '005930', name: '삼성전자' }];
+    mockState.telegramChatIdByUser = { 'user-1': 'chat-1' };
+    mockState.priceByTicker['005930'] = { name: '삼성전자', price: 70000, changeRate: 1 };
+    // 평소에도 기관 순매수가 크게 오르내리는 초대형주(절대값 평균 4,500억) — 오늘
+    // -7,526억은 절대금액 임계값(옛 1,000억)은 가볍게 넘지만 배수는 2.5 미만(약 1.67배).
+    const prior = Array(20).fill(0).map((_, i) => (i % 2 === 0 ? 4500 : -4500));
+    mockState.investorTrendByTicker['005930'] = makeTrend(-3327, -7526, prior, prior);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(body.total).toBe(0); // 가격도 1%라 변동 알림 없음 — 수급 알림도 없어야 함
+    expect(mockState.rpcCalls.some(c => c.p_type.startsWith('foreign_') || c.p_type.startsWith('institution_'))).toBe(false);
+  });
+
+  it('중형주처럼 절대금액은 작아도 평소 대비 크게 쏠리면(배수≥2.5) 알림이 나간다(구 설계에서는 임계값 미달로 항상 누락됐음)', async () => {
+    mockState.watchlist = [{ user_id: 'user-1', ticker: '047040', name: '대우건설' }];
+    mockState.telegramChatIdByUser = { 'user-1': 'chat-1' };
+    mockState.priceByTicker['047040'] = { name: '대우건설', price: 5000, changeRate: 1 };
+    // 평소 기관 순매수 절대값 평균 20억 — 오늘 -75억은 절대금액 임계값(옛 1,000억)에는
+    // 한참 못 미치지만 배수로는 3.75배(≥2.5).
+    const prior = Array(20).fill(0).map((_, i) => (i % 2 === 0 ? 20 : -20));
+    mockState.investorTrendByTicker['047040'] = makeTrend(0, -75, prior, prior);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(body.total).toBe(1);
+    const institutionAlert = mockState.rpcCalls.find(c => c.p_type === 'institution_sell');
+    expect(institutionAlert).toBeTruthy();
+    expect(mockState.telegramSent.some(t => t.text.includes('대우건설') && t.text.includes('배)'))).toBe(true);
+  });
+
+  it('과거 데이터가 15거래일 미만(신규상장 등)이면 배수를 계산하지 않고 수급 알림을 보류한다', async () => {
+    mockState.watchlist = [{ user_id: 'user-1', ticker: '999999', name: '신규상장주' }];
+    mockState.priceByTicker['999999'] = { name: '신규상장주', price: 10000, changeRate: 1 };
+    const shortPrior = Array(5).fill(100); // 최소 15일 미만
+    mockState.investorTrendByTicker['999999'] = makeTrend(500, 500, shortPrior, shortPrior);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(body.total).toBe(0);
   });
 });

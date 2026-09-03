@@ -31,6 +31,26 @@ function kisHdr(token: string, trId: string): Record<string, string> {
 // KIS 수급 API 단위: 백만원 → 억원
 const toAuk = (v: string | number | undefined) => Math.round(Number(v || 0) / 100);
 
+// 2026-09-03 트래픽점검 후속 조사(기관/외국인 수급알림 대형주 편중) — 원래 lib/daily-pick.ts
+// 전용이던 "오늘 수급이 평소 대비 몇 배인가" 계산을 공유 위치로 옮겼다. daily-pick은
+// 2026-07-13에 이미 같은 문제(절대금액 기준이 삼성전자·SK하이닉스에만 항상 걸리고 다른
+// 종목은 "평범한 하루"에도 못 걸리던 문제)를 이 방식으로 고쳤다 — stock-alerts의 기관/
+// 외국인 수급 알림도 동일 결함을 겪고 있어(실측: 워치리스트 15종목 중 삼성전자·SK하이닉스만
+// 항상 임계값의 300~1000%, 나머지는 대형주 포함 전부 18% 미만) 같은 해법을 재사용한다.
+export const FLOW_MULTIPLE_MIN_BASELINE_AUK = 5;   // 평소 흐름 자체가 이보다 작으면 배수를 신뢰하지 않음(분모 과소 방지)
+export const FLOW_MULTIPLE_MIN_BASELINE_DAYS = 15; // 신규상장 등으로 과거 데이터가 부족하면 배수 계산 보류
+
+// 일별 순매수(부호 있음) 배열 → 최근 N거래일 평균 "흐름 강도"(절대값 평균) 대비 오늘의 배수.
+// 절대값으로 평균을 잡는 이유: 매수/매도가 번갈아 나오는 종목은 부호 있는 값을 그대로
+// 평균내면 서로 상쇄돼 분모가 비정상적으로 작아진다 — computeRiskMetrics의 변동성(표준편차)
+// 계산과 같은 이유로 "평소 얼마나 크게 움직이는 종목인가"를 절대값 기준으로 잡는다.
+export function computeFlowMultiple(todayAmount: number, priorAmounts: number[]): { avg: number; multiple: number | null } {
+  if (priorAmounts.length < FLOW_MULTIPLE_MIN_BASELINE_DAYS) return { avg: 0, multiple: null };
+  const avg = priorAmounts.reduce((s, v) => s + Math.abs(v), 0) / priorAmounts.length;
+  if (avg < FLOW_MULTIPLE_MIN_BASELINE_AUK) return { avg, multiple: null };
+  return { avg, multiple: parseFloat((todayAmount / avg).toFixed(2)) };
+}
+
 export interface InvestorFlow {
   date:        string; // 이 수급 데이터가 실제로 어느 거래일 기준인지 (YYYY-MM-DD) — "today"가 아직 미개장/휴장이면 가장 최근 완료 거래일
   foreign:     { qty: number; amount: number };

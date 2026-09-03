@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { getAccessToken, acquireKisRateSlot, fetchStockPrice, STOCK_NAMES, CURATED_TICKERS_MKT } from '@/lib/kis-api';
-import { fetchInvestorTrend, pickRelevantNews } from '@/lib/stock-analysis-data';
+import { fetchInvestorTrend, pickRelevantNews, computeFlowMultiple } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
 import { nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, withTemporalRetry } from '@/lib/ai-grounding';
@@ -14,11 +14,10 @@ const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 // SK하이닉스 등)이 "평범한 하루"에도 항상 조건을 통과, 메인페이지가 매일 같은 종목으로
 // 고정되는 문제가 있었다(실측: 최근 8거래일 중 삼성전자 2회, 나머지는 매일 다른 종목).
 // 절대금액 대신 "최근 20거래일 평균 흐름 대비 오늘이 몇 배인지"로 전환한다(종목 리포트의
-// computeTradingValueMultiple과 동일 원칙). 아래 두 기준은 순수 배수만으로 걸러지는
-// 노이즈(예: 평소 0.1억→오늘 0.5억 = "5배"지만 사실상 무의미한 금액)를 막는 하한선이다.
+// computeTradingValueMultiple과 동일 원칙). MIN_BASELINE_AUK/DAYS(순수 배수만으로 걸러지는
+// 노이즈 방지 하한선)는 lib/stock-analysis-data.ts의 computeFlowMultiple로 옮겨 stock-alerts
+// 크론과 공유한다(2026-09-03, 같은 문제를 겪던 기관/외국인 수급알림에 동일 해법 적용).
 const MIN_ABS_TODAY_AUK = 20;       // 오늘 순매수 절대금액이 이 정도는 돼야 "이례적"으로 취급
-const MIN_BASELINE_AUK = 5;         // 20일 평균 흐름 자체가 이보다 작으면 배수를 신뢰하지 않음(분모 과소 방지)
-const MIN_BASELINE_DAYS = 15;       // 신규상장 등으로 과거 데이터가 부족하면 배수 계산 보류
 const UNUSUAL_MULTIPLE_THRESHOLD = 2.5; // 오늘 순매수가 평소 흐름의 이 배수 이상이면 "이례적"
 
 // 2026-08-04 — 주말·공휴일에도 크론이 매일 도는데(vercel.json: 0 0 * * *, 매일 09:00 KST)
@@ -35,17 +34,6 @@ function toDashedDate(yyyymmdd: string): string {
 // HMM처럼 6~13일 스트릭)이 정말 압도적이면 그래도 통과하게 한다(2026-08-04, 신고 대응).
 const RECENT_PICK_WINDOW_DAYS = 7;  // 이 기간 내 이미 선정된 티커는 감점 대상
 const RECENT_PICK_PENALTY = 0.5;    // 점수를 절반으로 할인 — 다른 후보가 2배 이상 차이나지 않는 한 순위를 뒤집기에 충분하고, 압도적 1위는 할인돼도 여전히 1위 유지
-
-// 일별 순매수(부호 있음) 배열 → 최근 20거래일 평균 "흐름 강도"(절대값 평균) 대비 오늘의 배수.
-// 절대값으로 평균을 잡는 이유: 매수/매도가 번갈아 나오는 종목은 부호 있는 값을 그대로
-// 평균내면 서로 상쇄돼 분모가 비정상적으로 작아진다 — computeRiskMetrics의 변동성(표준편차)
-// 계산과 같은 이유로 "평소 얼마나 크게 움직이는 종목인가"를 절대값 기준으로 잡는다.
-function computeFlowMultiple(todayAmount: number, priorAmounts: number[]): { avg: number; multiple: number | null } {
-  if (priorAmounts.length < MIN_BASELINE_DAYS) return { avg: 0, multiple: null };
-  const avg = priorAmounts.reduce((s, v) => s + Math.abs(v), 0) / priorAmounts.length;
-  if (avg < MIN_BASELINE_AUK) return { avg, multiple: null };
-  return { avg, multiple: parseFloat((todayAmount / avg).toFixed(2)) };
-}
 
 export function getDailyPickSupabase() {
   return createClient<Database>(

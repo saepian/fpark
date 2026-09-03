@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminClient as supabase } from '@/lib/supabase-admin';
-import { fetchStockPrice, fetchDailyChart, getAccessToken, acquireKisRateSlot } from '@/lib/kis-api';
+import { fetchStockPrice, fetchDailyChart } from '@/lib/kis-api';
+import { fetchInvestorTrend, computeFlowMultiple } from '@/lib/stock-analysis-data';
 import { getDomesticMarketDayContext } from '@/lib/market-day-context';
 import { sendTelegramMessage, isBlockedByUser } from '@/lib/telegram';
 import { computeShardCount, hashUserIdToShard, getCurrentShardIndex } from '@/lib/cron-sharding';
@@ -13,9 +14,18 @@ export const dynamic = 'force-dynamic';
 // 10분 주기 실행이라 겹칠 일은 없다. 근본적인 확장(유저 샤딩 등)은 별도 설계.
 export const maxDuration = 300;
 
-const KIS_BASE = 'https://openapi.koreainvestment.com:9443';
 const PRICE_THRESHOLDS = [5, 10, 20, 30];
-const FLOW_THRESHOLD_AUK = 1000;
+
+// 2026-09-03 재설계 — 기관/외국인 수급 알림이 절대금액(1,000억원) 기준이라 삼성전자·
+// SK하이닉스에만 항상 걸리고 다른 종목(대형주 포함)은 사실상 못 걸리는 구조적 편향이
+// 있었다(실측: 워치리스트 15종목 중 두 종목만 임계값의 300~1000%, 나머지는 대형주
+// 포함 전부 18% 미만). lib/daily-pick.ts가 2026-07-13에 이미 겪고 고친 것과 동일한
+// 문제라(그때는 "종목 선정이 매일 삼성전자로 고정" 형태로 나타남) 같은 해법 — "오늘
+// 순매수가 그 종목의 최근 20거래일 평균 흐름 대비 몇 배인가"로 전환한다. 절대금액
+// 하한(FLOW_MIN_ABS_TODAY_AUK)은 daily-pick과 동일한 값으로 시작 — 순수 배수만 보면
+// "평소 0.1억→오늘 0.5억=5배"처럼 무의미한 금액도 걸릴 수 있어 이를 막는다.
+const FLOW_MIN_ABS_TODAY_AUK = 20;        // 오늘 순매수 절대금액이 이 정도는 돼야 "이례적"으로 취급
+const FLOW_UNUSUAL_MULTIPLE_THRESHOLD = 2.5; // 오늘 순매수가 평소 흐름의 이 배수 이상이면 알림
 
 function formatAmount(auk: number): string {
   const abs = Math.abs(auk);
@@ -49,56 +59,6 @@ function kstMidnightIso(todayStr: string): string {
   const m = todayStr.slice(4, 6);
   const d = todayStr.slice(6, 8);
   return `${y}-${m}-${d}T00:00:00+09:00`;
-}
-
-function kisHeaders(token: string): Record<string, string> {
-  return {
-    'content-type': 'application/json; charset=UTF-8',
-    authorization: `Bearer ${token}`,
-    appkey: process.env.KIS_APP_KEY!,
-    appsecret: process.env.KIS_APP_SECRET!,
-    tr_id: 'FHKST01010900',
-    custtype: 'P',
-  };
-}
-
-async function fetchInvestorFlow(
-  ticker: string,
-  token: string,
-): Promise<{ foreignNetBuyAuk: number; institutionNetBuyAuk: number }> {
-  for (const mktCode of ['J', 'Q']) {
-    try {
-      const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor`);
-      url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
-      url.searchParams.set('FID_INPUT_ISCD', ticker);
-
-      await acquireKisRateSlot({ priority: 'cron' });
-      const res = await fetch(url.toString(), {
-        headers: kisHeaders(token),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(8000),
-      });
-
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data.rt_cd !== '0') continue;
-
-      const output: Record<string, string>[] = data.output ?? [];
-      // KIS API는 장중 당일 집계를 제공하지 않음 — 데이터가 있는 최근 거래일 행 사용
-      const latestRow = output.find((d) => d.frgn_ntby_tr_pbmn !== '');
-      if (!latestRow) return { foreignNetBuyAuk: 0, institutionNetBuyAuk: 0 };
-
-      // frgn_ntby_tr_pbmn 단위: 백만원 → /100 = 억원
-      const foreignNetBuyAuk     = Math.round(Number(latestRow.frgn_ntby_tr_pbmn || 0) / 100);
-      const institutionNetBuyAuk = Math.round(Number(latestRow.orgn_ntby_tr_pbmn || 0) / 100);
-
-      console.log(`[STOCK-ALERTS] ${ticker} 수급 (${latestRow.stck_bsop_date}): 외국인=${foreignNetBuyAuk}억, 기관=${institutionNetBuyAuk}억`);
-      return { foreignNetBuyAuk, institutionNetBuyAuk };
-    } catch {
-      continue;
-    }
-  }
-  return { foreignNetBuyAuk: 0, institutionNetBuyAuk: 0 };
 }
 
 async function fetchInChunks<T>(
@@ -208,23 +168,28 @@ export async function GET(request: NextRequest) {
   const uniqueTickers = [...new Set(watchlistItems.map((w: { ticker: string }) => w.ticker))];
   console.log(`[STOCK-ALERTS] 조회 종목: ${uniqueTickers.length}개 — ${uniqueTickers.join(', ')}`);
 
-  const token = await getAccessToken();
-
   type StockData = {
     name: string;
     price: number;
     changeRate: number;
     foreignNetBuyAuk: number;
     institutionNetBuyAuk: number;
+    // 오늘 순매수가 최근 20거래일 평균 흐름의 몇 배인지 — null이면 배수를 신뢰할 수
+    // 없는 상태(데이터 부족/평소 흐름 자체가 미미함, computeFlowMultiple 참고)라
+    // 알림 트리거에서 제외한다.
+    foreignMultiple: number | null;
+    institutionMultiple: number | null;
   };
   const stockDataMap = new Map<string, StockData>();
 
   await fetchInChunks(
     uniqueTickers,
     async (ticker) => {
+      // days=21 — trend[0]이 오늘(latest와 동일 거래일), trend[1..]이 20일 평균
+      // 베이스라인용(lib/daily-pick.ts의 scanFlowCandidates와 동일 패턴).
       const [priceRes, flowRes] = await Promise.allSettled([
         fetchStockPrice(ticker, { priority: 'cron' }),
-        fetchInvestorFlow(ticker, token),
+        fetchInvestorTrend(ticker, 21, { priority: 'cron' }),
       ]);
 
       if (priceRes.status !== 'fulfilled') {
@@ -233,13 +198,27 @@ export async function GET(request: NextRequest) {
       }
 
       const { name, price, changeRate } = priceRes.value;
-      const flow =
-        flowRes.status === 'fulfilled'
-          ? flowRes.value
-          : { foreignNetBuyAuk: 0, institutionNetBuyAuk: 0 };
 
-      console.log(`[STOCK-ALERTS] ${ticker}(${name}) 현재가=${price.toLocaleString()}원 등락률=${changeRate}% 외국인=${flow.foreignNetBuyAuk}억 기관=${flow.institutionNetBuyAuk}억`);
-      stockDataMap.set(ticker, { name, price, changeRate, ...flow });
+      let foreignNetBuyAuk = 0;
+      let institutionNetBuyAuk = 0;
+      let foreignMultiple: number | null = null;
+      let institutionMultiple: number | null = null;
+
+      if (flowRes.status === 'fulfilled' && !flowRes.value.apiError && flowRes.value.latest) {
+        const { latest, trend } = flowRes.value;
+        foreignNetBuyAuk     = latest.foreign.amount;
+        institutionNetBuyAuk = latest.institution.amount;
+        const priorForeign     = trend.slice(1).map((d) => d.foreign);
+        const priorInstitution = trend.slice(1).map((d) => d.institution);
+        foreignMultiple     = computeFlowMultiple(foreignNetBuyAuk, priorForeign).multiple;
+        institutionMultiple = computeFlowMultiple(institutionNetBuyAuk, priorInstitution).multiple;
+      }
+
+      console.log(
+        `[STOCK-ALERTS] ${ticker}(${name}) 현재가=${price.toLocaleString()}원 등락률=${changeRate}% ` +
+        `외국인=${foreignNetBuyAuk}억(${foreignMultiple ?? 'N/A'}배) 기관=${institutionNetBuyAuk}억(${institutionMultiple ?? 'N/A'}배)`,
+      );
+      stockDataMap.set(ticker, { name, price, changeRate, foreignNetBuyAuk, institutionNetBuyAuk, foreignMultiple, institutionMultiple });
     },
     3,
     300,
@@ -265,7 +244,7 @@ export async function GET(request: NextRequest) {
     const data = stockDataMap.get(ticker);
     if (!data) continue;
 
-    const { price, changeRate, foreignNetBuyAuk, institutionNetBuyAuk } = data;
+    const { price, changeRate, foreignNetBuyAuk, institutionNetBuyAuk, foreignMultiple, institutionMultiple } = data;
     const stockName = data.name || watchName;
 
     const setAlert = (type: string, threshold: number, message: string, currentValue: number) => {
@@ -287,18 +266,25 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 외국인 수급
-    if (foreignNetBuyAuk >= FLOW_THRESHOLD_AUK) {
-      setAlert('foreign_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 자금 ${formatAmount(foreignNetBuyAuk)} 유입`, foreignNetBuyAuk);
-    } else if (foreignNetBuyAuk <= -FLOW_THRESHOLD_AUK) {
-      setAlert('foreign_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 외국인 자금 ${formatAmount(foreignNetBuyAuk)} 유출`, foreignNetBuyAuk);
+    // 외국인 수급 — 절대금액이 아니라 "오늘이 그 종목 평소(최근 20거래일 평균) 흐름의
+    // 몇 배인가"로 이례적 여부를 판단(2026-09-03 재설계, 파일 상단 주석 참고). multiple은
+    // computeFlowMultiple이 평소 흐름(항상 양수)으로 나눈 값이라 오늘 순매수의 부호를
+    // 그대로 물려받는다 — 양수면 매수 쪽, 음수면 매도 쪽 이례치.
+    if (foreignMultiple !== null && Math.abs(foreignNetBuyAuk) >= FLOW_MIN_ABS_TODAY_AUK) {
+      if (foreignMultiple >= FLOW_UNUSUAL_MULTIPLE_THRESHOLD) {
+        setAlert('foreign_buy', FLOW_UNUSUAL_MULTIPLE_THRESHOLD, `[${stockName}] 외국인 자금 ${formatAmount(foreignNetBuyAuk)} 유입 (평소 대비 ${foreignMultiple.toFixed(1)}배)`, foreignNetBuyAuk);
+      } else if (foreignMultiple <= -FLOW_UNUSUAL_MULTIPLE_THRESHOLD) {
+        setAlert('foreign_sell', FLOW_UNUSUAL_MULTIPLE_THRESHOLD, `[${stockName}] 외국인 자금 ${formatAmount(foreignNetBuyAuk)} 유출 (평소 대비 ${Math.abs(foreignMultiple).toFixed(1)}배)`, foreignNetBuyAuk);
+      }
     }
 
-    // 기관 수급
-    if (institutionNetBuyAuk >= FLOW_THRESHOLD_AUK) {
-      setAlert('institution_buy', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 자금 ${formatAmount(institutionNetBuyAuk)} 유입`, institutionNetBuyAuk);
-    } else if (institutionNetBuyAuk <= -FLOW_THRESHOLD_AUK) {
-      setAlert('institution_sell', FLOW_THRESHOLD_AUK, `[${stockName}] 기관 자금 ${formatAmount(institutionNetBuyAuk)} 유출`, institutionNetBuyAuk);
+    // 기관 수급 — 위와 동일한 배수 기준.
+    if (institutionMultiple !== null && Math.abs(institutionNetBuyAuk) >= FLOW_MIN_ABS_TODAY_AUK) {
+      if (institutionMultiple >= FLOW_UNUSUAL_MULTIPLE_THRESHOLD) {
+        setAlert('institution_buy', FLOW_UNUSUAL_MULTIPLE_THRESHOLD, `[${stockName}] 기관 자금 ${formatAmount(institutionNetBuyAuk)} 유입 (평소 대비 ${institutionMultiple.toFixed(1)}배)`, institutionNetBuyAuk);
+      } else if (institutionMultiple <= -FLOW_UNUSUAL_MULTIPLE_THRESHOLD) {
+        setAlert('institution_sell', FLOW_UNUSUAL_MULTIPLE_THRESHOLD, `[${stockName}] 기관 자금 ${formatAmount(institutionNetBuyAuk)} 유출 (평소 대비 ${Math.abs(institutionMultiple).toFixed(1)}배)`, institutionNetBuyAuk);
+      }
     }
   }
 
