@@ -58,8 +58,18 @@ export async function GET(request: Request) {
   // 해제한다.
   const lockKey = cacheKeyFor(tab);
   const won = await tryAcquireCacheLock(lockKey, 10_000);
-  if (!won && cacheRow) {
-    return Response.json(cacheRow.data as unknown as StockRow[]);
+  if (!won) {
+    if (cacheRow) return Response.json(cacheRow.data as unknown as StockRow[]);
+    // 값 자체가 없는 진짜 콜드(최초 배포 직후 등 극히 드문 경우) — 승자의 결과를 짧게 기다린다.
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+      try {
+        const { data: polled } = await supabase.from('market_cache').select('data, updated_at').eq('key', lockKey).single();
+        if (polled) return Response.json(polled.data as unknown as StockRow[]);
+      } catch { /* 아직 없음 — 계속 폴링 */ }
+    }
+    // 폴링 타임아웃 — 최후 수단으로 직접 라이브(락은 안 쥐었으니 해제 불필요) — 아래로 낙하
   }
 
   try {

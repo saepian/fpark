@@ -344,9 +344,24 @@ export async function GET() {
   // 배포 직후가 아닌 한 거의 항상 있음) 그 값을 즉시 서빙(SWR)하고 갱신은 락을 쥔
   // 요청 하나에게 맡긴다.
   const won = await tryAcquireCacheLock(CACHE_KEY, 10_000);
-  if (!won && cacheRow) {
-    if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
-    return NextResponse.json({ ...(cacheRow.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cacheRow.updated_at, isPrevDay, prevDateLabel });
+  if (!won) {
+    if (cacheRow) {
+      if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
+      return NextResponse.json({ ...(cacheRow.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cacheRow.updated_at, isPrevDay, prevDateLabel });
+    }
+    // 값 자체가 없는 진짜 콜드(최초 배포 직후 등 극히 드문 경우) — 승자의 결과를 짧게 기다린다.
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200));
+      try {
+        const { data: polled } = await supabase.from('market_cache').select('data, updated_at').eq('key', CACHE_KEY).single();
+        if (polled) {
+          if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
+          return NextResponse.json({ ...(polled.data as unknown as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: polled.updated_at, isPrevDay, prevDateLabel });
+        }
+      } catch { /* 아직 없음 — 계속 폴링 */ }
+    }
+    // 폴링 타임아웃 — 최후 수단으로 직접 라이브(락은 안 쥐었으니 해제 불필요) — 아래로 낙하
   }
 
   try {
