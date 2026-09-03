@@ -1,6 +1,4 @@
-import { after } from 'next/server';
-import { getAccessToken } from '@/lib/kis-api';
-import { supabase } from '@/lib/supabase';
+import { getAccessToken, acquireKisRateSlot, cacheJsonResult } from '@/lib/kis-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +31,9 @@ async function fetchFromKIS(): Promise<PopularStock[]> {
     FID_INPUT_DATE_1: '',
   });
 
+  // 2026-09-03 트래픽점검 9번: 레이트리미터 게이트가 없어 우회 중이었던 걸 추가 — 유저
+  // 요청 경로(국내증시 페이지)라 'user' 우선순위.
+  await acquireKisRateSlot({ priority: 'user' });
   const res = await fetch(
     `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/volume-rank?${params}`,
     {
@@ -52,7 +53,7 @@ async function fetchFromKIS(): Promise<PopularStock[]> {
   const rows: any[] = data.output ?? [];
   rows.sort((a, b) => Number(b.acml_tr_pbmn) - Number(a.acml_tr_pbmn));
 
-  return rows.slice(0, 5).map((item, i) => ({
+  const result = rows.slice(0, 5).map((item, i) => ({
     rank: i + 1,
     ticker: item.stck_shrn_iscd || item.mksc_shrn_iscd || '',
     name: item.hts_kor_isnm,
@@ -60,45 +61,19 @@ async function fetchFromKIS(): Promise<PopularStock[]> {
     changeRate: Number(item.prdy_ctrt),
     change: Number(item.prdy_vrss),
   }));
+  if (result.length === 0) throw new Error('volume-rank 결과 0건');
+  return result;
 }
 
+// 2026-09-03 트래픽점검 9번: 기존 TTL 캐시(15분 고정, 장중/장외 구분 없음)는 그대로 두고
+// investors/finance/daily(2번)·movers(8번)와 동일한 cacheJsonResult로 전환 —
+// single-flight 락과 "라이브 실패 시 stale 캐시 폴백"이 자동으로 딸려 온다.
 export async function GET() {
-  // 캐시 우선
   try {
-    const { data: cache } = await supabase
-      .from('market_cache')
-      .select('data, updated_at')
-      .eq('key', CACHE_KEY)
-      .single();
-
-    if (cache?.data) {
-      const age = Date.now() - new Date(cache.updated_at).getTime();
-      if (age < CACHE_TTL_MS) {
-        return Response.json(cache.data);
-      }
-    }
-  } catch {}
-
-  // KIS 실시간 조회
-  try {
-    const stocks = await fetchFromKIS();
-    if (stocks.length > 0) {
-      // after()로 등록 — void로 던지면 응답 직후 실행 컨텍스트가 끊겨 저장이 누락될 수
-      // 있음(2026-07-15 실측 확인: 이 캐시가 "이미 동작 중"으로 알려져 있었지만 실제로는
-      // 한 번도 저장된 적이 없었음 — market_cache에 popular_stocks 키 자체가 없었다).
-      after(async () => {
-        const { error } = await supabase.from('market_cache').upsert({
-          key: CACHE_KEY,
-          data: stocks,
-          updated_at: new Date().toISOString(),
-        });
-        if (error) console.warn('[popular] 캐시 저장 실패:', error.message);
-      });
-      return Response.json(stocks);
-    }
+    const { data } = await cacheJsonResult(CACHE_KEY, CACHE_TTL_MS, fetchFromKIS);
+    return Response.json(data);
   } catch (e) {
     console.error('[popular]', e instanceof Error ? e.message : e);
+    return Response.json([]);
   }
-
-  return Response.json([]);
 }

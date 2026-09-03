@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import { getAccessToken, fetchStockPrice, STOCK_NAMES, CURATED_TICKERS_MKT } from '@/lib/kis-api';
+import { getAccessToken, acquireKisRateSlot, fetchStockPrice, STOCK_NAMES, CURATED_TICKERS_MKT } from '@/lib/kis-api';
 import { fetchInvestorTrend, pickRelevantNews } from '@/lib/stock-analysis-data';
 import { COMPLIANCE_PRINCIPLE } from '@/lib/ai-compliance';
 import { fetchNaverNews } from '@/lib/naver-news';
@@ -65,12 +65,15 @@ function kisHeaders(token: string, trId: string): Record<string, string> {
   };
 }
 
+// 2026-09-03 트래픽점검 9번: 유일한 호출부(아래 generateAndSavePick)가 크론 전용이라
+// priority: 'cron' 고정.
 async function fetchStockDetail(ticker: string, token: string) {
   for (const mktCode of ['J', 'Q']) {
     const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
     url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
     url.searchParams.set('FID_INPUT_ISCD', ticker);
     try {
+      await acquireKisRateSlot({ priority: 'cron' });
       const res = await fetch(url.toString(), {
         headers: kisHeaders(token, 'FHKST01010100'),
         cache: 'no-store',
@@ -151,7 +154,7 @@ async function scanFlowCandidates(): Promise<{ candidates: FlowCandidate[]; apiE
     const settled = await Promise.allSettled(
       chunk.map(async (ticker): Promise<{ candidate: FlowCandidate | null; apiError: boolean }> => {
         // days=21 — trend[0]이 오늘(latest와 동일 거래일), trend[1..]이 20일 평균 베이스라인용.
-        const { latest, trend, apiError } = await fetchInvestorTrend(ticker, 21);
+        const { latest, trend, apiError } = await fetchInvestorTrend(ticker, 21, { priority: 'cron' });
         if (apiError) return { candidate: null, apiError: true };
         if (!latest || trend.length === 0) return { candidate: null, apiError: false };
 

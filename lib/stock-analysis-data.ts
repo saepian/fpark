@@ -1,7 +1,7 @@
 import { load } from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import { after } from 'next/server';
-import { getAccessToken } from './kis-api';
+import { getAccessToken, acquireKisRateSlot } from './kis-api';
 import { heuristicPriceRelevanceScore } from './news-selection';
 import type { ChartDataPoint } from './types';
 import type { Database } from './database.types';
@@ -108,6 +108,9 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisP
       const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
       url.searchParams.set('FID_COND_MRKT_DIV_CODE', mkt);
       url.searchParams.set('FID_INPUT_ISCD', ticker);
+      // 2026-09-03 트래픽점검 9번: 이 함수는 collectStockAnalysisData(유저가 직접 트리거하는
+      // 종목분석/포트폴리오진단 리포트 생성)에서만 호출되므로 'user' 우선순위 고정.
+      await acquireKisRateSlot({ priority: 'user' });
       const res = await fetch(url.toString(), {
         headers: kisHdr(token, 'FHKST01010100'),
         cache: 'no-store',
@@ -159,13 +162,21 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisP
 // 2026-07-13 daily-pick 조사 중 실측 확인 — KIS inquire-investor는 실제로 30거래일치를
 // 한 번에 돌려주는데 항상 5일로 잘라 썼음. 20일 평균 베이스라인이 필요한 daily-pick만
 // days=21로 호출해 추가 API 비용 없이 더 긴 이력을 활용한다(lib/daily-pick.ts).
-export async function fetchInvestorTrend(ticker: string, days = 5): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[]; apiError: boolean }> {
+// 2026-09-03 트래픽점검 9번: 호출부가 두 성격으로 갈린다 — app/api/diagnosis(유저가
+// 직접 트리거) vs lib/daily-pick.ts의 scanFlowCandidates(크론 배치, ~90종목 순회) — 그래서
+// priority를 옵션으로 받는다(기본값 'user', daily-pick만 명시적으로 'cron' 전달).
+export async function fetchInvestorTrend(
+  ticker: string,
+  days = 5,
+  opts?: { priority?: 'cron' | 'user' },
+): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[]; apiError: boolean }> {
   try {
     console.log('[ANALYSIS] fetchInvestorTrend 시작', ticker);
     const token    = await getAccessToken();
     const kst      = new Date(Date.now() + 9 * 60 * 60 * 1000);
     const todayStr = kst.toISOString().split('T')[0].replace(/-/g, '');
 
+    await acquireKisRateSlot({ priority: opts?.priority });
     const res = await fetch(
       `${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-investor?FID_COND_MRKT_DIV_CODE=J&FID_INPUT_ISCD=${ticker}`,
       { headers: kisHdr(token, 'FHKST01010900'), cache: 'no-store', signal: AbortSignal.timeout(6000) },

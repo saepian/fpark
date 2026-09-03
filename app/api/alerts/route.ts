@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { getAccessToken, fetchWatch52w, assertKisTokenValid, withKisTokenRetry } from '@/lib/kis-api';
-import { supabase } from '@/lib/supabase';
+import { getAccessToken, acquireKisRateSlot, fetchWatch52w, assertKisTokenValid, withKisTokenRetry, cacheJsonResult } from '@/lib/kis-api';
+import { isKoreanMarketOpen } from '@/lib/market-utils';
 import type { AlertResponse, AlertStock } from '@/lib/types';
 import type { Database } from '@/lib/database.types';
 
@@ -10,6 +10,16 @@ export const dynamic = 'force-dynamic';
 
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 const CACHE_KEY = 'alerts_52w';
+
+// 2026-09-03 트래픽점검 9번: 헤더의 알림 버튼(components/layout/AlertButton.tsx)이
+// 로그인 여부와 무관하게 전체 페이지에서 60초마다 폴링하는데, 이 시장 전체 랭킹
+// (52주 신고/신저 근접)에는 TTL 캐싱이 전혀 없어(라이브 실패 시에만 캐시로 폴백하는
+// 구조) 매 폴링·매 방문자마다 KIS 2건을 라이브로 호출했다 — movers(8번)와 같은 문제
+// 형태. 폴링 주기(60초)에 맞춰 장중 TTL을 잡는다. 유저별 관심종목 52주 체크
+// (fetchWatch52w)는 개인화된 데이터라 캐싱 대상에서 제외 — 이 라우트에서 캐싱하는 건
+// "시장 전체" 랭킹 부분뿐이다.
+const RANKING_CACHE_TTL_MS_OPEN   = 60_000;      // 장중 1분(폴링 주기보다 짧게 잡아 과도한 지연 없이)
+const RANKING_CACHE_TTL_MS_CLOSED = 30 * 60_000; // 장외 30분
 
 // sortCode '1' = 52주 신고가(근접), '2' = 52주 신저가(근접)
 // KIS의 국내주식 신고_신저근접종목 상위 API[v1_국내주식-105] (tr_id FHPST01870000)
@@ -33,6 +43,9 @@ async function fetchHighLow(sortCode: '1' | '2'): Promise<AlertStock[]> {
       FID_APLY_RANG_PRC_2: '100000000',
     });
 
+    // 2026-09-03 트래픽점검 9번: 레이트리미터 게이트가 없어 우회 중이었던 걸 추가 — 헤더
+    // 알림 버튼(비로그인 포함 전 방문자 60초 폴링), 크론 아님 → 'user' 우선순위.
+    await acquireKisRateSlot({ priority: 'user' });
     const res = await fetch(
       `${KIS_BASE_URL}/uapi/domestic-stock/v1/ranking/near-new-highlow?${params}`,
       {
@@ -77,18 +90,20 @@ async function fetchHighLow(sortCode: '1' | '2'): Promise<AlertStock[]> {
   });
 }
 
-async function loadCache(): Promise<AlertResponse | null> {
-  try {
-    const { data: cache } = await supabase
-      .from('market_cache')
-      .select('data, updated_at')
-      .eq('key', CACHE_KEY)
-      .single();
-    if (!cache?.data) return null;
-    return { ...(cache.data as AlertResponse), isCached: true, cachedAt: cache.updated_at } as AlertResponse;
-  } catch {
-    return null;
+// cacheJsonResult의 fetchLive 콜백 — 시장 전체 신고가/신저가 랭킹만 담당(개인화된
+// 관심종목 체크는 GET에서 별도로 병렬 처리).
+async function fetchHighLowRanking(): Promise<{ highAlerts: AlertStock[]; lowAlerts: AlertStock[] }> {
+  const [highAlerts, lowAlerts] = await Promise.all([fetchHighLow('1'), fetchHighLow('2')]);
+  const validHigh = highAlerts.filter((s) => s.price > 0 && s.name);
+  const validLow  = lowAlerts.filter((s) => s.price > 0 && s.name);
+
+  console.log(`[ALERTS] 신고가 목록: ${validHigh.map(s => `${s.ticker}(${s.name})`).join(', ') || '없음'}`);
+  console.log(`[ALERTS] 신저가 목록: ${validLow.map(s => `${s.ticker}(${s.name})`).join(', ') || '없음'}`);
+
+  if (validHigh.length === 0 && validLow.length === 0) {
+    throw new Error('신고가/신저가 랭킹 결과 0건');
   }
+  return { highAlerts: validHigh, lowAlerts: validLow };
 }
 
 // 로그인한 사용자의 국내 관심종목 ticker 목록 조회
@@ -128,9 +143,10 @@ async function getWatchlistTickers(): Promise<string[]> {
 }
 
 export async function GET() {
-  // 시장 랭킹 조회와 관심종목 ticker 조회를 병렬로 시작
+  // 시장 랭킹 조회(캐시 우선)와 관심종목 ticker 조회를 병렬로 시작
   // watchlist fetch는 tickers 확보 직후 연쇄 실행
-  const rankingPromise = Promise.all([fetchHighLow('1'), fetchHighLow('2')]);
+  const ttlMs = isKoreanMarketOpen() ? RANKING_CACHE_TTL_MS_OPEN : RANKING_CACHE_TTL_MS_CLOSED;
+  const rankingPromise = cacheJsonResult(CACHE_KEY, ttlMs, fetchHighLowRanking);
   const watchPromise = getWatchlistTickers().then((tickers) =>
     tickers.length > 0
       ? fetchWatch52w(tickers)
@@ -143,46 +159,20 @@ export async function GET() {
   let rankingOk = false;
 
   try {
-    const [highAlerts, lowAlerts] = await rankingPromise;
-    const validHigh = highAlerts.filter((s) => s.price > 0 && s.name);
-    const validLow  = lowAlerts.filter((s) => s.price > 0 && s.name);
-
-    console.log(`[ALERTS] 신고가 목록: ${validHigh.map(s => `${s.ticker}(${s.name})`).join(', ') || '없음'}`);
-    console.log(`[ALERTS] 신저가 목록: ${validLow.map(s => `${s.ticker}(${s.name})`).join(', ') || '없음'}`);
-    console.log(`[ALERTS] 036420 신고가 포함: ${validHigh.some(s => s.ticker === '036420')}, 신저가 포함: ${validLow.some(s => s.ticker === '036420')}`);
-
-    if (validHigh.length > 0 || validLow.length > 0) {
-      baseHigh = validHigh;
-      baseLow  = validLow;
-      rankingOk = true;
-
-      void supabase.from('market_cache').upsert({
-        key: CACHE_KEY,
-        data: { highAlerts: validHigh, lowAlerts: validLow, total: validHigh.length + validLow.length },
-        updated_at: new Date().toISOString(),
-      });
-    } else {
-      console.log('[ALERTS] KIS 랭킹 API 빈 결과, 캐시 fallback');
-    }
+    const { data } = await rankingPromise;
+    baseHigh = data.highAlerts;
+    baseLow  = data.lowAlerts;
+    rankingOk = true;
   } catch (e) {
-    console.error('[ALERTS] KIS 랭킹 API 실패:', e instanceof Error ? e.message : e);
-  }
-
-  // 랭킹 실패 또는 빈 결과 → 캐시 fallback
-  if (!rankingOk) {
-    const cached = await loadCache();
-    if (cached) {
-      baseHigh = cached.highAlerts ?? [];
-      baseLow  = cached.lowAlerts ?? [];
-    } else {
-      // 캐시도 없으면 curated 방식 fallback
-      try {
-        const { fetchCurated52wAlerts } = await import('@/lib/kis-api');
-        const fallback = await fetchCurated52wAlerts();
-        baseHigh = fallback.highAlerts;
-        baseLow  = fallback.lowAlerts;
-      } catch {}
-    }
+    // cacheJsonResult 자체가 이미 "라이브 실패 시 stale 캐시 폴백"을 시도한 뒤이므로,
+    // 여기 도달했다는 건 캐시조차 없었다는 뜻 — curated 방식으로 최후 폴백.
+    console.error('[ALERTS] 랭킹 조회 실패(캐시도 없음):', e instanceof Error ? e.message : e);
+    try {
+      const { fetchCurated52wAlerts } = await import('@/lib/kis-api');
+      const fallback = await fetchCurated52wAlerts();
+      baseHigh = fallback.highAlerts;
+      baseLow  = fallback.lowAlerts;
+    } catch {}
   }
 
   // 2. 관심종목 52주 체크 결과 합치기 (중복 ticker 제외)
