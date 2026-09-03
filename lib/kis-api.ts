@@ -1444,12 +1444,12 @@ export async function fetchDailyChartsWithRetry(
 // 참고). targetDate 좌우로 좁은 창만 요청해 100건 캡 안에서 정확히 그 근방 종가를 받는다.
 // 과거 방향 14일 여유는 설/추석 등 최대 5일 연휴 + 주말이 겹쳐도 직전 거래일을 찾기에
 // 충분하다.
-export async function fetchChartNear(ticker: string, targetDate: Date): Promise<ChartDataPoint[]> {
+export async function fetchChartNear(ticker: string, targetDate: Date, priority?: KisPriority): Promise<ChartDataPoint[]> {
   const endDate = new Date(targetDate);
   const startDate = new Date(targetDate);
   startDate.setDate(startDate.getDate() - 14);
   try {
-    return await fetchChartRangeRaw(ticker, startDate, endDate, `fetchChartNear(${ticker})`);
+    return await fetchChartRangeRaw(ticker, startDate, endDate, `fetchChartNear(${ticker})`, priority);
   } catch {
     return [];
   }
@@ -1499,10 +1499,16 @@ export async function fetchChartBackTo(
   return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// 2026-09-03 트래픽점검 11번(게이트 밖 KIS 호출부 전수 게이트 적용): 이 파일의 지수·순위·
+// 재무·배당 조회 8개 함수가 acquireKisRateSlot(소프트캡+하드캡)을 전혀 안 거치고 KIS를
+// 직접 두드리고 있었다 — 시세/차트만 게이트가 걸려 있어 리미터가 세는 초당 건수와 KIS가
+// 실제로 받는 건수가 달랐다(리미터가 "15/s 이내"라고 판단한 순간에도 게이트 밖 호출이
+// 얹혀 실제론 초과 가능). 전부 게이트를 태우되 호출부 성격대로 priority를 받는다
+// (대화형 'user' 기본 / 리포트·페이지 내부 fan-out 'batch' / 크론 'cron').
 export async function fetchMarketIndex(
   indexCode: string,
   signal?: AbortSignal,
-  opts?: { waitForLock?: boolean }
+  opts?: { waitForLock?: boolean; priority?: KisPriority }
 ): Promise<MarketIndexData> {
   // 토큰 조기 만료 감지가 없던 함수 — /api/market이 지수 14개를 매번 호출하는 만큼
   // 만료 임박 구간에 가장 자주 걸리던 지점이었다(2026-07-10 코드 리뷰에서 발견).
@@ -1513,6 +1519,7 @@ export async function fetchMarketIndex(
     url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
     url.searchParams.set('FID_INPUT_ISCD', indexCode);
 
+    await acquireKisRateSlot({ priority: opts?.priority });
     const res = await fetch(url.toString(), {
       headers: headers(token, 'FHPUP02100000'),
       cache: 'no-store',
@@ -1546,6 +1553,7 @@ async function fetchIndexRangeRaw(
   startDate: Date,
   endDate: Date,
   label: string,
+  priority?: KisPriority,
 ): Promise<IndexPoint[]> {
   return withKisTokenRetry(async () => {
     const token = await getAccessToken();
@@ -1558,6 +1566,7 @@ async function fetchIndexRangeRaw(
     url.searchParams.set('FID_INPUT_DATE_2', fmt(endDate));
     url.searchParams.set('FID_PERIOD_DIV_CODE', 'D');
 
+    await acquireKisRateSlot({ priority }); // 트래픽점검 11번 — 게이트 밖이던 호출
     const res = await fetch(url.toString(), {
       headers: headers(token, 'FHKUP03500100'),
       cache: 'no-store',
@@ -1586,6 +1595,7 @@ async function fetchIndexBackTo(
   indexCode: string,
   targetDate: Date,
   maxChunks = 8,
+  priority?: KisPriority,
 ): Promise<IndexPoint[]> {
   const targetStr = targetDate.toISOString().slice(0, 10);
   const merged = new Map<string, IndexPoint>();
@@ -1596,7 +1606,7 @@ async function fetchIndexBackTo(
     cursorStart.setFullYear(cursorStart.getFullYear() - 2);
     let chunk: IndexPoint[];
     try {
-      chunk = await fetchIndexRangeRaw(indexCode, cursorStart, cursorEnd, `fetchIndexBackTo(${indexCode})#${i}`);
+      chunk = await fetchIndexRangeRaw(indexCode, cursorStart, cursorEnd, `fetchIndexBackTo(${indexCode})#${i}`, priority);
     } catch {
       break;
     }
@@ -1625,11 +1635,12 @@ export async function fetchIndexRangeChange(
   indexCode: string,
   fromDate: Date,
   toDate: Date,
+  opts?: { priority?: KisPriority },
 ): Promise<{ startValue: number; endValue: number; changeRate: number; startDate: string; endDate: string } | null> {
   try {
     const fromStr = fromDate.toISOString().slice(0, 10);
     const toStr = toDate.toISOString().slice(0, 10);
-    const rows = await fetchIndexBackTo(indexCode, fromDate);
+    const rows = await fetchIndexBackTo(indexCode, fromDate, undefined, opts?.priority);
     const inRange = rows.filter((r) => r.date >= fromStr && r.date <= toStr);
     if (inRange.length < 2) return null;
 
@@ -1683,7 +1694,7 @@ const CURATED_TICKERS = CURATED_TICKERS_MKT.map(([t]) => t);
 
 export async function fetchCuratedMovers(
   count = 5,
-  opts?: { waitForLock?: boolean }
+  opts?: { waitForLock?: boolean; priority?: KisPriority }
 ): Promise<{ gainers: MoverStock[]; losers: MoverStock[] }> {
   // 토큰 조기 만료 감지가 없던 함수 — 배치 중간에 만료되면 남은 종목들이 전부
   // Promise.allSettled에서 조용히 걸러져 에러 로그 하나 없이 급등락 목록만
@@ -1697,6 +1708,7 @@ export async function fetchCuratedMovers(
         const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
         url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
         url.searchParams.set('FID_INPUT_ISCD', ticker);
+        await acquireKisRateSlot({ priority: opts?.priority }); // 트래픽점검 11번 — 게이트 밖이던 호출(20종목×J/Q fan-out)
         const res = await fetch(url.toString(), {
           headers: headers(token, 'FHKST01010100'),
           cache:   'no-store',
@@ -1753,9 +1765,10 @@ export async function fetchCuratedMovers(
 // 두고 있어(이미 withKisTokenRetry로 감쌈) 이 export는 현재 실제로 호출되는 곳이
 // 없다. 그래도 토큰 만료 감지가 없는 채로 남겨두면 나중에 누가 그냥 갖다 쓸 때
 // 똑같은 문제가 재현되므로 함께 고쳐둔다(2026-07-10 코드 리뷰에서 발견).
-export async function fetchFluctuation(direction: 'up' | 'down', count = 5): Promise<MoverStock[]> {
+export async function fetchFluctuation(direction: 'up' | 'down', count = 5, opts?: { priority?: KisPriority }): Promise<MoverStock[]> {
   return withKisTokenRetry(async () => {
     const token = await getAccessToken();
+    await acquireKisRateSlot({ priority: opts?.priority }); // 트래픽점검 11번 — 게이트 밖이던 호출(현재 호출부 없음, 방어적)
 
     const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/ranking/fluctuation`);
     url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'J');
@@ -1857,7 +1870,7 @@ export async function fetchInvestorFlowRanking(
 }
 
 // 100개 주요 종목의 당일 52주 신고가/신저가 갱신 여부 확인 (배치 처리)
-export async function fetchCurated52wAlerts(): Promise<{ highAlerts: AlertStock[]; lowAlerts: AlertStock[] }> {
+export async function fetchCurated52wAlerts(opts?: { priority?: KisPriority }): Promise<{ highAlerts: AlertStock[]; lowAlerts: AlertStock[] }> {
   return withKisTokenRetry(async () => {
     const token = await getAccessToken();
 
@@ -1880,6 +1893,7 @@ export async function fetchCurated52wAlerts(): Promise<{ highAlerts: AlertStock[
         url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
         url.searchParams.set('FID_INPUT_ISCD', ticker);
         try {
+          await acquireKisRateSlot({ priority: opts?.priority }); // 트래픽점검 11번 — 게이트 밖이던 호출(20종목 fan-out, alerts 최후 폴백)
           const res = await fetch(url.toString(), {
             headers: headers(token, 'FHKST01010100'),
             cache: 'no-store',
@@ -1935,6 +1949,7 @@ export async function fetchCurated52wAlerts(): Promise<{ highAlerts: AlertStock[
 // 관심종목 ticker 배열에 대해 당일 52주 신고가/신저가 갱신 여부 개별 확인
 export async function fetchWatch52w(
   tickers: string[],
+  opts?: { priority?: KisPriority },
 ): Promise<{ highAlerts: AlertStock[]; lowAlerts: AlertStock[] }> {
   if (!tickers.length) return { highAlerts: [], lowAlerts: [] };
 
@@ -1959,6 +1974,7 @@ export async function fetchWatch52w(
           const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price`);
           url.searchParams.set('FID_COND_MRKT_DIV_CODE', mktCode);
           url.searchParams.set('FID_INPUT_ISCD', ticker);
+          await acquireKisRateSlot({ priority: opts?.priority }); // 트래픽점검 11번 — 게이트 밖이던 호출(관심종목 수만큼 fan-out)
           const res = await fetch(url.toString(), {
             headers: headers(token, 'FHKST01010100'),
             cache: 'no-store',
@@ -2031,12 +2047,13 @@ export type AnnualFinancialRow = {
   roe:             number | null;
 };
 
-async function fetchFinanceApi(token: string, trId: string, endpoint: string, ticker: string, divCls: '0' | '1' = '0') {
+async function fetchFinanceApi(token: string, trId: string, endpoint: string, ticker: string, divCls: '0' | '1' = '0', priority?: KisPriority) {
   const params = new URLSearchParams({
     FID_COND_MRKT_DIV_CODE: 'J',
     FID_INPUT_ISCD: ticker,
     FID_DIV_CLS_CODE: divCls, // '0' 연간(+진행 중 부분연도), '1' 분기(회계연도 누적치)
   });
+  await acquireKisRateSlot({ priority }); // 트래픽점검 11번 — 게이트 밖이던 호출(리포트당 3건, 실적 페이지 2건)
   const res = await fetch(`${KIS_BASE}/uapi/domestic-stock/v1/finance/${endpoint}?${params}`, {
     headers: headers(token, trId),
     cache: 'no-store',
@@ -2143,12 +2160,18 @@ export function deriveQuarterlyRows(ratioRows: Record<string, string>[], yearEnd
 
 // 연간(최근 3개년) + 분기(최근 6분기 단독값·전년동기비)를 한 번에 — 결산월(yearEndMonth)을
 // 연간 행에서 한 번만 판정해 분기 순번 계산에도 그대로 쓴다. KIS 호출 3회 병렬.
-export async function fetchFinancialsTrend(ticker: string): Promise<{ annual: AnnualFinancialRow[]; quarterly: QuarterlyFinancialRow[]; yearEndMonth: string }> {
+// 2026-09-03 트래픽점검 11번: 캐시가 전혀 없어 같은 종목을 연달아 분석하면 매번 3건이 나갔다
+// (오늘 스트레스 검증 삼성전자 3회 = 9건). 실적은 분기 단위로만 바뀌므로 fetchAnnualFinancialsCached
+// 와 같은 TTL(장중 30분/장외 12시간)의 cacheJsonResult로 감싼다(single-flight 포함).
+type FinancialsTrend = { annual: AnnualFinancialRow[]; quarterly: QuarterlyFinancialRow[]; yearEndMonth: string };
+const financeTrendCacheKey = (ticker: string) => `stock_finance_trend_${ticker}`;
+
+async function fetchFinancialsTrendLive(ticker: string, priority?: KisPriority): Promise<FinancialsTrend> {
   const token = await getAccessToken();
   const [ratioRows, bsRows, quarterlyRows] = await Promise.all([
-    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker, '0'),
-    fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker, '0'),
-    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker, '1').catch((e) => { console.warn('[KIS] 분기 실적 조회 실패:', e instanceof Error ? e.message : e); return [] as Record<string, string>[]; }),
+    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker, '0', priority),
+    fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker, '0', priority),
+    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker, '1', priority).catch((e) => { console.warn('[KIS] 분기 실적 조회 실패:', e instanceof Error ? e.message : e); return [] as Record<string, string>[]; }),
   ]);
   const yearEndMonth = detectYearEndMonth(ratioRows);
   return {
@@ -2158,12 +2181,18 @@ export async function fetchFinancialsTrend(ticker: string): Promise<{ annual: An
   };
 }
 
-export async function fetchAnnualFinancials(ticker: string): Promise<AnnualFinancialRow[]> {
+export async function fetchFinancialsTrend(ticker: string, opts?: { priority?: KisPriority }): Promise<FinancialsTrend> {
+  const ttlMs = isKoreanMarketOpen() ? FINANCE_CACHE_TTL_MS_OPEN : FINANCE_CACHE_TTL_MS_CLOSED;
+  const { data } = await cacheJsonResult(financeTrendCacheKey(ticker), ttlMs, () => fetchFinancialsTrendLive(ticker, opts?.priority));
+  return data;
+}
+
+export async function fetchAnnualFinancials(ticker: string, opts?: { priority?: KisPriority }): Promise<AnnualFinancialRow[]> {
   const token = await getAccessToken();
 
   const [ratioRows, bsRows] = await Promise.all([
-    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker),
-    fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker),
+    fetchFinanceApi(token, 'FHKST66430200', 'financial-ratio', ticker, '0', opts?.priority),
+    fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker, '0', opts?.priority),
   ]);
   return buildAnnualRows(ratioRows, bsRows, detectYearEndMonth(ratioRows));
 }
@@ -2176,9 +2205,9 @@ const FINANCE_CACHE_TTL_MS_OPEN   = 30 * 60_000;      // 장중 30분
 const FINANCE_CACHE_TTL_MS_CLOSED = 12 * 60 * 60_000; // 장외 12시간
 const financeCacheKey = (ticker: string) => `stock_finance_annual_${ticker}`;
 
-export async function fetchAnnualFinancialsCached(ticker: string): Promise<AnnualFinancialRow[]> {
+export async function fetchAnnualFinancialsCached(ticker: string, opts?: { priority?: KisPriority }): Promise<AnnualFinancialRow[]> {
   const ttlMs = isKoreanMarketOpen() ? FINANCE_CACHE_TTL_MS_OPEN : FINANCE_CACHE_TTL_MS_CLOSED;
-  const { data } = await cacheJsonResult(financeCacheKey(ticker), ttlMs, () => fetchAnnualFinancials(ticker));
+  const { data } = await cacheJsonResult(financeCacheKey(ticker), ttlMs, () => fetchAnnualFinancials(ticker, opts));
   return data;
 }
 
@@ -2238,7 +2267,7 @@ export type DividendHistoryRow = {
 const DIVIDEND_HISTORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 배당 이벤트는 분기 단위로만 발생 — 24시간이면 충분
 const dividendHistoryCacheKey = (ticker: string) => `kis_dividend_history_${ticker}`;
 
-async function fetchDividendHistoryRaw(ticker: string): Promise<
+async function fetchDividendHistoryRaw(ticker: string, priority?: KisPriority): Promise<
   { recordDate: string; kind: DividendKind; perShareAmount: number; payDate: string | null }[]
 > {
   return withKisTokenRetry(async () => {
@@ -2257,6 +2286,7 @@ async function fetchDividendHistoryRaw(ticker: string): Promise<
     url.searchParams.set('SHT_CD', ticker);
     url.searchParams.set('HIGH_GB', '');
 
+    await acquireKisRateSlot({ priority }); // 트래픽점검 11번 — 게이트 밖이던 호출(24h 캐시 미스 시 1건)
     const res = await fetch(url.toString(), {
       headers: headers(token, 'HHKDB669102C0'),
       cache:   'no-store',
@@ -2285,7 +2315,7 @@ async function fetchDividendHistoryRaw(ticker: string): Promise<
 // 버킷이 아니라 임의의 과거 날짜라 그 라우트의 캐시 키(monthsAgo 단위)와 맞지도 않고,
 // 어차피 이 함수 전체 결과(배당율 계산까지 끝난 상태)를 24시간 통째로 캐싱하므로
 // 종가만 따로 또 캐싱하면 이중 캐싱이 된다.
-export async function fetchDividendHistory(ticker: string): Promise<DividendHistoryRow[]> {
+export async function fetchDividendHistory(ticker: string, opts?: { priority?: KisPriority }): Promise<DividendHistoryRow[]> {
   try {
     const { data: cache } = await supabase
       .from('market_cache')
@@ -2300,7 +2330,7 @@ export async function fetchDividendHistory(ticker: string): Promise<DividendHist
   }
 
   try {
-    const rawRows = await fetchDividendHistoryRaw(ticker);
+    const rawRows = await fetchDividendHistoryRaw(ticker, opts?.priority);
 
     // 3개씩 배치 처리 (rate limit 회피, 기존 관례)
     const enriched: DividendHistoryRow[] = [];
@@ -2308,7 +2338,7 @@ export async function fetchDividendHistory(ticker: string): Promise<DividendHist
       const batch = rawRows.slice(i, i + 3);
       const results = await Promise.allSettled(
         batch.map(async (r) => {
-          const points = await fetchChartNear(ticker, new Date(r.recordDate));
+          const points = await fetchChartNear(ticker, new Date(r.recordDate), opts?.priority);
           const close = findClosestPastClose(points, r.recordDate)?.close ?? null;
           const dividendRate = close && close > 0 ? (r.perShareAmount / close) * 100 : null;
           return {

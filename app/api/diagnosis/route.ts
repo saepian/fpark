@@ -372,10 +372,10 @@ export async function POST(request: NextRequest) {
           // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
           fetchDailyChart(ticker, '1Y', { priority: 'batch' }),
           fetchSectorPeers(ticker, { priority: 'batch', targetName: name }),
-          fetchFinancialsTrend(ticker), // 연간 3개년 + 분기 6개(단독값·전년동기비), 2026-09-01
+          fetchFinancialsTrend(ticker, { priority: 'batch' }), // 연간 3개년 + 분기 6개(단독값·전년동기비), 2026-09-01
           fetchRecentDisclosures(ticker),
           fetchDividendSummary(ticker),
-          fetchDividendHistory(ticker),
+          fetchDividendHistory(ticker, { priority: 'batch' }),
           sectorMacroPromise,
           // 뉴스 논조 추이(2단계 UI 노출, 2026-08-21) — news_sentiment_daily는 CURATED_TICKERS_MKT
           // (대형주 100종목) 한정 크론이라 그 밖의 종목은 null이 정상. fetchNewsSentimentTrend
@@ -541,7 +541,7 @@ export async function POST(request: NextRequest) {
         if (buyDate) {
           try {
             const indexCode = market === 'KOSDAQ' ? '1001' : '0001';
-            const idx = await fetchIndexRangeChange(indexCode, new Date(buyDate), new Date());
+            const idx = await fetchIndexRangeChange(indexCode, new Date(buyDate), new Date(), { priority: 'batch' });
             if (idx) {
               benchmark = {
                 indexName:       market,

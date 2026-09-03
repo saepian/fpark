@@ -194,7 +194,7 @@ async function fetchMoversLive(marketOpen: boolean): Promise<MoversCachePayload>
 
     // 3순위: curated 종목 등락률 정렬
     try {
-      const curated = await fetchCuratedMovers(20, { waitForLock: false });
+      const curated = await fetchCuratedMovers(20, { waitForLock: false, priority: 'batch' });
       const curatedGainers = curated.gainers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
       const curatedLosers  = curated.losers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
       if (curatedGainers.length > 0 || curatedLosers.length > 0) {
@@ -260,7 +260,7 @@ async function fetchMoversLive(marketOpen: boolean): Promise<MoversCachePayload>
 
   // 3순위: curated 종목 등락률 정렬 (최후 수단)
   try {
-    const curated = await fetchCuratedMovers(20, { waitForLock: false });
+    const curated = await fetchCuratedMovers(20, { waitForLock: false, priority: 'batch' });
     const curatedGainers = curated.gainers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
     const curatedLosers  = curated.losers.filter((s) => !EXCLUDE_PATTERN.test(s.name));
     if (curatedGainers.length > 0 || curatedLosers.length > 0) {

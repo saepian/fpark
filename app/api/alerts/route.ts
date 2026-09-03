@@ -149,7 +149,7 @@ export async function GET() {
   const rankingPromise = cacheJsonResult(CACHE_KEY, ttlMs, fetchHighLowRanking);
   const watchPromise = getWatchlistTickers().then((tickers) =>
     tickers.length > 0
-      ? fetchWatch52w(tickers)
+      ? fetchWatch52w(tickers, { priority: 'batch' }) // 2026-09-03 트래픽점검 11번: 관심종목 수만큼 서버 내부 fan-out → 'batch'
       : Promise.resolve({ highAlerts: [] as AlertStock[], lowAlerts: [] as AlertStock[] }),
   );
 
@@ -169,7 +169,7 @@ export async function GET() {
     console.error('[ALERTS] 랭킹 조회 실패(캐시도 없음):', e instanceof Error ? e.message : e);
     try {
       const { fetchCurated52wAlerts } = await import('@/lib/kis-api');
-      const fallback = await fetchCurated52wAlerts();
+      const fallback = await fetchCurated52wAlerts({ priority: 'batch' }); // 20종목 fan-out 최후 폴백 → 'batch'
       baseHigh = fallback.highAlerts;
       baseLow  = fallback.lowAlerts;
     } catch {}

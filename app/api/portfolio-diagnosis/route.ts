@@ -284,7 +284,7 @@ export async function POST(request: NextRequest) {
           // 기존 chart(15초 상한)와 같은 Promise.all에 편승시켜 새 병목을 만들지 않는다
           // — 최악의 경우(완전 콜드 캐시)에도 이미 지배적인 chart fetch와 동시에 진행된다.
           Promise.allSettled(
-            holdings.map(h => Promise.all([fetchDividendSummary(h.ticker), fetchDividendHistory(h.ticker)])),
+            holdings.map(h => Promise.all([fetchDividendSummary(h.ticker), fetchDividendHistory(h.ticker, { priority: 'batch' })])),
           ),
         ]);
 
@@ -366,7 +366,7 @@ export async function POST(request: NextRequest) {
             .filter(t => !isNaN(t));
           if (buyDates.length > 0) {
             const avgBuyDate = new Date(buyDates.reduce((s, t) => s + t, 0) / buyDates.length);
-            const kospi = await withTimeout(fetchIndexRangeChange('0001', avgBuyDate, new Date()), 8000, null);
+            const kospi = await withTimeout(fetchIndexRangeChange('0001', avgBuyDate, new Date(), { priority: 'batch' }), 8000, null);
             if (kospi) {
               benchmark = {
                 portfolioProfitRate: 0, // 아래에서 totalProfitRate 계산 후 채움

@@ -71,8 +71,17 @@ vi.mock('@/lib/supabase-admin', () => {
       );
     },
   };
-  return { adminClient: { from: () => chain } };
+  return {
+    adminClient: {
+      from: () => chain,
+      // 2026-09-03 트래픽점검 11번: fetchMarketIndex/fetchCuratedMovers도 이제 레이트리미터
+      // 게이트(acquireKisRateSlot → kis_acquire_rate_slot RPC)를 거친다 — 항상 허용으로 응답.
+      rpc: async () => ({ data: [{ allowed: true, wait_ms: 0 }], error: null }),
+    },
+  };
 });
+// 소프트캡(lib/rate-limit.ts, market_cache CAS)도 항상 허용 — 이 테스트의 관심사는 토큰 재시도.
+vi.mock('./rate-limit', () => ({ tryConsumeRateLimit: async () => true }));
 
 import {
   assertKisTokenValid,

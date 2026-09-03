@@ -76,7 +76,7 @@ export async function GET() {
   const dividends: DashboardDividendItem[] = await fetchInChunks(tickers, async (ticker) => {
     const [summary, history] = await Promise.all([
       fetchDividendSummary(ticker),
-      fetchDividendHistory(ticker),
+      fetchDividendHistory(ticker, { priority: 'batch' }), // 2026-09-03 트래픽점검 11번: 보유종목 수만큼 fan-out → 'batch'
     ]);
     return {
       ticker,
