@@ -125,7 +125,8 @@ export function buildPortfolioStructureFacts(input: StructureFactsInput): string
   const lossWeightPct = totalValue > 0 ? (losers.reduce((s, h) => s + h.value, 0) / totalValue) * 100 : 0;
   lines.push(
     `- 손익 구조(매입가 대비 누적): 손실 종목 ${losers.length}/${holdings.length}개(평가금액 기준 ${pct(lossWeightPct)}), 이익 종목 ${gainers.length}개 | ` +
-    `손실 종목 합산 ${won(lossSum)}, 이익 종목 합산 ${won(gainSum)}, 전체 ${won(totalProfit)}`,
+    `손실 종목 합산 ${won(lossSum)}, 이익 종목 합산 ${won(gainSum)}, 전체 ${won(totalProfit)}` +
+    ` (※ '손실 종목 합산'은 손실 종목만 더한 값 — 상단 카드의 총 손익(전체)과 다르므로 서술에 쓸 때 반드시 '손실 종목 합산'이라고 명시)`,
   );
   const lossShare = shareLine(losers.map(h => ({ name: h.name, amount: h.profit })).sort((a, b) => a.amount - b.amount), lossSum);
   if (lossShare) lines.push(`  · 전체 손실 중 종목별 비율: ${lossShare}`);

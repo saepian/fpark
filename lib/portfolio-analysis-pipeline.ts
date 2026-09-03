@@ -16,6 +16,7 @@ import type { DividendHistoryRow } from '@/lib/kis-api';
 import type { NewsCandidate } from '@/lib/news-selection';
 import type { ChartDataPoint } from '@/lib/types';
 import { toDailyReturns, correlateReturnMaps } from '@/lib/fx-correlation';
+import { resolveHoldingTags, type HoldingTag } from '@/lib/portfolio-position';
 import {
   nowKstString, buildNewsFreshnessLine, TEMPORAL_GROUNDING_INSTRUCTION, MARKET_DAY_GROUNDING_INSTRUCTION,
   checkTemporalConsistency, daysBetween,
@@ -58,19 +59,19 @@ signal은 매매 지시가 아니라 현재 수급·가격 패턴에 대한 관�
 // "기간별 평가금액 변동" 카드가 이미 담당한다. 대시보드도 같은 스키마·프롬프트를 쓴다(2차).
 const PORTFOLIO_SUMMARY_SYSTEM_STRUCTURE = `${COMPLIANCE_PRINCIPLE} ${WORDING_SOFTENING_PRINCIPLE} 한국주식 포트폴리오를 '구성 구조' — 종목별 평가금액 비중, 섹터 집중도(HHI·실효 업종 수), 종목 간 상관계수, 변동성 기여도, 매입가 대비 손익 구조 — 관점에서 해석하는 애널리스트입니다. 이 리포트는 fpark의 핵심 유료 콘텐츠입니다. 사용자가 알고 싶은 것은 '오늘 어떤 뉴스가 있었는지'가 아니라 '내 포트폴리오가 어떤 구조이고, 그 구조 때문에 손익이 어떻게 만들어지고 있는지'입니다. 따라서 summarySections_* 4개 필드는 반드시 [포트폴리오 구조 데이터]에 제공된 수치(비중 %, 섹터 %, HHI·실효 업종 수, 상관계수, 변동성 기여도 %, 손익 비율 %)를 문장 안에 직접 인용해 서술하고, 그 수치를 임의로 다시 계산하거나 바꿔 쓰지 마세요. 뉴스·수급은 summarySections_judgment에서 구조 서술을 뒷받침하는 최소한의 배경(한 구절 이내)으로만 언급하고, 구조 서술 3개 필드에서는 뉴스를 언급하지 마세요. 사실을 나열하는 데 그치지 말고 그 구조가 무엇을 의미하는지(어떤 이벤트에 얼마나 노출되는지, 분산이 실제로 작동하는지, 손익이 어디에서 결정되는지)까지 판단하되, 비중을 줄이라/늘리라/조정하라/정리하라/분산하라는 리밸런싱·매매 제안은 절대 하지 마세요 — "이런 구조다/이런 비중이다/그래서 이런 성격의 노출이 있다"는 관찰과 의미 해석까지만 하고, 그 다음 행동은 사용자의 몫으로 남기세요. JSON만 출력. 종목 언급 시 반드시 종목명 사용, 종목코드(숫자 6자리) 출력 금지.`;
 
-const PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS = `{"summarySections_structure":"【2~3문장, 필수】[포트폴리오 구조 데이터]만을 근거로 이 포트폴리오가 '어떻게 생겼는지'를 서술 — 종목 수, 평가금액 기준 상위 비중 종목과 그 비중(%), 섹터 구성(어느 섹터가 몇 %를 차지하는지), 현재 손익 상태의 큰 그림(몇 종목이 손실/이익 구간인지). 그리고 [매입 시점 비중 → 현재 비중] 드리프트가 제공되면 반드시 한 문장으로 짚으세요 — 어느 종목의 비중이 매입 때보다 커지고/작아졌는지(%p)와 그것이 손익 방향 때문에 저절로 생긴 이동이라는 사실(예: '손실 종목인 종근당은 매입 시점 40.2%에서 현재 31.5%로 비중이 8.7%p 줄어든 반면, 이익 종목의 비중은 그만큼 커져 손익 방향이 배분 자체를 바꿔 놓았다'). 제공된 수치를 문장 안에 직접 인용할 것. 뉴스·수급·오늘 등락 언급 금지. 총수익률·총평가손익 숫자는 상단 카드에 이미 표시되므로 반복 금지.","summarySections_concentration":"【2~3문장, 정량 지표(섹터 집중도·상관계수·변동성 기여도) 중 하나라도 제공됐을 때만 — 전부 '계산 안 함'이면 빈 문자열 \\"\\"】섹터 집중도(HHI·실효 업종 수·등급), 종목 간 상관계수(동조화 강도), 변동성 기여도(어느 종목이 전체 변동성의 몇 %를 차지하는지, 같은 섹터 합산이면 몇 %)를 서로 연결해 '분산이 실제로 작동하는 구조인지'를 판단하세요. 수치 직접 인용 필수. 예) '삼성전자가 변동성 기여도의 30.9%를 차지하고 반도체 2종목 합산으로는 65%에 이르며, 실효 업종 수 2.0개(명목 3개)·상관계수 0.72라는 수치가 말해주듯 종목은 4개지만 사실상 단일 섹터에 가까운 구조로, 반도체 업황 하나에 포트폴리오 전체가 같은 방향으로 노출돼 있다.' 비중을 줄이라/늘리라/조정하라는 제안 절대 금지 — 구조가 이렇다는 관찰과 그 구조의 의미까지만.","summarySections_pnlStructure":"【2~3문장, 필수】[포트폴리오 구조 데이터]의 종목별 손익률·평가손익과 손익 구조 집계를 근거로 '손익이 어디서 만들어지고 있는지'를 서술 — 몇 종목이 손실/이익 구간인지, 손실(또는 이익)의 대부분이 어느 종목·섹터에서 나오는지(전체 손실/이익 중 비율 %), 비중이 큰 종목과 손익이 큰 종목이 일치하는지. 예) '4종목 중 3종목이 손실 구간이며, 그중 반도체 2종목의 손실이 전체 손실의 87.5%를 차지해 손익 구조 역시 섹터 집중을 그대로 반영하고 있다. 비중 1위인 삼성전자가 손실 절대액에서도 1위라 포트폴리오 성과는 사실상 이 한 종목의 방향에 좌우되는 셈이다.' '매입가 대비 누적 손익' 관점으로만 서술(오늘 하루 등락 언급 금지). 매도/손절/비중 조정 제안 절대 금지, 미래 손익 예측 금지.","summarySections_judgment":"【1~2문장, 판단형(필수)】위 세 구조 서술을 하나의 스탠스로 종합 — 이 포트폴리오의 현재 성과가 '구조(집중·동조화·비중)'에서 비롯되는지 '개별 종목 이슈'에서 비롯되는지를 판단하세요. 뉴스·수급은 이 판단을 뒷받침하는 최소한의 배경으로만 한 구절 이내 언급 가능. 수치·사실을 새로 나열하지 말고 판단만 연결하세요. 벤치마크 수치 언급 금지. 미래 가격·수익률 예측 금지, 비중 조정·매매 제안 금지.","riskFactors":[{"text":"【종목 고유 이슈만】특정 종목 하나의 자체 요인(실적·임상·계약·규제·경쟁·원가 등 그 회사만의 사정)을 종목명으로 시작해 1~2문장. 위 summarySections_*가 이미 다룬 포트폴리오 구조 수치(비중 %, HHI, 실효 업종 수, 상관계수, 변동성 기여도 %, 전체 손실/이익 중 비율 %)는 절대 다시 쓰지 말 것 — 그 카드는 구조를, 이 카드는 종목별 사정을 담당한다. 예) '종근당은 주력 품목의 임상 결과 발표를 앞두고 있어 결과에 따라 실적 전망치가 크게 움직일 수 있는 상황이다.'","category":"macro"|"company"},{"text":"다른 종목의 고유 이슈","category":"macro"|"company"},{"text":"또 다른 종목의 고유 이슈(종목 수가 적으면 1~2개만)","category":"macro"|"company"}],"opportunityFactors":["【종목 고유의 긍정 요인만】riskFactors와 같은 원칙 — 특정 종목 하나의 자체 요인(수주·실적 개선·원가 하락·자금 유입 관찰 등)을 종목명으로 시작해 1~2문장, 구조 수치 반복 금지. 예) 'S-Oil은 정제마진 반등과 함께 기관 자금 유입이 관찰되고 있어 개별 밸류에이션에 반응하는 흐름으로 풀이됩니다.' '매수 신호'·'지금이 기회'·'상승 여력' 같은 투자 유인 표현 금지. 뚜렷한 긍정 요인이 없으면 억지로 지어내지 말고 [\\"현재 뚜렷한 긍정 신호가 부족합니다\\"] 하나만 반환"],"holdingPeriodNarrative":"【[보유 기간 비교]에 데이터가 있을 때만 1문장 — 없으면 빈 문자열】구체적 수익률 수치는 화면에 별도 표시되므로 여기서는 편입 시점에 따라 성과가 왜 갈렸는지(업황 변화, 편입 시점의 가격 수준 등) 해석 위주로. 편입 타이밍을 지시하거나 '그래서 지금 사야 한다'는 식으로 연결 금지","shortTermOutlook":"【최대 110자, 반드시 1문장】앞으로 수주 내에 '확인할' 구체적 이벤트·지표 1개 — 어떤 공시·실적 발표·지표(예: 특정 종목의 분기 실적 발표일, 임상 결과, 메모리 계약 가격 발표, 금리 결정)가 나오면 지금의 포트폴리오 구조(섹터 집중·손익 구조)에 영향을 줄 수 있는지. 반드시 '확인할 것'을 제시하는 문장이지 예측이 아님 — '수익률이 갈릴 수 있다'/'상승·하락 여력' 같은 가격 방향 표현 절대 금지. 구조 수치(비중 %, HHI, 변동성 기여도 %, 상관계수, 손실 비율 %) 반복 금지. 예) '반도체 2종목이 핵심인 만큼, 이달 말 예정된 삼성전자 잠정 실적과 DRAM 고정거래가격 발표를 확인할 시점이다.'","midTermOutlook":"【최대 130자, 반드시 1문장】수개월 단위로 '확인할' 이벤트·지표 1개 — 어떤 구조적 변화(업황 사이클 전환, 규제·정책 일정, 신제품·증설 완료, 배당 정책 변경 등)의 진행 여부를 어떤 지표로 확인할지. 예측·가격 방향·수익률 전망 절대 금지, 구조 수치 반복 금지, 종목을 순서대로 나열하는 문장 금지"}
+const PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS = `{"summarySections_structure":"【2~3문장, 필수】[포트폴리오 구조 데이터]만을 근거로 이 포트폴리오가 '어떻게 생겼는지'를 서술 — 종목 수, 평가금액 기준 상위 비중 종목과 그 비중(%), 섹터 구성(어느 섹터가 몇 %를 차지하는지), 현재 손익 상태의 큰 그림(몇 종목이 손실/이익 구간인지). 그리고 [매입 시점 비중 → 현재 비중] 드리프트가 제공되면 반드시 한 문장으로 짚으세요 — 어느 종목의 비중이 매입 때보다 커지고/작아졌는지(%p)와 그것이 손익 방향 때문에 저절로 생긴 이동이라는 사실(예: '손실 종목인 종근당은 매입 시점 40.2%에서 현재 31.5%로 비중이 8.7%p 줄어든 반면, 이익 종목의 비중은 그만큼 커져 손익 방향이 배분 자체를 바꿔 놓았다'). 제공된 수치를 문장 안에 직접 인용할 것. 뉴스·수급·오늘 등락 언급 금지. 총수익률·총평가손익 숫자는 상단 카드에 이미 표시되므로 반복 금지.","summarySections_concentration":"【2~3문장, 정량 지표(섹터 집중도·상관계수·변동성 기여도) 중 하나라도 제공됐을 때만 — 전부 '계산 안 함'이면 빈 문자열 \\"\\"】섹터 집중도(HHI·실효 업종 수·등급), 종목 간 상관계수(동조화 강도), 변동성 기여도(어느 종목이 전체 변동성의 몇 %를 차지하는지, 같은 섹터 합산이면 몇 %)를 서로 연결해 '분산이 실제로 작동하는 구조인지'를 판단하세요. 수치 직접 인용 필수. 예) '삼성전자가 변동성 기여도의 30.9%를 차지하고 반도체 2종목 합산으로는 65%에 이르며, 실효 업종 수 2.0개(명목 3개)·상관계수 0.72라는 수치가 말해주듯 종목은 4개지만 사실상 단일 섹터에 가까운 구조로, 반도체 업황 하나에 포트폴리오 전체가 같은 방향으로 노출돼 있다.' 비중을 줄이라/늘리라/조정하라는 제안 절대 금지 — 구조가 이렇다는 관찰과 그 구조의 의미까지만.","summarySections_pnlStructure":"【2~3문장, 필수】[포트폴리오 구조 데이터]의 종목별 손익률·평가손익과 손익 구조 집계를 근거로 '손익이 어디서 만들어지고 있는지'를 서술 — 몇 종목이 손실/이익 구간인지, 손실(또는 이익)의 대부분이 어느 종목·섹터에서 나오는지(전체 손실/이익 중 비율 %), 비중이 큰 종목과 손익이 큰 종목이 일치하는지. 손실 종목만(또는 이익 종목만) 더한 금액을 쓸 때는 반드시 '손실 종목 합산 -X원'/'이익 종목 합산 +X원'이라고 명시할 것 — 상단 요약 카드의 '총 손익'(전체 합산)과 다른 값이라 '전체 손실(-X원)'처럼 쓰면 두 숫자가 혼동됨. 예) '4종목 중 3종목이 손실 구간이며, 그중 반도체 2종목의 손실이 전체 손실의 87.5%를 차지해 손익 구조 역시 섹터 집중을 그대로 반영하고 있다. 비중 1위인 삼성전자가 손실 절대액에서도 1위라 포트폴리오 성과는 사실상 이 한 종목의 방향에 좌우되는 셈이다.' '매입가 대비 누적 손익' 관점으로만 서술(오늘 하루 등락 언급 금지). 매도/손절/비중 조정 제안 절대 금지, 미래 손익 예측 금지.","summarySections_judgment":"【1~2문장, 판단형(필수)】위 세 구조 서술을 하나의 스탠스로 종합 — 이 포트폴리오의 현재 성과가 '구조(집중·동조화·비중)'에서 비롯되는지 '개별 종목 이슈'에서 비롯되는지를 판단하세요. 뉴스·수급은 이 판단을 뒷받침하는 최소한의 배경으로만 한 구절 이내 언급 가능. 수치·사실을 새로 나열하지 말고 판단만 연결하세요. 벤치마크 수치 언급 금지. 미래 가격·수익률 예측 금지, 비중 조정·매매 제안 금지.","holdingTags":[{"name":"종목명(위 매핑의 종목명 그대로)","tag":"risk"|"positive"}],"holdingPeriodNarrative":"【[보유 기간 비교]에 데이터가 있을 때만 1문장 — 없으면 빈 문자열】구체적 수익률 수치는 화면에 별도 표시되므로 여기서는 편입 시점에 따라 성과가 왜 갈렸는지(업황 변화, 편입 시점의 가격 수준 등) 해석 위주로. 편입 타이밍을 지시하거나 '그래서 지금 사야 한다'는 식으로 연결 금지","shortTermOutlook":"【최대 110자, 반드시 1문장】앞으로 수주 내에 '확인할' 구체적 이벤트·지표 1개 — 어떤 공시·실적 발표·지표(예: 특정 종목의 분기 실적 발표일, 임상 결과, 메모리 계약 가격 발표, 금리 결정)가 나오면 지금의 포트폴리오 구조(섹터 집중·손익 구조)에 영향을 줄 수 있는지. 반드시 '아직 나오지 않은 것'을 제시하는 문장이지 예측도, 이미 나온 뉴스의 재진술도 아님 — [종목별 개별 관찰]에 이미 적힌 실적 수치·애널리스트 하향·공시 사실을 '확인할 이벤트'로 바꿔 쓰지 말 것. '수익률이 갈릴 수 있다'/'상승·하락 여력' 같은 가격 방향 표현 절대 금지. 구조 수치(비중 %, HHI, 변동성 기여도 %, 상관계수, 손실 비율 %) 반복 금지. 예) '반도체 2종목이 핵심인 만큼, 이달 말 예정된 삼성전자 잠정 실적과 DRAM 고정거래가격 발표를 확인할 시점이다.'","midTermOutlook":"【최대 130자, 반드시 1문장】수개월 단위로 '확인할' 이벤트·지표 1개 — 어떤 구조적 변화(업황 사이클 전환, 규제·정책 일정, 신제품·증설 완료, 배당 정책 변경 등)의 진행 여부를 어떤 지표로 확인할지. 예측·가격 방향·수익률 전망 절대 금지, 구조 수치 반복 금지, [종목별 개별 관찰]에 이미 나온 뉴스 사실 재진술 금지, 종목을 순서대로 나열하는 문장 금지"}
 
 위 JSON 스키마를 반드시 준수하세요. summarySections_structure/concentration/pnlStructure/judgment 4개 필드는 반드시 포함되어야 합니다(summarySections_concentration은 정량 지표가 전부 '계산 안 함'일 때만 빈 문자열 허용, 나머지 3개는 필수).
 규칙:
 - JSON 키 순서 및 구조 변경 금지
 - summarySections_structure/concentration/pnlStructure는 [포트폴리오 구조 데이터]의 수치를 반드시 직접 인용하고, 제공되지 않은 수치를 지어내거나 제공된 수치를 다시 계산해 다른 값으로 쓰지 마세요
-- 【수치 반복 금지 — 가장 중요】riskFactors·opportunityFactors·shortTermOutlook·midTermOutlook·holdingPeriodNarrative에는 summarySections_*가 이미 인용한 구조 수치(비중 %, 섹터 %, HHI, 실효 업종 수, 상관계수, 변동성 기여도 %, 전체 손실/이익 중 비율 %, 매입 대비 비중 변화 %p)를 어떤 형태로도 다시 쓰지 마세요 — 같은 수치를 다른 문장으로 바꿔 쓰는 것도 반복입니다. 이 필드들은 종합 평가가 다루지 않은 관점(종목별 고유 이슈, 앞으로 확인할 이벤트)만 담습니다
+- 【수치 반복 금지 — 가장 중요】shortTermOutlook·midTermOutlook·holdingPeriodNarrative에는 summarySections_*가 이미 인용한 구조 수치(비중 %, 섹터 %, HHI, 실효 업종 수, 상관계수, 변동성 기여도 %, 전체 손실/이익 중 비율 %, 매입 대비 비중 변화 %p)를 어떤 형태로도 다시 쓰지 마세요 — 같은 수치를 다른 문장으로 바꿔 쓰는 것도 반복입니다. 이 필드들은 종합 평가가 다루지 않은 관점(앞으로 확인할 이벤트)만 담습니다
+- 【뉴스 사실 반복 금지】[종목별 개별 관찰]의 각 종목 서술에 이미 나온 구체적 뉴스 사실(분기 실적 수치, 애널리스트 추정치 상향·하향, 특정 공시·계약·임상 결과, 기관·외국인 순유입 같은 수급 사실)은 화면에 종목별 카드로 이미 표시되므로 shortTermOutlook·midTermOutlook·summarySections_judgment 어디에서도 다시 진술하지 마세요 — 같은 사실을 요약하거나 표현만 바꿔 쓰는 것도 반복입니다. shortTermOutlook/midTermOutlook은 '아직 나오지 않은, 앞으로 확인할 것'만(예: 다음 실적 발표일, 예정된 공시·정책 일정, 아직 발표 안 된 지표), summarySections_judgment는 구조(집중·동조화·비중·손익 구조)에 대한 판단만 담습니다. 판단의 근거로 뉴스가 꼭 필요하면 사실을 다시 쓰지 말고 '개별 종목 이슈'라고만 지칭하세요
 - "비중을 줄이세요/조정하세요/분산하세요/정리하세요/편입하세요" 같은 리밸런싱·매매 제안 문장은 어떤 필드에서도 절대 금지 — 관찰과 의미 해석까지만 서술하고, 그 다음 행동은 사용자의 판단으로 남기세요
-- riskFactors[].category는 그 요인의 성격에 따라 "macro"(업종 전체·거시 환경처럼 개별 종목을 넘어선 요인) 또는 "company"(그 종목만의 이슈) 중 하나로만 판정 — 종목 고유 이슈 원칙상 대부분 "company"가 되는 것이 정상
-- opportunityFactors는 riskFactors와 동일한 컴플라이언스 원칙 — 목표가·추천·"상승 여력" 절대 금지
-- 뉴스가 없는 종목에 대해 뉴스를 지어내지 마세요. 뉴스는 summarySections_judgment·riskFactors·opportunityFactors에서만 근거로 쓸 수 있고, summarySections_structure/concentration/pnlStructure에서는 언급하지 마세요
+- holdingTags는 [종목별 개별 관찰]과 뉴스를 근거로 "그 종목 고유의 뚜렷한 이슈"가 있는 종목만 골라 태그 하나를 붙입니다 — "risk"(실적 부진·추정치 하향·규제·임상 실패·계약 취소 등 그 회사만의 부정 요인), "positive"(수주·실적 개선·원가 하락·자금 유입 관찰 등 그 회사만의 긍정 요인). 종목당 최대 1개, 업종 전체·거시 환경 요인이나 구조 수치(비중·집중도·손익 비율)는 태그 근거가 될 수 없음, 뚜렷한 고유 이슈가 없는 종목은 넣지 말 것(전부 없으면 빈 배열 []). name은 [종목코드→종목명 매핑]의 종목명을 글자 그대로 쓰고 문장·설명은 쓰지 마세요
+- 뉴스가 없는 종목에 대해 뉴스를 지어내지 마세요. 뉴스는 summarySections_judgment의 배경 지칭·holdingTags 판정에서만 근거로 쓸 수 있고, summarySections_structure/concentration/pnlStructure에서는 언급하지 마세요
 - 벤치마크 수치는 별도 카드로 이미 표시되므로 어디에서도 다시 언급하지 마세요
-- 각 필드는 서로 같은 사실을 반복 서술하지 마세요: structure=구성의 큰 그림(비중·섹터·손익 상태·비중 드리프트), concentration=집중·분산·동조화·변동성 기여, pnlStructure=매입가 대비 누적 손익이 어디서 나는지, judgment=위 판단들을 종합한 최종 스탠스(반복 금지 규칙의 예외지만 사실 재나열 금지), riskFactors/opportunityFactors=종목별 고유 이슈, shortTermOutlook/midTermOutlook=앞으로 확인할 이벤트·지표, holdingPeriodNarrative=편입 시점별 성과 차이의 해석. 위 [종목별 개별 관찰](각 종목의 reason — 이미 화면에 별도 표시됨) 문장을 그대로 옮겨 쓰지 마세요
+- 각 필드는 서로 같은 사실을 반복 서술하지 마세요: structure=구성의 큰 그림(비중·섹터·손익 상태·비중 드리프트), concentration=집중·분산·동조화·변동성 기여, pnlStructure=매입가 대비 누적 손익이 어디서 나는지, judgment=위 판단들을 종합한 최종 스탠스(반복 금지 규칙의 예외지만 사실 재나열 금지), holdingTags=종목별 고유 이슈의 성격 태그(문장 없음), shortTermOutlook/midTermOutlook=앞으로 확인할 이벤트·지표, holdingPeriodNarrative=편입 시점별 성과 차이의 해석. 위 [종목별 개별 관찰](각 종목의 reason — 이미 화면에 별도 표시됨) 문장을 그대로 옮겨 쓰지 마세요
 - ${TEMPORAL_GROUNDING_INSTRUCTION}
 - ${MARKET_DAY_GROUNDING_INSTRUCTION}
 - 모든 필드에서 종목을 언급할 때는 반드시 종목명을 사용하고 종목코드(숫자 6자리)는 절대 출력하지 마세요`;
@@ -131,14 +132,16 @@ export interface PortfolioSummarySections {
   judgment: string;
 }
 
-// category가 없으면(옛 리포트 폴백 포함) 프론트가 태그 없이 기존처럼 표시한다.
-export type RiskFactorItem = { text: string; category?: 'macro' | 'company' };
-
+// 2026-09-03 최종 다듬기: "종목별 개별 이슈" 카드(riskFactors/opportunityFactors 문장)를 제거하고
+// 기업별 관찰 지표의 배지 옆 성격 태그(🔴 리스크 / 🟢 긍정)로 흡수 — 카드 문장이 기업별 관찰
+// 지표의 종목 서술과 같은 뉴스를 반복했기 때문. AI는 이제 종목명+태그만 내고(토큰 절약), 서버가
+// 종목명→티커로 해석(lib/portfolio-position.ts resolveHoldingTags)해 저장한다. 옛 리포트의
+// riskFactors/opportunityFactors 배열은 저장돼 있어도 더 이상 렌더링하지 않는다.
 export interface PortfolioSummaryResult {
   // summary는 더 이상 AI가 직접 채우지 않고, summarySections 4조각을 서버가 이어붙여
   // 계산한다(공유페이지 PortfolioView 등 과거 소비처 호환용 — 기업분석 mainAnalysis와 동일 패턴).
   summary: string; summarySections: PortfolioSummarySections;
-  riskFactors: RiskFactorItem[]; opportunityFactors: string[]; historyNarrative: string; contributionNarrative: string;
+  holdingTags: HoldingTag[]; historyNarrative: string; contributionNarrative: string;
   holdingPeriodNarrative: string; coMovementNarrative: string;
   shortTermOutlook: string; midTermOutlook: string;
   _failed?: boolean; // 스트림/파싱 실패로 폴백값을 썼는지 — 프론트에 stage2-error를 보낼지 판단용(저장·표시 데이터엔 포함 안 함)
@@ -154,24 +157,6 @@ export function joinSummarySections(s: PortfolioSummarySections): string {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-// 2026-08-04 riskFactors 매크로/기업 태깅 — AI가 category를 빠뜨리거나 macro/company가
-// 아닌 값을 낼 경우를 대비한 서버 측 방어(clampSignal과 동일한 원칙). category가 유효하지
-// 않으면 undefined로 떨어뜨려 프론트가 "태그 없는 옛 리포트"와 동일하게 처리하도록 한다.
-export function sanitizeRiskFactors(raw: unknown): RiskFactorItem[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((item): RiskFactorItem | null => {
-    if (typeof item === 'string') return { text: item };
-    if (item && typeof item === 'object' && typeof (item as Record<string, unknown>).text === 'string') {
-      const category = (item as Record<string, unknown>).category;
-      return {
-        text: (item as Record<string, unknown>).text as string,
-        ...(category === 'macro' || category === 'company' ? { category } : {}),
-      };
-    }
-    return null;
-  }).filter((v): v is RiskFactorItem => v !== null);
-}
 
 export function parseAiJson<T>(text: string, fallback: T): T {
   const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
@@ -682,18 +667,19 @@ export async function analyzePortfolioSummary(
       summarySections_structure: '', summarySections_concentration: '', summarySections_pnlStructure: '',
       summarySections_background: '', summarySections_newsInterpretation: '',
       summarySections_historicalComparison: '', summarySections_judgment: '',
-      riskFactors: [], opportunityFactors: [], historyNarrative: '', contributionNarrative: '',
+      holdingTags: [] as unknown, historyNarrative: '', contributionNarrative: '',
       holdingPeriodNarrative: '', coMovementNarrative: '', shortTermOutlook: '', midTermOutlook: '',
     });
-    // AI가 category를 빠뜨리거나 잘못 낸 항목을 서버에서 정리 — 스트리밍/최종 저장 양쪽에
-    // 이 정리된 값을 일관되게 사용한다.
-    parsed.riskFactors = sanitizeRiskFactors(parsed.riskFactors);
+    // AI가 낸 {name, tag}를 티커로 해석한 값을 스트리밍/최종 저장 양쪽에 일관되게 사용한다
+    // (스트림 중 파서가 먼저 흘린 원본 배열은 아래 정합성 보정에서 이 값으로 덮어써진다).
+    const holdingTags = resolveHoldingTags(parsed.holdingTags, nameMap);
 
     // 정합성 보정 — 증분 파서가 놓쳤거나 다르게 뽑았어도 전체 재파싱 결과로 덮어써서
     // 최종 정확성을 보장(종목분석과 동일 원칙). summaryFieldSpecs가 scope에 맞는 flat
     // 키만 갖고 있으므로 이 루프가 그대로 parsed의 flat 키를 읽어 재전송한다.
     for (const spec of summaryFieldSpecs) {
       if (!spec.emit) continue;
+      if (spec.key === 'holdingTags') { onField('holdingTags', holdingTags); continue; }
       const raw = (parsed as unknown as Record<string, unknown>)[spec.key];
       if (raw === undefined) continue;
       onField(spec.key, raw);
@@ -721,29 +707,24 @@ export async function analyzePortfolioSummary(
     // 시간적 사실관계 사후 검증 — 포트폴리오 요약은 1회 호출이지만, 종목별 뉴스가 이미
     // Stage 1에서 개별 검증되므로 여기서는 종합 텍스트만 가볍게 로그로 남긴다(재생성 없음).
     const allNewsText = [...Object.values(newsMap).flat(), ...sectorMacroNewsFlat].map((n) => `${n.title} ${n.summary ?? ''}`).join(' ');
-    // 2026-09-01: riskFactors/opportunityFactors도 AI가 쓴 본문이라 컴플라이언스 사후 스캔에 포함
-    // (예전엔 summarySections·narrative류만 스캔해 두 배열은 사각지대였음). 시간적 사실관계
-    // 검증(checkTemporalConsistency)은 뉴스 인용이 많은 서술 필드에만 그대로 적용한다.
+    // 2026-09-03: 종목별 개별 이슈 문장(riskFactors/opportunityFactors)이 스키마에서 빠져 스캔 대상은
+    // 서술 필드뿐이다(holdingTags는 종목명+태그라 문장이 없음).
     const summaryText = [flatSummary, parsed.historyNarrative, parsed.contributionNarrative, parsed.holdingPeriodNarrative, parsed.coMovementNarrative, parsed.shortTermOutlook, parsed.midTermOutlook].filter(Boolean).join(' ');
-    const factorsText = [
-      ...parsed.riskFactors.map((r: RiskFactorItem) => r.text),
-      ...(Array.isArray(parsed.opportunityFactors) ? parsed.opportunityFactors : []),
-    ].filter((t): t is string => typeof t === 'string' && t.length > 0).join(' ');
     const check = checkTemporalConsistency(summaryText, allNewsText);
     if (check.flagged) {
       console.warn('[PORTFOLIO-PIPELINE] 포트폴리오 종합 요약 시간적 사실관계 불일치 감지 (재생성 없음):', check);
     }
-    const complianceHits = scanComplianceViolations(`${summaryText} ${factorsText}`);
+    const complianceHits = scanComplianceViolations(summaryText);
     if (complianceHits.length > 0) {
       console.error('[PORTFOLIO-PIPELINE] 포트폴리오 종합 요약 컴플라이언스 금지어 감지 (재생성 없음, 모니터링 필요):', complianceHits);
     }
 
-    return { ...parsed, summary: flatSummary, summarySections };
+    return { ...parsed, holdingTags, summary: flatSummary, summarySections };
   } catch (e) {
     console.error('[PORTFOLIO-PIPELINE] 종합 분석 실패:', e);
     return {
       summary: '', summarySections: EMPTY_SUMMARY_SECTIONS,
-      riskFactors: [], opportunityFactors: [], historyNarrative: '', contributionNarrative: '',
+      holdingTags: [], historyNarrative: '', contributionNarrative: '',
       holdingPeriodNarrative: '', coMovementNarrative: '', shortTermOutlook: '', midTermOutlook: '',
       _failed: true,
     };

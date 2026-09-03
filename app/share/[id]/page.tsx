@@ -5,6 +5,7 @@ import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
 import { StructureChartsRow } from '@/components/portfolio/StructureCharts';
 import HoldingPositionLine from '@/components/portfolio/HoldingPositionLine';
 import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import PnlContributionCard from '@/components/portfolio/PnlContributionCard';
 import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, type WeightDriftRow } from '@/lib/portfolio-position';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
@@ -135,6 +136,7 @@ interface HoldingResult {
   mdd?: number | null;
   volatility?: number | null;
   todayContribution?: number | null;
+  issueTag?: 'risk' | 'positive' | null; // 2026-09-03 종목 고유 이슈 성격 태그(저장 시 서버가 채움)
 }
 
 interface Sector {
@@ -162,9 +164,9 @@ interface PortfolioHistory {
   narrative: string;
 }
 
-// app/portfolio-diagnosis/page.tsx의 RiskFactorEntry와 동일 — 손복제 구조라 함께 갱신.
-// category 없는 옛 문자열 항목(과거 리포트/공유 스냅샷)도 그대로 렌더링할 수 있도록 string도 허용.
-type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' };
+// 2026-09-03 최종 다듬기: 포트폴리오 "종목별 개별 이슈" 카드(riskFactors/opportunityFactors)를 제거하고
+// 기업별 관찰 지표의 성격 태그로 흡수 — app/portfolio-diagnosis/page.tsx의 HoldingTagEntry와 동일(손복제).
+type HoldingTagEntry = { ticker: string; name: string; tag: 'risk' | 'positive' };
 
 // app/portfolio-diagnosis/page.tsx의 PortfolioDividendSummary와 동일 — 손복제 구조.
 // matrix는 2026-08-05 신설이라 그 이전에 생성된 공유 리포트에는 없을 수 있어 optional —
@@ -201,8 +203,7 @@ interface PortfolioData {
   correlation?:         PortfolioCorrelation | null;
   weightDrift?:         WeightDriftRow[] | null;
   holdings: HoldingResult[];
-  riskFactors?: RiskFactorEntry[];
-  opportunityFactors?: string[];
+  holdingTags?: HoldingTagEntry[];
   shortTermOutlook?: string;
   midTermOutlook?: string;
   benchmark?: {
@@ -559,6 +560,9 @@ function PortfolioView({ d }: { d: PortfolioData }) {
         {/* 2층 · 구조 — 매입 비중 vs 현재 비중(2026-09-01 신설, 공용 컴포넌트; 옛 스냅샷은 holdings로 폴백 계산) */}
         {(() => { const rows = d.weightDrift ?? computeWeightDrift(d.holdings ?? []); return rows.length >= 2 ? <WeightDriftCard rows={rows} className="mb-4" /> : null; })()}
 
+        {/* 2층 · 구조 — 종목별 손익 기여(2026-09-03 신설, 메인과 같은 공용 컴포넌트; 옛 스냅샷도 holdings.profit으로 그려진다) */}
+        <PnlContributionCard holdings={d.holdings ?? []} className="mb-4" />
+
         {/* 섹터 편중도 + 변동성 기여도 — 2026-09-01 도넛 전환(메인·대시보드와 같은 StructureChartsRow) */}
         <StructureChartsRow
           sectors={sortedSectors}
@@ -625,8 +629,8 @@ function PortfolioView({ d }: { d: PortfolioData }) {
           </div>
         )}
 
-        {/* 2층 · 보조 — 종목별 개별 이슈 + 앞으로 확인할 이벤트·지표(공용 컴포넌트, 정적) */}
-        <IssueFactorsCard riskFactors={d.riskFactors} opportunityFactors={d.opportunityFactors} className="mb-4" />
+        {/* 2층 · 보조 — 앞으로 확인할 이벤트·지표(공용 컴포넌트, 정적). 2026-09-03: "종목별 개별 이슈"
+            카드는 제거(메인과 동일) — 리스크/긍정 판정은 아래 기업별 관찰 지표의 성격 태그로. */}
         <WatchVariablesCard shortTermOutlook={d.shortTermOutlook} midTermOutlook={d.midTermOutlook} className="mb-4" />
 
         {/* 종목별 관찰 지표 (절대 금액 제외) */}
@@ -660,6 +664,7 @@ function PortfolioView({ d }: { d: PortfolioData }) {
                   </div>
                   <HoldingPositionLine
                     s={buildHoldingPositionSummary(h, { totalValue: d.totalValue, pnl: computePnlSums(d.holdings ?? []), riskByTicker: new Map((d.riskContribution ?? []).map(r => [r.ticker, r.pct])) })}
+                    issueTag={d.holdingTags?.find(t => t.ticker === h.ticker)?.tag ?? h.issueTag ?? null}
                     className="mt-2 pl-0 md:pl-44"
                   />
                   {h.reason && (

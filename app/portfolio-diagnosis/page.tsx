@@ -24,7 +24,8 @@ import AiSummarySections, { SUMMARY_SECTION_KEYS, hasAnySummarySection, type AiS
 import WeightDriftCard from '@/components/portfolio/WeightDriftCard';
 import { StructureChartsRow } from '@/components/portfolio/StructureCharts';
 import HoldingPositionLine from '@/components/portfolio/HoldingPositionLine';
-import { IssueFactorsCard, WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import { WatchVariablesCard } from '@/components/portfolio/FactorCards';
+import PnlContributionCard from '@/components/portfolio/PnlContributionCard';
 import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, type WeightDriftRow } from '@/lib/portfolio-position';
 import { useSmoothTypingText, type RevealedField } from '@/lib/useSmoothTypingText';
 
@@ -96,6 +97,7 @@ interface HoldingResult {
   todayContribution?: number | null; // 오늘 손익 기여도(원)
   isCached?:    boolean; // 휴장일 등 실시간 조회 실패 시 마지막 거래일 기준 값
   cachedAt?:    string;
+  issueTag?:    'risk' | 'positive' | null; // 2026-09-03 종목 고유 이슈 성격 태그(저장 시 서버가 채움, 스트리밍 중엔 holdingTags로 조회)
 }
 
 interface HoldingPeriodEntry { ticker: string; name: string; holdDays: number; profitRate: number }
@@ -114,9 +116,9 @@ interface PortfolioHistory {
 // AI 종합평가 소제목 스키마(v1/v2)와 판별 로직은 components/portfolio/AiSummarySections.tsx가 단일 소유.
 type PortfolioSummarySections = AiSummarySectionsData;
 
-// 2026-08-04: riskFactors가 {text,category} 객체 배열로 구조화됨 — category 없는 옛 문자열
-// 항목(과거 리포트/공유 스냅샷)도 그대로 렌더링할 수 있도록 string도 함께 허용.
-type RiskFactorEntry = string | { text: string; category?: 'macro' | 'company' };
+// 2026-09-03 최종 다듬기: "종목별 개별 이슈" 카드(riskFactors/opportunityFactors)를 제거하고 기업별 관찰
+// 지표의 성격 태그(holdingTags → 각 holding.issueTag)로 흡수. 옛 리포트의 두 배열은 무시한다.
+type HoldingTagEntry = { ticker: string; name: string; tag: 'risk' | 'positive' };
 
 // 2026-08-04: 배당 정보(합산 배당률 + 월별 캘린더) — lib/dividend-aggregation.ts와 동일 shape.
 // 2026-08-05: matrix(종목×월 상세) 추가 — calendar는 과거 공유 리포트 호환용으로 유지.
@@ -148,8 +150,7 @@ interface PortfolioResult {
   weightDrift?:         WeightDriftRow[] | null; // 2026-09-01 매입 비중 vs 현재 비중(서버 계산, 없으면 클라이언트 폴백 계산)
   sectorSentiment?: SectorSentimentEntry[];
   holdings:         HoldingResult[];
-  riskFactors?:        RiskFactorEntry[];
-  opportunityFactors?: string[];
+  holdingTags?:        HoldingTagEntry[];
   shortTermOutlook?:   string;
   midTermOutlook?:     string;
   benchmark?: {
@@ -921,6 +922,11 @@ function PortfolioDiagnosisPageInner() {
           {/* 2층 · 구조 — 매입 비중 vs 현재 비중 드리프트(2026-09-01 신설, 공용 컴포넌트) */}
           {driftRows.length >= 2 && <WeightDriftCard rows={driftRows} className="mb-4" />}
 
+          {/* 2층 · 구조 — 종목별 손익 기여(2026-09-03 신설, 공용 컴포넌트) — AI 종합평가가 강조하는 손익
+              구조("한 종목이 전체 손실의 60%")를 부호 있는 가로막대로. holding-meta로 profit이 도착하는
+              즉시 그려지며 AI 텍스트를 기다리지 않는다. */}
+          <PnlContributionCard holdings={holdingsList} className="mb-4" />
+
           {/* 2층 · 구조 — 섹터 편중도 + 변동성 기여도 (2026-09-01 도넛 전환, 공용 StructureChartsRow —
               데스크톱 2열/모바일 세로 스택. 섹터는 Stage 1 완료 직후 서버 계산값으로 도착하므로
               그 전엔 스켈레톤, 종목 수 부족(1종목)이면 캡션 표시) */}
@@ -991,10 +997,11 @@ function PortfolioDiagnosisPageInner() {
             </Card>
           )}
 
-          {/* 2층 · 보조 — 종목별 개별 이슈(리스크/긍정) + 앞으로 확인할 이벤트·지표 — 공용 컴포넌트.
+          {/* 2층 · 보조 — 앞으로 확인할 이벤트·지표 — 공용 컴포넌트.
               2026-09-01 3차: 예전 Risk/Opportunity Factors·단기/중기 관찰 변수 4카드가 종합평가 수치를
-              반복하던 문제 → 프롬프트에서 역할을 갈랐고(종목 고유 이슈 / 확인할 이벤트) 카드도 2개로 통합. */}
-          <IssueFactorsCard riskFactors={result.riskFactors} opportunityFactors={result.opportunityFactors} pending={!stage2Failed} className="mb-4" />
+              반복하던 문제 → 프롬프트에서 역할을 갈랐고 카드도 2개로 통합.
+              2026-09-03 최종 다듬기: "종목별 개별 이슈" 카드는 기업별 관찰 지표의 종목 서술과 같은 뉴스를
+              반복해 제거 — 리스크/긍정 판정은 아래 3층 각 종목의 배지 옆 성격 태그로 흡수. */}
           <WatchVariablesCard shortTermOutlook={result.shortTermOutlook} midTermOutlook={result.midTermOutlook} pending={!stage2Failed} revealed={smoothText.revealed} className="mb-4" />
 
           {/* 3층 · 종목별 — 기업별 관찰 지표 — 카드 위치는 입력 순서 고정, 내용(섹터/사유)은 완료되는 대로 채움 */}
@@ -1062,18 +1069,19 @@ function PortfolioDiagnosisPageInner() {
                           </div>
                       
                       {/* 2026-09-01: 이 종목이 내 포트폴리오에서 차지하는 위치(비중·손익 기여·변동성 기여) — 뉴스 서술보다 먼저 */}
-                      <HoldingPositionLine s={buildHoldingPositionSummary(h, positionCtx)} className="mt-2" />
+                      {/* 2026-09-03: 성격 태그(🔴/🟢)는 Stage 2 완료 시 holdingTags로 도착 — 저장된 리포트는 h.issueTag */}
+                      <HoldingPositionLine
+                        s={buildHoldingPositionSummary(h, positionCtx)}
+                        issueTag={result.holdingTags?.find(t => t.ticker === h.ticker)?.tag ?? h.issueTag ?? null}
+                        className="mt-2"
+                      />
                       {h.reason !== undefined ? (
                         h.reason && (
                           <div className="mt-2 pl-0 w-full">
                             <p className="text-xs  text-sky-100/60 leading-relaxed">
                               {reasonText}{reasonTyping && <TypingCursor />}
                             </p>
-                            {!reasonTyping && (
-                              <p className="mt-2 text-[11px] text-slate-500">
-                                더 자세한 분석은 자세히 보기에서 확인하세요
-                              </p>
-                            )}
+                            {/* 2026-09-03: "더 자세한 분석은 자세히 보기에서 확인하세요" 안내 문구 제거 — 버튼이 바로 옆에 있어 종목마다 반복될 이유가 없음 */}
                           </div>
                         )
                       ) : (

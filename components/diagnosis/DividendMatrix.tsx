@@ -41,6 +41,12 @@ export default function DividendMatrix({ rows }: { rows: DividendMatrixRow[] }) 
 
   return (
     <>
+      {/* 2026-09-03: "×5" 배지의 의미(최근 5년 중 그 달에 지급한 횟수)를 범례로 명시 — 배지만으로는
+          "5주"인지 "5번"인지 알 수 없다는 검토 피드백. 칸의 title 툴팁에도 같은 뜻을 담는다. */}
+      <p className="text-[11px] text-slate-500 mb-2">
+        <span className="inline-flex items-center justify-center min-w-[30px] h-[18px] rounded-md bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 font-mono font-semibold mr-1.5 px-1">×N</span>
+        최근 5년 중 그 달에 배당을 지급한 횟수(연도 수) — 칸을 클릭하면 연도별 지급일·금액
+      </p>
       <div className="overflow-x-auto">
         <table className="min-w-[620px] w-full text-xs border-separate border-spacing-y-1.5">
           <thead>
@@ -69,7 +75,7 @@ export default function DividendMatrix({ rows }: { rows: DividendMatrixRow[] }) 
                         onClick={() => setSelected({ row, month: i + 1 })}
                         className="w-full min-h-[36px] rounded-lg bg-indigo-500/10 border border-indigo-500/25
                           hover:bg-indigo-500/20 transition-colors flex items-center justify-center cursor-pointer"
-                        title={`${row.name} · ${i + 1}월 배당 이력 보기`}
+                        title={`${row.name} · ${i + 1}월 — 최근 5년 중 ${cell.count}회 지급 (클릭하면 연도별 내역)`}
                       >
                         <span className="text-[11px] text-indigo-300 font-mono font-semibold">×{cell.count}</span>
                       </button>

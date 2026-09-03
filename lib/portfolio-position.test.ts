@@ -2,7 +2,7 @@
 // 숫자가 수기 계산과 일치하는지. 서버 사실 블록·세 화면이 전부 이 함수를 쓰므로 여기서 틀리면
 // 리포트 전체가 틀린다.
 import { describe, it, expect } from 'vitest';
-import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, formatHoldingPositionLine } from './portfolio-position';
+import { computeWeightDrift, computePnlSums, buildHoldingPositionSummary, formatHoldingPositionLine, resolveHoldingTags } from './portfolio-position';
 
 // 종근당 100,000×40 → 62,000×40 / S-Oil 140,000×25 → 153,600×25 / 삼성전자 250,000×15 → 259,000×15
 const H = [
@@ -50,5 +50,32 @@ describe('buildHoldingPositionSummary / formatHoldingPositionLine', () => {
     const z = buildHoldingPositionSummary({ ticker: 'Z', value: 1_000_000, profit: 0 }, ctx);
     expect(z.pnlSharePct).toBeNull();
     expect(formatHoldingPositionLine(z)).toBe('포트폴리오 비중 9.8%');
+  });
+});
+
+// 2026-09-03 최종 다듬기 — "종목별 개별 이슈" 카드를 대체하는 종목별 성격 태그의 종목명→티커 해석.
+describe('resolveHoldingTags — AI {name, tag} → {ticker, name, tag}', () => {
+  const nameMap = { '185750': '종근당', '000660': 'SK하이닉스', '375500': 'DL이앤씨', '010950': 'S-Oil' };
+  it('종목명 정확 일치 → 티커로 해석, 순서 유지', () => {
+    expect(resolveHoldingTags([{ name: '종근당', tag: 'risk' }, { name: 'S-Oil', tag: 'positive' }], nameMap)).toEqual([
+      { ticker: '185750', name: '종근당', tag: 'risk' },
+      { ticker: '010950', name: 'S-Oil', tag: 'positive' },
+    ]);
+  });
+  it('띄어쓰기·접미사·대소문자 차이는 포함 관계로 흡수한다', () => {
+    expect(resolveHoldingTags([{ name: 'SK 하이닉스(주)', tag: 'risk' }, { name: 's-oil', tag: 'positive' }], nameMap).map((t) => t.ticker)).toEqual(['000660', '010950']);
+  });
+  it('해석 안 되는 종목명·잘못된 tag·비객체 항목은 버리고, 같은 종목은 먼저 나온 태그 하나만 남긴다', () => {
+    expect(resolveHoldingTags([
+      { name: '삼성전자', tag: 'risk' },        // 보유하지 않은 종목
+      { name: '종근당', tag: 'neutral' },       // 잘못된 tag
+      '종근당', null,                            // 비객체
+      { name: '종근당', tag: 'positive' },
+      { name: '종근당', tag: 'risk' },          // 중복 — 무시
+    ], nameMap)).toEqual([{ ticker: '185750', name: '종근당', tag: 'positive' }]);
+  });
+  it('배열이 아니면 빈 배열', () => {
+    expect(resolveHoldingTags(undefined, nameMap)).toEqual([]);
+    expect(resolveHoldingTags({ name: '종근당', tag: 'risk' }, nameMap)).toEqual([]);
   });
 });

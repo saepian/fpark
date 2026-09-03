@@ -69,6 +69,36 @@ export function buildHoldingPositionSummary(
   return { weightPct, pnlSharePct, pnlShareKind, riskPct: typeof risk === 'number' ? risk : null };
 }
 
+// 2026-09-03 최종 다듬기 — "종목별 개별 이슈" 카드(riskFactors/opportunityFactors 문장)를 기업별
+// 관찰 지표의 성격 태그로 흡수. AI(Stage 2)는 [{name, tag}]만 내고, 서버가 종목명→티커로 해석한다.
+// name은 매핑의 종목명을 그대로 쓰라고 지시하지만, 띄어쓰기·접미사 차이("SK하이닉스" vs
+// "SK하이닉스(주)")를 포함 관계로 흡수하고, 해석 안 되거나 tag가 유효하지 않은 항목은 버린다.
+// 종목당 1개(먼저 나온 것 우선). 순수 함수라 여기(외부 의존 없는 모듈)에 두고 테스트한다.
+export type HoldingIssueTag = 'risk' | 'positive';
+export type HoldingTag = { ticker: string; name: string; tag: HoldingIssueTag };
+
+export function resolveHoldingTags(raw: unknown, nameMap: Record<string, string>): HoldingTag[] {
+  if (!Array.isArray(raw)) return [];
+  const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+  const entries = Object.entries(nameMap).map(([ticker, name]) => ({ ticker, name, key: norm(name) }));
+  const seen = new Set<string>();
+  const out: HoldingTag[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const name = (item as Record<string, unknown>).name;
+    const tag = (item as Record<string, unknown>).tag;
+    if (typeof name !== 'string' || (tag !== 'risk' && tag !== 'positive')) continue;
+    const key = norm(name);
+    if (!key) continue;
+    const hit = entries.find((e) => e.key === key)
+      ?? entries.find((e) => key.includes(e.key) || e.key.includes(key));
+    if (!hit || seen.has(hit.ticker)) continue;
+    seen.add(hit.ticker);
+    out.push({ ticker: hit.ticker, name: hit.name, tag });
+  }
+  return out;
+}
+
 // "포트폴리오 비중 31.5% · 전체 손실의 78.9% · 변동성 기여 61.2%" — 없는 항목은 생략.
 export function formatHoldingPositionLine(s: HoldingPositionSummary): string {
   const parts = [`포트폴리오 비중 ${s.weightPct.toFixed(1)}%`];

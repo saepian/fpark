@@ -685,6 +685,8 @@ export async function POST(request: NextRequest) {
             cachedAt:     h.analysisData?.cachedAt,
             dividendSummary: h.dividendSummary,
             dividendHistory: h.dividendHistory,
+            // 2026-09-03 최종 다듬기: 종목별 개별 이슈 카드 → 기업별 관찰 지표 배지 옆 성격 태그로 흡수
+            issueTag: summary.holdingTags?.find(t => t.ticker === h.ticker)?.tag ?? null,
           };
         });
 
@@ -704,8 +706,9 @@ export async function POST(request: NextRequest) {
           weightDrift,
           sectorSentiment,
           holdings:           mergedHoldings,
-          riskFactors:        summary.riskFactors        ?? [],
-          opportunityFactors: summary.opportunityFactors  ?? [],
+          // 2026-09-03 최종 다듬기: riskFactors/opportunityFactors(문장 카드) → holdingTags(종목별 성격 태그).
+          // 옛 리포트의 두 배열은 저장돼 있어도 더 이상 렌더링하지 않는다.
+          holdingTags:        summary.holdingTags        ?? [],
           shortTermOutlook:   summary.shortTermOutlook    || '',
           midTermOutlook:     summary.midTermOutlook      || '',
           benchmark,

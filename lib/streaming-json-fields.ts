@@ -276,10 +276,10 @@ export const PORTFOLIO_SUMMARY_FIELD_SPECS: FieldSpec[] = [
   { key: 'summarySections_concentration',  type: 'string', emit: true },
   { key: 'summarySections_pnlStructure',   type: 'string', emit: true },
   { key: 'summarySections_judgment',       type: 'string', emit: true },
-  // 2026-08-04: {text,category} 객체 배열로 구조화(macro/company 태깅) — riskFactors처럼
-  // 중첩 객체 배열은 'json' 타입(partial 미지원, 완결 시에만 노출)
-  { key: 'riskFactors', type: 'json', emit: true },
-  { key: 'opportunityFactors', type: 'string[]', emit: true },
+  // 2026-09-03 최종 다듬기: riskFactors(json)/opportunityFactors(string[]) 문장 카드를 제거하고
+  // 종목별 성격 태그 [{name, tag}] 하나로 흡수 — 중첩 객체 배열이라 'json' 타입(완결 시에만 노출).
+  // 서버(lib/portfolio-analysis-pipeline.ts resolveHoldingTags)가 종목명→티커로 해석해 다시 흘린다.
+  { key: 'holdingTags', type: 'json', emit: true },
   // 2026-09-01(3차): contributionNarrative(오늘 손익 기여)·coMovementNarrative(섹터 동조화)는 카드
   // 제거와 함께 스키마에서 삭제 — 키 순서는 PORTFOLIO_SUMMARY_INSTRUCTIONS_DIAGNOSIS와 동일해야 한다.
   { key: 'holdingPeriodNarrative', type: 'string', emit: true },
