@@ -87,8 +87,8 @@ async function fetchKrxMarket(market: 'KOSPI' | 'KOSDAQ'): Promise<StockMasterEn
 }
 
 export interface RefreshStockMasterResult {
-  kospi:     { ok: boolean; count: number };
-  kosdaq:    { ok: boolean; count: number };
+  kospi:     { ok: boolean; count: number; pruned: number };
+  kosdaq:    { ok: boolean; count: number; pruned: number };
   preferred: { ok: boolean; count: number };
 }
 
@@ -117,14 +117,59 @@ async function upsertMarket(market: string, items: StockMasterEntry[]): Promise<
   return { ok: true, count: rows.length };
 }
 
+// 2026-09-03 조사(9/3 참고기사 필터 작업 중 003535/032790 발견 후속): stock_master
+// 이름 정확도를 공공데이터포털 전체 목록과 실측 대조한 결과 이름 불일치·누락은
+// 0건이었지만(그날그날의 upsert 자체는 정확함), upsertMarket이 upsert만 하고
+// delete는 전혀 안 해서 — 상장폐지·거래정지 등으로 원천 소스에서 더 이상 내려오지
+// 않게 된 종목이 stock_master엔 계속 남는(실측 확인: 082640/269620/471050/900140,
+// 최근 성공한 upsert 이후로도 최신 목록에서 빠진 채 방치) "유령 종목" 문제를 발견했다.
+// 이건 "이름이 틀림"이 아니라 "더 이상 존재하지 않는데 검색되는" 다른 종류의 오래됨.
+//
+// 원천 소스가 성공적으로 새 목록을 준 시장에 한해서만 정리한다 — 소스 장애/폴백
+// 실패 시엔 이 함수 자체가 호출되지 않으므로(refreshStockMaster에서 upsert 성공한
+// 시장에만 호출), 일시적 조회 실패를 상장폐지로 오판해 지우는 사고는 없다. 우선주
+// (PREFERRED_STOCKS)는 두 데이터소스 모두 원천적으로 안 내려주는 별도 관리 대상이라
+// 항상 보존 대상에서 제외한다.
+export async function pruneStaleTickers(market: 'KOSPI' | 'KOSDAQ', freshItems: StockMasterEntry[]): Promise<number> {
+  const freshTickers = new Set(freshItems.map((i) => i.ticker));
+  const preferredTickers = new Set(PREFERRED_STOCKS.filter((p) => p.market === market).map((p) => p.ticker));
+
+  const { data: existing, error: selectError } = await adminClient
+    .from('stock_master')
+    .select('ticker')
+    .eq('market', market);
+  if (selectError) {
+    console.error(`[stock-master] ${market} 정리 대상 조회 실패, 정리 생략:`, selectError);
+    return 0;
+  }
+
+  const staleTickers = (existing ?? [])
+    .map((r) => r.ticker)
+    .filter((t) => !freshTickers.has(t) && !preferredTickers.has(t));
+  if (staleTickers.length === 0) return 0;
+
+  const { error: deleteError } = await adminClient
+    .from('stock_master')
+    .delete()
+    .eq('market', market)
+    .in('ticker', staleTickers);
+  if (deleteError) {
+    console.error(`[stock-master] ${market} 유령 종목 삭제 실패:`, deleteError);
+    return 0;
+  }
+
+  console.log(`[stock-master] ${market} 유령 종목 정리 — ${staleTickers.length}건 삭제:`, staleTickers.join(', '));
+  return staleTickers.length;
+}
+
 // 1차: 공공데이터포털 공식 API(한 번의 호출로 KOSPI/KOSDAQ 모두 획득). 실패하거나
 // 특정 시장이 비어있으면, 그 시장만 2차 폴백(KRX 스크래핑)으로 재시도한다. 두 경로
 // 모두 실패한 시장은 기존 테이블 데이터를 그대로 유지한다(크론이 며칠 실패해도
 // 검색 자체는 계속 동작).
 export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
   const result: RefreshStockMasterResult = {
-    kospi:     { ok: false, count: 0 },
-    kosdaq:    { ok: false, count: 0 },
+    kospi:     { ok: false, count: 0, pruned: 0 },
+    kosdaq:    { ok: false, count: 0, pruned: 0 },
     preferred: { ok: false, count: 0 },
   };
 
@@ -132,8 +177,10 @@ export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
     const items = await fetchKrxListedInfoOfficial();
     const kospiItems  = items.filter((i) => i.market === 'KOSPI');
     const kosdaqItems = items.filter((i) => i.market === 'KOSDAQ');
-    result.kospi  = await upsertMarket('KOSPI', kospiItems);
-    result.kosdaq = await upsertMarket('KOSDAQ', kosdaqItems);
+    result.kospi  = { ...await upsertMarket('KOSPI', kospiItems), pruned: 0 };
+    result.kosdaq = { ...await upsertMarket('KOSDAQ', kosdaqItems), pruned: 0 };
+    if (result.kospi.ok)  result.kospi.pruned  = await pruneStaleTickers('KOSPI', kospiItems);
+    if (result.kosdaq.ok) result.kosdaq.pruned = await pruneStaleTickers('KOSDAQ', kosdaqItems);
   } catch (e) {
     console.error('[stock-master] 공공데이터포털 API 실패, KRX 스크래핑 폴백 시도:', e instanceof Error ? e.message : e);
   }
@@ -158,7 +205,8 @@ export async function refreshStockMaster(): Promise<RefreshStockMasterResult> {
         console.error(`[stock-master] ${market} KRX 스크래핑 폴백 결과 0건 — 응답 포맷 변경 의심, 갱신 생략(기존 데이터 유지)`);
         continue;
       }
-      result[key] = await upsertMarket(market, s.value);
+      result[key] = { ...await upsertMarket(market, s.value), pruned: 0 };
+      if (result[key].ok) result[key].pruned = await pruneStaleTickers(market, s.value);
     }
   }
 
