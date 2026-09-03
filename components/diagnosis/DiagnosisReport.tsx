@@ -561,7 +561,7 @@ export default function DiagnosisReport({
         {actions && (onReset || reportId) && (
           <div className="flex items-center justify-center gap-2 no-print">
             {reportId && (
-              <SaveReportButton saved={saved} saving={saving} onToggle={toggleSave} />
+              <SaveReportButton saved={saved} saving={saving} onToggle={toggleSave} size="md" />
             )}
             {onReset && (
               <button onClick={onReset}

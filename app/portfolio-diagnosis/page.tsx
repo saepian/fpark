@@ -1166,7 +1166,7 @@ function PortfolioDiagnosisPageInner() {
 
           <div className="flex items-center justify-center gap-2 no-print">
             {reportId && (
-              <SaveReportButton saved={saved} saving={savingReport} onToggle={toggleSaveReport} />
+              <SaveReportButton saved={saved} saving={savingReport} onToggle={toggleSaveReport} size="md" />
             )}
             <button
               onClick={() => {
