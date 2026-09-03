@@ -763,7 +763,9 @@ function kstMinutesSinceMidnight(d: Date): number {
   return kst.getUTCHours() * 60 + kst.getUTCMinutes();
 }
 
-function isQuoteCacheStaleAcrossClose(cachedUpdatedAt: string, now: Date = new Date()): boolean {
+// investors/daily 등 다른 캐시도 "마감 전 생성분을 마감 후 첫 조회에서 무효화"하는 동일
+// 규칙이 필요해 export(2026-09-03 트래픽점검 2번 — cacheJsonResult가 공유).
+export function isQuoteCacheStaleAcrossClose(cachedUpdatedAt: string, now: Date = new Date()): boolean {
   const generatedBeforeClose = kstMinutesSinceMidnight(new Date(cachedUpdatedAt)) < QUOTE_MARKET_CLOSE_MINUTES_KST;
   const nowIsAfterClose = kstMinutesSinceMidnight(now) >= QUOTE_MARKET_CLOSE_MINUTES_KST;
   return generatedBeforeClose && nowIsAfterClose;
@@ -828,6 +830,47 @@ export async function fetchStockQuoteCached(ticker: string, opts?: { waitForLock
   const { raw, cachedAt } = await queryPriceCached(ticker, opts);
   const quote = buildStockQuote(ticker, raw.output, raw.name);
   return cachedAt ? { ...quote, isCached: true, cachedAt } : quote;
+}
+
+// ── 계산된 JSON 결과 캐싱용 범용 헬퍼 (2026-09-03 트래픽점검 2번) ────────────────────
+// investors(수급)/finance(재무)/daily(일별차트) 세 라우트가 종목상세 페이지 1회 로드마다
+// 캐시 없이 KIS를 직접 호출해(8/31에 레이트리미터 우회만 막아둠, 캐싱은 별도 과제로 남김)
+// 페이지 1개 = KIS 8~10건이 되는 병목이었다. 이 세 라우트는 원본 KIS 응답이 아니라 이미
+// 가공·병합까지 끝낸 최종 JSON(위 fetchStockPriceCached처럼 "원본만 캐싱 후 여러 형태로
+// 파생"할 소비처가 하나뿐이라 원본을 따로 저장할 이유가 없음)을 그대로 캐싱한다 —
+// fetchDividendHistory(24시간 고정 TTL)와 같은 "전체 결과 캐싱" 방식이되, TTL을 장중/장외로
+// 나누는 부분은 fetchStockPriceCached·fetchDailyChart(1Y)와 같은 패턴을 따른다.
+export async function cacheJsonResult<T>(
+  key: string,
+  ttlMs: number,
+  fetchLive: () => Promise<T>,
+  opts?: { invalidateAcrossClose?: boolean },
+): Promise<{ data: T; isCached: boolean; cachedAt: string | null }> {
+  try {
+    const { data: cache } = await supabase
+      .from('market_cache')
+      .select('data, updated_at')
+      .eq('key', key)
+      .single();
+    if (cache?.data) {
+      const fresh = Date.now() - new Date(cache.updated_at).getTime() < ttlMs
+        && !(opts?.invalidateAcrossClose && isQuoteCacheStaleAcrossClose(cache.updated_at));
+      if (fresh) return { data: cache.data as T, isCached: true, cachedAt: cache.updated_at };
+    }
+  } catch {
+    // 캐시 조회 실패 → 라이브로 폴백
+  }
+
+  const data = await fetchLive();
+  try {
+    const { error } = await supabase
+      .from('market_cache')
+      .upsert({ key, data: data as unknown as Json, updated_at: new Date().toISOString() });
+    if (error) console.warn(`[cacheJsonResult] ${key} 캐시 저장 실패:`, error.message);
+  } catch (e) {
+    console.warn(`[cacheJsonResult] ${key} 캐시 저장 예외:`, e instanceof Error ? e.message : e);
+  }
+  return { data, isCached: false, cachedAt: null };
 }
 
 // ── 여러 종목 일괄 조회 (2026-09-01) ─────────────────────────────────────────────
@@ -1842,6 +1885,20 @@ export async function fetchAnnualFinancials(ticker: string): Promise<AnnualFinan
     fetchFinanceApi(token, 'FHKST66430300', 'balance-sheet', ticker),
   ]);
   return buildAnnualRows(ratioRows, bsRows, detectYearEndMonth(ratioRows));
+}
+
+// 2026-09-03 트래픽점검 2번: 연간 실적(분기 아닌 연 단위 재무비율·재무제표)은 하루 안에는
+// 사실상 안 바뀌는 데이터라 장중 TTL도 다른 두 캐시(investors/daily)보다 길게 잡는다 —
+// 그래도 장중/장외를 구분해 두는 건 "장중엔 새 분기 실적 발표 등 드문 정정 가능성을 좀 더
+// 빨리 반영, 장외엔 더 오래 눌러써도 무해"라는 동일 원칙을 유지하기 위함.
+const FINANCE_CACHE_TTL_MS_OPEN   = 30 * 60_000;      // 장중 30분
+const FINANCE_CACHE_TTL_MS_CLOSED = 12 * 60 * 60_000; // 장외 12시간
+const financeCacheKey = (ticker: string) => `stock_finance_annual_${ticker}`;
+
+export async function fetchAnnualFinancialsCached(ticker: string): Promise<AnnualFinancialRow[]> {
+  const ttlMs = isKoreanMarketOpen() ? FINANCE_CACHE_TTL_MS_OPEN : FINANCE_CACHE_TTL_MS_CLOSED;
+  const { data } = await cacheJsonResult(financeCacheKey(ticker), ttlMs, () => fetchAnnualFinancials(ticker));
+  return data;
 }
 
 function buildAnnualRows(ratioRows: Record<string, string>[], bsRows: Record<string, string>[], yearEndMonth: string): AnnualFinancialRow[] {

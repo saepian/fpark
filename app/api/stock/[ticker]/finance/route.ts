@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
-import { fetchAnnualFinancials } from '@/lib/kis-api';
+import { fetchAnnualFinancialsCached } from '@/lib/kis-api';
 
-// 캐시 없음(cache: 'no-store') — 요청마다 KIS를 실시간 호출한다.
-// 실제 조회 로직은 lib/kis-api.ts의 fetchAnnualFinancials로 이동(2026-07-13,
-// 기업분석 페이지 실적 추이 기능과 공유하기 위해 추출).
+// 2026-09-03 트래픽점검 2번: 종목상세 페이지 로드마다 캐시 없이 KIS를 직접 호출하던 것을
+// market_cache TTL 캐싱으로 전환(fetchAnnualFinancialsCached — lib/kis-api.ts). 실제 조회
+// 로직은 fetchAnnualFinancials로 이동(2026-07-13, 기업분석 페이지 실적 추이 기능과 공유).
 export const dynamic = 'force-dynamic';
 
 export async function GET(
@@ -13,7 +13,7 @@ export async function GET(
   const { ticker } = await params;
 
   try {
-    const result = await fetchAnnualFinancials(ticker);
+    const result = await fetchAnnualFinancialsCached(ticker);
     return Response.json(result);
   } catch (err) {
     console.error(`[finance] ${ticker}:`, err);

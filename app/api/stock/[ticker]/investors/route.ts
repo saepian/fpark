@@ -1,4 +1,5 @@
-import { getAccessToken, acquireKisRateSlot } from '@/lib/kis-api';
+import { getAccessToken, acquireKisRateSlot, cacheJsonResult } from '@/lib/kis-api';
+import { isKoreanMarketOpen } from '@/lib/market-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,17 +62,38 @@ function isUsableInvestorRow(d: Record<string, string>): boolean {
   return true;
 }
 
-export async function GET(
-  _req: Request,
-  { params }: { params: Promise<{ ticker: string }> }
-) {
-  const { ticker } = await params;
+// fetchInvestorsLive가 던지는, HTTP status를 그대로 들고 다니는 에러 — cacheJsonResult의
+// fetchLive는 캐시에 안 남기고 그대로 throw만 전달하므로 GET에서 status를 복원해야 한다.
+class InvestorsFetchError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
 
+type InvestorsPayload = {
+  date: string;
+  foreign: { qty: number; amount: number; amountRaw: number };
+  institution: { qty: number; amount: number; amountRaw: number };
+  individual: { qty: number; amount: number; amountRaw: number };
+  program: { buy: number; sell: number; net: number; amount: number } | null;
+  shortSell: { qty: number; amount: number; ratio: number } | null;
+  marketShare: { stockAmount: number; marketAmount: number; ratio: number } | null;
+  trend: { date: string; foreignAmount: number; foreignAmountRaw: number; institutionAmount: number; institutionAmountRaw: number }[];
+};
+
+// 2026-09-03 트래픽점검 2번: caching 전엔 종목상세 페이지 로드마다 캐시 없이 KIS를 4~5건
+// 직접 호출했다(8/31엔 레이트리미터 우회만 막음). 수급은 장중에도 분 단위로는 잘 안 바뀌는
+// 편이라 daily(당일 캔들)보다 TTL을 넉넉히(3분) 두고, 장외엔 3시간 — daily와 동일하게
+// "마감 전 생성분 마감 후 첫 조회 무효화"도 적용한다(당일 수급이 마감 직후 확정치로
+// 바뀔 수 있음).
+const INVESTORS_CACHE_TTL_MS_OPEN   = 3 * 60_000;      // 장중 3분
+const INVESTORS_CACHE_TTL_MS_CLOSED = 3 * 60 * 60_000; // 장외 3시간
+const investorsCacheKey = (ticker: string) => `stock_investors_${ticker}`;
+
+async function fetchInvestorsLive(ticker: string): Promise<InvestorsPayload> {
   let token: string;
   try {
     token = await getAccessToken();
   } catch {
-    return Response.json({ error: '인증 실패' }, { status: 500 });
+    throw new InvestorsFetchError(500, '인증 실패');
   }
 
   // KST 오늘 날짜
@@ -96,7 +118,7 @@ export async function GET(
 
   // ── 1. 투자자별 매매 동향 ──────────────────────────────────────
   if (investorRes.status === 'rejected') {
-    return Response.json({ error: '투자자 데이터 없음' }, { status: 404 });
+    throw new InvestorsFetchError(404, '투자자 데이터 없음');
   }
 
   const invOutput: Record<string, string>[] = investorRes.value?.output ?? [];
@@ -106,7 +128,7 @@ export async function GET(
   const recent   = todayRow ?? invOutput.find(isUsableInvestorRow);
 
   if (!recent) {
-    return Response.json({ error: '데이터 없음' }, { status: 404 });
+    throw new InvestorsFetchError(404, '데이터 없음');
   }
 
   const dataDate = recent.stck_bsop_date || todayStr;
@@ -214,5 +236,26 @@ export async function GET(
     }
   } catch { /* 비중 실패 → null 유지 */ }
 
-  return Response.json({ date, foreign, institution, individual, program, shortSell, marketShare, trend });
+  return { date, foreign, institution, individual, program, shortSell, marketShare, trend };
+}
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ ticker: string }> }
+) {
+  const { ticker } = await params;
+  const ttlMs = isKoreanMarketOpen() ? INVESTORS_CACHE_TTL_MS_OPEN : INVESTORS_CACHE_TTL_MS_CLOSED;
+
+  try {
+    const { data } = await cacheJsonResult(
+      investorsCacheKey(ticker), ttlMs, () => fetchInvestorsLive(ticker),
+      { invalidateAcrossClose: true },
+    );
+    return Response.json(data);
+  } catch (e) {
+    if (e instanceof InvestorsFetchError) {
+      return Response.json({ error: e.message }, { status: e.status });
+    }
+    return Response.json({ error: '조회 실패' }, { status: 500 });
+  }
 }
