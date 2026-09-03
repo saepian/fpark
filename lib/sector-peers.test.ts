@@ -86,7 +86,7 @@ describe('fetchMarketCapsWithRetry — 소프트캡 등으로 실패한 티커�
     expect(result.get('000660')).toBe(50);
     expect(result.get('402340')).toBe(10);
     expect(mockedFetchMarketCapsCached).toHaveBeenCalledTimes(2);
-    expect(mockedFetchMarketCapsCached).toHaveBeenLastCalledWith(['005930']);
+    expect(mockedFetchMarketCapsCached).toHaveBeenLastCalledWith(['005930'], undefined);
   });
 
   it('재시도도 실패하면 해당 티커는 최종적으로 없음(undefined) — 예외를 던지지 않음', async () => {
@@ -96,5 +96,18 @@ describe('fetchMarketCapsWithRetry — 소프트캡 등으로 실패한 티커�
     const result = await fetchMarketCapsWithRetry(['000660', '005930']);
     expect(result.get('000660')).toBe(50);
     expect(result.has('005930')).toBe(false);
+  });
+
+  // 2026-09-03 트래픽점검 10번: 리포트 생성은 'batch' 우선순위(소프트캡에서 거부 대신 대기)와
+  // 업종 페이지의 종목명(knownNames — search-stock-info 추가 호출 방지)을 넘긴다. 재시도 호출도
+  // 같은 옵션을 그대로 써야 재시도만 'user' fail-fast로 떨어지는 일이 없다.
+  it('priority·knownNames 옵션을 1차·재시도 호출 모두에 그대로 전달한다', async () => {
+    mockedFetchMarketCapsCached
+      .mockResolvedValueOnce(new Map([['000660', 50]]))
+      .mockResolvedValueOnce(new Map([['005930', 400]]));
+    const opts = { priority: 'batch' as const, knownNames: new Map([['005930', '삼성전자']]) };
+    await fetchMarketCapsWithRetry(['000660', '005930'], opts);
+    expect(mockedFetchMarketCapsCached).toHaveBeenNthCalledWith(1, ['000660', '005930'], opts);
+    expect(mockedFetchMarketCapsCached).toHaveBeenNthCalledWith(2, ['005930'], opts);
   });
 });

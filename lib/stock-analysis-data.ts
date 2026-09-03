@@ -1,7 +1,7 @@
 import { load } from 'cheerio';
 import { createClient } from '@supabase/supabase-js';
 import { after } from 'next/server';
-import { getAccessToken, acquireKisRateSlot } from './kis-api';
+import { getAccessToken, acquireKisRateSlot, type KisPriority } from './kis-api';
 import { heuristicPriceRelevanceScore } from './news-selection';
 import type { ChartDataPoint } from './types';
 import type { Database } from './database.types';
@@ -120,7 +120,7 @@ function savePriceCache(ticker: string, data: KisPriceResult) {
   });
 }
 
-async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisPriceResult | null> {
+async function fetchKisPrice(ticker: string, fallbackName: string, priority: KisPriority = 'user'): Promise<KisPriceResult | null> {
   try {
     console.log('[ANALYSIS] fetchKisPrice 시작', ticker);
     const token = await getAccessToken();
@@ -129,8 +129,10 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisP
       url.searchParams.set('FID_COND_MRKT_DIV_CODE', mkt);
       url.searchParams.set('FID_INPUT_ISCD', ticker);
       // 2026-09-03 트래픽점검 9번: 이 함수는 collectStockAnalysisData(유저가 직접 트리거하는
-      // 종목분석/포트폴리오진단 리포트 생성)에서만 호출되므로 'user' 우선순위 고정.
-      await acquireKisRateSlot({ priority: 'user' });
+      // 종목분석/포트폴리오진단 리포트 생성)에서만 호출되므로 기본 'user' 우선순위.
+      // 트래픽점검 10번: 리포트 생성(기업분석·포트폴리오분석)은 서버 내부 fan-out이라
+      // 호출부가 'batch'를 넘긴다(lib/kis-api.ts acquireKisRateSlot 주석 참고).
+      await acquireKisRateSlot({ priority });
       const res = await fetch(url.toString(), {
         headers: kisHdr(token, 'FHKST01010100'),
         cache: 'no-store',
@@ -188,7 +190,7 @@ async function fetchKisPrice(ticker: string, fallbackName: string): Promise<KisP
 export async function fetchInvestorTrend(
   ticker: string,
   days = 5,
-  opts?: { priority?: 'cron' | 'user' },
+  opts?: { priority?: KisPriority },
 ): Promise<{ latest: InvestorFlow | null; trend: InvestorDay[]; apiError: boolean }> {
   try {
     console.log('[ANALYSIS] fetchInvestorTrend 시작', ticker);
@@ -407,12 +409,13 @@ export async function fetchMarketNews(
 export async function collectStockAnalysisData(
   ticker: string,
   name: string,
+  opts?: { priority?: KisPriority },
 ): Promise<StockAnalysisData> {
   console.log('[ANALYSIS] collectStockAnalysisData 시작', { ticker, name });
 
   // 가격(+업종) 조회 후 그 결과(sector)를 뉴스 검색 키워드로 활용 — 나머지는 독립적으로 병렬 진행
-  const pricePromise = fetchKisPrice(ticker, name);
-  const invPromise   = fetchInvestorTrend(ticker);
+  const pricePromise = fetchKisPrice(ticker, name, opts?.priority);
+  const invPromise   = fetchInvestorTrend(ticker, 5, { priority: opts?.priority });
   const navPromise   = fetchNaverFinancials(ticker);
 
   const priceRes = await pricePromise.then(

@@ -1,5 +1,5 @@
 import { after } from 'next/server';
-import { fetchChartBackTo } from './kis-api';
+import { fetchChartBackTo, type KisPriority } from './kis-api';
 import { supabase } from './supabase';
 import { kstYearMonthDay, kstMidnight, kstDateStr } from './ai-grounding';
 import type { ChartDataPoint } from './types';
@@ -64,7 +64,11 @@ function reachedTarget(data: ChartDataPoint[], targetDate: Date): boolean {
   return earliest.getTime() <= targetDate.getTime() + toleranceMs;
 }
 
-export async function getCachedChartNear(ticker: string, monthsAgo: number): Promise<ChartDataPoint[]> {
+export async function getCachedChartNear(
+  ticker: string,
+  monthsAgo: number,
+  opts?: { priority?: KisPriority },
+): Promise<ChartDataPoint[]> {
   const fresh = await loadCache(ticker, monthsAgo);
   if (fresh && Date.now() - new Date(fresh.updatedAt).getTime() < CACHE_TTL_MS) {
     return fresh.data;
@@ -73,7 +77,7 @@ export async function getCachedChartNear(ticker: string, monthsAgo: number): Pro
   const { year, month, day } = kstYearMonthDay(new Date());
   const targetDate = kstMidnight(year, month - monthsAgo, day);
 
-  const data = await fetchChartBackTo(ticker, targetDate);
+  const data = await fetchChartBackTo(ticker, targetDate, undefined, opts?.priority);
 
   if (data.length > 0 && reachedTarget(data, targetDate)) {
     saveCache(ticker, monthsAgo, data);

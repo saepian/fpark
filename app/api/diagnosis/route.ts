@@ -326,7 +326,11 @@ export async function POST(request: NextRequest) {
         // 보조 후보로 병행 — Promise로 넘겨 collectStockAnalysisData 완료를 기다리지
         // 않고 Naver 조회를 먼저 시작한다(같은 collectStockAnalysisData 호출을
         // 중복 호출하지 않도록 analysisDataPromise를 한 번만 만들어 재사용).
-        const analysisDataPromise = collectStockAnalysisData(ticker, name);
+        // 2026-09-03 트래픽점검 10번: 이 라우트가 만드는 KIS 호출은 전부 priority 'batch' —
+        // 사람의 클릭은 1번이지만 서버 안에서 수십 건이 같은 순간에 fan-out되는 배치성 트래픽이라,
+        // 대화형('user') 소프트캡의 fail-fast를 그대로 받으면 자기 버스트로 자기 요청을 거부한다
+        // (lib/kis-api.ts acquireKisRateSlot 주석 참고 — 거부 대신 대기, 대화형 몫 3토큰 예약).
+        const analysisDataPromise = collectStockAnalysisData(ticker, name, { priority: 'batch' });
         const dbNewsExtraPromise: Promise<NewsCandidate[]> = analysisDataPromise.then(
           (ad) => (ad.news ?? []).map((n) => ({ title: n.title, summary: n.summary, date: n.date, url: n.url })),
           () => [],
@@ -337,7 +341,7 @@ export async function POST(request: NextRequest) {
         // 즉시 시작하고, selectRelevantNews만 그 결과를 기다리도록 체이닝한다. 다른 병렬
         // 조회(차트/업종/실적/공시/배당 등)는 이 대기와 무관하게 그대로 동시에 진행된다 —
         // 가격 조회 실패 시에도 changeRate 없이 선별을 계속 진행(폴백).
-        const priceDataPromise = fetchStockPrice(ticker);
+        const priceDataPromise = fetchStockPrice(ticker, { priority: 'batch' });
         const newsSelectionPromise = priceDataPromise.then(
           (priceData) => selectRelevantNews(
             ticker, name, dbNewsExtraPromise,
@@ -366,8 +370,8 @@ export async function POST(request: NextRequest) {
           newsSelectionPromise,
           // '1M'→'1Y': computeSurgeHistory(최근 약 5개월 이력)에 필요한 최소 기간 확보.
           // 기존 20거래일 평균 거래대금 계산(chartData.slice(-20))은 배열이 길어져도 동일하게 동작.
-          fetchDailyChart(ticker, '1Y'),
-          fetchSectorPeers(ticker),
+          fetchDailyChart(ticker, '1Y', { priority: 'batch' }),
+          fetchSectorPeers(ticker, { priority: 'batch', targetName: name }),
           fetchFinancialsTrend(ticker), // 연간 3개년 + 분기 6개(단독값·전년동기비), 2026-09-01
           fetchRecentDisclosures(ticker),
           fetchDividendSummary(ticker),
@@ -380,14 +384,14 @@ export async function POST(request: NextRequest) {
           // 내 포지션 관찰 구간용 최근 6개월 일별 시세(2026-09-02) — fetchDailyChart('1Y')는 KIS 100거래일
           // 캡 때문에 실제로는 약 5개월치라 "오늘 기준 6개월"에 못 미쳤다. 기간별 등락률 표의 6개월 칸이
           // 이미 쓰는 연쇄 백필 + 1일 캐시(lib/chart-near-cache.ts)를 그대로 재사용(캐시 적중 시 추가 호출 없음).
-          getCachedChartNear(ticker, 6),
+          getCachedChartNear(ticker, 6, { priority: 'batch' }),
           // 거래대금 배수 카드 막대그래프 툴팁용(2026-09-02) — 기존 analysisDataPromise가
           // 쓰는 5일 수급 데이터(buildInvestorBlock, "## 수급 동향 (최근 5영업일)" 프롬프트
           // 블록)를 그대로 21일로 늘리면 프롬프트에 21행짜리 표가 그대로 들어가 버려서
           // (buildInvestorBlock이 investorTrend 전체를 순회) 별도로 21일치를 다시 조회한다.
           // 같은 KIS 엔드포인트(inquire-investor)가 날짜 파라미터 없이도 최근 30일치를
           // 돌려주는 걸 확인해(실측 30건), days=21만 넘기면 추가 엔드포인트 없이 가능.
-          fetchInvestorTrend(ticker, 21),
+          fetchInvestorTrend(ticker, 21, { priority: 'batch' }),
         ]);
 
         console.log('[DIAGNOSIS] 2. 데이터 수집 완료', {
@@ -644,7 +648,13 @@ export async function POST(request: NextRequest) {
         // 2026-09-03 긴급조사(SK하이닉스 업종대비 스파크라인 통째로 누락) — 소프트캡(10/s)
         // 순간 포화에 peer 전원이 동시에 걸리면 카드가 조용히 사라지던 문제를 fetchDailyChartsWithRetry
         // (실패분만 300ms 뒤 재조회, lib/kis-api.ts)로 흡수한다.
-        const peerChartsPromise = fetchDailyChartsWithRetry(sectorPeers.map((p) => p.ticker), '1M');
+        // 트래픽점검 10번(근본수정): '1M'(캐시 없음, 항상 라이브) 대신 '1Y'(market_cache TTL 장중
+        // 5분/장외 1시간, 대시보드·종목차트·다른 리포트와 공유)를 쓴다 — 아래 스파크라인은 어차피
+        // 마지막 21거래일만 잘라 쓰고(n = min(targetSlice 21, peer 길이)) 전일 마감 기준 계산도
+        // 마지막 두 종가만 보므로 결과는 동일하면서, 삼성전자·SK하이닉스처럼 자주 조회되는 peer는
+        // 대부분 캐시 히트가 되어 라이브 호출이 0건에 가깝다. 대상 종목 자체의 chartData도 같은
+        // '1Y' 캐시 경로라 신선도 기준도 오히려 일치한다. 남는 미스는 'batch'로 대기.
+        const peerChartsPromise = fetchDailyChartsWithRetry(sectorPeers.map((p) => p.ticker), '1Y', { priority: 'batch' });
 
         // ── 그룹 2: 업종 대비 (동종업계 peer 평균 등락률과의 차이) ───────────────────────
         // sectorName·peerNames는 UI가 "어떤 업종/종목과 비교했는지"를 표시하기 위한 것 —

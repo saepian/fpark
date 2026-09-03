@@ -19,10 +19,15 @@ import type { Json } from './database.types';
 
 const CAS_RETRIES = 5;
 
+// reserve(2026-09-03 트래픽점검 10번): 배치성 호출자(기업분석 리포트 내부 fan-out 등,
+// lib/kis-api.ts priority 'batch')가 같은 버킷을 쓰되 "토큰이 reserve개 넘게 남아 있을
+// 때만" 가져가게 하는 하한 — 대화형 유저 요청(reserve=0)은 마지막 토큰까지 쓸 수 있으므로
+// 배치가 아무리 몰려도 대화형 몫이 항상 reserve개는 남는다.
 export async function tryConsumeRateLimit(
   key: string,
   ratePerSec: number,
   burst: number,
+  reserve = 0,
 ): Promise<boolean> {
   try {
     for (let attempt = 0; attempt < CAS_RETRIES; attempt++) {
@@ -37,7 +42,7 @@ export async function tryConsumeRateLimit(
       const lastRefillMs = row ? new Date(row.updated_at).getTime() : now;
       const elapsedSec = Math.max(0, (now - lastRefillMs) / 1000);
       const tokens = Math.min(burst, prevTokens + elapsedSec * ratePerSec);
-      const allowed = tokens >= 1;
+      const allowed = tokens >= 1 + reserve;
       const nextTokens = allowed ? tokens - 1 : tokens;
       const nowIso = new Date(now).toISOString();
 

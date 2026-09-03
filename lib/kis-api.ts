@@ -652,10 +652,63 @@ const USER_SOFT_RATE_LIMIT_PER_SEC = 10;
 const USER_SOFT_RATE_LIMIT_BURST = 10;
 const USER_SOFT_BUCKET_KEY = 'kis_soft_bucket_user';
 
-export async function acquireKisRateSlot(opts?: { priority?: 'cron' | 'user' }): Promise<void> {
+// ── 배치 클래스 (2026-09-03 트래픽점검 10번) ──────────────────────────────────────
+// 호출자 성격이 셋으로 갈린다:
+//   'user'  — 검색창 타이핑·차트 탭 전환처럼 사람이 한 번 누를 때 1건 나가는 대화형 요청.
+//             소프트캡(10/s)이 소진되면 즉시 거부(fail-fast) — 기다리게 하면 UI가 굳는다.
+//   'cron'  — 알림 크론 등 고가치 배치. 소프트캡을 안 거치고 하드캡(15/s)만 적용.
+//   'batch' — 기업분석/포트폴리오분석 리포트 1건을 만들 때 서버가 스스로 fan-out하는
+//             내부 호출(업종 peer 후보 시가총액 최대 41건, peer 차트 6건, 종목별 데이터
+//             수집 등). 사람의 클릭은 1번이지만 서버 안에서는 수십 건이 같은 순간에
+//             몰리는 "배치성" 트래픽이라, 'user'로 취급하면 자기 자신의 버스트(10)로
+//             자기 요청을 거부하는 구조가 된다(2026-09-03 오전에만 같은 원인의 실패
+//             3건 — 시가총액 조회·Naver 조회·스파크라인 차트 — 를 재시도 1회씩 붙여
+//             대증 처리했던 배경). 실측(.e2e-tmp/kis-call-count.mts, 종근당 콜드):
+//             한 리포트가 78건을 초당 최대 13건으로 쏟아내 7건이 소프트캡에 거부됐다.
+//
+// 'batch'는 소프트캡을 "우회"하지 않는다 — 크론 몫(15-10=5/s)을 지키는 게 소프트캡의
+// 존재 이유라 배치가 그걸 뚫으면 크론이 밀린다. 대신 같은 유저 버킷을 쓰되 두 가지가 다르다:
+//   1) 거부 대신 대기 — 토큰이 없으면 (프로세스 로컬 페이서로 ≤8/s 간격을 두고) 짧게
+//      쉬었다 다시 시도한다. 리포트 생성은 60~120초짜리 작업이라 몇 초 밀리는 건 문제가
+//      아니고, 실패해서 카드가 빠지는 게 문제다.
+//   2) 대화형 몫 예약 — 버킷에 BATCH_SOFT_RESERVE_TOKENS개 넘게 남아 있을 때만 가져간다
+//      (lib/rate-limit.ts reserve). 리포트가 돌아가는 동안에도 같은 순간 검색창을 두드리는
+//      사람은 항상 그만큼의 버스트 여유를 본다.
+// 프로세스 로컬 페이서(BATCH_MIN_INTERVAL_MS)는 DB 버킷을 두드리기 전에 이 인스턴스 안의
+// 배치 호출을 직렬화해 CAS 경쟁(같은 행을 여러 워커가 동시에 갱신 → 재시도 소진 → 거부
+// 판정)을 줄이는 역할 — 인스턴스가 여럿이면 합이 10/s를 넘을 수 있는데, 그때는 2)의 대기
+// 루프가 흡수한다.
+export type KisPriority = 'cron' | 'user' | 'batch';
+const BATCH_SOFT_RESERVE_TOKENS = 3;
+const BATCH_MIN_INTERVAL_MS = 125;      // 인스턴스당 ≤8/s
+const BATCH_SOFT_WAIT_MAX_MS = 20_000;  // 이 이상 못 얻으면 포기(호출부 폴백/생략 관례대로)
+const BATCH_SOFT_POLL_MS = 150;
+let batchPacerTail: Promise<void> = Promise.resolve();
+let batchLastEntryAt = 0;
+function waitBatchPacer(): Promise<void> {
+  const turn = batchPacerTail.then(async () => {
+    const gap = BATCH_MIN_INTERVAL_MS - (Date.now() - batchLastEntryAt);
+    if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+    batchLastEntryAt = Date.now();
+  });
+  batchPacerTail = turn.catch(() => {});
+  return turn;
+}
+
+export async function acquireKisRateSlot(opts?: { priority?: KisPriority }): Promise<void> {
   const priority = opts?.priority ?? 'user';
   if (priority === 'user' && !(await tryConsumeRateLimit(USER_SOFT_BUCKET_KEY, USER_SOFT_RATE_LIMIT_PER_SEC, USER_SOFT_RATE_LIMIT_BURST))) {
     throw new KisRateLimitExceededError('유저 요청 소프트캡(10/s) 소진 — 크론 우선순위 확보를 위해 거부');
+  }
+  if (priority === 'batch') {
+    await waitBatchPacer();
+    const softDeadline = Date.now() + BATCH_SOFT_WAIT_MAX_MS;
+    while (!(await tryConsumeRateLimit(USER_SOFT_BUCKET_KEY, USER_SOFT_RATE_LIMIT_PER_SEC, USER_SOFT_RATE_LIMIT_BURST, BATCH_SOFT_RESERVE_TOKENS))) {
+      if (Date.now() >= softDeadline) {
+        throw new KisRateLimitExceededError(`배치 요청 소프트캡 대기 시간(${BATCH_SOFT_WAIT_MAX_MS}ms) 초과`);
+      }
+      await new Promise((r) => setTimeout(r, BATCH_SOFT_POLL_MS + Math.random() * 50));
+    }
   }
 
   const deadline = Date.now() + RATE_SLOT_MAX_WAIT_MS;
@@ -690,7 +743,7 @@ export async function acquireKisRateSlot(opts?: { priority?: 'cron' | 'user' }):
 async function queryPrice(
   ticker: string,
   _retried = false,
-  opts?: { waitForLock?: boolean; priority?: 'cron' | 'user' },
+  opts?: { waitForLock?: boolean; priority?: KisPriority },
   _rateRetried = false,
 ): Promise<any> {
   const token = await getAccessToken(opts);
@@ -766,7 +819,7 @@ function buildStockQuote(ticker: string, o: any, name: string): StockQuote {
   };
 }
 
-export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boolean; priority?: 'cron' | 'user' }): Promise<StockPrice> {
+export async function fetchStockPrice(ticker: string, opts?: { waitForLock?: boolean; priority?: KisPriority }): Promise<StockPrice> {
   const o = await queryPrice(ticker, false, opts);
   const name = await resolveStockName(ticker, o);
   return buildStockPrice(ticker, o, name);
@@ -1110,32 +1163,67 @@ export async function fetchStockPricesCached(
 // 원시값)만 뽑으면 되므로, fetchStockPricesCached와 동일한 "캐시 일괄 조회 → 미스만
 // 작은 동시성으로 라이브" 패턴을 그대로 재사용해 새 함수로 둔다(기존 함수의 반환 타입
 // StockPrice를 바꾸면 워치리스트 등 기존 소비처에 영향이 가서 별도 함수로 분리).
-export async function fetchMarketCapsCached(tickers: string[]): Promise<Map<string, number>> {
+//
+// 2026-09-03 트래픽점검 10번(업종대비 파이프라인 소프트캡 자기압박 근본수정) 실측
+// (.e2e-tmp/kis-call-count.mts, 종근당 콜드): 이 함수 하나가 41건 inquire-price에 더해
+// search-stock-info 30건을 추가로 불렀다 — KIS inquire-price가 중소형주 대부분에 종목명을
+// 비워 보내서 resolveStockName이 티커마다 이름 조회를 한 번 더 한 것. 시가총액 필터엔
+// 이름이 전혀 필요 없는데 호출량의 40%가 이름 조회였다. 또 시세 캐시 TTL(장중 30초)을
+// 그대로 써서 장중엔 사실상 매 리포트마다 41건이 전부 미스였다. 시가총액은 0.1~10배
+// 밴드 필터에만 쓰이므로 하루 전 값이어도 판정이 달라질 수 없다 — 두 가지를 바꾼다:
+//   1) 시가총액 전용 캐시(market_cap_{ticker}, 24시간 TTL, "마감 전/후" 규칙 불필요)를
+//      우선 읽고, 없으면 24시간 이내의 시세 캐시 행(hts_avls)도 그대로 인정한다.
+//      → 같은 업종의 두 번째 리포트부터는 라이브 조회가 0건에 가깝다.
+//   2) 라이브 조회 시 이름은 KIS 응답에 있거나 호출부가 알려준 것(knownNames — 업종
+//      페이지에 이미 있는 이름)만 쓰고, search-stock-info는 절대 추가로 부르지 않는다.
+//      이름을 못 정하면 시세 캐시 행은 저장하지 않는다(시가총액 캐시만 저장).
+const MARKET_CAP_CACHE_TTL_MS = 24 * 60 * 60_000;
+const marketCapCacheKey = (ticker: string) => `market_cap_${ticker}`;
+
+async function saveMarketCapCache(ticker: string, cap: number): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('market_cache')
+      .upsert({ key: marketCapCacheKey(ticker), data: { cap } as unknown as Json, updated_at: new Date().toISOString() });
+    if (error) console.warn(`[fetchMarketCapsCached] ${ticker} 시가총액 캐시 저장 실패:`, error.message);
+  } catch (e) {
+    console.warn(`[fetchMarketCapsCached] ${ticker} 시가총액 캐시 저장 예외:`, e instanceof Error ? e.message : e);
+  }
+}
+
+export async function fetchMarketCapsCached(
+  tickers: string[],
+  opts?: { priority?: KisPriority; knownNames?: ReadonlyMap<string, string> },
+): Promise<Map<string, number>> {
   const caps = new Map<string, number>();
   const unique = [...new Set(tickers)];
   if (unique.length === 0) return caps;
 
-  const ttlMs = isKoreanMarketOpen() ? QUOTE_CACHE_TTL_MS_OPEN : QUOTE_CACHE_TTL_MS_CLOSED;
-  const keyToTicker = new Map(unique.map(t => [quoteCacheKey(t), t]));
-  let cachedRows: { ticker: string; raw: CachedQuoteRaw; updatedAt: string }[] = [];
+  const now = Date.now();
+  const capKeyToTicker = new Map(unique.map(t => [marketCapCacheKey(t), t]));
+  const quoteKeyToTicker = new Map(unique.map(t => [quoteCacheKey(t), t]));
   try {
     const { data } = await supabase
       .from('market_cache')
       .select('key, data, updated_at')
-      .in('key', [...keyToTicker.keys()]);
-    cachedRows = (data ?? []).flatMap(row => {
-      const ticker = keyToTicker.get(row.key);
-      const raw = row.data as unknown as CachedQuoteRaw | null;
-      return ticker && raw?.output && typeof raw.name === 'string'
-        ? [{ ticker, raw, updatedAt: row.updated_at }]
-        : [];
-    });
+      .in('key', [...capKeyToTicker.keys(), ...quoteKeyToTicker.keys()]);
+    for (const row of data ?? []) {
+      if (now - new Date(row.updated_at).getTime() >= MARKET_CAP_CACHE_TTL_MS) continue;
+      const capTicker = capKeyToTicker.get(row.key);
+      if (capTicker) {
+        const cap = Number((row.data as { cap?: number } | null)?.cap);
+        if (Number.isFinite(cap) && cap > 0) caps.set(capTicker, cap);
+        continue;
+      }
+      const quoteTicker = quoteKeyToTicker.get(row.key);
+      if (quoteTicker && !caps.has(quoteTicker)) {
+        const raw = row.data as unknown as CachedQuoteRaw | null;
+        const cap = parseInt(raw?.output?.hts_avls ?? '', 10);
+        if (Number.isFinite(cap) && cap > 0) caps.set(quoteTicker, cap);
+      }
+    }
   } catch (e) {
     console.warn('[fetchMarketCapsCached] 캐시 일괄 조회 실패, 전부 라이브로:', e instanceof Error ? e.message : e);
-  }
-  for (const row of selectFreshQuoteCacheRows(cachedRows, new Date(), ttlMs)) {
-    const cap = parseInt(row.raw.output.hts_avls, 10);
-    if (Number.isFinite(cap) && cap > 0) caps.set(row.ticker, cap);
   }
 
   const misses = unique.filter(t => !caps.has(t));
@@ -1144,11 +1232,16 @@ export async function fetchMarketCapsCached(tickers: string[]): Promise<Map<stri
     while (cursor < misses.length) {
       const ticker = misses[cursor++];
       try {
-        const o = await queryPrice(ticker, false);
-        const name = await resolveStockName(ticker, o);
-        await saveStockQuoteCache(ticker, { output: o, name });
+        const o = await queryPrice(ticker, false, { priority: opts?.priority });
         const cap = parseInt(o.hts_avls, 10);
-        if (Number.isFinite(cap) && cap > 0) caps.set(ticker, cap);
+        if (Number.isFinite(cap) && cap > 0) {
+          caps.set(ticker, cap);
+          await saveMarketCapCache(ticker, cap);
+        }
+        const name = ((o.hts_kor_isnm || o.prdt_abrv_name || '') as string).trim()
+          || opts?.knownNames?.get(ticker)
+          || STOCK_NAMES[ticker];
+        if (name) await saveStockQuoteCache(ticker, { output: o, name });
       } catch (e) {
         console.warn(`[fetchMarketCapsCached] ${ticker} 라이브 조회 실패:`, e instanceof Error ? e.message : e);
       }
@@ -1190,7 +1283,7 @@ async function fetchChartRangeRaw(
   startDate: Date,
   endDate: Date,
   label: string,
-  priority?: 'cron' | 'user',
+  priority?: KisPriority,
 ): Promise<ChartDataPoint[]> {
   // 토큰 조기 만료 감지가 없던 함수 — 만료된 토큰으로 J/Q를 번갈아 시도해봐야 둘 다
   // 같은 이유로 실패할 뿐이라, 감지 즉시 상위 withKisTokenRetry가 재발급 후 한 번
@@ -1287,7 +1380,7 @@ async function saveDailyChartCache(ticker: string, period: '1Y', data: ChartData
 export async function fetchDailyChart(
   ticker: string,
   period: '1W' | '1M' | '3M' | '1Y',
-  opts?: { priority?: 'cron' | 'user' },
+  opts?: { priority?: KisPriority },
 ): Promise<ChartDataPoint[]> {
   if (period === '1Y') {
     const ttlMs = isKoreanMarketOpen() ? CHART_1Y_CACHE_TTL_MS_OPEN : CHART_1Y_CACHE_TTL_MS_CLOSED;
@@ -1326,18 +1419,21 @@ export async function fetchDailyChart(
 // 정상 표시돼, "텍스트는 되는데 그래프만 없음"이라는 눈에 띄는 비대칭이 생긴다. 실패한
 // 티커만 골라 소프트캡 버킷 회복 시간(300ms, fetchMarketCapsWithRetry와 동일 간격)을
 // 두고 한 번 더 조회한다.
+// 2026-09-03 트래픽점검 10번: 호출부(기업분석)는 priority 'batch'로 넘겨 소프트캡에서
+// 거부 대신 대기하게 한다 — 이 재시도는 그래도 남는 잔여 실패(하드캡 5초 초과 등)용.
 export async function fetchDailyChartsWithRetry(
   tickers: string[],
   period: '1W' | '1M' | '3M' | '1Y',
+  opts?: { priority?: KisPriority },
 ): Promise<PromiseSettledResult<ChartDataPoint[]>[]> {
-  const first = await Promise.allSettled(tickers.map((t) => fetchDailyChart(t, period)));
+  const first = await Promise.allSettled(tickers.map((t) => fetchDailyChart(t, period, opts)));
   const failedIdx = first
     .map((r, i) => (r.status === 'rejected' || r.value.length < 2 ? i : -1))
     .filter((i) => i >= 0);
   if (failedIdx.length === 0) return first;
 
   await new Promise((r) => setTimeout(r, 300));
-  const retried = await Promise.allSettled(failedIdx.map((i) => fetchDailyChart(tickers[i], period)));
+  const retried = await Promise.allSettled(failedIdx.map((i) => fetchDailyChart(tickers[i], period, opts)));
   const merged = [...first];
   failedIdx.forEach((idx, ri) => { merged[idx] = retried[ri]; });
   return merged;
@@ -1373,6 +1469,7 @@ export async function fetchChartBackTo(
   ticker: string,
   targetDate: Date,
   maxChunks = 4,
+  priority?: KisPriority,
 ): Promise<ChartDataPoint[]> {
   const targetStr = targetDate.toISOString().slice(0, 10);
   const merged = new Map<string, ChartDataPoint>();
@@ -1383,7 +1480,7 @@ export async function fetchChartBackTo(
     cursorStart.setFullYear(cursorStart.getFullYear() - 2); // 넉넉히 잡아도 KIS가 알아서 최근 구간으로 잘라 반환
     let chunk: ChartDataPoint[];
     try {
-      chunk = await fetchChartRangeRaw(ticker, cursorStart, cursorEnd, `fetchChartBackTo(${ticker})#${i}`);
+      chunk = await fetchChartRangeRaw(ticker, cursorStart, cursorEnd, `fetchChartBackTo(${ticker})#${i}`, priority);
     } catch {
       break;
     }

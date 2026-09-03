@@ -203,7 +203,9 @@ export async function POST(request: NextRequest) {
         // 수와 무관하게 Stage 0 시간이 늘어나지 않는다(analysisResults 배치와
         // 동일하게 holdings.map()으로 병렬 fan-out).
         const analysisDataPromises = holdings.map(h =>
-          withTimeout(collectStockAnalysisData(h.ticker, h.name), 8000, null)
+          // 2026-09-03 트래픽점검 10번: 보유종목 수만큼 fan-out되는 서버 내부 배치 호출 — 'batch'
+          // (소프트캡에서 거부 대신 대기, lib/kis-api.ts acquireKisRateSlot 주석 참고).
+          withTimeout(collectStockAnalysisData(h.ticker, h.name, { priority: 'batch' }), 8000, null)
         );
 
         // 업종 매크로 뉴스 — 종목분석/기업분석과 동일한 lib/sector-news.ts 재사용.
@@ -239,7 +241,7 @@ export async function POST(request: NextRequest) {
         // 수와 무관하게 fan-out 병렬성은 유지됨). 차트 타임아웃(15초)에 선별 타임아웃(12초)이
         // 더해져 종목당 최악 지연이 늘어날 수 있는 트레이드오프가 있음 — 실측 검증 필요.
         const chartPromises = holdings.map(h =>
-          withTimeout(fetchDailyChart(h.ticker, '1Y'), 15000, null).then(v => {
+          withTimeout(fetchDailyChart(h.ticker, '1Y', { priority: 'batch' }), 15000, null).then(v => {
             if (v === null) console.warn(`[PORTFOLIO-DIAGNOSIS] ${h.ticker}(${h.name}) 차트 조회 실패/타임아웃 — 손익 기여도·급등이력·거래대금배수 계산에서 제외됨`);
             return v;
           })

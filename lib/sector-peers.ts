@@ -1,7 +1,7 @@
 // app/api/stock/[ticker]/sector/route.ts에 있던 네이버 동종업계 스크래핑 로직을
 // 재사용 가능한 함수로 추출(2026-07-13, 기업분석 페이지 업종 대비 비교 기능과 공유).
 
-import { fetchMarketCapsCached } from './kis-api';
+import { fetchMarketCapsCached, type KisPriority } from './kis-api';
 
 // 2026-09-03 긴급조사(삼성전자 업종대비 카드 통째로 누락) 실측: 오늘 생성된 삼성전자
 // stock_diagnosis 6건 중 1건(05:23:53)이 sectorComparison=null이었다 — fetchSectorPeers가
@@ -149,13 +149,21 @@ const BROAD_SECTOR_CANDIDATE_CHECK_LIMIT = 40;
 // 게 버그였다. 실패한 티커만 골라 소프트캡 버킷이 채워질 시간(300ms, 10/s 버킷 기준
 // 약 3개 토큰 회복)을 두고 한 번 더 조회한다 — 대부분은 애초에 캐시 히트라 재시도 대상
 // 자체가 소수(실측: 41개 중 라이브 조회가 필요했던 건 10여 개, 그중 실패는 1~2개 수준).
-export async function fetchMarketCapsWithRetry(tickers: string[]): Promise<Map<string, number>> {
-  const caps = await fetchMarketCapsCached(tickers);
+//
+// 2026-09-03 트래픽점검 10번(근본수정): 이 재시도는 대증요법이었고, 근본 원인은 리포트 1건이
+// 서버 안에서 만드는 배치성 fan-out을 대화형 유저와 같은 fail-fast 소프트캡으로 취급한 구조
+// 였다. 호출부가 priority 'batch'(lib/kis-api.ts acquireKisRateSlot — 거부 대신 대기, 대화형
+// 몫 예약)를 넘기고, fetchMarketCapsCached는 24시간 시가총액 캐시 + 이름 조회 생략으로 호출량
+// 자체를 줄였다. 재시도는 그래도 남는 잔여 실패(하드캡 대기 초과 등)의 안전망으로만 남긴다.
+export type FetchMarketCapsOptions = { priority?: KisPriority; knownNames?: ReadonlyMap<string, string> };
+
+export async function fetchMarketCapsWithRetry(tickers: string[], opts?: FetchMarketCapsOptions): Promise<Map<string, number>> {
+  const caps = await fetchMarketCapsCached(tickers, opts);
   const missing = tickers.filter((t) => !caps.has(t));
   if (missing.length === 0) return caps;
 
   await new Promise((r) => setTimeout(r, 300));
-  const retried = await fetchMarketCapsCached(missing);
+  const retried = await fetchMarketCapsCached(missing, opts);
   for (const [ticker, cap] of retried) caps.set(ticker, cap);
   return caps;
 }
@@ -163,9 +171,14 @@ export async function fetchMarketCapsWithRetry(tickers: string[]): Promise<Map<s
 async function selectPeersByMarketCapSimilarity(
   ticker: string,
   candidates: SectorPeerWithTrading[],
+  opts?: SectorPeersOptions,
 ): Promise<SectorPeerWithTrading[]> {
   const pool = [...candidates].sort((a, b) => b._trading - a._trading).slice(0, BROAD_SECTOR_CANDIDATE_CHECK_LIMIT);
-  const caps = await fetchMarketCapsWithRetry([ticker, ...pool.map((p) => p.ticker)]);
+  // 업종 페이지가 이미 준 종목명을 넘겨 fetchMarketCapsCached가 KIS search-stock-info를
+  // 추가로 부르지 않게 한다(실측 41건 중 30건이 이 이름 조회였다).
+  const knownNames = new Map(pool.map((p) => [p.ticker, p.name]));
+  if (opts?.targetName) knownNames.set(ticker, opts.targetName);
+  const caps = await fetchMarketCapsWithRetry([ticker, ...pool.map((p) => p.ticker)], { priority: opts?.priority, knownNames });
   const targetCap = caps.get(ticker);
   if (!targetCap) return pool.slice(0, 6);
 
@@ -189,7 +202,11 @@ export interface SectorPeersResult {
   isBroadSector: boolean;
 }
 
-export async function fetchSectorPeers(ticker: string): Promise<SectorPeersResult> {
+// priority: 리포트 생성처럼 서버 내부 fan-out이면 'batch'(2026-09-03 트래픽점검 10번).
+// targetName: 대상 종목명(알면 시세 캐시 행 저장 시 이름 조회를 생략할 수 있다).
+export type SectorPeersOptions = { priority?: KisPriority; targetName?: string };
+
+export async function fetchSectorPeers(ticker: string, opts?: SectorPeersOptions): Promise<SectorPeersResult> {
   // 1. Get the Naver upjong no for this ticker
   const itemHtml = await fetchNaverHtml(
     `https://finance.naver.com/item/coinfo.naver?code=${ticker}`,
@@ -206,7 +223,7 @@ export async function fetchSectorPeers(ticker: string): Promise<SectorPeersResul
   const isBroadSector = candidates.length > BROAD_SECTOR_MEMBER_THRESHOLD;
 
   const selected = isBroadSector
-    ? await selectPeersByMarketCapSimilarity(ticker, candidates)
+    ? await selectPeersByMarketCapSimilarity(ticker, candidates, opts)
     : [...candidates].sort((a, b) => b._trading - a._trading).slice(0, 6);
 
   return {
