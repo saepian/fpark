@@ -1,5 +1,8 @@
 {
   "framework": "nextjs",
+  "regions": [
+    "icn1"
+  ],
   "functions": {
     "app/api/cron/fetch-news/route.ts": {
       "maxDuration": 60
