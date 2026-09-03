@@ -233,30 +233,6 @@ export type Database = {
         }
         Relationships: []
       }
-      dashboard_analysis: {
-        Row: {
-          created_at: string | null
-          id: string
-          report_date: string
-          result: Json | null
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          report_date: string
-          result?: Json | null
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          report_date?: string
-          result?: Json | null
-          user_id?: string | null
-        }
-        Relationships: []
-      }
       dashboard_holdings: {
         Row: {
           avg_price: number
