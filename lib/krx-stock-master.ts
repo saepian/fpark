@@ -130,20 +130,36 @@ async function upsertMarket(market: string, items: StockMasterEntry[]): Promise<
 // 시장에만 호출), 일시적 조회 실패를 상장폐지로 오판해 지우는 사고는 없다. 우선주
 // (PREFERRED_STOCKS)는 두 데이터소스 모두 원천적으로 안 내려주는 별도 관리 대상이라
 // 항상 보존 대상에서 제외한다.
+//
+// 2026-09-03 실라이브 검증 중 실측 확인: 최초 구현에서 이 select에 .range() 페이지네이션이
+// 없어 KOSDAQ(1768행)처럼 PostgREST 기본 응답 상한(1000행)을 넘는 시장에서 뒤쪽 종목이
+// 조용히 누락됐다 — 471050(대신밸런스제17호스팩)이 원천 소스에 없는데도 정리 대상 조회에
+// 안 걸려 삭제되지 않는 걸로 발견(같은 실수를 getStockMasterList가 2026-08-25에 이미
+// 겪었던 것과 동일 패턴). .range()로 끝까지 읽도록 수정.
 export async function pruneStaleTickers(market: 'KOSPI' | 'KOSDAQ', freshItems: StockMasterEntry[]): Promise<number> {
   const freshTickers = new Set(freshItems.map((i) => i.ticker));
   const preferredTickers = new Set(PREFERRED_STOCKS.filter((p) => p.market === market).map((p) => p.ticker));
 
-  const { data: existing, error: selectError } = await adminClient
-    .from('stock_master')
-    .select('ticker')
-    .eq('market', market);
-  if (selectError) {
-    console.error(`[stock-master] ${market} 정리 대상 조회 실패, 정리 생략:`, selectError);
-    return 0;
+  const PAGE_SIZE = 1000;
+  const existing: { ticker: string }[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await adminClient
+      .from('stock_master')
+      .select('ticker')
+      .eq('market', market)
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) {
+      console.error(`[stock-master] ${market} 정리 대상 조회 실패, 정리 생략:`, error);
+      return 0;
+    }
+    if (!data || data.length === 0) break;
+    existing.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
 
-  const staleTickers = (existing ?? [])
+  const staleTickers = existing
     .map((r) => r.ticker)
     .filter((t) => !freshTickers.has(t) && !preferredTickers.has(t));
   if (staleTickers.length === 0) return 0;

@@ -17,12 +17,17 @@ vi.mock('@/lib/supabase-admin', () => {
   const stockMasterChain: any = {
     select: () => stockMasterChain,
     eq: (_col: string, _val: string) => {
-      // select().eq('market', market) 체인의 최종 resolve
       if (stockMasterChain.__mode === 'delete') {
         stockMasterChain.__deleteMarket = _val;
-        return stockMasterChain;
       }
-      return Promise.resolve({ data: mockState.existingTickers, error: mockState.selectError });
+      return stockMasterChain;
+    },
+    // select().eq('market', market).range(from, to) 체인의 최종 resolve — 실측 버그
+    // (KOSDAQ 1000행 초과 시 뒤쪽 종목 누락)를 재현하려면 range를 실제로 흉내내야 한다.
+    range: (from: number, to: number) => {
+      if (stockMasterChain.__mode === 'delete') throw new Error('delete 체인에는 range가 없음');
+      if (mockState.selectError) return Promise.resolve({ data: null, error: mockState.selectError });
+      return Promise.resolve({ data: mockState.existingTickers.slice(from, to + 1), error: null });
     },
     delete: () => { stockMasterChain.__mode = 'delete'; return stockMasterChain; },
     in: (_col: string, tickers: string[]) => {
@@ -96,5 +101,20 @@ describe('pruneStaleTickers', () => {
     const removed = await pruneStaleTickers('KOSDAQ', []);
     expect(removed).toBe(1);
     expect(mockState.deletedCalls).toEqual([{ market: 'KOSDAQ', tickers: ['032790'] }]);
+  });
+
+  // 2026-09-03 실라이브 검증 중 실제로 재현된 회귀 — KOSDAQ(1768행) 대상 실행 시
+  // PostgREST 기본 응답 상한(1000행) 때문에 뒤쪽 종목(471050)이 정리 대상 조회에서
+  // 아예 누락돼 유령 종목으로 남는 걸 실측 확인, .range() 페이지네이션으로 수정했다.
+  it('1000건을 넘는 시장에서도 끝까지 페이지네이션해서 뒤쪽 유령 종목까지 찾아낸다', async () => {
+    const freshTail = { ticker: '999999', name: '더미', market: 'KOSDAQ' as const };
+    mockState.existingTickers = [
+      ...Array.from({ length: 1000 }, (_, i) => ({ ticker: String(100000 + i) })),
+      { ticker: '471050' }, // 1001번째 행 — 구현이 1000건에서 끊으면 이 종목을 못 봄
+      { ticker: freshTail.ticker },
+    ];
+    const removed = await pruneStaleTickers('KOSDAQ', [freshTail]);
+    expect(removed).toBe(1001); // 더미 1000개 + 471050(신선 목록엔 999999만 있음)
+    expect(mockState.deletedCalls[0].tickers).toContain('471050');
   });
 });
