@@ -122,6 +122,49 @@ export function heuristicPriceRelevanceScore(candidate: NewsCandidate, todayChan
 
 const HEURISTIC_MARK_THRESHOLD = 2;
 
+// 2026-09-03 조사(9/2 기업분석 검토, 셀트리온 사례 — "코스피 강보합 마감" 같은 시장 전체
+// 기사가 참고기사에 섞여 들어옴): 실측(market_cache의 news_selection_* 캐시 154개 종목,
+// 709건 전수 조사) 결과 종목명이 본문에 전혀 언급되지 않는 참고기사가 다수 확인됨 —
+// 예) 현대차(005380) 리포트에 "스노우플레이크 실적 상향" 기사(무관 타종목), S-Oil(010950)
+// 리포트에 반도체(삼성전자·SK하이닉스) 시황 기사(무관 타업종), 오리온홀딩스(001800)
+// 리포트에 "항공·여행·식음료 업종 수혜" 순수 업종 나열 기사. 원인은 SELECTION_SYSTEM_PROMPT
+// 규칙 1이 "오늘 가격변동을 설명하는 기사는 매크로든 뭐든 최소 1건 반드시 선택"을 지시하면서도,
+// 그 매크로 기사가 "실제로 이 종목과 인과관계가 있는지"를 강제하는 장치가 없었기 때문 —
+// LLM 판단(대안1)에만 의존하고 결정론적 하한선(대안4, heuristicPriceRelevanceScore)은
+// 정렬·마킹에만 쓰이고 최종 채택 여부에는 전혀 관여하지 않았다.
+// 처음엔 heuristicPriceRelevanceScore(★ 마킹 기준)를 그대로 예외 조건으로 재사용하려
+// 했으나, PRICE_REACTION_KEYWORDS(급등/급락/반등/시황 등)는 시장 전체 마감시황 기사 자체가
+// "오늘 코스피가 몇 % 급락했다"를 보도하는 게 본업이라 거의 모든 시황 기사가 이 키워드를
+// 포함해 통과선을 넘어버리는 허점을 실측 중 발견(예: "코스피 4% 급락…6600선으로 후퇴"도
+// "급락" 키워드만으로 통과) — 원래 이 스코어는 정렬용 힌트일 뿐 채택 여부를 가르는 하한선으로
+// 설계되지 않았기 때문. 그래서 예외 조건을 "이 종목의 오늘 실제 등락률 숫자가 본문에 직접
+// 언급되는가"(priceMoveTextVariants)로 좁혔다 — 시장 전체 지수 등락률이 아니라 이 종목
+// 자신의 등락률이 본문에 있어야만 하므로, 무관한 시황 기사가 우연히 통과할 여지가 훨씬
+// 적다(07/31 전례처럼 실제로 이 종목의 등락과 함께 보도된 매크로 기사는 대개 그 종목의
+// 등락률도 같이 언급하므로 여전히 살아남는다). 개수가 줄어들더라도(빈 배열 포함) 무관한
+// 기사로 억지로 채우지 않는 쪽을 택했다 — 사용자 결정.
+// 대소문자만 다른 표기(예: 실측 확인된 "kt 밀리의서재" vs 종목명 "KT밀리의서재")로 인한
+// 오탐(불필요하게 걸러지는 것)을 줄이기 위해 대소문자 무시 비교.
+function mentionsStock(candidate: NewsCandidate, ticker: string, stockName: string): boolean {
+  const text = `${candidate.title} ${candidate.summary ?? ''}`.toLowerCase();
+  return text.includes(stockName.toLowerCase()) || text.includes(ticker);
+}
+
+function explainsOwnPriceMove(candidate: NewsCandidate, todayChangeRate?: number): boolean {
+  if (typeof todayChangeRate !== 'number') return false;
+  const text = `${candidate.title} ${candidate.summary ?? ''}`;
+  return priceMoveTextVariants(todayChangeRate).some((v) => text.includes(v));
+}
+
+export function filterUnrelated(
+  items: NewsCandidate[],
+  ticker: string,
+  stockName: string,
+  todayChangeRate?: number,
+): NewsCandidate[] {
+  return items.filter((c) => mentionsStock(c, ticker, stockName) || explainsOwnPriceMove(c, todayChangeRate));
+}
+
 function cacheKeyFor(ticker: string): string {
   return `news_selection_${ticker}`;
 }
@@ -265,6 +308,12 @@ export async function selectRelevantNews(
   } catch (e) {
     console.warn(`[NEWS-SELECTION] ${ticker} Haiku 선별 실패, 최신순 top3 폴백:`, e instanceof Error ? e.message : e);
     selected = fallback();
+  }
+
+  const beforeFilterCount = selected.length;
+  selected = filterUnrelated(selected, ticker, stockName, todayChangeRate);
+  if (selected.length < beforeFilterCount) {
+    console.log(`[NEWS-SELECTION] ${ticker} 종목명 미언급+무관 기사 ${beforeFilterCount - selected.length}건 제외 (${beforeFilterCount} → ${selected.length})`);
   }
 
   // 2026-07-31: 선별("이 5건을 고를지")과 표시 순서("고른 걸 어떤 순서로 보여줄지")는
