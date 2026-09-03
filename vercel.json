@@ -103,10 +103,6 @@
     {
       "path": "/api/cron/stock-master-refresh",
       "schedule": "10 17 * * *"
-    },
-    {
-      "path": "/api/cron/news-sentiment",
-      "schedule": "20 21 * * 0-4"
     }
   ]
 }

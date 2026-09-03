@@ -7,6 +7,13 @@ import { classifyNewsSentiment, computeSentimentScore } from '@/lib/news-sentime
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
+// 2026-09-03: 뉴스 논조 추이 기능 완전 정지. SHOW_NEWS_SENTIMENT_CARD/SHOW_SECTOR_SENTIMENT_CARD가
+// 이미 false라 카드는 안 보이는데 크론은 계속 KIS/Naver 호출 + DB upsert를 하고 있었다.
+// vercel.json에서 스케줄은 뺐지만, 수동 트리거나 향후 스케줄 재등록 실수에도 이 가드가 막는다.
+// 재개하려면: 아래 값을 false로 바꾸고 vercel.json의 crons 배열에 스케줄을 다시 추가할 것
+// (git log에서 "news-sentiment" 관련 커밋 참고).
+const NEWS_SENTIMENT_CRON_DISABLED = true;
+
 // 2026-08-04 실측: fetchCuratedMovers(KIS 전용) 전례를 따라 10개씩 배치로 처음 돌렸더니
 // 종목당 Naver 검색이 2회(이름+코드)라 배치당 동시 요청이 20건까지 몰려 Naver 뉴스 검색
 // API가 HTTP 429를 대량 반환(100건 중 41건이 apiError로 빈 결과)했다 — KIS와 Naver의
@@ -61,6 +68,11 @@ export async function GET(request: NextRequest) {
   if (authHeader !== `Bearer ${cronSecret}`) {
     console.warn('[cron/news-sentiment] Unauthorized:', authHeader ? 'wrong token' : 'missing Authorization header');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (NEWS_SENTIMENT_CRON_DISABLED) {
+    console.log('[cron/news-sentiment] 정지 상태 — 실행 건너뜀 (재개하려면 NEWS_SENTIMENT_CRON_DISABLED 참고)');
+    return NextResponse.json({ ok: true, skipped: true, reason: 'disabled' });
   }
 
   const todayStr = kstDateStr();
