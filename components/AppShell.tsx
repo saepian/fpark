@@ -3,7 +3,6 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import Hero from './main/Hero';
-import PersonalStrip from './main/PersonalStrip';
 import NewsFeed from './main/NewsFeed';
 import TopMovers from './main/TopMovers';
 import MarketSummary from './main/MarketSummary';
@@ -18,9 +17,6 @@ export default function AppShell() {
     <>
       {/* 풀 와이드 히어로 */}
       <Hero />
-
-      {/* 2026-09-04 C: 로그인 유저 전용 개인화 스트립 — 히어로 바로 아래, 뉴스 그리드 위(비로그인은 자체적으로 null) */}
-      <PersonalStrip />
 
       {/* 콘텐츠 그리드 */}
       <div className="max-w-[1400px] mx-auto px-6 py-8">

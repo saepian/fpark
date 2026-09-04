@@ -202,11 +202,9 @@ export default function AiInsightCard() {
         >
           기업 리포트 보기 →
         </button>
-
-        {/* 면책고지 */}
-        <p className="text-xs text-slate-600 leading-relaxed">
-          ⚠ {INVESTMENT_DISCLAIMER}
-        </p>
+        {/* 2026-09-04: 하단 회색 면책 문구 영구 삭제 — 상단 노란 박스(INVESTMENT_DISCLAIMER 포함)와
+            내용이 완전 중복돼 있던 원본 화면의 실제 버그. 그 외 이 카드의 나머지 구조(요약·상세 서술·
+            52주 고점 박스·참고 정보 등)는 전부 그대로 복원했다. */}
       </div>
     </div>
   );
