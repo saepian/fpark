@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Parser from 'rss-parser';
 import { adminClient as supabase } from '@/lib/supabase-admin';
 import { isFinanceRelated } from '@/lib/gemini';
-import { batchSummarize, type BatchArticle } from '@/lib/summarize';
+import { batchSummarizeAndScore, isNewsFlagged, type BatchArticle, type ScoredSummary } from '@/lib/summarize';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -58,11 +58,10 @@ async function extractImageUrl(item: Parser.Item & CustomItem): Promise<string |
   return null;
 }
 
-const CATEGORY_IMAGE_FALLBACK: Record<string, string> = {
-  domestic: 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=200&fit=crop',
-  global:   'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=200&fit=crop',
-};
-const DEFAULT_IMAGE_FALLBACK = 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=400&h=200&fit=crop';
+// 2026-09-04 메인 뉴스 품질 개선 B-2: 예전엔 RSS 이미지가 없으면 여기서 카테고리 폴백(국내/해외 모두
+// 같은 캔들차트 unsplash) URL을 image_url에 그대로 저장해 메인 카드가 전부 같은 사진으로 보였다.
+// 이제 폴백은 저장하지 않고 null로 남긴다 — 표시 쪽(components/main/NewsCard.tsx)이 카테고리·기사별로
+// 분산된 플레이스홀더를 그린다. 예전 행에 박힌 폴백 URL도 NewsCard가 같은 규칙으로 걸러낸다.
 
 type Candidate = {
   title: string; content: string; url: string;
@@ -82,7 +81,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const results = { saved: 0, skipped: 0, filtered: 0, errors: 0 };
+  const results = { saved: 0, skipped: 0, filtered: 0, flagged: 0, errors: 0, haiku: null as null | { inputTokens: number; outputTokens: number } };
   const domesticCandidates: Candidate[] = [];
   const globalCandidates:   Candidate[] = [];
 
@@ -153,20 +152,28 @@ export async function GET(request: NextRequest) {
     `(건너뜀:${results.skipped} 필터:${results.filtered})`
   );
 
-  // 4단계: 전체 기사 한 번에 요약 + 이미지 추출 동시 실행
-  console.log(`[CRON] 요약 + 이미지 추출 시작 (${candidates.length}개 병렬)`);
-  const [summaries, allImageUrls] = await Promise.all([
-    batchSummarize(candidates.map((c) => ({ title: c.title, content: c.content } as BatchArticle))).catch((e) => {
-      console.error('[CRON] batchSummarize 오류:', e instanceof Error ? e.message.slice(0, 100) : e);
-      return candidates.map(() => null as string | null);
+  // 4단계: 전체 기사 한 번에 요약+관련성 스코어링(Haiku 1회) + 이미지 추출 동시 실행
+  // 2026-09-04 B-1: 키워드 필터(isFinanceRelated)만으로는 "[게시판] 은행연합회 위문금", "BNK투자증권
+  // 금리우대 이벤트", "노원구 청년창업 인증제" 같은 홍보성·지역행사 기사가 그대로 메인에 올라왔다
+  // (9/4 실데이터). 요약을 만들던 Haiku 호출에 점수/홍보성 판정을 얹어 크론 1회당 Haiku 1회를
+  // 유지한 채 플래그를 저장하고, /api/news가 플래그 행을 제외한다(삭제하지 않음).
+  console.log(`[CRON] 요약+스코어링 + 이미지 추출 시작 (${candidates.length}개 병렬)`);
+  const fallbackScored: ScoredSummary[] = candidates.map(() => ({ summary: '', relevance: 5, promotional: false, reason: '스코어링 실패 — 보수적으로 노출' }));
+  const [scored, allImageUrls] = await Promise.all([
+    batchSummarizeAndScore(candidates.map((c) => ({ title: c.title, content: c.content } as BatchArticle))).catch((e) => {
+      console.error('[CRON] batchSummarizeAndScore 오류:', e instanceof Error ? e.message.slice(0, 100) : e);
+      return { items: fallbackScored, usage: null };
     }),
     Promise.all(candidates.map((c) => extractImageUrl(c.item).catch(() => null))),
   ]);
-  console.log(`[CRON] 요약 완료: ${summaries.filter(Boolean).length}/${summaries.length}개 성공`);
+  results.haiku = scored.usage;
+  console.log(`[CRON] 요약 완료: ${scored.items.filter((s) => s.summary).length}/${scored.items.length}개 성공, Haiku usage=${JSON.stringify(scored.usage)}`);
 
   // 5단계: Supabase 저장 (병렬)
   await Promise.all(candidates.map(async (c, j) => {
-    const summary  = summaries[j] || null;
+    const sc = scored.items[j] ?? fallbackScored[j];
+    const flagged = isNewsFlagged(sc);
+    if (flagged) results.flagged++;
     const imageUrl = allImageUrls[j];
 
     const payload = {
@@ -175,16 +182,25 @@ export async function GET(request: NextRequest) {
       category:     c.category,
       sub_category: 'general' as const,
       original_url: c.url,
-      summary,
+      summary:      sc.summary || null,
       stocks:       [],
-      image_url:    imageUrl ?? CATEGORY_IMAGE_FALLBACK[c.category] ?? DEFAULT_IMAGE_FALLBACK,
+      image_url:    imageUrl ?? null,
       published_at: c.pubDate,
+      relevance_score: sc.relevance,
+      is_promotional:  flagged,
     };
 
     let { error } = await supabase.from('articles').insert(payload);
 
+    // 마이그레이션(20260904_articles_relevance.sql) 미적용 DB에서도 크론이 죽지 않도록 —
+    // sub_category 폴백과 같은 패턴. 플래그 없이 저장되면 그 행은 메인에 노출된다(구 동작).
+    if (error?.message.includes('relevance_score') || error?.message.includes('is_promotional')) {
+      console.warn('[CRON] relevance 컬럼 없음(마이그레이션 미적용) — 플래그 없이 저장');
+      const { relevance_score: _rs, is_promotional: _ip, ...withoutFlags } = payload;
+      ({ error } = await supabase.from('articles').insert(withoutFlags));
+    }
     if (error?.message.includes('sub_category')) {
-      const { sub_category: _sc, ...withoutSub } = payload;
+      const { sub_category: _sc, relevance_score: _rs2, is_promotional: _ip2, ...withoutSub } = payload;
       ({ error } = await supabase.from('articles').insert(withoutSub));
     }
 
@@ -193,7 +209,7 @@ export async function GET(request: NextRequest) {
       results.errors++;
     } else {
       results.saved++;
-      console.log(`[저장] ${c.category} ${c.source} — ${c.title.slice(0, 50)}`);
+      console.log(`[저장${flagged ? '·제외' : ''}] ${c.category} ${c.source} — ${c.title.slice(0, 50)} (관련성 ${sc.relevance}${sc.promotional ? ', 홍보성' : ''}${flagged ? ` — ${sc.reason}` : ''})`);
     }
   }));
 

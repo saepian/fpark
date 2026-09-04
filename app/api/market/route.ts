@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { fetchMarketIndex } from '../../../lib/kis-api';
 import { supabase } from '../../../lib/supabase';
 import { isKoreanMarketOpen, getLastTradingDate, fetchYahooIndex } from '../../../lib/market-utils';
+import { getMarketDataStatus } from '../../../lib/market-status-server';
 import { tryAcquireCacheLock, releaseCacheLock } from '../../../lib/cache-lock';
 import type { MarketResponse, MarketIndexData } from '../../../lib/types';
 import type { Database } from '../../../lib/database.types';
@@ -301,6 +302,10 @@ export async function GET() {
   const prevDate    = marketOpen ? null : getLastTradingDate();
   const isPrevDay   = !marketOpen;
   const prevDateLabel = prevDate?.label;
+  // 2026-09-04 A: 공휴일까지 반영한 상태/기준일 — 실패해도 응답은 낸다(프론트가 legacy 필드로 폴백).
+  const statusFields = await getMarketDataStatus()
+    .then((st) => ({ marketStatus: st.status, dataDateLabel: st.dataDateLabel }))
+    .catch((e) => { console.warn('[MARKET] 시장 상태 판정 실패(legacy 필드만 반환):', e instanceof Error ? e.message : e); return {}; });
 
   // USD_KRW는 market_indices와 완전히 독립적으로 5분 TTL만 본다(장 상태 무관, 위
   // FX_CACHE_KEY 설명 참고). 여기서 신선하면 확보해두고, 아래에서 market_indices가
@@ -330,7 +335,7 @@ export async function GET() {
           // 있으니 이 경우에만 USD_KRW 하나만 단독 갱신(무거운 fetchLive() 전체를
           // 다시 돌리지 않음).
           if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
-          return NextResponse.json({ ...(cache.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cache.updated_at, isPrevDay, prevDateLabel });
+          return NextResponse.json({ ...(cache.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cache.updated_at, isPrevDay, prevDateLabel, ...statusFields });
         }
       }
     }
@@ -347,7 +352,7 @@ export async function GET() {
   if (!won) {
     if (cacheRow) {
       if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
-      return NextResponse.json({ ...(cacheRow.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cacheRow.updated_at, isPrevDay, prevDateLabel });
+      return NextResponse.json({ ...(cacheRow.data as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: cacheRow.updated_at, isPrevDay, prevDateLabel, ...statusFields });
     }
     // 값 자체가 없는 진짜 콜드(최초 배포 직후 등 극히 드문 경우) — 승자의 결과를 짧게 기다린다.
     const deadline = Date.now() + 4000;
@@ -357,7 +362,7 @@ export async function GET() {
         const { data: polled } = await supabase.from('market_cache').select('data, updated_at').eq('key', CACHE_KEY).single();
         if (polled) {
           if (!usdKrwValue) usdKrwValue = await refreshUsdKrw();
-          return NextResponse.json({ ...(polled.data as unknown as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: polled.updated_at, isPrevDay, prevDateLabel });
+          return NextResponse.json({ ...(polled.data as unknown as MarketResponse), USD_KRW: usdKrwValue, isCached: true, cachedAt: polled.updated_at, isPrevDay, prevDateLabel, ...statusFields });
         }
       } catch { /* 아직 없음 — 계속 폴링 */ }
     }
@@ -401,14 +406,14 @@ export async function GET() {
         if (error) console.warn('[MARKET] USD/KRW 캐시 저장 실패:', error.message);
       });
     }
-    return NextResponse.json({ ...live, USD_KRW: live.USD_KRW ?? usdKrwValue, isCached: false, cachedAt: null, isPrevDay, prevDateLabel });
+    return NextResponse.json({ ...live, USD_KRW: live.USD_KRW ?? usdKrwValue, isCached: false, cachedAt: null, isPrevDay, prevDateLabel, ...statusFields });
   } catch (e) {
     console.error('[MARKET] 지수 조회 실패, 캐시로 폴백:', e instanceof Error ? e.message : e);
     if (won) await releaseCacheLock(CACHE_KEY);
   }
 
   const cached = await getCache();
-  if (cached) return NextResponse.json({ ...cached, USD_KRW: usdKrwValue ?? cached.USD_KRW, isPrevDay, prevDateLabel });
+  if (cached) return NextResponse.json({ ...cached, USD_KRW: usdKrwValue ?? cached.USD_KRW, isPrevDay, prevDateLabel, ...statusFields });
 
   return NextResponse.json({ error: '시장 데이터를 불러올 수 없습니다.' }, { status: 503 });
 }

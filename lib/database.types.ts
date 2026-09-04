@@ -20,8 +20,10 @@ export type Database = {
           created_at: string | null
           id: string
           image_url: string | null
+          is_promotional: boolean
           original_url: string
           published_at: string | null
+          relevance_score: number | null
           source: string
           stocks: Json | null
           sub_category: string | null
@@ -33,8 +35,10 @@ export type Database = {
           created_at?: string | null
           id?: string
           image_url?: string | null
+          is_promotional?: boolean
           original_url: string
           published_at?: string | null
+          relevance_score?: number | null
           source: string
           stocks?: Json | null
           sub_category?: string | null
@@ -46,8 +50,10 @@ export type Database = {
           created_at?: string | null
           id?: string
           image_url?: string | null
+          is_promotional?: boolean
           original_url?: string
           published_at?: string | null
+          relevance_score?: number | null
           source?: string
           stocks?: Json | null
           sub_category?: string | null

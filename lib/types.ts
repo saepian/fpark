@@ -74,6 +74,9 @@ export interface MarketResponse {
   cachedAt?: string | null;
   isPrevDay?: boolean;
   prevDateLabel?: string;
+  // 2026-09-04 A: 시각+앵커차트(공휴일 포함) 판정 — lib/market-status.ts. 프론트 라벨은 이 두 필드로 그린다.
+  marketStatus?: 'open' | 'closed' | 'pre_open' | 'holiday' | 'weekend';
+  dataDateLabel?: string; // MM/DD
 }
 
 export interface SearchResult {
@@ -107,6 +110,8 @@ export interface NewsItem {
   image_url: string | null;
   published_at: string;
   created_at: string;
+  relevance_score?: number | null; // 2026-09-04 Haiku 관련성 점수(0~10), 구 행은 null
+  is_promotional?: boolean;        // 2026-09-04 홍보성 플래그 — true면 메인 노출 제외
 }
 
 export interface TopNewsResponse {
@@ -170,5 +175,7 @@ export interface MoversResponse {
   isCached?: boolean;
   cachedAt?: string | null;
   isPrevDay?: boolean;
-  prevDateLabel?: string; // "MM/DD" 형식
+  prevDateLabel?: string; // "MM/DD" 형식 — 장외 경로가 실제로 데이터를 찾은 거래일
+  marketStatus?: 'open' | 'closed' | 'pre_open' | 'holiday' | 'weekend'; // 2026-09-04 A
+  dataDateLabel?: string; // MM/DD — prevDateLabel(실데이터 날짜) 우선, 없으면 앵커 판정 날짜
 }

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { MoverStock, MoversResponse } from '../../lib/types';
+import { marketStatusLabel, statusFromLegacy } from '../../lib/market-status';
 
 interface TopMoversProps {
   onSelectStock: (ticker: string) => void;
@@ -122,19 +123,19 @@ export default function TopMovers({ onSelectStock }: TopMoversProps) {
             <h2 className="font-sans text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-[#8c909f]">
               TOP MOVERS
             </h2>
-            {movers?.isPrevDay && (
-              <span className="text-[11px] text-slate-500">
-                전일 기준{movers.prevDateLabel ? ` · ${movers.prevDateLabel}` : ''}
-              </span>
-            )}
-            {!movers?.isPrevDay && movers?.isCached && movers?.cachedAt && (
-              <span className="text-[11px] text-slate-500">
-                장마감 · {new Date(movers.cachedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul' })} 기준
-              </span>
-            )}
-            {!movers?.isPrevDay && !movers?.isCached && movers && (
-              <span className="text-[11px] text-emerald-600 dark:text-emerald-500">실시간</span>
-            )}
+            {/* 2026-09-04 A: "전일 기준"(마감 후 당일 데이터에도 붙던 오표기)·"장마감 · 시각"(장중 캐시히트에
+                붙던 오표기) 분기 제거 — 서버 marketStatus/dataDateLabel로 lib/market-status.ts 표에 따라 표기 */}
+            {movers && (() => {
+              const st = movers.marketStatus && movers.dataDateLabel != null
+                ? { status: movers.marketStatus, dataDateLabel: movers.dataDateLabel }
+                : statusFromLegacy(movers.isPrevDay, movers.prevDateLabel);
+              const label = marketStatusLabel('movers', st, movers.cachedAt);
+              return (
+                <span className={`text-[11px] ${st.status === 'open' ? 'text-emerald-600 dark:text-emerald-500' : 'text-slate-500'}`} data-testid="movers-status-label">
+                  {label}
+                </span>
+              );
+            })()}
           </div>
           <button
             onClick={() => load(true)}

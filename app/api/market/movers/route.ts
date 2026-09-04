@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAccessToken, acquireKisRateSlot, fetchCuratedMovers, assertKisTokenValid, withKisTokenRetry, cacheJsonResult } from '@/lib/kis-api';
 import { isKoreanMarketOpen, getTradingDateCandidates, findFirstNonEmptyByDate } from '@/lib/market-utils';
+import { getMarketDataStatus } from '@/lib/market-status-server';
 import { EXCLUDE_PATTERN } from '@/lib/market-ranking';
 import type { MoversResponse, MoverStock } from '@/lib/types';
 
@@ -284,7 +285,13 @@ export async function GET() {
       { invalidateAcrossClose: true },
     );
     const { prevDateLabel, ...rest } = data;
-    return NextResponse.json({ ...rest, isCached, cachedAt, isPrevDay: !marketOpen, prevDateLabel });
+    // 2026-09-04 A: 상태 필드 추가. 예전 isPrevDay(=!장중)는 마감 후 당일 데이터에도 "전일"이 붙던 원인 —
+    // 호환용으로 남기되 프론트는 marketStatus/dataDateLabel을 쓴다. 날짜는 장외 경로가 실제로 데이터를
+    // 찾은 거래일(prevDateLabel)을 우선한다.
+    const statusFields = await getMarketDataStatus()
+      .then((st) => ({ marketStatus: st.status, dataDateLabel: prevDateLabel ?? st.dataDateLabel }))
+      .catch((e) => { console.warn('[MOVERS] 시장 상태 판정 실패(legacy 필드만 반환):', e instanceof Error ? e.message : e); return {}; });
+    return NextResponse.json({ ...rest, isCached, cachedAt, isPrevDay: !marketOpen, prevDateLabel, ...statusFields });
   } catch (e) {
     console.error('[MOVERS] 전체 실패(캐시도 없음):', e instanceof Error ? e.message : e);
     return NextResponse.json({ error: '시세 데이터를 불러올 수 없습니다.' }, { status: 503 });

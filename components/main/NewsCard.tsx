@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { NewsItem, StockTag } from '../../lib/types';
+import { isLegacyFallbackImage, pickNewsPlaceholder } from '../../lib/news-placeholder';
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -20,13 +21,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   real_estate: '부동산', stock: '종목', company: '기업', crypto: '가상화폐',
 };
 
-const CATEGORY_IMAGES: Record<string, string> = {
-  domestic:    'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=200&fit=crop',
-  global:      'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=200&fit=crop',
-  macro:       'https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=400&h=200&fit=crop',
-  real_estate: 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=400&h=200&fit=crop',
-};
-const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=400&h=200&fit=crop';
+// 2026-09-04 B-2: 카테고리 무관하게 같은 unsplash 캔들차트로 폴백하던 CATEGORY_IMAGES/DEFAULT_IMAGE 제거 —
+// 이미지가 없거나(신규 행은 null) 예전 폴백 URL이 박힌 행이면 lib/news-placeholder.ts의 분산 플레이스홀더.
 
 function stockNames(stocks: StockTag[] | string[] | null): string[] {
   if (!stocks || stocks.length === 0) return [];
@@ -42,7 +38,9 @@ interface NewsCardProps {
 
 export default function NewsCard({ item, onSelectStock }: NewsCardProps) {
   const names = stockNames(item.stocks);
-  const imgSrc = item.image_url || CATEGORY_IMAGES[item.category] || DEFAULT_IMAGE;
+  const hasImage = !isLegacyFallbackImage(item.image_url);
+  const placeholder = pickNewsPlaceholder(item.category, item.id);
+  const [imgFailed, setImgFailed] = React.useState(false);
 
   const handleCardClick = () => {
     window.open(item.original_url, '_blank', 'noopener,noreferrer');
@@ -61,15 +59,26 @@ export default function NewsCard({ item, onSelectStock }: NewsCardProps) {
     >
       {/* Category thumbnail */}
       <div className="w-32 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-slate-800">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imgSrc}
-          alt={item.title}
-          width={128}
-          height={96}
-          className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500"
-          onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = DEFAULT_IMAGE; }}
-        />
+        {hasImage && !imgFailed ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.image_url!}
+            alt={item.title}
+            width={128}
+            height={96}
+            className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500"
+            onError={() => setImgFailed(true)}
+          />
+        ) : (
+          <div
+            data-placeholder={placeholder.key}
+            className="w-full h-full flex items-end p-2"
+            style={{ background: placeholder.background }}
+            aria-hidden="true"
+          >
+            <span className="text-[11px] font-bold tracking-wider text-white/70">{placeholder.label}</span>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col justify-between py-0.5 flex-1 min-w-0">

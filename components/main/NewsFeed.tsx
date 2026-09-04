@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight } from 'lucide-react';
 import NewsCard from './NewsCard';
 import { NewsItem, NewsListResponse } from '../../lib/types';
 
@@ -14,7 +13,8 @@ const TABS = [
 
 type TabCode = typeof TABS[number]['code'];
 
-const PAGE_SIZE = 10;
+// 2026-09-04 B-3: 메인 노출 7건+ → 5건으로 축소(아래 "뉴스 더보기 →"로 /news 유도)
+const PAGE_SIZE = 5;
 
 interface NewsFeedProps {
   onSelectStock: (ticker: string) => void;
@@ -102,8 +102,7 @@ export default function NewsFeed({ onSelectStock }: NewsFeedProps) {
             onClick={handleMoreClick}
             className="w-full py-3.5 mt-2 flex items-center justify-center gap-2 border border-gray-200 dark:border-[#2d313e] rounded-lg text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#1a1d27] hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-400 dark:hover:border-blue-500 transition-all"
           >
-            뉴스 더보기
-            <ChevronRight className="w-4 h-4" />
+            뉴스 더보기 →
           </button>
         </div>
       )}

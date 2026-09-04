@@ -9,10 +9,15 @@ import WelcomeBanner from './WelcomeBanner';
 import type { SearchResult } from '@/lib/types';
 import { useStockSearch } from '@/lib/useStockSearch';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
+import { marketStatusLabel, statusFromLegacy, type MarketStatus } from '@/lib/market-status';
 
 interface MarketData {
   KOSPI: { value: number; changeRate: number };
   KOSDAQ: { value: number; changeRate: number };
+  isPrevDay?: boolean;
+  prevDateLabel?: string;
+  marketStatus?: MarketStatus; // 2026-09-04 A
+  dataDateLabel?: string;
 }
 
 const POPULAR = [
@@ -324,10 +329,19 @@ export default function Hero() {
               </div>
             ))}
             <div className="w-px h-4 bg-slate-700" />
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-xs text-slate-500">실시간</span>
-            </div>
+            {/* 2026-09-04 A: 예전엔 조건 없이 항상 "● 실시간" — 마감 후·휴일엔 "마감 · MM/DD"(회색 점) */}
+            {(() => {
+              const st = market.marketStatus && market.dataDateLabel != null
+                ? { status: market.marketStatus, dataDateLabel: market.dataDateLabel }
+                : statusFromLegacy(market.isPrevDay, market.prevDateLabel);
+              const open = st.status === 'open';
+              return (
+                <div className="flex items-center gap-1.5" data-testid="hero-status-badge">
+                  <span className={`w-1.5 h-1.5 rounded-full ${open ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+                  <span className="text-xs text-slate-500">{marketStatusLabel('hero', st)}</span>
+                </div>
+              );
+            })()}
           </div>
         )}
 

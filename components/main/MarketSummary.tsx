@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import type { MarketResponse, MarketIndexData } from '../../lib/types';
+import { marketStatusLabel, statusFromLegacy, type MarketStatus } from '../../lib/market-status';
 
 function makeSparkData(isUp: boolean) {
   const pts = isUp
@@ -63,8 +64,8 @@ export default function MarketSummary() {
   const [current,      setCurrent]     = useState(0);
   const [sliding,      setSliding]     = useState(false);
   const [loading,      setLoading]     = useState(true);
-  const [isPrevDay,    setIsPrevDay]   = useState(false);
-  const [prevDateLabel, setPrevDateLabel] = useState<string | undefined>();
+  // 2026-09-04 A: 서버 marketStatus/dataDateLabel(공휴일 포함) 기반 라벨 — 구 응답이면 legacy 필드로 근사
+  const [statusInfo, setStatusInfo] = useState<{ status: MarketStatus; dataDateLabel: string } | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
@@ -73,8 +74,9 @@ export default function MarketSummary() {
       const data: MarketResponse = await res.json();
       if (res.ok) {
         setItems(buildItems(data));
-        setIsPrevDay(data.isPrevDay ?? false);
-        setPrevDateLabel(data.prevDateLabel);
+        setStatusInfo(data.marketStatus && data.dataDateLabel != null
+          ? { status: data.marketStatus, dataDateLabel: data.dataDateLabel }
+          : statusFromLegacy(data.isPrevDay, data.prevDateLabel));
       }
     } catch (e) {
       console.error('[MarketSummary] 로드 실패:', e);
@@ -139,13 +141,10 @@ export default function MarketSummary() {
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             Market Summary
           </span>
-          {isPrevDay && (
-            <span className="text-[11px] text-slate-500">
-              {prevDateLabel ? `${prevDateLabel} 종가 기준` : '전일 종가 기준'}
+          {statusInfo && (
+            <span className={`text-[11px] ${statusInfo.status === 'open' ? 'text-emerald-600 dark:text-emerald-500' : 'text-slate-500'}`} data-testid="summary-status-label">
+              {marketStatusLabel('summary', statusInfo)}
             </span>
-          )}
-          {!isPrevDay && !loading && (
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-500">실시간</span>
           )}
         </div>
         <button
