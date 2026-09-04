@@ -35,8 +35,24 @@ import type { Database } from './database.types';
 // 대체가 아니라 보완재(★ 없어도 선택 가능하다고 프롬프트에 명시, 새로운 표현의 헤드라인을
 // 놓치지 않기 위함).
 
-const NEWS_SELECTION_TTL_MS = 20 * 60 * 1000; // 뉴스는 DART와 달리 실시간성이 중요해 짧게
+export const NEWS_SELECTION_TTL_MS = 20 * 60 * 1000; // 뉴스는 DART와 달리 실시간성이 중요해 짧게
 const NEWS_SELECTION_MAX = 5; // Haiku가 지시보다 더 반환해도 여기서 하드캡
+
+// 2026-09-04 비용 절감 조사: 종목명·코드 검색(display=100×2)으로 모인 후보 170~197건을 "제목 — 스니펫"
+// 전부 Haiku에 넣어 종목당 입력 27~34k 토큰(≈$0.03)이 나갔고, 이 뉴스선별 호출이 전체 Claude 비용의
+// 절반을 넘었다(리포트 본체 Sonnet보다 비쌈). 실측(5종목)에서 휴리스틱 점수 정렬 후 상위 80건만 넣어도
+// 선택 결과가 현행의 재실행 편차(5건 중 1건) 안에서 유지되면서 비용은 55% 줄었다 — ★(원인 후보)는
+// 정렬로 전부 앞쪽에 오고, 그 뒤는 검색 최신순이라 오래된 후보부터 잘린다. 제목만 넣는 안(72%↓)은
+// 2026-08-24에 스니펫을 넣은 이유(원인 디테일이 스니펫에만 있음)를 되돌리는 것이라 채택하지 않았다.
+export const NEWS_SELECTION_CANDIDATE_CAP = 80;
+
+export interface SelectRelevantNewsOptions {
+  // 호출자별 캐시 허용 연령. 기본은 NEWS_SELECTION_TTL_MS(20분). daily-alert-email(15:45 크론 1회)은
+  // 20분 TTL로는 재사용 기회가 사실상 없고(2026-09-04 조사), 그날 낮에 다른 경로가 만든 선별을 2시간까지
+  // 받아들여도 메일 용도로 충분해 더 긴 값을 넘긴다. 캐시 행은 공유되지만 TTL 판정은 읽는 쪽에서만
+  // 하므로 다른 호출자(종목분석/기업분석/포트폴리오/관련뉴스 위젯)는 옵션 미지정 → 20분 그대로.
+  maxCacheAgeMs?: number;
+}
 
 let _sb: ReturnType<typeof createClient<Database>> | null = null;
 function getSb() {
@@ -169,14 +185,14 @@ function cacheKeyFor(ticker: string): string {
   return `news_selection_${ticker}`;
 }
 
-async function loadFromCache(ticker: string): Promise<NewsCandidate[] | null> {
+async function loadFromCache(ticker: string, maxAgeMs: number = NEWS_SELECTION_TTL_MS): Promise<NewsCandidate[] | null> {
   try {
     const { data } = await getSb()
       .from('market_cache')
       .select('data, updated_at')
       .eq('key', cacheKeyFor(ticker))
       .single();
-    if (data?.data && Date.now() - new Date(data.updated_at as string).getTime() < NEWS_SELECTION_TTL_MS) {
+    if (data?.data && Date.now() - new Date(data.updated_at as string).getTime() < maxAgeMs) {
       return data.data as unknown as NewsCandidate[];
     }
   } catch (e) {
@@ -207,13 +223,55 @@ async function saveToCache(ticker: string, items: NewsCandidate[]): Promise<void
 // 호출부(daily-alert-email의 fetchNewsMapForStocks)가 "확인된 없음"과 "확인 자체를
 // 못함"을 구분해 다른 문구를 보여줄 수 있도록 명시적으로 반환한다. 기존 호출부 5곳은
 // 전부 { items } 구조분해만 하므로 필드 추가는 하위호환.
+// Haiku에 보여줄 후보 목록 — 휴리스틱 점수 내림차순(안정 정렬) → 상위 NEWS_SELECTION_CANDIDATE_CAP건.
+// 순수 함수(vitest 대상). scored의 순서가 곧 Haiku가 답하는 인덱스(i)다.
+export function buildSelectionList(
+  candidates: NewsCandidate[],
+  todayChangeRate?: number,
+  cap: number = NEWS_SELECTION_CANDIDATE_CAP,
+): { scored: { c: NewsCandidate; score: number }[]; list: string; truncated: number } {
+  const all = candidates
+    .map((c) => ({ c, score: heuristicPriceRelevanceScore(c, todayChangeRate) }))
+    .sort((a, b) => b.score - a.score);
+  const scored = all.slice(0, cap);
+  const list = scored.map(({ c, score }, i) => {
+    const mark = score >= HEURISTIC_MARK_THRESHOLD ? '★ ' : '';
+    const snippet = c.summary ? ` — ${c.summary}` : '';
+    return `${i}: ${mark}${c.title}${snippet}`;
+  }).join('\n');
+  return { scored, list, truncated: Math.max(0, all.length - scored.length) };
+}
+
+// Haiku 응답 → 인덱스 배열. 구조화 출력({indices:[...]})이 1순위, 구 형식(맨 앞 배열 하나)도 허용.
+// 2026-09-04: 예전 정규식 /\[[\s\S]*\]/는 탐욕적이라 출력에 배열이 둘이거나 프리앰블 뒤에 배열이 오면
+// 첫 '['부터 마지막 ']'까지 통째로 잡아 파싱에 실패했다(프로브 10회 중 2회 → 최신순 top3 폴백).
+export function parseSelectionIndices(text: string): number[] | null {
+  const trimmed = text.trim();
+  try {
+    const obj = JSON.parse(trimmed);
+    if (Array.isArray(obj)) return obj.every((i) => typeof i === 'number') ? obj : null;
+    if (obj && Array.isArray(obj.indices) && obj.indices.every((i: unknown) => typeof i === 'number')) return obj.indices;
+  } catch { /* 아래 폴백 */ }
+  const m = trimmed.match(/\[[^\[\]]*\]/); // 첫 번째 배열만
+  if (!m) return null;
+  try { const arr = JSON.parse(m[0]); return Array.isArray(arr) && arr.every((i) => typeof i === 'number') ? arr : null; } catch { return null; }
+}
+
+const SELECTION_SCHEMA = {
+  type: 'object',
+  properties: { indices: { type: 'array', items: { type: 'integer' } } },
+  required: ['indices'],
+  additionalProperties: false,
+} as const;
+
 export async function selectRelevantNews(
   ticker: string,
   stockName: string,
   extraCandidates: Promise<NewsCandidate[]> | NewsCandidate[] = [],
   todayChangeRate?: number,
+  opts: SelectRelevantNewsOptions = {},
 ): Promise<{ items: NewsCandidate[]; isCached: boolean; apiError: boolean }> {
-  const cached = await loadFromCache(ticker);
+  const cached = await loadFromCache(ticker, opts.maxCacheAgeMs ?? NEWS_SELECTION_TTL_MS);
   if (cached) {
     console.log(`[NEWS-SELECTION] ${ticker} 캐시 히트 (${cached.length}건)`);
     return { items: cached, isCached: true, apiError: false };
@@ -252,11 +310,10 @@ export async function selectRelevantNews(
 
   const fallback = (): NewsCandidate[] => naverByNameCandidates.slice(0, 3);
 
-  // 대안4 사전필터 — Haiku 호출 전에 규칙기반 점수로 정렬(안정 정렬, 동점은 원래
-  // 순서 유지) + 상위 후보 ★ 마킹. scored의 순서가 곧 Haiku에 보여줄 번호(i)가 된다.
-  const scored = candidates
-    .map((c) => ({ c, score: heuristicPriceRelevanceScore(c, todayChangeRate) }))
-    .sort((a, b) => b.score - a.score);
+  // 대안4 사전필터 — Haiku 호출 전에 규칙기반 점수로 정렬(안정 정렬, 동점은 원래 순서 유지) + 상위
+  // 후보 ★ 마킹 + 상위 NEWS_SELECTION_CANDIDATE_CAP건 상한(buildSelectionList).
+  const { scored, list: titleList, truncated } = buildSelectionList(candidates, todayChangeRate);
+  if (truncated > 0) console.log(`[NEWS-SELECTION] ${ticker} 후보 상한 적용: ${candidates.length} → ${scored.length}건`);
 
   const changeRateLine = typeof todayChangeRate === 'number'
     ? `오늘 등락률: ${todayChangeRate >= 0 ? '+' : ''}${todayChangeRate.toFixed(2)}%${Math.abs(todayChangeRate) >= 5 ? ' (오늘 큰 폭으로 움직임 — 규칙 1 최우선 적용)' : ''}`
@@ -267,19 +324,15 @@ export async function selectRelevantNews(
     // title뿐 아니라 description(스니펫)도 함께 전달 — 기존엔 제목만 보고 판단해
     // 원인 관련 구체적 디테일(예: "정규배당 30조+임직원 보상용 자사주 15조")이
     // 스니펫에만 있어도 선별 단계에서 활용할 방법이 없었다.
-    const titleList = scored.map(({ c, score }, i) => {
-      const mark = score >= HEURISTIC_MARK_THRESHOLD ? '★ ' : '';
-      const snippet = c.summary ? ` — ${c.summary}` : '';
-      return `${i}: ${mark}${c.title}${snippet}`;
-    }).join('\n');
+    // 2026-09-04: 구조화 출력(json_schema)으로 프리앰블/코드펜스 없이 항상 {indices:[...]}를 받는다.
     const msg = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       // 2026-08-24 검증 중 실측: 에코프로(086520)에서 Haiku가 "분석 과정"을 프리앰블로
       // 먼저 쓰다가 300 토큰에서 잘려 JSON을 못 낸 사례 발생(4회 중 1회, 폴백으로 안전하게
-      // 처리됨). 시스템 프롬프트가 "JSON만 출력"을 명시해도 드물게 프리앰블을 쓰는 걸
-      // 막지 못하므로, 정상 응답(보통 10~20토큰)엔 영향 없이 여유를 두어 잘림을 완화한다.
+      // 처리됨). 구조화 출력으로 프리앰블 자체는 사라졌지만 여유는 그대로 둔다.
       max_tokens: 500,
       system: SELECTION_SYSTEM_PROMPT,
+      output_config: { format: { type: 'json_schema', schema: SELECTION_SCHEMA } },
       messages: [{ role: 'user', content: `종목명: ${stockName}\n${changeRateLine}\n\n뉴스 목록:\n${titleList}` }],
     }, { timeout: 15_000, maxRetries: 0 });
 
@@ -292,12 +345,8 @@ export async function selectRelevantNews(
     });
 
     const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) throw new Error('JSON 배열 없음: ' + text.slice(0, 100));
-    const indices: unknown = JSON.parse(match[0]);
-    if (!Array.isArray(indices) || !indices.every((i) => typeof i === 'number')) {
-      throw new Error('배열 형식 아님');
-    }
+    const indices = parseSelectionIndices(text);
+    if (!indices) throw new Error('인덱스 배열 파싱 실패: ' + text.slice(0, 100));
     selected = indices
       .filter((i) => Number.isInteger(i) && i >= 0 && i < scored.length)
       .map((i) => scored[i].c);

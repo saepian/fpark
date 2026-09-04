@@ -76,3 +76,40 @@ describe('filterUnrelated', () => {
     expect(filterUnrelated(items, '005930', '삼성전자')).toHaveLength(1);
   });
 });
+
+// 2026-09-04 비용 절감: 후보 상한·파싱 견고화
+import { buildSelectionList, parseSelectionIndices, NEWS_SELECTION_CANDIDATE_CAP, NEWS_SELECTION_TTL_MS } from './news-selection';
+
+describe('buildSelectionList — 휴리스틱 정렬 후 상위 80건 상한', () => {
+  const mk = (n: number, title: string, summary = '') => ({ title: `${title}${n}`, summary, date: undefined as string | undefined });
+  it('상한 초과분은 뒤(점수 낮고 오래된 순서)부터 잘리고 ★ 후보는 앞쪽에 남는다', () => {
+    const cands = Array.from({ length: 190 }, (_, i) => mk(i, '일반 기사 '));
+    cands[150] = mk(150, '특징주 급등 ', '오늘 8.7% 급등'); // 키워드 +2, 등락률 매칭 +3 → ★
+    const { scored, list, truncated } = buildSelectionList(cands, 8.7);
+    expect(scored).toHaveLength(NEWS_SELECTION_CANDIDATE_CAP);
+    expect(truncated).toBe(190 - NEWS_SELECTION_CANDIDATE_CAP);
+    expect(scored[0].c.title).toBe('특징주 급등 150');
+    expect(list.split('\n')[0].startsWith('0: ★ ')).toBe(true);
+    expect(list.split('\n')).toHaveLength(NEWS_SELECTION_CANDIDATE_CAP);
+  });
+  it('상한 이하면 전부 포함, 인덱스는 0부터 연속', () => {
+    const { scored, list, truncated } = buildSelectionList([mk(1, 'a'), mk(2, 'b'), mk(3, 'c')], 0);
+    expect(scored).toHaveLength(3); expect(truncated).toBe(0);
+    expect(list.split('\n').map((l) => l.split(':')[0])).toEqual(['0', '1', '2']);
+  });
+});
+
+describe('parseSelectionIndices — 구조화 출력 + 구형 배열 + 프리앰블/이중 배열', () => {
+  it('구조화 출력 객체', () => { expect(parseSelectionIndices('{"indices":[2,5,72]}')).toEqual([2, 5, 72]); });
+  it('구형 배열 그대로', () => { expect(parseSelectionIndices('[2, 5, 6]')).toEqual([2, 5, 6]); });
+  it('프리앰블 뒤 배열, 배열이 둘이면 첫 번째만', () => {
+    expect(parseSelectionIndices('분석 결과:\n[1,2]\n\n참고: [9,9,9]')).toEqual([1, 2]);
+    expect(parseSelectionIndices('```json\n[3,7]\n```')).toEqual([3, 7]);
+  });
+  it('숫자 아닌 배열/없음 → null', () => {
+    expect(parseSelectionIndices('["a"]')).toBeNull();
+    expect(parseSelectionIndices('관련 기사가 없습니다')).toBeNull();
+    expect(parseSelectionIndices('{"indices":"x"}')).toBeNull();
+  });
+  it('기본 TTL 상수는 20분', () => { expect(NEWS_SELECTION_TTL_MS).toBe(20 * 60 * 1000); });
+});

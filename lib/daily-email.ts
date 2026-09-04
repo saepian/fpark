@@ -126,7 +126,9 @@ async function selectRelevantNewsSafe(
     // 최우선 선택)이 실제로 발동하고 heuristicPriceRelevanceScore()의 등락률 숫자
     // 매칭(+3점, 가장 강한 신호)도 작동한다 — s.changeRate는 이미 조회돼 있어
     // 추가 API 호출·지연 없이 그대로 전달 가능(diagnosis/stock-analysis와 동일 패턴).
-    const { items, apiError } = await selectRelevantNews(s.ticker, s.name, [], s.changeRate);
+    // 2026-09-04 비용 절감: 15:45 크론 1회라 기본 20분 TTL로는 캐시 재사용이 사실상 없다 — 그날 낮에
+    // 종목 페이지/분석이 만든 선별을 2시간까지 재사용(다른 호출자 4곳은 옵션 미지정 → 20분 그대로).
+    const { items, apiError } = await selectRelevantNews(s.ticker, s.name, [], s.changeRate, { maxCacheAgeMs: 2 * 60 * 60 * 1000 });
     return { ticker: s.ticker, items, apiError };
   } catch (e) {
     console.warn(`[DAILY-EMAIL] ${s.name}(${s.ticker}) 뉴스 조회 예외:`, e instanceof Error ? e.message : e);
