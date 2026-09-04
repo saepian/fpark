@@ -54,28 +54,41 @@ export default function Header({ onSelectStock, onGoHome }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#0f1117] border-b border-[#2d313e]">
-      {/* 메인 행 */}
-      <div className="relative flex items-center h-14 px-4 md:px-6">
+      {/* 메인 행 — 3열 그리드(1fr / 중앙열 / 1fr). 2026-08-31: absolute left-1/2 중앙고정이
+          우측 네비(홈~요금제 8개)와 겹쳐(1280~1600px 폭 실측) flex-1로 바꿨었는데, flex-1은
+          "로고~우측 네비 사이 남는 공간"의 중앙이라 로고 폭과 우측 네비 폭이 다르면 화면
+          전체 기준으로는 미묘하게 좌우 어느 한쪽으로 치우친다. 그리드 양쪽 열을 똑같이 1fr로
+          두면 로고/우측 네비 폭이 서로 달라도 중앙열은 항상 "화면 전체" 기준 정중앙에 온다
+          (각 열이 자기 콘텐츠만큼만 차지해 absolute처럼 겹칠 일도 없음).
+          2026-09-04: 중앙열은 CSS 키워드 그대로의 auto(콘텐츠 고유폭)가 아니라
+          minmax(0,500px) — 검색창이 실제로 500px까지 늘어나야(구 flex-1 동작 재현) 하는데,
+          리터럴 auto 트랙은 퍼센트 폭(w-full) 자손의 기여폭을 auto 취급해 입력창 기본
+          고유폭까지만 좁게 잡히는 문제가 있어 대신 상한을 트랙에 직접 못박았다. */}
+      <div className="relative grid grid-cols-[1fr_minmax(0,500px)_1fr] items-center h-14 px-4 md:px-6">
 
         {/* 좌측: 로고 */}
-        <div className="flex-shrink-0 z-10">
+        <div className="flex-shrink-0 justify-self-start z-10">
           <Link href="/" onClick={onGoHome} className="flex items-center cursor-pointer">
             <Logo />
           </Link>
         </div>
 
-        {/* 중앙: 검색창 — md+ 에서 flex-1로 로고/우측 네비 사이 남는 공간만 차지.
-            2026-08-31 QA: 이전엔 absolute left-1/2 중앙고정이라 우측 네비(홈~요금제 8개)가
-            넓어지면 검색창과 실측 겹침(1280~1600px 데스크톱 폭에서 재현, "홈" 버튼이
-            검색창 클릭을 가로챔) — flex 흐름에 편입시켜 겹치지 않고 자연히 줄어들게 수정. */}
-        <div className="hidden md:flex flex-1 min-w-0 justify-center px-4">
-          <div className="w-full max-w-[500px]">
+        {/* 중앙: 검색창 — 부모 flex(justify-center)가 중앙열 안에서 이 항목을 가운데 놓는다.
+            2026-09-04 실측: 예전 래퍼는 독자적으로 max-w-[500px]를 얹었는데, SearchBar.tsx
+            루트는 그와 무관하게 이미 자체 max-w-sm(384px)로 더 좁게 잡혀 있었다 — 두 상한이
+            어긋난 채 래퍼가 w-full로 500px까지 넓어지면, 안의 384px SearchBar는 남는 공간에서
+            기본 블록 정렬(좌측 정렬)로 왼쪽에 붙어버려 중앙열은 정중앙이어도 실제 입력창은
+            왼쪽으로 치우쳤다(1920px 실측: 중앙열 오차 1.4px vs 입력창 오차 43.4px). 래퍼의
+            상한을 SearchBar 자체 상한과 동일한 max-w-sm으로 맞추면(중복 상한 제거, 단일
+            소스) 항상 같은 폭으로 꽉 차 정확히 같은 자리에서 중앙 정렬된다. */}
+        <div className="hidden md:flex min-w-0 justify-center px-4">
+          <div className="w-full max-w-sm">
             <SearchBar onSelectStock={handleSelectStock} />
           </div>
         </div>
 
         {/* 우측: 네비 + 구분선 + 알림 + 개인화 + 햄버거(모바일) */}
-        <div className="flex-shrink-0 ml-auto flex items-center gap-3 z-10">
+        <div className="flex-shrink-0 justify-self-end flex items-center gap-3 z-10">
           <nav className="hidden md:flex items-center gap-0.5">
             {NAV_ITEMS.map(({ label, href, comingSoon, special, pro, pricing }) =>
               pricing ? (
