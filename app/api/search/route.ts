@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchStockPriceCached } from '../../../lib/kis-api';
 import { getStockMasterListCached, type StockMasterEntry } from '../../../lib/krx-stock-master';
+import { rankStockMaster, getSearchWeightsCached, isPureKoreanQuery, type SearchWeights } from '../../../lib/stock-search';
 import type { SearchResult } from '../../../lib/types';
 
 // 2026-08-31 트래픽 점검: 이 라우트는 비로그인 포함 모든 방문자의 헤더 검색창이
@@ -11,6 +11,14 @@ import type { SearchResult } from '../../../lib/types';
 // 시세 캐시 fetchStockPriceCached(장중 30초/장외 30분, /price·watchlist·dashboard와
 // 동일 캐시)를 쓴다 — 처음엔 이 파일 안에 /price 캐시를 읽는 임시 헬퍼를 뒀다가
 // lib로 통합하면서 제거.
+
+// 2026-09-04 검색 개선 2번(딜레이): 위 30초 캐시로도 부족했다 — 부분 입력("삼성")의 상위 5종목(삼성화재·
+// 삼성제약·삼성공조…)은 다른 화면에서 조회되지 않아 캐시가 30초를 넘기기 일쑤였고, 그때마다 KIS 라이브
+// 5건(건당 0.8~1.0s)이 나가 응답이 0.5~1.6s였다(실측). 검색 응답에서 시세를 완전히 제거한다(종목명/코드/
+// 시장구분만). 시세는 선택 후 상세 페이지가 기존 캐시 경로로 조회한다. 해외(Yahoo) 시세도 같은 이유로
+// 붙이지 않고, Yahoo 검색 자체는 입력이 순수 한글일 때 건너뛴다(영문/숫자 섞이면 실행).
+// 랭킹(3번)은 lib/stock-search.ts rankStockMaster — 동점 가중(거래대금·시총, 기존 시세 캐시 재사용), 우선주
+// 후순위, 별칭, NFKC.
 
 export const dynamic = 'force-dynamic';
 
@@ -33,39 +41,6 @@ function getMarket(_exchange: string): string {
 
 function getCurrency(_exchange: string): string {
   return '$';
-}
-
-async function fetchOverseasPrice(ticker: string): Promise<{ price: number; changeRate: number }> {
-  try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`,
-      {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: AbortSignal.timeout(2000),
-        cache: 'no-store',
-      }
-    );
-    const data = await res.json();
-    const meta = data.chart?.result?.[0]?.meta;
-    if (!meta) return { price: 0, changeRate: 0 };
-    const price = meta.regularMarketPrice ?? 0;
-    const prev  = meta.chartPreviousClose ?? meta.previousClose ?? price;
-    const changeRate = prev > 0 ? ((price - prev) / prev) * 100 : 0;
-    return { price, changeRate };
-  } catch {
-    return { price: 0, changeRate: 0 };
-  }
-}
-
-async function withPrices(stocks: SearchResult[]): Promise<SearchResult[]> {
-  const results = await Promise.allSettled(
-    stocks.map(s => fetchOverseasPrice(s.ticker))
-  );
-  return stocks.map((s, i) => {
-    const r = results[i];
-    const { price, changeRate } = r.status === 'fulfilled' ? r.value : { price: 0, changeRate: 0 };
-    return { ...s, price, changeRate };
-  });
 }
 
 async function searchOverseas(q: string): Promise<SearchResult[]> {
@@ -119,57 +94,28 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim() ?? '';
   if (!q) return NextResponse.json([]);
 
-  // 국내 stock_master 테이블 조회 + 해외 Yahoo 검색 병렬 실행
+  // Yahoo에는 NFKC 정규화 쿼리를 넘긴다(전각 ＳＫ → SK, 국내 매칭과 동일 규칙).
+  const overseasPromise: Promise<SearchResult[]> = isPureKoreanQuery(q) ? Promise.resolve([]) : searchOverseas(q.normalize('NFKC'));
+
+  // 국내 stock_master(DataCache 24h) + 동점 가중치(DataCache 1h) + 해외 Yahoo 검색 병렬
   let stockList: StockEntry[];
+  let weights: SearchWeights = {};
   try {
-    stockList = await getStockMasterListCached();
+    [stockList, weights] = await Promise.all([
+      getStockMasterListCached(),
+      getSearchWeightsCached().catch((e) => { console.warn('[SEARCH] 가중치 로드 실패(가중 없이 진행):', e instanceof Error ? e.message : e); return {} as SearchWeights; }),
+    ]);
   } catch (err) {
     // stock_master는 크론이 하루 1회 채우는 테이블이라 정상 운영 중엔 실패하지 않는다 —
     // 여기 도달하면 DB 연결 장애 등 이상 상황이므로 반드시 로그에 남긴다(2026-08-18).
     console.error('[SEARCH] stock_master 조회 실패:', err);
     // 국내 조회 실패해도 해외 검색은 시도
-    const overseas = await withPrices(await searchOverseas(q));
-    return NextResponse.json(overseas.slice(0, 8));
+    return NextResponse.json((await overseasPromise).slice(0, 8));
   }
 
-  const norm = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, '');
-  const lower     = q.normalize('NFC').toLowerCase();
-  const lowerFlat = norm(q);
+  const domesticResults: SearchResult[] = rankStockMaster(stockList, q, weights, 5)
+    .map((s) => ({ ticker: s.ticker, name: s.name, market: 'kr' }));
+  const overseasResults = await overseasPromise;
 
-  const scored = stockList
-    .filter(s => {
-      const n     = s.name.normalize('NFC').toLowerCase();
-      const nFlat = norm(s.name);
-      return s.ticker.includes(q) || n.includes(lower) || nFlat.includes(lowerFlat);
-    })
-    .map(s => {
-      const n = s.name.normalize('NFC').toLowerCase();
-      const score = n === lower || s.ticker === q ? 0 : n.startsWith(lower) ? 1 : 2;
-      return { ...s, score };
-    })
-    // 동점(스코어·이름길이 동일)일 때 예전엔 KRX HTML 원본 순서에 우연히 기댔는데,
-    // stock_master 테이블 SELECT 순서는 보장되지 않아(2026-08-18) 티커 오름차순을
-    // 마지막 기준으로 추가해 결과 순서를 결정적으로 고정한다.
-    .sort((a, b) => a.score - b.score || a.name.length - b.name.length || a.ticker.localeCompare(b.ticker));
-
-  const matched = scored.slice(0, 5);
-
-  // 국내 가격 조회(공용 캐시 우선, 없으면 KIS 라이브) + 해외 검색 병렬
-  const [domesticResults, overseasResults] = await Promise.all([
-    Promise.all(
-      matched.map(async (s): Promise<SearchResult> => {
-        try {
-          const price = await fetchStockPriceCached(s.ticker);
-          const name = (price.name && price.name !== s.ticker) ? price.name : s.name;
-          return { ticker: s.ticker, name, price: price.price, changeRate: price.changeRate };
-        } catch {
-          return { ticker: s.ticker, name: s.name, price: 0, changeRate: 0 };
-        }
-      })
-    ),
-    searchOverseas(q).then(withPrices),
-  ]);
-
-  const combined = [...domesticResults, ...overseasResults].slice(0, 8);
-  return NextResponse.json(combined);
+  return NextResponse.json([...domesticResults, ...overseasResults].slice(0, 8));
 }

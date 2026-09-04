@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import SearchDropdown from './SearchDropdown';
 import type { SearchResult } from '../../lib/types';
+import { useStockSearch } from '../../lib/useStockSearch';
 
 interface SearchBarProps {
   onSelectStock: (ticker: string) => void;
@@ -14,7 +15,8 @@ interface SearchBarProps {
 export default function SearchBar({ onSelectStock }: SearchBarProps) {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
+  // 2026-09-04: 디바운스+취소+시퀀스 보장 공통 훅(lib/useStockSearch.ts) — 5개 호출부 동일
+  const { results, clear } = useStockSearch<SearchResult>(query);
   const [isOpen, setIsOpen] = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,25 +34,6 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
       width: rect.width,
     });
   }, []);
-
-  useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
-    }
-    const handler = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
-        if (res.ok) {
-          const data: SearchResult[] = await res.json();
-          setResults(Array.isArray(data) ? data : []);
-        }
-      } catch {
-        setResults([]);
-      }
-    }, 200);
-    return () => clearTimeout(handler);
-  }, [query]);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -114,7 +97,7 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
                 }
                 setIsOpen(false);
                 setQuery('');
-                setResults([]);
+                clear();
               } else {
                 setIsOpen(true);
               }
@@ -126,7 +109,7 @@ export default function SearchBar({ onSelectStock }: SearchBarProps) {
         />
         {query && (
           <button
-            onClick={() => { setQuery(''); setResults([]); }}
+            onClick={() => { setQuery(''); clear(); }}
             className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-white"
           >
             ✕

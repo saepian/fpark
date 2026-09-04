@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { createStockSearcher, filterDomestic, type StockSearcher } from '@/lib/stock-search-client';
 import { createClient } from '@/lib/supabase-browser';
 import { Plus, Trash2, Search, Sparkles, EyeOff, Eye, Coins, Pencil } from 'lucide-react';
 import PageBackground from '@/components/layout/PageBackground';
@@ -152,22 +153,16 @@ function AddHoldingForm({ onAdded, onCancel, showCancel, initial }: {
   const [buyDate, setBuyDate]   = useState(initial?.buyDate ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState('');
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // 2026-09-04: 공통 검색기(lib/stock-search-client.ts) — 디바운스+이전 요청 취소+시퀀스 보장
+  const searcher = useRef<StockSearcher | null>(null);
+  if (!searcher.current) searcher.current = createStockSearcher();
 
   const search = (value: string) => {
     setQ(value); setTicker(''); setName('');
-    clearTimeout(timer.current);
-    if (!value.trim()) { setResults([]); setOpen(false); return; }
-    timer.current = setTimeout(async () => {
-      try {
-        const res  = await fetch(`/api/search?q=${encodeURIComponent(value.trim())}`);
-        const data = await res.json();
-        const items: SearchItem[] = Array.isArray(data)
-          ? data.filter((s: { isOverseas?: boolean }) => !s.isOverseas).slice(0, 6)
-          : [];
-        setResults(items); setOpen(items.length > 0);
-      } catch { /* noop */ }
-    }, 200);
+    searcher.current!.search(value, (rows) => {
+      const items = filterDomestic(rows, 6) as SearchItem[];
+      setResults(items); setOpen(items.length > 0);
+    });
   };
 
   const submit = async () => {

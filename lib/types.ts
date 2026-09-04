@@ -79,10 +79,13 @@ export interface MarketResponse {
 export interface SearchResult {
   ticker: string;
   name: string;
-  price: number;
-  changeRate: number;
+  // 2026-09-04 검색 개선 2번: /api/search는 더 이상 시세를 붙이지 않는다(종목명/코드/시장구분만) —
+  // 검색 응답 지연의 주범이 상위 5종목 시세 조회(캐시 30초 만료 시 KIS 라이브 5건)였음. 시세는 선택 후
+  // 상세 페이지에서 조회한다. 필드는 다른 소비처 호환을 위해 선택형으로 남긴다.
+  price?: number;
+  changeRate?: number;
   isOverseas?: boolean;
-  market?: string;
+  market?: string;   // 'kr' | 'us'
   currency?: string;
 }
 

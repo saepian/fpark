@@ -31,51 +31,34 @@ export default function SearchDropdown({ results, onSelect, onClose, query }: Se
     onClose();
   };
 
-  const renderItem = (stock: SearchResult) => {
-    const isUp = stock.changeRate >= 0;
-    return (
-      <div
-        id={`search-dropdown-item-${stock.ticker}`}
-        key={stock.ticker}
-        onClick={() => handleClick(stock)}
-        className="flex items-center justify-between px-3 py-2.5 gap-3
-          hover:bg-slate-800/70 cursor-pointer transition-colors"
-      >
-        {/* 좌측: 국기 + 종목명 */}
-        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-          {stock.isOverseas && (
-            <span className="text-base shrink-0">
-              {MARKET_FLAG[stock.market ?? 'us'] ?? '🌐'}
-            </span>
-          )}
-          <div className="min-w-0 overflow-hidden">
-            <p className="text-[13px] font-semibold text-slate-100 truncate leading-tight">
-              {stock.name}
-            </p>
-            <p className="text-xs text-slate-500 font-mono">
-              {stock.ticker}
-            </p>
-          </div>
-        </div>
-
-        {/* 우측: 현재가 + 등락률 */}
-        <div className="flex items-center gap-2 shrink-0 flex-none">
-          {stock.price > 0 && (
-            <span className="font-mono text-[13px] text-slate-300">
-              {stock.isOverseas
-                ? `${stock.currency ?? '$'}${stock.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : `${stock.price.toLocaleString()}원`}
-            </span>
-          )}
-          <span className={`font-mono text-xs w-14 text-right font-semibold ${
-            isUp ? 'text-red-400' : 'text-blue-400'
-          }`}>
-            {stock.price > 0 ? `${isUp ? '+' : ''}${stock.changeRate.toFixed(2)}%` : '-'}
+  // 2026-09-04: 시세 열 제거 — /api/search가 시세를 반환하지 않는다(lib/types.ts SearchResult 주석).
+  const renderItem = (stock: SearchResult) => (
+    <div
+      id={`search-dropdown-item-${stock.ticker}`}
+      key={stock.ticker}
+      onClick={() => handleClick(stock)}
+      className="flex items-center justify-between px-3 py-2.5 gap-3
+        hover:bg-slate-800/70 cursor-pointer transition-colors"
+    >
+      {/* 좌측: 국기 + 종목명 */}
+      <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+        {stock.isOverseas && (
+          <span className="text-base shrink-0">
+            {MARKET_FLAG[stock.market ?? 'us'] ?? '🌐'}
           </span>
+        )}
+        <div className="min-w-0 overflow-hidden">
+          <p className="text-[13px] font-semibold text-slate-100 truncate leading-tight">
+            {stock.name}
+          </p>
+          <p className="text-xs text-slate-500 font-mono">
+            {stock.ticker}
+          </p>
         </div>
       </div>
-    );
-  };
+      <span className="shrink-0 text-[11px] text-slate-500">{stock.isOverseas ? '해외' : '국내'}</span>
+    </div>
+  );
 
   return (
     <div

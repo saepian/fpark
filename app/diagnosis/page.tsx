@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useStockSearch } from '@/lib/useStockSearch';
 import { createClient } from '@/lib/supabase-browser';
 import { loginUrlWithRedirect } from '@/lib/auth-redirect';
 import { Search, Sparkles } from 'lucide-react';
@@ -72,7 +73,6 @@ function DiagnosisPageInner() {
   const savedId = searchParams.get('savedId');
   const supabase = createClient();
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const skipSearch  = useRef(false);
 
   const [authChecked, setAuthChecked] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -81,9 +81,7 @@ function DiagnosisPageInner() {
   const [ticker, setTicker] = useState('');
   const [stockName, setStockName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{ ticker: string; name: string }[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [overseasHint, setOverseasHint] = useState(false);
   const [avgPrice, setAvgPrice] = useState('');
   const [quantity, setQuantity] = useState('');
   const [buyDate, setBuyDate] = useState('');
@@ -148,27 +146,13 @@ function DiagnosisPageInner() {
       .finally(() => setSavedViewLoading(false));
   }, [savedId, authChecked]); // eslint-disable-line
 
-  // 검색 자동완성 (종목 직접 선택 시 skipSearch로 드롭다운 억제)
+  // 검색 자동완성 — 공통 훅(lib/useStockSearch.ts): 디바운스+이전 요청 취소+시퀀스 보장, 국내만 6건.
+  // 종목진단은 해외 종목 분석을 지원하지 않으므로 해외는 제외하고, 해외만 검색됐을 때는 안내 문구만 띄운다.
+  const { results: searchResults, hasOverseas, suppressNext } = useStockSearch<{ ticker: string; name: string }>(searchQuery, { domesticOnly: true, limit: 6 });
+  const overseasHint = searchQuery.trim() !== '' && searchResults.length === 0 && hasOverseas;
   useEffect(() => {
-    if (!searchQuery.trim()) { setSearchResults([]); setOverseasHint(false); return; }
-    if (skipSearch.current) { skipSearch.current = false; return; }
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
-        const data = await res.json();
-        // 종목진단은 아직 해외 종목 분석을 지원하지 않음 — 선택 가능하게 두면
-        // KIS 조회 실패 후 조용히 매수가로 폴백해 엉터리 리포트가 나가므로 검색 결과에서 제외
-        // (포트폴리오 진단과 동일한 필터)
-        const rows = Array.isArray(data) ? data : [];
-        const domesticOnly = rows.filter((s: { isOverseas?: boolean }) => !s.isOverseas);
-        const hasOverseas  = rows.some((s: { isOverseas?: boolean }) => s.isOverseas);
-        setSearchResults(domesticOnly.slice(0, 6));
-        setOverseasHint(domesticOnly.length === 0 && hasOverseas);
-        setShowDropdown(true);
-      } catch { setSearchResults([]); setOverseasHint(false); }
-    }, 200);
-    return () => clearTimeout(t);
-  }, [searchQuery]);
+    if (searchQuery.trim() && (searchResults.length > 0 || overseasHint)) setShowDropdown(true);
+  }, [searchResults, overseasHint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 드롭다운 외부 클릭 닫기
   useEffect(() => {
@@ -182,7 +166,7 @@ function DiagnosisPageInner() {
   }, []);
 
   const selectStock = (t: string, n: string) => {
-    skipSearch.current = true;
+    suppressNext(); // 입력값을 종목명으로 바꾸는 건 검색이 아니다
     setTicker(t); setStockName(n); setSearchQuery(n); setShowDropdown(false);
   };
 

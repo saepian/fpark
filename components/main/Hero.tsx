@@ -7,6 +7,7 @@ import SearchDropdown from '@/components/search/SearchDropdown';
 import HeroCanvasBackground from './HeroCanvasBackground';
 import WelcomeBanner from './WelcomeBanner';
 import type { SearchResult } from '@/lib/types';
+import { useStockSearch } from '@/lib/useStockSearch';
 import { PLAN_USAGE_LIMITS } from '@/lib/payment-constants';
 
 interface MarketData {
@@ -71,7 +72,8 @@ function CountUp({ target }: { target: number }) {
 
 export default function Hero() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
+  // 2026-09-04: 디바운스+취소+시퀀스 보장 공통 훅(lib/useStockSearch.ts)
+  const { results, clear } = useStockSearch<SearchResult>(query);
   const [showDrop, setShowDrop] = useState(false);
   const [market, setMarket] = useState<MarketData | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -84,21 +86,6 @@ export default function Hero() {
       .then((d) => { if (d.KOSPI && d.KOSDAQ) setMarket(d); })
       .catch(() => {});
   }, []);
-
-  // 검색어 디바운스 fetch
-  useEffect(() => {
-    if (!query.trim()) { setResults([]); return; }
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
-        if (res.ok) {
-          const data: SearchResult[] = await res.json();
-          setResults(Array.isArray(data) ? data : []);
-        }
-      } catch { setResults([]); }
-    }, 200);
-    return () => clearTimeout(t);
-  }, [query]);
 
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
@@ -115,7 +102,7 @@ export default function Hero() {
     router.push(`/stock/${ticker}`);
     setShowDrop(false);
     setQuery('');
-    setResults([]);
+    clear();
   }, [router]);
 
   const isKospiUp = (market?.KOSPI.changeRate ?? 0) >= 0;
@@ -192,7 +179,7 @@ export default function Hero() {
                         router.push(`/overseas/${first.market}/${first.ticker}`);
                         setShowDrop(false);
                         setQuery('');
-                        setResults([]);
+                        clear();
                       } else {
                         handleSelect(first.ticker);
                       }

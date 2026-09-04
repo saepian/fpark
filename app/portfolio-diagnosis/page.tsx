@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { createStockSearcher, filterDomestic, type StockSearcher } from '@/lib/stock-search-client';
 import { createClient } from '@/lib/supabase-browser';
 import {
   Sparkles, Plus, Trash2, Search, ChevronLeft,
@@ -359,8 +360,8 @@ function PortfolioDiagnosisPageInner() {
   // (summarySections_* 등) 공통으로 사용. lib/useSmoothTypingText.ts 참고.
   const smoothText = useSmoothTypingText();
 
-  // debounce timers
-  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // 보유종목 행별 검색기(lib/stock-search-client.ts) — 디바운스+이전 요청 취소+시퀀스 보장(2026-09-04)
+  const searchers = useRef<Record<string, StockSearcher>>({});
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -424,18 +425,11 @@ function PortfolioDiagnosisPageInner() {
 
   const searchStock = useCallback((id: string, q: string) => {
     updateHolding(id, { _q: q, ticker: '', name: '' });
-    clearTimeout(timers.current[id]);
-    if (!q.trim()) { updateHolding(id, { _results: [], _open: false }); return; }
-    timers.current[id] = setTimeout(async () => {
-      try {
-        const res  = await fetch(`/api/search?q=${encodeURIComponent(q.trim())}`);
-        const data = await res.json();
-        const items: SearchItem[] = Array.isArray(data)
-          ? data.filter((s: { isOverseas?: boolean }) => !s.isOverseas).slice(0, 6)
-          : [];
-        updateHolding(id, { _results: items, _open: items.length > 0 });
-      } catch { /* noop */ }
-    }, 200);
+    const searcher = (searchers.current[id] ??= createStockSearcher());
+    searcher.search(q, (rows) => {
+      const items = filterDomestic(rows, 6) as SearchItem[];
+      updateHolding(id, { _results: items, _open: items.length > 0 });
+    });
   }, [updateHolding]);
 
   const selectStock = useCallback((id: string, ticker: string, name: string) => {
