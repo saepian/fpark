@@ -57,6 +57,9 @@
     },
     "app/api/cron/sector-mail/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/sector-flash/route.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [
@@ -127,6 +130,10 @@
     {
       "path": "/api/cron/sector-mail",
       "schedule": "5 1 * * 1-5"
+    },
+    {
+      "path": "/api/cron/sector-flash",
+      "schedule": "31 0 * * 1-5"
     }
   ]
 }

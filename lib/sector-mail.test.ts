@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveSectorMailRecipient, selectIndustryRows, aggregateSectorFlows, pickSupplementTargets,
   isMorningAnalysisUsable, buildSectorMailHtml, SUPPLEMENT_MAX_CALLS,
+  rankByIntensity, rankByChange, rankByAmount, INTENSITY_MIN_TRADING_VALUE_AUK, DOMINANT_SHARE_PCT,
   type FlowStock, type PoolStock, type SectorFlowAgg,
 } from './sector-mail';
 import { parseSignedPaddedInt, type SectorIndexRow } from './kis-api';
@@ -48,35 +49,52 @@ describe('selectIndustryRows — 파생/규모 지수 제외', () => {
 const stock = (ticker: string, name: string, f: number, i: number, tv: number, source: FlowStock['source'] = 'ranking'): FlowStock =>
   ({ ticker, name, price: 1000, changeRate: 1, foreignAuk: f, institutionAuk: i, tradingValueAuk: tv, source });
 
-describe('aggregateSectorFlows', () => {
+describe('aggregateSectorFlows — 수급 강도 · 가중 등락률 · 단일 종목 표기', () => {
   const idx = new Map<string, string[]>([
-    ['005930', ['semicon', 'itparts']], // 삼성전자 — 두 섹터에 중복 집계
-    ['000660', ['semicon']],
-    ['042660', ['ship']],
-    ['999999', []],                      // 소속 없음
+    ['005930', ['semicon']], ['000660', ['semicon']], ['042660', ['ship']], ['010140', ['ship']], ['999999', []], ['S1', ['chem']],
   ]);
-  it('섹터별 외국인/기관 합산, 중복 소속은 양쪽에 더하고, 합계 내림차순·종목은 거래대금순', () => {
-    const aggs = aggregateSectorFlows([
-      stock('005930', '삼성전자', 1000, 500, 5000),
-      stock('000660', 'SK하이닉스', 2000, -100, 9000),
-      stock('042660', '한화오션', -300, 50, 800),
-      stock('999999', '무소속', 999, 999, 1),
-    ], idx);
-    expect(aggs.map((a) => a.id)).toEqual(['semicon', 'itparts', 'ship']);
-    const semi = aggs[0];
-    expect([semi.foreignAuk, semi.institutionAuk, semi.totalAuk]).toEqual([3000, 400, 3400]);
-    expect(semi.stocks.map((s) => s.ticker)).toEqual(['000660', '005930']);
-    expect(aggs[1]).toMatchObject({ id: 'itparts', foreignAuk: 1000, institutionAuk: 500 });
-    expect(aggs[2]).toMatchObject({ id: 'ship', totalAuk: -250, supplementCount: 0 });
+  const st = (ticker: string, name: string, f: number, i: number, tv: number, chg: number, source: FlowStock['source'] = 'ranking'): FlowStock =>
+    ({ ticker, name, price: 1000, changeRate: chg, foreignAuk: f, institutionAuk: i, tradingValueAuk: tv, source });
+  const aggs = aggregateSectorFlows([
+    st('005930', '삼성전자', 1000, 500, 9000, 1.0),   // 반도체: 순매수 1900, 거래대금 10000 → 강도 19%, 삼성전자 기여 1500/1900=79% → 단일 종목
+    st('000660', 'SK하이닉스', 300, 100, 1000, 3.0),
+    st('042660', '한화오션', 200, 100, 400, 5.0),       // 조선: 순매수 160, 거래대금 500 → 강도 32%, 가중등락률 (5*400+(-1)*100)/500 = 3.8
+    st('010140', '삼성중공업', -150, 10, 100, -1.0),     //       |순매수| 비중 300/(300+140)=68% → 단일 종목 표기 없음
+    st('S1', '소형정유', 20, 5, 20, 8.0),              // 석유화학: 거래대금 20 < 30 → 강도 null
+    st('999999', '무소속', 999, 999, 1, 9.0),
+  ], idx);
+  it('강도 = 순매수÷거래대금, 거래대금 미달은 null, 순위는 강도 내림차순(null은 뒤)', () => {
+    expect(aggs.map((a) => a.id)).toEqual(['ship', 'semicon', 'chem']);
+    const ship = aggs[0], semi = aggs[1], chem = aggs[2];
+    expect(ship.intensityPct).toBeCloseTo(32, 5);
+    expect(semi.intensityPct).toBeCloseTo(19, 5);
+    expect(chem.intensityPct).toBeNull();
+    expect(chem.tradingValueAuk).toBeLessThan(INTENSITY_MIN_TRADING_VALUE_AUK);
+    expect([semi.foreignAuk, semi.institutionAuk, semi.totalAuk, semi.tradingValueAuk]).toEqual([1300, 600, 1900, 10000]);
+  });
+  it('거래대금 가중 등락률과 상승률 순위', () => {
+    const ship = aggs.find((a) => a.id === 'ship')!;
+    expect(ship.weightedChangeRate).toBeCloseTo(3.8, 5);
+    expect(aggs.find((a) => a.id === 'semicon')!.weightedChangeRate).toBeCloseTo(1.2, 5);
+    expect(rankByChange(aggs).map((a) => a.id)).toEqual(['chem', 'ship', 'semicon']);
+    expect(rankByAmount(aggs).map((a) => a.id)).toEqual(['semicon', 'ship', 'chem']);
+    expect(rankByIntensity(rankByAmount(aggs)).map((a) => a.id)).toEqual(['ship', 'semicon', 'chem']);
+  });
+  it('단일 종목 기여도 ≥ 70%면 dominant 표기, 아니면 null, 1종목 섹터는 100%', () => {
+    const semi = aggs.find((a) => a.id === 'semicon')!;
+    expect(semi.dominant?.name).toBe('삼성전자');
+    expect(semi.dominant!.sharePct).toBeGreaterThanOrEqual(DOMINANT_SHARE_PCT);
+    expect(aggs.find((a) => a.id === 'ship')!.dominant).toBeNull();
+    expect(aggs.find((a) => a.id === 'chem')!.dominant).toEqual({ name: '소형정유', sharePct: 100 });
   });
   it('추정 보충 종목 수를 센다', () => {
-    const aggs = aggregateSectorFlows([stock('042660', '한화오션', 10, 10, 1), stock('010140', '삼성중공업', 5, 5, 2, 'estimate')], new Map([['042660', ['ship']], ['010140', ['ship']]]));
-    expect(aggs[0].supplementCount).toBe(1);
+    const a = aggregateSectorFlows([st('042660', '한화오션', 10, 10, 100, 1), st('010140', '삼성중공업', 5, 5, 200, 2, 'estimate')], new Map([['042660', ['ship']], ['010140', ['ship']]]));
+    expect(a[0].supplementCount).toBe(1);
   });
 });
 
 describe('pickSupplementTargets', () => {
-  const agg = (id: string, name: string, total: number, stocks: FlowStock[]): SectorFlowAgg => ({ id, name, foreignAuk: total, institutionAuk: 0, totalAuk: total, stocks, supplementCount: 0 });
+  const agg = (id: string, name: string, total: number, stocks: FlowStock[]): SectorFlowAgg => ({ id, name, foreignAuk: total, institutionAuk: 0, totalAuk: total, tradingValueAuk: 1000, intensityPct: total / 10, weightedChangeRate: 0, dominant: null, stocks, supplementCount: 0 });
   const pool = (ticker: string, tv: number): PoolStock => ({ ticker, name: ticker, price: 1000, changeRate: 0, tradingValueAuk: tv });
   it('섹터 구성 종목 중 거래대금 상위 5개를 대표종목으로 보고, 그중 미수록 종목만 상한 내에서 고른다', () => {
     // a: 수록 A1(1000),A2(900),A3(800) + 풀 A4(950),A5(300),A6(200) → 거래대금 상위 5 = A1,A4,A2,A3,A5 → 미수록 A4,A5
@@ -127,12 +145,14 @@ describe('buildSectorMailHtml — 결손 섹션은 "데이터 없음"으로, 발
   it('HTML 특수문자를 이스케이프한다', () => {
     const html = buildSectorMailHtml({
       dateStr: 'd', generatedAtKst: 'g', morning: null, index: null,
-      aggs: [{ id: 'x', name: 'A&B <섹터>', foreignAuk: 1, institutionAuk: 2, totalAuk: 3, stocks: [stock('1', 'N<1>', 1, 2, 3)], supplementCount: 0 }],
+      aggs: [{ id: 'x', name: 'A&B <섹터>', foreignAuk: 1, institutionAuk: 2, totalAuk: 3, tradingValueAuk: 100, intensityPct: 3, weightedChangeRate: 1, dominant: { name: 'N<1>', sharePct: 100 }, stocks: [stock('1', 'N<1>', 1, 2, 3)], supplementCount: 0 }],
       synthesis: { topSectors: [{ name: 'A&B <섹터>', reason: 'r' }], morningComparison: '', marketNote: '', usedFallback: false },
       missing: [], kisCalls: 0, durationMs: 0,
     });
     expect(html).toContain('A&amp;B &lt;섹터&gt;');
     expect(html).not.toContain('<섹터>');
+    expect(html).toContain('사실상 N&lt;1&gt; 단일 종목 (100%)');
+    expect(html).toContain('상승률 순위');
   });
 });
 
@@ -148,5 +168,30 @@ describe('createChunkPacer — 묶음 시작 간격 보장', () => {
     expect(t2 - t1).toBeGreaterThanOrEqual(110);
     expect(t3 - t2).toBeGreaterThanOrEqual(110);
     expect(KIS_CHUNK_MAX + 1).toBeLessThanOrEqual(10); // 앵커 차트 1건과 같은 초에 겹쳐도 10 이하
+  });
+});
+
+describe('09:30 속보 — 수급 없이 거래대금 유니버스만으로 상승률 랭킹', () => {
+  it('poolToFlowUniverse는 수급 0·거래대금/등락률만 채우고, 집계 후 강도·단일종목 표기가 붙지 않는다', async () => {
+    const { poolToFlowUniverse, buildSectorFlashHtml } = await import('./sector-mail');
+    const pool: PoolStock[] = [
+      { ticker: '042660', name: '한화오션', price: 1, changeRate: 4, tradingValueAuk: 300 },
+      { ticker: '010140', name: '삼성중공업', price: 1, changeRate: -2, tradingValueAuk: 100 },
+      { ticker: '005930', name: '삼성전자', price: 1, changeRate: 1, tradingValueAuk: 5000 },
+    ];
+    const uni = poolToFlowUniverse(pool);
+    expect(uni.every((s) => s.foreignAuk === 0 && s.institutionAuk === 0 && s.source === 'ranking')).toBe(true);
+    const aggs = rankByChange(aggregateSectorFlows(uni, new Map([['042660', ['ship']], ['010140', ['ship']], ['005930', ['semicon']]])));
+    expect(aggs.map((a) => a.id)).toEqual(['ship', 'semicon']);
+    expect(aggs[0].weightedChangeRate).toBeCloseTo((4 * 300 - 2 * 100) / 400, 5);
+    expect(aggs[0].intensityPct).toBe(0);
+    expect(aggs[0].dominant).toBeNull();
+    const html = buildSectorFlashHtml({ dateStr: 'd', generatedAtKst: 'g', index: null, aggs, missing: ['업종 등락률'], kisCalls: 11, durationMs: 100 });
+    expect(html).toContain('[09:30 속보]');
+    expect(html).toContain('업종 등락률: 데이터 없음');
+    expect(html).toContain('조선');
+    expect(html).not.toContain('순매수');   // 수급 표기 없음
+    expect(html).not.toContain('단일 종목');
+    expect(html).not.toMatch(/<details|<input|onclick/);
   });
 });

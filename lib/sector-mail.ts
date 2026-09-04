@@ -68,23 +68,50 @@ export async function checkDomesticTradingDay(): Promise<{ ctx: MarketDayContext
 }
 
 // ── Claude 공통 ────────────────────────────────────────────────────────────────
-async function askClaudeJson<T>(label: string, system: string, prompt: string, maxTokens: number, timeoutMs: number): Promise<T> {
+// 구조화 출력(output_config.format json_schema) — 2026-09-04 재집계 검증 중 reason 문자열 안의 큰따옴표로
+// JSON.parse가 깨져 폴백으로 떨어진 사례가 있어, 스키마 강제로 항상 유효한 JSON을 받는다.
+// 파라미터(2026-09-04 프로빙 실측): effort medium + max_tokens 1500 + 60s에서 3회 중 2회가 "max_tokens 초과"
+// (적응형 사고 토큰이 max_tokens에 포함됨) 또는 60s 타임아웃으로 1차 실패 → effort low(표에서 3개 고르는
+// 수준의 과제), max_tokens 6000, 90s로 조정. 같은 프로빙 3회 연속 1차 성공 확인.
+const NAMED_REASON_LIST = {
+  type: 'array',
+  items: { type: 'object', properties: { name: { type: 'string' }, reason: { type: 'string' } }, required: ['name', 'reason'], additionalProperties: false },
+} as const;
+const MORNING_SCHEMA = {
+  type: 'object',
+  properties: { usSummary: { type: 'string' }, expectedSectors: NAMED_REASON_LIST, overallNote: { type: 'string' } },
+  required: ['usSummary', 'expectedSectors', 'overallNote'],
+  additionalProperties: false,
+} as const;
+const SYNTHESIS_SCHEMA = {
+  type: 'object',
+  properties: { topSectors: NAMED_REASON_LIST, morningComparison: { type: 'string' }, marketNote: { type: 'string' } },
+  required: ['topSectors', 'morningComparison', 'marketNote'],
+  additionalProperties: false,
+} as const;
+
+async function askClaudeJson<T>(label: string, system: string, prompt: string, maxTokens: number, timeoutMs: number, schema: Record<string, unknown>): Promise<T> {
   const message = await Promise.race([
     anthropic.messages.create({
       model: SECTOR_MAIL_MODEL,
       max_tokens: maxTokens,
       thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
+      output_config: { effort: 'low', format: { type: 'json_schema', schema } },
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: prompt }],
     }),
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} Claude timeout ${timeoutMs}ms`)), timeoutMs)),
   ]);
   if (message.stop_reason === 'refusal') throw new Error(`${label} Claude refusal`);
-  const text = message.content.filter((b) => b.type === 'text').map((b) => (b.type === 'text' ? b.text : '')).join('\n');
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error(`${label} JSON 없음: ${text.slice(0, 120)}`);
-  return JSON.parse(match[0]) as T;
+  if (message.stop_reason === 'max_tokens') throw new Error(`${label} Claude max_tokens 초과`);
+  const text = message.content.filter((b) => b.type === 'text').map((b) => (b.type === 'text' ? b.text : '')).join('\n').trim();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/); // 구조화 출력이면 여기 올 일이 없지만 방어
+    if (!match) throw new Error(`${label} JSON 없음: ${text.slice(0, 120)}`);
+    return JSON.parse(match[0]) as T;
+  }
 }
 
 const SECTOR_NAME_LIST = SECTOR_GROUPS.map((g) => g.name).join(', ');
@@ -148,7 +175,7 @@ ${macroNews.length ? macroNews.map((n, i) => `${i + 1}. ${n.title}${n.summary ? 
 위 자료로 시스템 프롬프트의 JSON을 작성하세요.`;
 
   const parsed = await askClaudeJson<{ usSummary?: string; expectedSectors?: { name?: string; reason?: string }[]; overallNote?: string }>(
-    '아침 분석', MORNING_SYSTEM, prompt, 1500, 60_000,
+    '아침 분석', MORNING_SYSTEM, prompt, 6000, 90_000, MORNING_SCHEMA,
   );
   const validNames = new Set(SECTOR_GROUPS.map((g) => g.name));
   const expectedSectors = (parsed.expectedSectors ?? [])
@@ -311,10 +338,19 @@ export interface SectorFlowAgg {
   name: string;
   foreignAuk: number;
   institutionAuk: number;
-  totalAuk: number;
-  stocks: FlowStock[]; // 거래대금 내림차순
+  totalAuk: number;            // 절대금액(참고용)
+  tradingValueAuk: number;     // 집계된 구성 종목의 당일 거래대금 합(억원) — 섹터 전체가 아니라 "수급 목록+보충으로 잡힌 종목"의 합
+  intensityPct: number | null; // 수급 강도 = totalAuk ÷ tradingValueAuk × 100. 거래대금이 INTENSITY_MIN_TRADING_VALUE_AUK 미만이면 null(노이즈 방지)
+  weightedChangeRate: number;  // 거래대금 가중 등락률(%)
+  dominant: { name: string; sharePct: number } | null; // 단일 종목 기여도(|순매수| 비중) ≥ DOMINANT_SHARE_PCT면 표기
+  stocks: FlowStock[];         // 거래대금 내림차순
   supplementCount: number;
 }
+
+// 2026-09-04 재설계(사용자 지시): 절대금액 순위는 대형주가 속한 섹터가 항상 이기므로 "수급 강도"(순매수 ÷
+// 거래대금)로 순위를 매기고 절대금액은 참고로만 병기한다. 상승률은 거래대금 가중 평균으로 별도 순위.
+export const INTENSITY_MIN_TRADING_VALUE_AUK = 30;
+export const DOMINANT_SHARE_PCT = 70;
 
 export function aggregateSectorFlows(stocks: FlowStock[], tickerIndex: Map<string, string[]>): SectorFlowAgg[] {
   const aggs = new Map<string, SectorFlowAgg>();
@@ -322,18 +358,55 @@ export function aggregateSectorFlows(stocks: FlowStock[], tickerIndex: Map<strin
     for (const id of tickerIndex.get(s.ticker) ?? []) {
       const g = SECTOR_GROUP_BY_ID.get(id);
       if (!g) continue;
-      const agg = aggs.get(id) ?? { id, name: g.name, foreignAuk: 0, institutionAuk: 0, totalAuk: 0, stocks: [], supplementCount: 0 };
+      const agg = aggs.get(id) ?? {
+        id, name: g.name, foreignAuk: 0, institutionAuk: 0, totalAuk: 0, tradingValueAuk: 0,
+        intensityPct: null, weightedChangeRate: 0, dominant: null, stocks: [], supplementCount: 0,
+      };
       agg.foreignAuk += s.foreignAuk;
       agg.institutionAuk += s.institutionAuk;
-      agg.totalAuk = agg.foreignAuk + agg.institutionAuk;
+      agg.tradingValueAuk += Math.max(0, s.tradingValueAuk);
       agg.stocks.push(s);
       if (s.source === 'estimate') agg.supplementCount++;
       aggs.set(id, agg);
     }
   }
   const list = [...aggs.values()];
-  for (const a of list) a.stocks.sort((x, y) => y.tradingValueAuk - x.tradingValueAuk);
-  return list.sort((a, b) => b.totalAuk - a.totalAuk);
+  for (const a of list) {
+    a.totalAuk = a.foreignAuk + a.institutionAuk;
+    a.stocks.sort((x, y) => y.tradingValueAuk - x.tradingValueAuk);
+    a.intensityPct = a.tradingValueAuk >= INTENSITY_MIN_TRADING_VALUE_AUK ? (a.totalAuk / a.tradingValueAuk) * 100 : null;
+    const tvSum = a.stocks.reduce((acc, x) => acc + Math.max(0, x.tradingValueAuk), 0);
+    a.weightedChangeRate = tvSum > 0
+      ? a.stocks.reduce((acc, x) => acc + x.changeRate * Math.max(0, x.tradingValueAuk), 0) / tvSum
+      : a.stocks.reduce((acc, x) => acc + x.changeRate, 0) / Math.max(1, a.stocks.length);
+    const absSum = a.stocks.reduce((acc, x) => acc + Math.abs(x.foreignAuk + x.institutionAuk), 0);
+    if (absSum > 0 && a.stocks.length > 1) {
+      const top = a.stocks.reduce((best, x) => (Math.abs(x.foreignAuk + x.institutionAuk) > Math.abs(best.foreignAuk + best.institutionAuk) ? x : best), a.stocks[0]);
+      const sharePct = (Math.abs(top.foreignAuk + top.institutionAuk) / absSum) * 100;
+      if (sharePct >= DOMINANT_SHARE_PCT) a.dominant = { name: top.name, sharePct };
+    } else if (a.stocks.length === 1 && absSum > 0) {
+      a.dominant = { name: a.stocks[0].name, sharePct: 100 };
+    }
+  }
+  return rankByIntensity(list);
+}
+
+// 수급 강도 순위 — 강도 없는(거래대금 미달) 섹터는 뒤로, 동률이면 절대금액.
+export function rankByIntensity(aggs: SectorFlowAgg[]): SectorFlowAgg[] {
+  return [...aggs].sort((a, b) => {
+    if (a.intensityPct == null && b.intensityPct == null) return b.totalAuk - a.totalAuk;
+    if (a.intensityPct == null) return 1;
+    if (b.intensityPct == null) return -1;
+    return b.intensityPct - a.intensityPct || b.totalAuk - a.totalAuk;
+  });
+}
+// 상승률 순위 — 거래대금 가중 등락률.
+export function rankByChange(aggs: SectorFlowAgg[]): SectorFlowAgg[] {
+  return [...aggs].sort((a, b) => b.weightedChangeRate - a.weightedChangeRate || b.tradingValueAuk - a.tradingValueAuk);
+}
+// 절대금액 순위(참고/비교용 — 2026-09-04 이전 로직).
+export function rankByAmount(aggs: SectorFlowAgg[]): SectorFlowAgg[] {
+  return [...aggs].sort((a, b) => b.totalAuk - a.totalAuk);
 }
 
 // 보충 대상: 수급 합계 상위 SUPPLEMENT_TOP_SECTORS개 섹터마다 "구성 종목 중 거래대금 상위
@@ -412,20 +485,24 @@ export interface SectorSynthesis {
   usedFallback: boolean;
 }
 
-const SYNTHESIS_SYSTEM = `당신은 한국 주식시장 장초반(09:00~10:00) 데이터를 보고 "지금 수급이 몰리는 섹터"를 고르는 리서치 보조입니다.
+const SYNTHESIS_SYSTEM = `당신은 한국 주식시장 장초반(09:00~10:00) 데이터를 보고 "지금 자금이 실제로 몰리는 섹터"를 고르는 리서치 보조입니다.
 이 결과는 작성자 본인만 읽는 개인 메모이며, 아래 JSON 형식으로만 응답하세요(마크다운·설명문 금지):
 {
-  "topSectors": [ { "name": "섹터명", "reason": "근거 1~2문장 — 외국인/기관 순매수 금액과 업종 등락률 수치를 인용" } ],
+  "topSectors": [ { "name": "섹터명", "reason": "근거 1~2문장 — 수급 강도(%)와 가중 등락률(%) 수치를 인용하고, 절대금액은 참고로만" } ],
   "morningComparison": "아침 예상 섹터와 장초반 실측이 일치하는지, 어긋난다면 무엇이 달랐는지 2~3문장 (아침 분석이 없으면 '아침 분석 없음'이라고만)",
   "marketNote": "장초반 시장 전반 한 줄 관찰"
 }
-규칙:
-- topSectors는 정확히 3개. name은 반드시 제공된 섹터별 수급 표에 있는 섹터명을 그대로 사용.
-- 제공된 수치만 근거로 삼고, 없는 사실을 지어내지 마세요. 수급 금액은 억원 단위입니다.
+선정 기준(반드시 준수):
+- topSectors는 정확히 3개. name은 제공된 표에 있는 섹터명을 그대로 사용.
+- "상승률(거래대금 가중 등락률) 상위이면서 수급 강도(순매수÷거래대금)가 동반되는 섹터"를 우선 선정.
+- 외국인/기관 순매수 절대금액이 크다는 이유만으로 선정하는 것을 금지. 절대금액은 참고 지표일 뿐이다.
+- 소형 섹터(거래대금·종목 수가 작음)라도 강도와 상승이 동반되면 선정한다. 다만 "사실상 단일 종목" 표기가 있으면 그 사실을 reason에 명시.
+- 제공된 수치만 근거로 삼고, 없는 사실을 지어내지 마세요. 금액은 억원 단위입니다.
 - 각 종목은 대표 섹터 1개에만 집계돼 있습니다(중복 없음).
 - 시각 표현은 제공된 현재 시각 기준으로만 쓰세요.`;
 
 function fmtAuk(n: number): string { return `${n > 0 ? '+' : ''}${n.toLocaleString()}`; }
+function fmtIntensity(n: number | null): string { return n == null ? '-' : `${n > 0 ? '+' : ''}${n.toFixed(1)}%`; }
 function fmtPct(n: number): string { return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`; }
 
 export async function synthesizeSectors(input: {
@@ -434,7 +511,7 @@ export async function synthesizeSectors(input: {
   aggs: SectorFlowAgg[];
 }): Promise<SectorSynthesis> {
   const fallback = (): SectorSynthesis => ({
-    topSectors: input.aggs.slice(0, 3).map((a) => ({ name: a.name, reason: `외국인 ${fmtAuk(a.foreignAuk)}억 / 기관 ${fmtAuk(a.institutionAuk)}억 (자동 집계, AI 종합 실패)` })),
+    topSectors: rankByIntensity(input.aggs).slice(0, 3).map((a) => ({ name: a.name, reason: `수급 강도 ${fmtIntensity(a.intensityPct)} / 가중 등락률 ${fmtPct(a.weightedChangeRate)} (자동 강도순, AI 종합 실패)` })),
     morningComparison: 'AI 종합 생성에 실패해 비교를 생략합니다.',
     marketNote: '',
     usedFallback: true,
@@ -444,6 +521,9 @@ export async function synthesizeSectors(input: {
   const industries = input.index?.industries ?? [];
   const sortedInd = [...industries].sort((a, b) => b.changeRate - a.changeRate);
   const indLine = (r: IndustryRow) => `- [${r.market}] ${r.name}: ${fmtPct(r.changeRate)}`;
+  const byIntensity = rankByIntensity(input.aggs);
+  const byChange = rankByChange(input.aggs);
+  const aggLine = (a: SectorFlowAgg) => `- ${a.name}: 강도 ${fmtIntensity(a.intensityPct)} / 가중등락률 ${fmtPct(a.weightedChangeRate)} / 순매수 합계 ${fmtAuk(a.totalAuk)}(외 ${fmtAuk(a.foreignAuk)}, 기 ${fmtAuk(a.institutionAuk)}) / 거래대금 ${a.tradingValueAuk.toLocaleString()} / 종목 ${a.stocks.length}${a.supplementCount ? `(추정 ${a.supplementCount})` : ''}${a.dominant ? ` / 사실상 ${a.dominant.name} 단일 종목(${a.dominant.sharePct.toFixed(0)}%)` : ''}`;
   const morningBlock = input.morning
     ? `## 아침 분석(08:30 생성)
 미국증시: ${input.morning.usSummary || '요약 없음'}
@@ -464,20 +544,28 @@ ${sortedInd.slice(0, 8).map(indLine).join('\n') || '- 없음'}
 하위:
 ${sortedInd.slice(-5).reverse().map(indLine).join('\n') || '- 없음'}
 
-## 섹터별 외국인/기관 순매수 합계(억원, 종목당 대표 섹터 1개 귀속)
-${input.aggs.slice(0, 15).map((a) => `- ${a.name}: 외국인 ${fmtAuk(a.foreignAuk)} / 기관 ${fmtAuk(a.institutionAuk)} / 합계 ${fmtAuk(a.totalAuk)} (종목 ${a.stocks.length}개${a.supplementCount ? `, 추정 보충 ${a.supplementCount}` : ''})`).join('\n')}
+## 섹터별 수급 강도 순위 (강도 = (외국인+기관 순매수) ÷ 집계 종목 거래대금, 억원, 종목당 대표 섹터 1개 귀속)
+${byIntensity.slice(0, 15).map(aggLine).join('\n')}
 하위:
-${input.aggs.slice(-5).reverse().map((a) => `- ${a.name}: 외국인 ${fmtAuk(a.foreignAuk)} / 기관 ${fmtAuk(a.institutionAuk)} / 합계 ${fmtAuk(a.totalAuk)}`).join('\n')}
+${byIntensity.slice(-5).reverse().map(aggLine).join('\n')}
+
+## 섹터별 상승률 순위 (거래대금 가중 등락률)
+${byChange.slice(0, 12).map(aggLine).join('\n')}
+하위:
+${byChange.slice(-5).reverse().map(aggLine).join('\n')}
 
 ## 상위 섹터 대표종목(억원)
-${input.aggs.slice(0, SUPPLEMENT_TOP_SECTORS).map((a) => `[${a.name}] ` + a.stocks.slice(0, REPRESENTATIVES_PER_SECTOR).map((s) => `${s.name} ${fmtPct(s.changeRate)} 외 ${fmtAuk(s.foreignAuk)}/기 ${fmtAuk(s.institutionAuk)}${s.source === 'estimate' ? '(추정)' : ''}`).join(', ')).join('\n')}
+${byIntensity.slice(0, SUPPLEMENT_TOP_SECTORS).map((a) => `[${a.name}] ` + a.stocks.slice(0, REPRESENTATIVES_PER_SECTOR).map((s) => `${s.name} ${fmtPct(s.changeRate)} 외 ${fmtAuk(s.foreignAuk)}/기 ${fmtAuk(s.institutionAuk)}${s.source === 'estimate' ? '(추정)' : ''}`).join(', ')).join('\n')}
 
 위 자료로 시스템 프롬프트의 JSON을 작성하세요.`;
 
+  // 2026-09-04 드라이런에서 간헐적으로 폴백으로 떨어진 사례(원인 미포착: 타임아웃/일시 오류 추정)가 있어
+  // 1회 재시도 — 첫 시도가 성공하면 비용 증가 없음.
+  const ask = () => askClaudeJson<{ topSectors?: { name?: string; reason?: string }[]; morningComparison?: string; marketNote?: string }>(
+    '섹터 종합', SYNTHESIS_SYSTEM, prompt, 6000, 90_000, SYNTHESIS_SCHEMA,
+  );
   try {
-    const parsed = await askClaudeJson<{ topSectors?: { name?: string; reason?: string }[]; morningComparison?: string; marketNote?: string }>(
-      '섹터 종합', SYNTHESIS_SYSTEM, prompt, 1500, 60_000,
-    );
+    const parsed = await ask().catch((e) => { console.warn(`${LOG} AI 종합 1차 실패, 재시도:`, e instanceof Error ? e.message : e); return ask(); });
     const known = new Set(input.aggs.map((a) => a.name));
     const topSectors = (parsed.topSectors ?? [])
       .map((s) => ({ name: String(s?.name ?? '').trim(), reason: String(s?.reason ?? '').trim() }))
@@ -496,7 +584,7 @@ ${input.aggs.slice(0, SUPPLEMENT_TOP_SECTORS).map((a) => `[${a.name}] ` + a.stoc
   }
 }
 
-// ── 메일 HTML ─────────────────────────────────────────────────────────────────
+// ── 메일 HTML (공통 조각 — 10:05 리포트와 09:30 속보가 공유) ───────────────────────
 export interface SectorMailReport {
   dateStr: string;
   generatedAtKst: string;
@@ -515,16 +603,54 @@ function esc(s: string): string {
 function colorFor(n: number): string { return n > 0 ? '#c62828' : n < 0 ? '#1565c0' : '#555'; }
 
 // 모바일 Gmail 기준 단순 테이블/텍스트 구조(탭·아코디언 금지 — 과거 실패 전례).
-export function buildSectorMailHtml(r: SectorMailReport): string {
-  const TD = 'padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;';
-  const TH = 'padding:6px 8px;border-bottom:2px solid #d1d5db;font-size:12px;color:#6b7280;text-align:left;';
-  const H2 = 'margin:0 0 10px;font-size:15px;color:#111827;';
-  const card = (title: string, body: string) =>
-    `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-top:14px"><h2 style="${H2}">${title}</h2>${body}</div>`;
-  const none = (label: string) => `<p style="margin:0;color:#9ca3af;font-size:13px">${label}: 데이터 없음</p>`;
-  const numTd = (n: number, suffix = '') => `<td style="${TD}text-align:right;color:${colorFor(n)};font-variant-numeric:tabular-nums">${n > 0 ? '+' : ''}${n.toLocaleString()}${suffix}</td>`;
-  const pctTd = (n: number) => `<td style="${TD}text-align:right;color:${colorFor(n)};font-variant-numeric:tabular-nums">${fmtPct(n)}</td>`;
+const TD = 'padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;';
+const TH = 'padding:6px 8px;border-bottom:2px solid #d1d5db;font-size:12px;color:#6b7280;text-align:left;';
+const H2 = 'margin:0 0 10px;font-size:15px;color:#111827;';
+const card = (title: string, body: string) =>
+  `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin-top:14px"><h2 style="${H2}">${title}</h2>${body}</div>`;
+const none = (label: string) => `<p style="margin:0;color:#9ca3af;font-size:13px">${label}: 데이터 없음</p>`;
+const numTd = (n: number, suffix = '') => `<td style="${TD}text-align:right;color:${colorFor(n)};font-variant-numeric:tabular-nums">${n > 0 ? '+' : ''}${n.toLocaleString()}${suffix}</td>`;
+const pctTd = (n: number) => `<td style="${TD}text-align:right;color:${colorFor(n)};font-variant-numeric:tabular-nums">${fmtPct(n)}</td>`;
+const grayTd = (text: string) => `<td style="${TD}text-align:right;color:#6b7280;font-variant-numeric:tabular-nums">${text}</td>`;
+const intensityTd = (n: number | null) => n == null ? `<td style="${TD}text-align:right;color:#9ca3af">-</td>` : `<td style="${TD}text-align:right;color:${colorFor(n)};font-weight:700;font-variant-numeric:tabular-nums">${n > 0 ? '+' : ''}${n.toFixed(1)}%</td>`;
+const nameCell = (a: SectorFlowAgg, opts?: { withFlowNote?: boolean }) =>
+  `<td style="${TD}">${esc(a.name)}<span style="color:#9ca3af;font-size:11px"> ${a.stocks.length}종목${a.supplementCount ? `(추정 ${a.supplementCount})` : ''}</span>${opts?.withFlowNote !== false && a.dominant ? `<br><span style="color:#b45309;font-size:11px">사실상 ${esc(a.dominant.name)} 단일 종목 (${a.dominant.sharePct.toFixed(0)}%)</span>` : ''}</td>`;
 
+function renderShell(params: { title: string; subtitle: string; cards: string[]; footer: string }): string {
+  return `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(params.title)}</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#111827">
+<div style="max-width:600px;margin:0 auto;padding:16px 12px 32px">
+  <div style="padding:8px 4px 0"><div style="font-size:18px;font-weight:800;color:#111827">${esc(params.title)}</div><div style="font-size:12px;color:#6b7280;margin-top:2px">${params.subtitle}</div></div>
+  ${params.cards.join('\n  ')}
+  ${params.footer}
+</div></body></html>`;
+}
+
+function renderFooter(r: { generatedAtKst: string; kisCalls: number; durationMs: number; missing: string[] }): string {
+  return `<p style="margin:16px 0 0;font-size:11px;color:#9ca3af;line-height:1.6">생성 ${esc(r.generatedAtKst)} · KIS 호출 ${r.kisCalls}건 · ${(r.durationMs / 1000).toFixed(1)}s${r.missing.length ? `<br>결손: ${esc(r.missing.join(', '))}` : ''}<br>본인 전용 메모 — 투자 판단의 근거가 아닙니다.</p>`;
+}
+
+// ② 업종 등락률(KRX 업종지수) — 두 메일 공통
+function renderIndexBody(ix: SectorIndexSnapshot | null): string {
+  const sortedInd = [...(ix?.industries ?? [])].sort((a, b) => b.changeRate - a.changeRate);
+  const indRows = (rows: IndustryRow[]) => rows.map((x) => `<tr><td style="${TD}"><span style="color:#9ca3af;font-size:11px">${x.market === 'KOSPI' ? '코스피' : '코스닥'}</span> ${esc(x.name)}</td><td style="${TD}text-align:right">${x.value.toLocaleString()}</td>${pctTd(x.changeRate)}</tr>`).join('');
+  if (!ix || !(ix.kospi || ix.kosdaq || sortedInd.length)) return none('업종 등락률');
+  return `<p style="margin:0 0 8px;font-size:13px">${ix.kospi ? `코스피 <b style="color:${colorFor(ix.kospi.changeRate)}">${fmtPct(ix.kospi.changeRate)}</b>` : '코스피 데이터 없음'} · ${ix.kosdaq ? `코스닥 <b style="color:${colorFor(ix.kosdaq.changeRate)}">${fmtPct(ix.kosdaq.changeRate)}</b>` : '코스닥 데이터 없음'}</p>
+       <table style="width:100%;border-collapse:collapse"><thead><tr><th style="${TH}">상위 업종</th><th style="${TH}text-align:right">지수</th><th style="${TH}text-align:right">등락률</th></tr></thead><tbody>${indRows(sortedInd.slice(0, 7))}</tbody></table>
+       <table style="width:100%;border-collapse:collapse;margin-top:8px"><thead><tr><th style="${TH}">하위 업종</th><th style="${TH}text-align:right">지수</th><th style="${TH}text-align:right">등락률</th></tr></thead><tbody>${indRows(sortedInd.slice(-5).reverse())}</tbody></table>
+       ${ix.failed.length ? `<p style="margin:8px 0 0;font-size:12px;color:#9ca3af">조회 실패: ${esc(ix.failed.join(', '))}</p>` : ''}`;
+}
+
+// 섹터그룹 상승률(거래대금 가중) 표 — 10:05 메일 ③의 두 번째 표와 09:30 속보 ②가 공유.
+function renderChangeRankingTable(byChange: SectorFlowAgg[], opts: { top: number; bottom?: number; showIntensity: boolean; showStocks?: boolean }): string {
+  const row = (a: SectorFlowAgg) => `<tr>${nameCell(a, { withFlowNote: opts.showIntensity })}${pctTd(a.weightedChangeRate)}${opts.showIntensity ? intensityTd(a.intensityPct) : ''}${grayTd(a.tradingValueAuk.toLocaleString())}</tr>${opts.showStocks ? `<tr><td colspan="3" style="padding:0 8px 6px;border-bottom:1px solid #e5e7eb;font-size:11.5px;color:#6b7280">${a.stocks.slice(0, 4).map((s) => `${esc(s.name)} <span style="color:${colorFor(s.changeRate)}">${fmtPct(s.changeRate)}</span>`).join(' · ')}</td></tr>` : ''}`;
+  const head = `<thead><tr><th style="${TH}">섹터 (상승률순)</th><th style="${TH}text-align:right">가중등락률</th>${opts.showIntensity ? `<th style="${TH}text-align:right">강도</th>` : ''}<th style="${TH}text-align:right">거래대금</th></tr></thead>`;
+  const bottom = opts.bottom ? byChange.slice(-opts.bottom).reverse().filter((a) => !byChange.slice(0, opts.top).includes(a)) : [];
+  return `<table style="width:100%;border-collapse:collapse">${head}<tbody>${byChange.slice(0, opts.top).map(row).join('')}</tbody></table>
+    ${bottom.length ? `<p style="margin:10px 0 4px;font-size:12px;color:#6b7280">하위</p><table style="width:100%;border-collapse:collapse">${head}<tbody>${bottom.map(row).join('')}</tbody></table>` : ''}`;
+}
+
+export function buildSectorMailHtml(r: SectorMailReport): string {
   // ① 아침 분석
   const m = r.morning;
   const idxRow = (label: string, d: MarketIndexData | null) => d
@@ -540,27 +666,20 @@ export function buildSectorMailHtml(r: SectorMailReport): string {
        ${m.overallNote ? `<p style="margin:10px 0 0;font-size:12.5px;color:#6b7280">${esc(m.overallNote)}</p>` : ''}`
     : `<p style="margin:0;color:#9ca3af;font-size:13px">아침 분석 생략 — 08:30 분석이 생성되지 않았거나 만료됨</p>`;
 
-  // ② 업종 등락률
-  const ix = r.index;
-  const sortedInd = [...(ix?.industries ?? [])].sort((a, b) => b.changeRate - a.changeRate);
-  const indRows = (rows: IndustryRow[]) => rows.map((x) => `<tr><td style="${TD}"><span style="color:#9ca3af;font-size:11px">${x.market === 'KOSPI' ? '코스피' : '코스닥'}</span> ${esc(x.name)}</td><td style="${TD}text-align:right">${x.value.toLocaleString()}</td>${pctTd(x.changeRate)}</tr>`).join('');
-  const indexBody = ix && (ix.kospi || ix.kosdaq || sortedInd.length)
-    ? `<p style="margin:0 0 8px;font-size:13px">${ix.kospi ? `코스피 <b style="color:${colorFor(ix.kospi.changeRate)}">${fmtPct(ix.kospi.changeRate)}</b>` : '코스피 데이터 없음'} · ${ix.kosdaq ? `코스닥 <b style="color:${colorFor(ix.kosdaq.changeRate)}">${fmtPct(ix.kosdaq.changeRate)}</b>` : '코스닥 데이터 없음'}</p>
-       <table style="width:100%;border-collapse:collapse"><thead><tr><th style="${TH}">상위 업종</th><th style="${TH}text-align:right">지수</th><th style="${TH}text-align:right">등락률</th></tr></thead><tbody>${indRows(sortedInd.slice(0, 7))}</tbody></table>
-       <table style="width:100%;border-collapse:collapse;margin-top:8px"><thead><tr><th style="${TH}">하위 업종</th><th style="${TH}text-align:right">지수</th><th style="${TH}text-align:right">등락률</th></tr></thead><tbody>${indRows(sortedInd.slice(-5).reverse())}</tbody></table>
-       ${ix.failed.length ? `<p style="margin:8px 0 0;font-size:12px;color:#9ca3af">조회 실패: ${esc(ix.failed.join(', '))}</p>` : ''}`
-    : none('업종 등락률');
-
-  // ③ 섹터별 수급
-  const aggRows = r.aggs.slice(0, 20).map((a) => `<tr><td style="${TD}">${esc(a.name)}<span style="color:#9ca3af;font-size:11px"> ${a.stocks.length}종목${a.supplementCount ? `(추정 ${a.supplementCount})` : ''}</span></td>${numTd(a.foreignAuk)}${numTd(a.institutionAuk)}${numTd(a.totalAuk)}</tr>`).join('');
-  const repBlocks = r.aggs.slice(0, SUPPLEMENT_TOP_SECTORS).map((a) =>
+  // ③ 섹터별 수급 강도 + 상승률 (표 2개)
+  const byIntensity = rankByIntensity(r.aggs);
+  const byChange = rankByChange(r.aggs);
+  const intensityRows = byIntensity.slice(0, 20).map((a) => `<tr>${nameCell(a)}${intensityTd(a.intensityPct)}${numTd(a.totalAuk)}${grayTd(a.tradingValueAuk.toLocaleString())}</tr>`).join('');
+  const repBlocks = byIntensity.slice(0, SUPPLEMENT_TOP_SECTORS).map((a) =>
     `<p style="margin:10px 0 4px;font-size:12.5px;font-weight:600;color:#374151">${esc(a.name)}</p>
      <table style="width:100%;border-collapse:collapse"><tbody>${a.stocks.slice(0, REPRESENTATIVES_PER_SECTOR).map((s) =>
        `<tr><td style="${TD}">${esc(s.name)}${s.source === 'estimate' ? '<span style="color:#9ca3af;font-size:11px"> 추정</span>' : ''}</td>${pctTd(s.changeRate)}${numTd(s.foreignAuk)}${numTd(s.institutionAuk)}</tr>`).join('')}</tbody></table>`).join('');
   const flowBody = r.aggs.length
-    ? `<p style="margin:0 0 6px;font-size:12px;color:#6b7280">단위 억원 · 외국인/기관 매매종목가집계 4목록(각 30행) 기반 · 종목당 대표 섹터 1개에만 귀속(중복 없음) · "추정"은 대표종목 추정가집계(수량×현재가) 보충</p>
-       <table style="width:100%;border-collapse:collapse"><thead><tr><th style="${TH}">섹터</th><th style="${TH}text-align:right">외국인</th><th style="${TH}text-align:right">기관</th><th style="${TH}text-align:right">합계</th></tr></thead><tbody>${aggRows}</tbody></table>
-       <p style="margin:12px 0 0;font-size:12px;color:#6b7280">상위 섹터 대표종목 (등락률 / 외국인 / 기관)</p>${repBlocks}`
+    ? `<p style="margin:0 0 6px;font-size:12px;color:#6b7280">강도 = (외국인+기관 순매수) ÷ 집계 종목 거래대금 · 단위 억원 · 매매종목가집계 4목록(각 30행) + 대표종목 추정 보충 기반 · 종목당 대표 섹터 1개 귀속 · 거래대금은 섹터 전체가 아니라 집계된 종목의 합 · 거래대금 ${INTENSITY_MIN_TRADING_VALUE_AUK}억 미만은 강도 미산출</p>
+       <table style="width:100%;border-collapse:collapse"><thead><tr><th style="${TH}">섹터 (수급 강도순)</th><th style="${TH}text-align:right">강도</th><th style="${TH}text-align:right">순매수(참고)</th><th style="${TH}text-align:right">거래대금</th></tr></thead><tbody>${intensityRows}</tbody></table>
+       <p style="margin:12px 0 0;font-size:12px;color:#6b7280">상승률 순위 (거래대금 가중 등락률)</p>
+       ${renderChangeRankingTable(byChange, { top: 12, showIntensity: true })}
+       <p style="margin:12px 0 0;font-size:12px;color:#6b7280">강도 상위 섹터 대표종목 (등락률 / 외국인 / 기관)</p>${repBlocks}`
     : none('섹터별 수급');
 
   // ④ 최종
@@ -568,20 +687,65 @@ export function buildSectorMailHtml(r: SectorMailReport): string {
   const finalBody = `<ol style="margin:0;padding-left:18px;font-size:13.5px;line-height:1.7">${sy.topSectors.map((s) => `<li><b>${esc(s.name)}</b> — ${esc(s.reason)}</li>`).join('') || '<li style="color:#9ca3af">선정 실패</li>'}</ol>
     ${sy.morningComparison ? `<p style="margin:10px 0 0;font-size:13px;line-height:1.7;color:#374151"><b>아침 예상 vs 장초반 실측:</b> ${esc(sy.morningComparison)}</p>` : ''}
     ${sy.marketNote ? `<p style="margin:8px 0 0;font-size:12.5px;color:#6b7280">${esc(sy.marketNote)}</p>` : ''}
-    ${sy.usedFallback ? `<p style="margin:8px 0 0;font-size:12px;color:#b45309">AI 종합 실패 — 수급 합계 순 자동 선정</p>` : ''}`;
+    ${sy.usedFallback ? `<p style="margin:8px 0 0;font-size:12px;color:#b45309">AI 종합 실패 — 수급 강도순 자동 선정</p>` : ''}`;
 
-  const footer = `<p style="margin:16px 0 0;font-size:11px;color:#9ca3af;line-height:1.6">생성 ${esc(r.generatedAtKst)} · KIS 호출 ${r.kisCalls}건 · ${(r.durationMs / 1000).toFixed(1)}s${r.missing.length ? `<br>결손: ${esc(r.missing.join(', '))}` : ''}<br>본인 전용 메모 — 투자 판단의 근거가 아닙니다.</p>`;
+  return renderShell({
+    title: '장초반 섹터 리포트',
+    subtitle: `${esc(r.dateStr)} · 10:05 KST 기준 (외국인 09:30 / 기관 10:00 입력분)`,
+    cards: [
+      card('④ 최종: 상승 + 수급 강도 동반 섹터 TOP 3', finalBody),
+      card('① 아침 분석 (08:30)', morningBody),
+      card('② 업종 등락률 (09:00~10:00)', renderIndexBody(r.index)),
+      card('③ 섹터별 수급 강도 · 상승률', flowBody),
+    ],
+    footer: renderFooter(r),
+  });
+}
 
-  return `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>장초반 섹터 리포트</title></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#111827">
-<div style="max-width:600px;margin:0 auto;padding:16px 12px 32px">
-  <div style="padding:8px 4px 0"><div style="font-size:18px;font-weight:800;color:#111827">장초반 섹터 리포트</div><div style="font-size:12px;color:#6b7280;margin-top:2px">${esc(r.dateStr)} · 10:05 KST 기준 (외국인 09:30 / 기관 10:00 입력분)</div></div>
-  ${card('④ 최종: 수급이 몰리는 섹터 TOP 3', finalBody)}
-  ${card('① 아침 분석 (08:30)', morningBody)}
-  ${card('② 업종 등락률 (09:00~10:00)', indexBody)}
-  ${card('③ 섹터별 외국인/기관 수급', flowBody)}
-  ${footer}
-</div></body></html>`;
+// ── 09:30 속보 메일 ────────────────────────────────────────────────────────────
+// 09:00~09:30 섹터 상승률만. 수급은 외국인 09:30/기관 10:00 입력 전이라 조회 자체를 하지 않는다.
+// 섹터그룹 등락률의 유니버스는 거래대금 상위 30×2시장(FHPST01710000 2건)뿐 — 수급 목록이 없으므로
+// 종목 수가 10:05 메일보다 적다(실측 60종목 → 섹터 20개 안팎).
+// Claude는 쓰지 않는다(판단 근거: 30분 등락률 표는 그 자체로 읽히고, 요약 2~3문장의 정보량 대비
+// 10~20초 지연과 외부 API 실패 지점이 하나 늘어나는 비용이 크다. 종합은 10:05 메일이 담당).
+export interface SectorFlashReport {
+  dateStr: string;
+  generatedAtKst: string;
+  index: SectorIndexSnapshot | null;
+  aggs: SectorFlowAgg[]; // 수급 필드는 전부 0 — 등락률/거래대금만 의미 있음
+  missing: string[];
+  kisCalls: number;
+  durationMs: number;
+}
+
+// 거래대금 상위 풀 → 수급 0인 FlowStock 유니버스(aggregateSectorFlows/rankByChange 재사용용).
+export function poolToFlowUniverse(pool: PoolStock[]): FlowStock[] {
+  return pool.map((p) => ({ ticker: p.ticker, name: p.name, price: p.price, changeRate: p.changeRate, foreignAuk: 0, institutionAuk: 0, tradingValueAuk: p.tradingValueAuk, source: 'ranking' as const }));
+}
+
+export function buildSectorFlashHtml(r: SectorFlashReport): string {
+  const byChange = rankByChange(r.aggs);
+  const sectorBody = r.aggs.length
+    ? `<p style="margin:0 0 6px;font-size:12px;color:#6b7280">거래대금 가중 등락률 · 유니버스 = 코스피/코스닥 거래대금 상위 30종목씩 · 종목당 대표 섹터 1개 귀속 · 수급 데이터 없음(외국인 09:30·기관 10:00 입력 전)</p>
+       ${renderChangeRankingTable(byChange, { top: 10, bottom: 5, showIntensity: false, showStocks: true })}`
+    : none('섹터그룹 등락률');
+  return renderShell({
+    title: '[09:30 속보] 장초반 섹터 상승률',
+    subtitle: `${esc(r.dateStr)} · 09:30 KST 기준 · 수급 없이 등락률만 (수급·종합은 10:05 리포트)`,
+    cards: [
+      card('① 업종 등락률 (09:00~09:30)', renderIndexBody(r.index)),
+      card('② 섹터그룹 상승률 랭킹', sectorBody),
+    ],
+    footer: renderFooter(r),
+  });
+}
+
+// ── 발송(공통) ────────────────────────────────────────────────────────────────
+// 단일 수신자 — recipient는 반드시 resolveSectorMailRecipient()를 거친 값.
+async function sendSectorMailTo(recipient: string, subject: string, html: string): Promise<void> {
+  const resend = new Resend(process.env.RESEND_API_KEY!);
+  const { error } = await resend.emails.send({ from: 'Finance Park <noreply@fpark.com>', to: [recipient], subject, html });
+  if (error) throw new Error(`섹터 메일 발송 실패: ${JSON.stringify(error)}`);
 }
 
 // ── 오케스트레이션 ────────────────────────────────────────────────────────────
@@ -633,7 +797,7 @@ export async function runSectorMail(opts?: { send?: boolean; extraKisCalls?: num
     const tickerIndex = buildTickerPrimarySectorIndex(themeRes); // 종목당 대표 섹터 1개(중복 집계 방지)
     const stocks = [...flowRes.stocks];
     aggs = aggregateSectorFlows(stocks, tickerIndex);
-    console.log(`${LOG} 수급 종목 ${stocks.length}개 → 섹터 ${aggs.length}개 집계, 상위:`, aggs.slice(0, 5).map((a) => `${a.name} ${fmtAuk(a.totalAuk)}`));
+    console.log(`${LOG} 수급 종목 ${stocks.length}개 → 섹터 ${aggs.length}개 집계, 강도 상위:`, aggs.slice(0, 5).map((a) => `${a.name} ${fmtIntensity(a.intensityPct)}`));
 
     if (poolRes && aggs.length) {
       const covered = new Set(stocks.map((s) => s.ticker));
@@ -657,17 +821,58 @@ export async function runSectorMail(opts?: { send?: boolean; extraKisCalls?: num
 
   let sent = false;
   if (opts?.send ?? true) {
-    const resend = new Resend(process.env.RESEND_API_KEY!);
-    const { error } = await resend.emails.send({
-      from: 'Finance Park <noreply@fpark.com>',
-      to: [recipient], // 단일 수신자 — resolveSectorMailRecipient가 보장
-      subject: `[Finance Park] ${mm}월 ${dd}일 장초반 섹터 리포트 (10:05)`,
-      html,
-    });
-    if (error) throw new Error(`섹터 메일 발송 실패: ${JSON.stringify(error)}`);
+    await sendSectorMailTo(recipient, `[Finance Park] ${mm}월 ${dd}일 장초반 섹터 리포트 (10:05)`, html);
     sent = true;
     console.log(`${LOG} ✓ 발송: ${recipient} (KIS ${kisCalls}건, ${durationMs}ms, 결손 ${missing.length})`);
   }
 
   return { sent, recipient, kisCalls, durationMs: Date.now() - t0, missing, synthesisFallback: synthesis.usedFallback, topSectors: synthesis.topSectors, supplementCalls, html };
+}
+
+export interface SectorFlashRunResult {
+  sent: boolean;
+  recipient: string;
+  kisCalls: number;
+  durationMs: number;
+  missing: string[];
+  topSectors: { name: string; weightedChangeRate: number; stocks: number }[];
+  html: string;
+}
+
+// 09:30 속보 — 10:05 runSectorMail과 완전 독립(공유하는 건 순수 함수/수집 함수뿐, 상태·캐시 의존 없음).
+export async function runSectorFlash(opts?: { send?: boolean; extraKisCalls?: number }): Promise<SectorFlashRunResult> {
+  const t0 = Date.now();
+  const recipient = resolveSectorMailRecipient();
+  let kisCalls = opts?.extraKisCalls ?? 0;
+  const missing: string[] = [];
+
+  const pace = createChunkPacer();
+  const themePromise = fetchThemeMasterCached().then((r) => r.master).catch((e) => { console.error(`${LOG} 테마 마스터 실패:`, e); return null; });
+  await pace();
+  const indexRes = await fetchSectorIndexSnapshot().catch((e) => { console.error(`${LOG} 업종 스냅샷 실패:`, e); return null; });
+  await pace();
+  const poolRes = await fetchTradingValuePool().catch((e) => { console.error(`${LOG} 거래대금 풀 실패:`, e); return null; });
+  const themeRes = await themePromise;
+  kisCalls += (indexRes?.kisCalls ?? 8) + (poolRes?.kisCalls ?? 2);
+  if (!themeRes) missing.push('테마 마스터');
+  if (!indexRes) missing.push('업종 등락률'); else missing.push(...indexRes.snapshot.failed);
+  if (!poolRes) missing.push('거래대금 상위'); else missing.push(...poolRes.failed);
+
+  let aggs: SectorFlowAgg[] = [];
+  if (themeRes && poolRes) {
+    aggs = rankByChange(aggregateSectorFlows(poolToFlowUniverse(poolRes.pool), buildTickerPrimarySectorIndex(themeRes)));
+    console.log(`${LOG}[속보] 거래대금 상위 ${poolRes.pool.length}종목 → 섹터 ${aggs.length}개, 상승률 상위:`, aggs.slice(0, 5).map((a) => `${a.name} ${fmtPct(a.weightedChangeRate)}`));
+  }
+
+  const { dateStr, mm, dd } = getKstInfo();
+  const durationMs = Date.now() - t0;
+  const html = buildSectorFlashHtml({ dateStr, generatedAtKst: nowKstString(), index: indexRes?.snapshot ?? null, aggs, missing, kisCalls, durationMs });
+
+  let sent = false;
+  if (opts?.send ?? true) {
+    await sendSectorMailTo(recipient, `[Finance Park] [09:30 속보] ${mm}월 ${dd}일 장초반 섹터 상승률`, html);
+    sent = true;
+    console.log(`${LOG}[속보] ✓ 발송: ${recipient} (KIS ${kisCalls}건, ${durationMs}ms, 결손 ${missing.length})`);
+  }
+  return { sent, recipient, kisCalls, durationMs: Date.now() - t0, missing, topSectors: aggs.slice(0, 3).map((a) => ({ name: a.name, weightedChangeRate: a.weightedChangeRate, stocks: a.stocks.length })), html };
 }
