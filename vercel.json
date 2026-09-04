@@ -51,6 +51,12 @@
     },
     "app/api/cron/dividend-cache-warm/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/morning-sector-analysis/route.ts": {
+      "maxDuration": 120
+    },
+    "app/api/cron/sector-mail/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -113,6 +119,14 @@
     {
       "path": "/api/cron/dividend-cache-warm",
       "schedule": "50 6 * * 1-5"
+    },
+    {
+      "path": "/api/cron/morning-sector-analysis",
+      "schedule": "30 23 * * 0-4"
+    },
+    {
+      "path": "/api/cron/sector-mail",
+      "schedule": "5 1 * * 1-5"
     }
   ]
 }

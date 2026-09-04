@@ -1818,7 +1818,13 @@ export interface InvestorFlowRankRow {
   name: string;
   price: number;
   changeRate: number;
-  netAmountAuk: number; // 억원 단위 (아래 PBMN_TO_AUK_DIVISOR 참고)
+  netAmountAuk: number; // 억원 단위 (아래 PBMN_TO_AUK_DIVISOR 참고) — 조회한 투자자(외국인/기관) 기준
+  // 2026-09-04 섹터 메일용 확장 — 같은 행에 외국인/기관 순매수 금액이 둘 다 실려 오므로
+  // (실측: 외국인 순매수 목록의 행에도 orgn_ntby_tr_pbmn이 채워짐) 둘 다 보존한다.
+  // 4개 목록(외인 매수/매도, 기관 매수/매도)을 합치면 종목당 두 투자자 값을 모두 얻는다.
+  foreignNetAuk: number;
+  institutionNetAuk: number;
+  tradingValueAuk: number; // stck_prpr × acml_vol / 1e8 — 당일 누적 거래대금 근사(억원)
 }
 
 // [확인 완료, 2026-07-23 09:22 KST] frgn_ntby_tr_pbmn/orgn_ntby_tr_pbmn 단위 = 백만원(→ /100 = 억원).
@@ -1863,12 +1869,154 @@ export async function fetchInvestorFlowRanking(
 
     const output: any[] = data.output ?? [];
     const amountField = investorType === 'foreign' ? 'frgn_ntby_tr_pbmn' : 'orgn_ntby_tr_pbmn';
-    return output.slice(0, count).map((o) => ({
-      ticker:       o.mksc_shrn_iscd,
-      name:         o.hts_kor_isnm,
-      price:        parseInt(o.stck_prpr || '0', 10),
-      changeRate:   signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
-      netAmountAuk: Math.round(Number(o[amountField] || 0) / PBMN_TO_AUK_DIVISOR),
+    return output.slice(0, count).map((o) => {
+      const price = parseInt(o.stck_prpr || '0', 10);
+      return {
+        ticker:            o.mksc_shrn_iscd,
+        name:              o.hts_kor_isnm,
+        price,
+        changeRate:        signedChange(o.prdy_ctrt, o.prdy_vrss_sign),
+        netAmountAuk:      Math.round(Number(o[amountField] || 0) / PBMN_TO_AUK_DIVISOR),
+        foreignNetAuk:     Math.round(Number(o.frgn_ntby_tr_pbmn || 0) / PBMN_TO_AUK_DIVISOR),
+        institutionNetAuk: Math.round(Number(o.orgn_ntby_tr_pbmn || 0) / PBMN_TO_AUK_DIVISOR),
+        tradingValueAuk:   Math.round((price * Number(o.acml_vol || 0)) / 1e8),
+      };
+    });
+  });
+}
+
+// ── 업종/섹터 (2026-09-04 아침 섹터 알림 메일) ───────────────────────────────────
+// 아래 3개 TR은 .e2e-tmp/sector-mail/verify.mts로 2026-09-04 장중 실호출 검증한 결과를
+// 그대로 반영한다(메모리 kis-sector-theme-apis 참고).
+
+export interface SectorIndexRow {
+  code: string;         // 업종코드 4자리(bstp_cls_code) — idxcode.mst의 코드와 동일
+  name: string;         // hts_kor_isnm (양쪽 공백 제거)
+  value: number;        // 현재 지수
+  change: number;       // 전일대비(부호 포함)
+  changeRate: number;   // 전일대비 등락률 %(부호 포함)
+  volume: number;       // 누적 거래량(천주 단위로 오는 듯하나 상대 비교 용도로만 사용)
+  tradingValue: number; // 누적 거래대금(백만원)
+}
+
+function buildSectorIndexRow(code: string, name: string, o: any): SectorIndexRow {
+  return {
+    code,
+    name: String(name ?? '').trim(),
+    value:        parseFloat(o?.bstp_nmix_prpr || '0'),
+    change:       signedChange(o?.bstp_nmix_prdy_vrss || '0', o?.prdy_vrss_sign),
+    changeRate:   signedChange(o?.bstp_nmix_prdy_ctrt || '0', o?.prdy_vrss_sign),
+    volume:       Number(o?.acml_vol || 0),
+    tradingValue: Number(o?.acml_tr_pbmn || 0),
+  };
+}
+
+// 국내업종 구분별 전체시세(FHPUP02140000) — 한 호출로 업종 목록 전체의 등락률을 받는다.
+// ⚠ 파라미터 함정(2026-09-04 실측): 코스피는 iscd 0001/mkt K/blng 0으로 38행(업종 28 +
+// 배당·TR 파생 10)이 정상이지만, 코스닥은 blng 0(전업종)이 rt_cd=0인 채로 K200/KRX/해외선물
+// 등 무관한 지수 100건을 돌려준다. 코스닥은 반드시 blng 3(일반구분 → 업종 17개)과 blng 1
+// (기타구분 → 규모/우량/벤처/KSQ150 계열 23개)로 나눠 호출해야 하며, 코스닥 종합(1001)·
+// 대형주(1002)·제조(1009)·건설(1010)·통신(1032)·IT서비스(1033)는 어느 조합에도 없어
+// fetchIndexPrice로 개별 조회해야 한다.
+export async function fetchIndexCategoryPrices(
+  params: { iscd: string; mkt: 'K' | 'Q' | 'K2'; blng: '0' | '1' | '2' | '3' },
+  opts?: { priority?: KisPriority },
+): Promise<{ summary: SectorIndexRow; rows: SectorIndexRow[] }> {
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-index-category-price`);
+    url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
+    url.searchParams.set('FID_INPUT_ISCD', params.iscd);
+    url.searchParams.set('FID_COND_SCR_DIV_CODE', '20214');
+    url.searchParams.set('FID_MRKT_CLS_CODE', params.mkt);
+    url.searchParams.set('FID_BLNG_CLS_CODE', params.blng);
+
+    await acquireKisRateSlot({ priority: opts?.priority });
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'FHPUP02140000'),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`업종 구분별 전체시세 조회 실패 [${res.status}]`);
+    const data = await res.json();
+    assertKisTokenValid(data, `fetchIndexCategoryPrices(${params.iscd}/${params.mkt}/${params.blng})`);
+    if (data.rt_cd !== '0') throw new Error(`업종 구분별 전체시세 API 오류: ${data.msg1}`);
+
+    const rows: SectorIndexRow[] = (data.output2 ?? []).map((o: any) => buildSectorIndexRow(String(o.bstp_cls_code ?? ''), o.hts_kor_isnm, o));
+    return { summary: buildSectorIndexRow(params.iscd, '', data.output1), rows };
+  });
+}
+
+// 국내업종 현재지수(FHPUP02100000) — 업종코드 1개의 현재 지수/등락률. 응답에 업종명이 없어
+// 호출부가 name을 넘긴다.
+export async function fetchIndexPrice(
+  code: string,
+  name: string,
+  opts?: { priority?: KisPriority },
+): Promise<SectorIndexRow> {
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-index-price`);
+    url.searchParams.set('FID_COND_MRKT_DIV_CODE', 'U');
+    url.searchParams.set('FID_INPUT_ISCD', code);
+
+    await acquireKisRateSlot({ priority: opts?.priority });
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'FHPUP02100000'),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`업종 현재지수 조회 실패 [${res.status}]`);
+    const data = await res.json();
+    assertKisTokenValid(data, `fetchIndexPrice(${code})`);
+    if (data.rt_cd !== '0') throw new Error(`업종 현재지수 API 오류: ${data.msg1}`);
+    return buildSectorIndexRow(code, name, data.output);
+  });
+}
+
+export interface InvestorTrendEstimateRow {
+  hourCode: string;       // bsop_hour_gb — 1:09:30(외국인만) 2:10:00(기관 합류) 3:11:20 4:13:20 5:14:30
+  foreignQty: number;     // 외국인 추정 순매수 수량(주, 부호 포함)
+  institutionQty: number; // 기관 추정 순매수 수량
+  totalQty: number;
+}
+
+// 부호 포함 18자리 제로패딩 문자열("-00000000000032000") → 정수. 형식이 다르면 0.
+export function parseSignedPaddedInt(raw: unknown): number {
+  const str = String(raw ?? '').trim();
+  if (!/^[+-]?\d+$/.test(str)) return 0;
+  const n = Number(str);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// 종목별 외인기관 추정가집계(HHPTJ04160200) — 증권사 직원이 장중 수기 입력한 추정치의 누계.
+// output2 배열은 최신 입력분이 먼저 온다. 입력 시각(외국인 09:30/11:20/13:20/14:30, 기관
+// 10:00/11:20/13:20/14:30) 이전엔 빈 배열이 정상 응답이며, 09:30~10:00 사이엔 외국인만 채워진다.
+export async function fetchInvestorTrendEstimate(
+  ticker: string,
+  opts?: { priority?: KisPriority },
+): Promise<InvestorTrendEstimateRow[]> {
+  return withKisTokenRetry(async () => {
+    const token = await getAccessToken();
+    const url = new URL(`${KIS_BASE}/uapi/domestic-stock/v1/quotations/investor-trend-estimate`);
+    url.searchParams.set('MKSC_SHRN_ISCD', ticker);
+
+    await acquireKisRateSlot({ priority: opts?.priority });
+    const res = await fetch(url.toString(), {
+      headers: headers(token, 'HHPTJ04160200'),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) throw new Error(`추정가집계 조회 실패 [${res.status}]`);
+    const data = await res.json();
+    assertKisTokenValid(data, `fetchInvestorTrendEstimate(${ticker})`);
+    if (data.rt_cd !== '0') throw new Error(`추정가집계 API 오류: ${data.msg1}`);
+
+    return ((data.output2 ?? []) as any[]).map((o) => ({
+      hourCode:       String(o.bsop_hour_gb ?? ''),
+      foreignQty:     parseSignedPaddedInt(o.frgn_fake_ntby_qty),
+      institutionQty: parseSignedPaddedInt(o.orgn_fake_ntby_qty),
+      totalQty:       parseSignedPaddedInt(o.sum_fake_ntby_qty),
     }));
   });
 }
